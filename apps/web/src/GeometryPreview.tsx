@@ -414,7 +414,7 @@ export function GeometryPreview({
   useEffect(()=>{if(immersive&&entranceMode!=='cover'&&ready&&(entranceReadiness?firstEntranceFrame:assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry,entranceMode,entranceReadiness,firstEntranceFrame]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed]);
+  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed,entranceMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -903,7 +903,7 @@ export function GeometryPreview({
       let galleryArtworkDrawn = false, artworkDrawnInFrame = false;
       let entrancePlanReady=false, entranceNeedsArtwork=false, entranceFrameReported=false;
       const entranceBytesReady=()=>{const progress=entranceReadiness?.snapshot();return !!progress&&progress.receivedBytes===progress.requiredBytes;};
-      let entranceNavigationReady=false, entranceTransfersVerified=false;
+      let entranceNavigationReady=false, entranceTransfersVerified=false, entranceAssetsAdmitted=false;
       const entranceVerifiedAssets=new Set<string>();
       const render = (restore=false) => {
         if(deferredCanvasRestore&&restore!==true)return false;
@@ -919,7 +919,7 @@ export function GeometryPreview({
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           if (!galleryArtworkDrawn && artworkDrawnInFrame && !renderer.getContext().isContextLost()) galleryArtworkDrawn = true;
-          if(entranceReadiness&&entranceModeRef.current==='enter'&&!entranceFrameReported&&entrancePlanReady&&entranceBytesReady()&&entranceTransfersVerified&&
+          if(entranceReadiness&&entranceModeRef.current==='enter'&&!entranceFrameReported&&entrancePlanReady&&entranceBytesReady()&&entranceTransfersVerified&&entranceAssetsAdmitted&&
              (!entranceNeedsArtwork||galleryArtworkDrawn)&&!renderer.getContext().isContextLost()){
             entranceFrameReported=true;
             entranceReadiness.releaseCoverTransfer();
@@ -1548,8 +1548,9 @@ export function GeometryPreview({
         setPublicMessage(issue);
         setSceneIssue(issue);
       };
+      const entranceOptionalBodies=new Map<string,Promise<ArrayBuffer>>();
       const readArtworkBytes = async (
-        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void,
+        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void, reuseEntranceOptional=true,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
         const report=(received:number)=>{entranceReadiness?.receive(inventory,received);progress?.(received);};
@@ -1568,8 +1569,8 @@ export function GeometryPreview({
             cacheHits++;report(bytes.byteLength);
             if(entranceReadiness)entranceVerifiedAssets.add(inventory.id);
           } else {
-            const coverBytes=entranceReadiness?.coverBytes(inventory);
-            const shared=coverBytes?await coverBytes.catch(()=>undefined):undefined;
+            const pendingBytes=entranceReadiness?.coverBytes(inventory)??(reuseEntranceOptional?entranceOptionalBodies.get(inventory.id):undefined);
+            const shared=pendingBytes?await pendingBytes.catch(()=>undefined):undefined;
             signal.throwIfAborted();
             if(shared){
               await checkPublicAvailability(signal);
@@ -2277,6 +2278,7 @@ export function GeometryPreview({
           if(key)scheduler.setPriorityOverride(key,mapPins.has(artId)||viewingPins.has(artId)?-200:undefined);
         };
         const entranceAssets=new Map<string,(typeof arts)[number]['assets'][number]>();
+        let entrancePlanUnavailable=false;
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
           if(publicDisplayStopped)return;
           const ownsDetail=art.revisionId===detailPinnedArtwork;
@@ -2578,7 +2580,7 @@ export function GeometryPreview({
         const entranceOptionalAttempted=new Set<string>();
         let entranceOptional:{key:string;compatibleOnEnter:boolean}|undefined;
         const prefetchEntranceOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[])=>{
-          if(entranceModeRef.current!=='cover'||!entranceBytesReady()||!entranceTransfersVerified||entranceOptional||
+          if(entranceModeRef.current!=='cover'||!entranceBytesReady()||!entranceAssetsAdmitted||entranceOptional||
              renderer.domElement.ownerDocument.hidden||scheduler.stats().active||scheduler.stats().queued)return;
           const candidates=observations.filter(item=>item.minimumEligible||entranceAssets.has(item.art.revisionId))
             .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
@@ -2605,7 +2607,12 @@ export function GeometryPreview({
           entranceOptional={key,compatibleOnEnter};
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
             peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
-            try{await readArtworkBytes(art,inventory,signal);}finally{peak.release(key);}
+            const body=readArtworkBytes(art,inventory,signal,undefined,false);
+            entranceOptionalBodies.set(inventory.id,body);
+            try{await body;}finally{
+              if(entranceOptionalBodies.get(inventory.id)===body)entranceOptionalBodies.delete(inventory.id);
+              peak.release(key);
+            }
           }});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{
             tasks.delete(key);
@@ -2675,17 +2682,15 @@ export function GeometryPreview({
             if(!entranceNavigationReady)return;
             if(!entrancePlanReady){
               const visible=observations.filter(observation=>observation.visible);
-              const candidates=visible.length?visible:[...observations].sort((a,b)=>a.distance-b.distance).slice(0,1);
+              const movement=observations.filter(item=>!item.visible&&(item.eligible||(item.minimumEligible&&item.distance<=3)))
+                .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
+              const candidates=[...visible,...movement];
               for(const {art} of candidates){
                 try{entranceAssets.set(art.revisionId,selectAssetVariant(art,Infinity,viewerBudget,true));}
-                catch{
-                  failed.add(art.revisionId);
-                  if(visible.length)setEntranceAssetFailed(true);
-                }
+                catch{entrancePlanUnavailable=true;}
               }
               entranceNeedsArtwork=visible.length>0;
               entrancePlanReady=true;
-              if(entranceNeedsArtwork&&!entranceAssets.size)setEntranceAssetFailed(true);
               entranceReadiness.setRequiredAssets([...entranceAssets.values()]);
             }
             if(!entranceReadiness.hasCoverSelection())return;
@@ -2697,7 +2702,11 @@ export function GeometryPreview({
               if(entranceAssets.has(id)&&!active.has(id)&&!pending.has(id)&&(retryAfter.get(id)??0)<=now)request(art);
             }
             entranceTransfersVerified=[...entranceAssets.values()].every(asset=>entranceVerifiedAssets.has(asset.id));
-            if([...entranceAssets.keys()].some(id=>failed.has(id)&&!pending.has(id)&&(retryAfter.get(id)??Infinity)===Infinity))setEntranceAssetFailed(true);
+            entranceAssetsAdmitted=[...entranceAssets].every(([id,asset])=>objects.has(id)&&active.get(id)===asset.id);
+            const failedRequired=[...entranceAssets.keys()].some(id=>!pending.has(id)&&
+              (failed.has(id)&&(retryAfter.get(id)??Infinity)===Infinity||
+              floorSettled&&surfaceSettled&&minimumBlocked.has(id)&&retryAfter.get(id)===Infinity));
+            setEntranceAssetFailed(entrancePlanUnavailable||failedRequired);
             prefetchEntranceOptional(observations);
             if(entranceModeRef.current==='enter')render();
             return;
