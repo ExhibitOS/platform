@@ -1892,7 +1892,7 @@ export function GeometryPreview({
             device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null,originalDetailTransitionBytes:diagnosticOriginalLimits?.transition??null,originalDetailSceneBytes:diagnosticOriginalLimits?.scene??null}},
             navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
             memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
-            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
+            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot(),selectedDetailEvents:diagnosticEvents.selectedSnapshot()};
         });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;detailBudget?:DeviceBudget})=>{
@@ -2735,6 +2735,7 @@ export function GeometryPreview({
             if(higher&&ready?.artId===art.revisionId){prepared.delete(higher.id);object=ready.object;preparedOwned=true;}
           }
           detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=preparedOwned;diagnosticDetailPlacement=input.placementId;
+          diagnosticEvents.beginSelected(art.revisionId,[...tiers.keys()]);
           sharedDetailUnavailable=input.unavailable;
           let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
@@ -2761,6 +2762,7 @@ export function GeometryPreview({
             if(!alive)return;alive=false;activeTransfer?.finish();beginDetailTransfer=undefined;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             diagnosticOriginal=null;
             diagnosticDrawn=null;
+            diagnosticEvents.clearSelected();
             diagnosticOriginalLimits=null;
             retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
@@ -2837,16 +2839,21 @@ export function GeometryPreview({
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
             let approvedStarted=preparedRejected;
+            const promotionDecision=(stage:string,assetId:unknown=object?.userData.viewerAssetId)=>{
+              if(typeof assetId==='string')diagnosticEvents.decision({atMs:performance.now(),assetId,artworkRevisionId:art.revisionId,stage,errorCode:null});
+            };
+            if(preparedRejected)promotionDecision('promotion-skipped-prepared-rejected');
             const startApproved=()=>{
               if(approvedStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;
               approvedStarted=true;
               let target:ReturnType<typeof selectAssetVariant>;
-              try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{return;}
-              if(tiers.get(target.id.toLowerCase())!=='full'||target.id===object?.userData.viewerAssetId)return;
+              try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{promotionDecision('promotion-skipped-variant-unavailable');return;}
+              if(tiers.get(target.id.toLowerCase())!=='full'){promotionDecision('promotion-skipped-target-not-full',target.id);return;}
+              if(target.id===object?.userData.viewerAssetId){promotionDecision('promotion-skipped-already-full',target.id);return;}
               promoteImage=()=>{
                 const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
                 try{if(input.flatImage)scope.replaceImage(next);else scope.replaceModel(next);}
-                catch{detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
+                catch{diagnosticEvents.record({atMs:performance.now(),assetId:target.id,artworkRevisionId:art.revisionId,stage:'promotion-replacement-failed',errorCode:null});detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
                 const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
                 if(retired&&previous)destroy(previous);
               };
@@ -2857,6 +2864,7 @@ export function GeometryPreview({
                 ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===target.id,
                 request:()=>request(art,true,false,true),
               });
+              promotionDecision(pending.has(art.revisionId)?'promotion-wait-pending':(retryAfter.get(art.revisionId)??0)>performance.now()?'promotion-wait-retry':'promotion-request-eligible',target.id);
               retryFlatDetail=retryPromotion;retryPromotion();
             };
             if(input.flatImage){
@@ -2922,6 +2930,7 @@ export function GeometryPreview({
               }else startApproved();
             }else if(art.artworkType==='sculpture'){
               if(!input.anchors.length&&lastDrawnTier==='lightweight')startApproved();
+              else promotionDecision(input.anchors.length?'promotion-skipped-annotations':lastDrawnTier==='approved-full'?'promotion-skipped-already-full':'promotion-skipped-no-lightweight-draw');
             }
             update();return scope;
           }catch(error){restore();throw error;}

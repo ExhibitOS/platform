@@ -31,3 +31,42 @@ it('requires a valid original hash or a rendered detail asset id to mark attachm
   {...snapshot.displayed,tier:'scene' as const,assetId:first},
  ]) expect(JSON.parse(createDiagnosticReport({...snapshot,displayed},expected)).requestedDetail.attachment).toBe('not-observed');
 });
+
+it('keeps selected detail stages in order within the existing event cap',()=>{
+ const decision={atMs:1,assetId:first,artworkRevisionId,stage:'promotion-requested',errorCode:null};
+ const transfer={...decision,atMs:40,stage:'fetch-verify'};
+ const recent=Array.from({length:63},(_,i)=>({atMs:i+32,assetId:second,artworkRevisionId:second,stage:'queued',errorCode:null}));
+ const events=[...recent,transfer].sort((a,b)=>a.atMs-b.atMs);
+ const expected={publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}};
+ const result=JSON.parse(createDiagnosticReport({...snapshot,events,selectedDetailEvents:[decision,transfer]},expected));
+ expect(result.snapshot.events).toHaveLength(64);
+ expect(result.snapshot.events[0]).toEqual(decision);
+ expect(result.snapshot.events.filter((event:typeof transfer)=>event.assetId===first)).toEqual([decision,transfer]);
+ expect(result.snapshot.events.map((event:typeof transfer)=>event.atMs)).toEqual([1,40,...recent.slice(1).map(event=>event.atMs)].sort((a,b)=>a-b));
+});
+
+it('keeps scoped events only for the matching live placement and revision',()=>{
+ const decision={atMs:1,assetId:first,artworkRevisionId,stage:'promotion-requested',errorCode:null};
+ const recent={atMs:2,assetId:second,artworkRevisionId:second,stage:'queued',errorCode:null};
+ const current={...snapshot,events:[recent],selectedDetailEvents:[decision]};
+ for(const [source,detail] of [
+  [current,undefined],
+  [current,{placementId:second,artworkRevisionId}],
+  [current,{placementId:first,artworkRevisionId:second}],
+  [{...current,lifecycle:'stopped' as const},{placementId:first,artworkRevisionId}],
+ ] as const) {
+  const result=JSON.parse(createDiagnosticReport(source,{publicationId,revisionSha256,detail}));
+  expect(result.snapshot.events).toEqual([recent]);
+ }
+});
+
+it('sanitizes selected stages and excludes unrelated revisions',()=>{
+ const event={atMs:1,assetId:first,artworkRevisionId,stage:'promotion-requested',errorCode:'unsafe https://example.invalid'};
+ const result=JSON.parse(createDiagnosticReport({...snapshot,selectedDetailEvents:[
+  event,
+  {...event,assetId:'unsafe'},
+  {...event,stage:'unsafe stage'},
+  {...event,artworkRevisionId:second},
+ ]},{publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}}));
+ expect(result.snapshot.events).toEqual([{...event,errorCode:null}]);
+});
