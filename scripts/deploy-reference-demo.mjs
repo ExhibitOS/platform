@@ -54,7 +54,7 @@ export async function inspectDemo({output, pin, commit, approvedBases, runtimeRo
  if(qualified){
   const {expectedWheatHtml}=await import('./qualified-wheat-reference.mjs');
   let hasStudio=true;try{await lstat(join(output,'studio.html'));}catch(e){if(e.code!=='ENOENT')throw e;hasStudio=false;}
-  const expectedHtml=await expectedWheatHtml({runtimeRoot,exhibition:qualified.publication.exhibition,privateEditor:hasStudio});
+  const expectedHtml=await expectedWheatHtml({runtimeRoot,exhibition:qualified.publication.exhibition,privateEditor:hasStudio,indexSha256:qualified.reference.indexSha256});
   if(!(await readFile(join(output,'index.html'))).equals(expectedHtml.index))throw Error('DEMO_CONTENT_HTML');
   if(hasStudio&&!(await readFile(join(output,'studio.html'))).equals(expectedHtml.studio))throw Error('DEMO_CONTENT_HTML');
  }
