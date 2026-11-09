@@ -20,12 +20,12 @@ export async function recoverFurnishingWriterClaims(pool,owner,guard){
 }
 
 /** Reconcile only fresh-image work from an earlier, drained owner generation.
- * The caller supplies the ordinary reopen admission after Manager has proved
+ * The caller supplies the explicit interrupted-reopen admission after Manager has proved
  * the previous owned processes stopped and reacquired the inherited lock. */
 export async function recoverFreshImageClaims(pool,owner,guard,admission){
  assertIssuedFurnishingOrdinaryAdmission(admission);
  const identity=guard.identity;
- if(admission.writer!==guard||admission.fields.admissionKind!=='clean-reopen'||admission.fields.restoreProof||
+ if(admission.writer!==guard||admission.fields.admissionKind!=='interrupted-reopen'||
     !owner||owner.workspaceId!==identity.workspaceId||owner.tenantId!==identity.tenantId||owner.principalId!==identity.principalId)
   throw Error('FRESH_IMAGE_RECOVERY_UNAVAILABLE');
  const c=await pool.connect();let broken=false;
@@ -40,7 +40,7 @@ export async function recoverFreshImageClaims(pool,owner,guard,admission){
    [identity.tenantId,identity.principalId,identity.workspaceId])).rows;
   for(const {id,state,lease_id:lease,png_worker_tokens:tokens,claim} of rows){
    if(!uuid.test(id)||!claim||!uuid.test(claim.token)||!uuid.test(claim.runtimeGeneration)||
-      claim.runtimeGeneration===identity.runtimeGeneration||tokens.length!==1||tokens[0]!==claim.token||
+      claim.runtimeGeneration!==admission.fields.previousRuntimeGeneration||tokens.length!==1||tokens[0]!==claim.token||
       !['processing','failed','cancelled'].includes(state)||(state==='processing'?lease!==claim.token:lease!==null&&lease!==claim.token)||
       ['workspaceId','tenantId','principalId','rootDevice','rootInode','lockDevice','lockInode'].some(key=>claim[key]!==identity[key]))
     throw Error('FRESH_IMAGE_RECOVERY_UNAVAILABLE');

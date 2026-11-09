@@ -36,13 +36,13 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   while(fd<10){fd=openSync(lock,constants.O_RDWR);descriptors.push(fd);}
   const rootStat=lstatSync(root,{bigint:true}),lockStat=fstatSync(fd,{bigint:true});
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID();
-  const issueWriter=async()=>{
+  const issueWriter=async(previousRuntimeGeneration?:string)=>{
    const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
    const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
    let open=true;
    const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
    const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
-   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'clean-reopen',activeBindingSHA256:'b'.repeat(64)},secret);
+   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:previousRuntimeGeneration?'interrupted-reopen':'clean-reopen',activeBindingSHA256:'b'.repeat(64),...(previousRuntimeGeneration?{previousRuntimeGeneration}:{})},secret);
    const admission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});
    return {writer,admission,channel};
   };
@@ -113,7 +113,7 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
     expect((await approve()).statusCode).toBe(409);
     await app.close();
     await owner.channel.close();
-    owner=await issueWriter();
+    owner=await issueWriter(String(claim!.runtimeGeneration));
     execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
     app=start();
     expect(await recoverFreshImageClaims(pool,workspace,owner.writer,owner.admission)).toBe(1);

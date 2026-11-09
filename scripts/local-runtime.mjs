@@ -310,7 +310,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       const freshImageMarker='platform/scripts/native-fresh-image-preparation-capability-v1.json',freshImageMigration='platform/database/native-fresh-image-preparation/'+FRESH_IMAGE_MIGRATION;
       if(freshImageCapability?(!pinnedPayload.hasExact(freshImageMarker,createHash('sha256').update(FRESH_IMAGE_CAPABILITY).digest('hex'),Buffer.byteLength(FRESH_IMAGE_CAPABILITY))||!pinnedPayload.hasExact(freshImageMigration,FRESH_IMAGE_SHA256,1357)):(pinnedPayload.hasPath(freshImageMarker)||pinnedPayload.hasPath(freshImageMigration)))throw Error('NATIVE_OEX_CATALOG');
       if(freshImageCapability)await verifyFreshImageMigration(freshImageDirectory);
-      ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission);
+      ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission,{allowInterruptedReopen:freshImageCapability});
       ordinaryStop=furnishingOrdinaryStopControl(ordinaryAdmission,ownerChannel,Buffer.from(privateOwner.secret,'hex'));
       supplementalMigrationDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
     }else if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'){
@@ -369,7 +369,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     let requiredModelWorkerActive=false;
     const modelPreparationExecution=modelPreparationCapability&&!selectedPhase?createNativeModelPreparationExecution(blobs,nativeOexWorkspace,writerLease,()=>requiredModelWorkerActive&&isOwnerAvailable()):undefined;
     const importer=new Imports(pool,blobs,nativeOexWorkspace,modelPreparationExecution);
-    if(freshImageCapability&&ordinaryAdmission?.fields.admissionKind==='clean-reopen'&&!ordinaryAdmission.fields.restoreProof&&!oexCleanupSelection){
+    if(freshImageCapability&&ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&!oexCleanupSelection){
       deferredStartup.push(async()=>{
         stage='FRESH_IMAGE_RECOVERY';
         await pinnedPayload.verify();
