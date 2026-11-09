@@ -49,6 +49,26 @@ it('retains one owner-scoped intake across replay and registers original model a
 });
 
 
+it('binds a server-generated fit to the uploaded model and reopens the immutable registration',async()=>{
+ const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ const declaration={...f.declaration,kind:'artwork-frame',fitProfile:'straight-ring-v1'};
+ const geometry={profile:'straight-ring-v1' as const,openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012};
+ const fit={version:1,sourceSha256:declaration.model.sha256,sourceBytes:declaration.model.bytes,geometry};
+ await expect(service.create(f.client,f.session,{...declaration,fit})).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const first=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,first.intakeId,f.bytes);
+ await service.complete(f.client,f.session,first.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);
+ expect(await service.work(f.pool)).toBe(true);
+ expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(declaration.model,f.bytes,expect.objectContaining({writerFd:12}),'straight-ring-v1');
+ const done=await service.read(f.client,f.session,first.intakeId);
+ expect(done.furnishing).toMatchObject({model:declaration.model,fit});
+ const reopened=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ expect(await reopened.create(f.client,f.session,declaration)).toEqual(done);
+ expect(await reopened.readVersion(f.client,f.session,done.furnishing!.id,1)).toEqual(done.furnishing);
+});
+
 it('retains uploaded bytes across retryable validation failure and a new service instance',async()=>{
  const f=fixture(),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);
  vi.mocked(validateWorkspaceFurnishingGlb).mockRejectedValueOnce(new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE'));expect(await f.service.work(f.pool)).toBe(true);const failed=await f.service.read(f.client,f.session,first.intakeId);expect(failed).toMatchObject({phase:'failed',retryable:true,received:{bytes:f.bytes.length,sha256:f.declaration.model.sha256}});

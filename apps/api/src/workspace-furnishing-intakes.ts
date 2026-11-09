@@ -6,7 +6,7 @@ import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {artworkFrameModel,portalFinishModel,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import {artworkFrameModel,isWorkspaceFitReceipt,portalFinishModel,type WorkspaceFitReceipt,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
@@ -44,11 +44,12 @@ export class WorkspaceFurnishingIntakes {
  supportsArtworkFrameModels(){return this.owner.workspaceFurnishingArtworkFrameModels===true&&this.supportsArtworkFrame();}
  supportsFramePreparation(){return this.owner.workspaceArtworkFramePreparation===true&&this.supportsArtworkFrameModels();}
  frameLineage(){return this.supportsFramePreparation()&&this.writer?new WorkspaceFrameLineage(this.blobs,this.owner,this.writer):undefined;}
+ supportsReusableFit(){return !!this.writer&&this.supportsArtworkFrameModels();}
  supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
-  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})&&validRights(value.rights)&&
-   (value.kind!=='portal-finish'||!!portalFinishModel(value.model.sha256,value.model.bytes))&&
-   (value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
+  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})&&validRights(value.rights)&&
+   (!!value.fitProfile||value.kind!=='portal-finish'||!!portalFinishModel(value.model.sha256,value.model.bytes))&&
+   (!!value.fitProfile||value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){uuid(id);await this.checkOwner(c,s);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,id]);if(result.rowCount!==1)throw new ApiError(403,'FORBIDDEN');return result.rows[0] as Row;}
@@ -57,7 +58,7 @@ export class WorkspaceFurnishingIntakes {
   if(!receipt||receipt.key!==key||receipt.bytes!==model.bytes||receipt.sha256!==model.sha256)throw new ApiError(409,'UPLOAD_INCOMPLETE');return receipt;
  }
  private async view(c:PoolClient,row:Row){
-  const {requestId:_requestId,preparationPolicy,...fields}=row.declaration;void _requestId;
+  const {requestId:_requestId,preparationPolicy,fitProfile,...fields}=row.declaration;void _requestId;
   let preparation:undefined|{sourceModel:typeof fields.model;recipe:typeof FRAME_PREPARATION_POLICY;renderableModel:typeof fields.model};
   if(preparationPolicy&&row.phase==='registered'){
    const pair=verifiedPreparationPair(fields.model),result=await c.query("SELECT p.*,v.descriptor AS stored_descriptor,v.object_key AS stored_key FROM workspace_frame_preparations p LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=p.workspace_id AND v.tenant_id=p.tenant_id AND v.user_id=p.user_id AND v.id=p.furnishing_id AND v.version=p.furnishing_version WHERE p.workspace_id=$1 AND p.intake_id=$2 AND p.state='registered'",[this.owner.workspaceId,row.id]);
@@ -65,16 +66,24 @@ export class WorkspaceFurnishingIntakes {
    if(p.stored_key!==p.renderable_key||!isDeepStrictEqual(p.stored_descriptor,{id:row.furnishing_id,version:row.furnishing_version,...fields,model:pair.renderable}))throw new ApiError(409,'ASSET_INTEGRITY');
    preparation={sourceModel:pair.source,recipe:FRAME_PREPARATION_POLICY,renderableModel:pair.renderable};
   }
-  return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,...(preparationPolicy?{preparationPolicy}:{}),...(preparation?{preparation}:{}),furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields,model:preparation?.renderableModel??fields.model}:null};
+  let fit:WorkspaceFitReceipt|undefined;
+  if(fitProfile&&row.phase==='registered'){
+   const registered=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,row.furnishing_id,row.furnishing_version]);
+   const stored=registered.rows[0];
+   if(registered.rowCount!==1||stored.object_key!==this.receipt(row).key||!isWorkspaceFitReceipt(stored.descriptor?.fit,fields.model,fitProfile))throw new ApiError(409,'ASSET_INTEGRITY');
+   fit=stored.descriptor.fit;
+   if(!isDeepStrictEqual(stored.descriptor,{id:row.furnishing_id,version:row.furnishing_version,...fields,fit}))throw new ApiError(409,'ASSET_INTEGRITY');
+  }
+  return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,...(preparationPolicy?{preparationPolicy}:{}),...(fitProfile?{fitProfile}:{}),...(preparation?{preparation}:{}),furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields,model:preparation?.renderableModel??fields.model,...(fit?{fit}:{})}:null};
  }
  async create(c:PoolClient,s:Session,value:unknown){
-  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
+  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
   if(value.preparationPolicy){
    if(!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
    const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
    if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,'FRAME_PREPARATION_RIGHTS_DENIED');
   }
-  if(value.kind==='portal-finish'&&!portalFinishModel(value.model.sha256,value.model.bytes))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
+  if(value.kind==='portal-finish'&&!value.fitProfile&&!portalFinishModel(value.model.sha256,value.model.bytes))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
   if(!this.admittedDeclaration(value))throw new ApiError(400,'FURNISHING_DECLARATION');
   const declaration=structuredClone(value),requestHash=createHash('sha256').update(canonical(declaration)).digest('hex');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${this.owner.workspaceId}:${declaration.requestId}`]);
   const previous=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND request_id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,declaration.requestId]);
@@ -193,6 +202,7 @@ export class WorkspaceFurnishingIntakes {
  private async workLocked(c:PoolClient,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void;writerFd?:number}){
   const transact=async<T>(fn:()=>Promise<T>)=>{await c.query('BEGIN');try{const value=await fn();await this.writer?.assertLive();await c.query('COMMIT');return value;}catch(error){await c.query('ROLLBACK');throw error;}};const token=randomUUID(),writer=this.writer,clearWriter=writer?',worker_generation=NULL,worker_root_device=NULL,worker_root_inode=NULL,worker_lock_device=NULL,worker_lock_inode=NULL':'';
   const row=await transact(async()=>{await this.owner.assertDatabase(c);const result=await c.query("SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND phase IN ('validating','cancelling') AND worker_token IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId]);if(!result.rowCount)return undefined;const value=result.rows[0] as Row;if(writer){const w=writer.identity;await c.query('UPDATE workspace_furnishing_intakes SET worker_token=$3,worker_generation=$4,worker_root_device=$5,worker_root_inode=$6,worker_lock_device=$7,worker_lock_inode=$8,updated_at=now() WHERE workspace_id=$1 AND id=$2',[this.owner.workspaceId,value.id,token,w.runtimeGeneration,w.rootDevice,w.rootInode,w.lockDevice,w.lockInode]);}else await c.query('UPDATE workspace_furnishing_intakes SET worker_token=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2',[this.owner.workspaceId,value.id,token]);return value;});if(!row)return false;await hooks?.afterClaim?.();
+  let fit:WorkspaceFitReceipt|undefined;
   let error:unknown,cleanup=row.phase==='cancelling',prepared:{key:string;model:typeof row.declaration.model}|undefined;
   if(!cleanup)try{
    const receipt=this.receipt(row),bytes=Buffer.from(await this.blobs.get(receipt.key));await this.writer?.assertLive();
@@ -213,7 +223,14 @@ export class WorkspaceFurnishingIntakes {
     await this.writer?.assertLive();if(!this.blobs.putDurable)throw new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE');await this.blobs.putDurable(key,result);
     const stored=Buffer.from(await this.blobs.get(key));if(stored.length!==pair.renderable.bytes||sha256(stored)!==pair.renderable.sha256)throw new ApiError(422,'FRAME_PREPARATION_UNSAFE');
     prepared={key,model:pair.renderable};
-   }else await validateWorkspaceFurnishingGlb(row.declaration.model,bytes,{...hooks,...(writer?{writerFd:writer.writerFd}:{})});
+   }else{
+    const workerHooks={...hooks,...(writer?{writerFd:writer.writerFd}:{})},model=row.declaration.model;
+    if(row.declaration.fitProfile){
+     if(!this.admittedDeclaration(row.declaration))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');
+     const geometry=await validateWorkspaceFurnishingGlb(model,bytes,workerHooks,row.declaration.fitProfile);
+     fit={version:1,sourceSha256:model.sha256,sourceBytes:model.bytes,geometry};
+    }else await validateWorkspaceFurnishingGlb(model,bytes,workerHooks);
+   }
    const state=await transact(async()=>{await this.owner.assertDatabase(c);return c.query(writer?'SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3':'SELECT phase FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3',[this.owner.workspaceId,row.id,token]);});
    if(state.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');this.checkClaim(state.rows[0] as Row,token);if(state.rows[0].phase==='cancelling')cleanup=true;
   }catch(e){error=e;}
@@ -221,9 +238,9 @@ export class WorkspaceFurnishingIntakes {
    await this.owner.assertDatabase(c);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 FOR UPDATE',[this.owner.workspaceId,row.id,token]);
    if(result.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');const current=result.rows[0] as Row;this.checkClaim(current,token);if(current.phase==='cancelling'){cleanup=true;return;}if(current.phase!=='validating')throw Error('FURNISHING_WORKER_OWNERSHIP');
    if(error){const code=error instanceof ApiError?error.code:'FURNISHING_VALIDATION_UNAVAILABLE',retryable=!(error instanceof ApiError)||error.code==='FURNISHING_VALIDATION_UNAVAILABLE';await c.query(`UPDATE workspace_furnishing_intakes SET phase='failed',error=$4,retryable=$5,worker_token=NULL${clearWriter},updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3`,[this.owner.workspaceId,row.id,token,{code},retryable]);return;}
-   if(!this.admittedDeclaration(current.declaration)||canonical(current.declaration)!==canonical(row.declaration)||current.furnishing_id!==row.furnishing_id||current.furnishing_version!==row.furnishing_version||canonical(this.receipt(current))!==canonical(this.receipt(row))||!!current.declaration.preparationPolicy!==!!prepared)throw Error('FURNISHING_WORKER_OWNERSHIP');
-   const {requestId:_requestId,preparationPolicy:_policy,...fields}=current.declaration;void _requestId;void _policy;
-   const descriptor={id:current.furnishing_id,version:current.furnishing_version,...fields,model:prepared?.model??fields.model};
+   if(!this.admittedDeclaration(current.declaration)||canonical(current.declaration)!==canonical(row.declaration)||current.furnishing_id!==row.furnishing_id||current.furnishing_version!==row.furnishing_version||canonical(this.receipt(current))!==canonical(this.receipt(row))||!!current.declaration.preparationPolicy!==!!prepared||!!current.declaration.fitProfile!==!!fit)throw Error('FURNISHING_WORKER_OWNERSHIP');
+   const {requestId:_requestId,preparationPolicy:_policy,fitProfile:_fitProfile,...fields}=current.declaration;void _requestId;void _policy;void _fitProfile;
+   const descriptor={id:current.furnishing_id,version:current.furnishing_version,...fields,model:prepared?.model??fields.model,...(fit?{fit}:{})};
    await c.query('INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,current.furnishing_id,current.furnishing_version,descriptor,prepared?.key??this.receipt(current).key]);
    if(prepared){const linked=await c.query("UPDATE workspace_frame_preparations SET state='registered' WHERE workspace_id=$1 AND intake_id=$2 AND state='staged' AND renderable_key=$3 RETURNING intake_id",[this.owner.workspaceId,row.id,prepared.key]);if(linked.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');}
    await c.query(`UPDATE workspace_furnishing_intakes SET phase='registered',worker_token=NULL${clearWriter},updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3`,[this.owner.workspaceId,row.id,token]);

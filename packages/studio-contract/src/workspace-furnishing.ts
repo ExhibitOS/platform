@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {WorkspaceFitProfile,WorkspaceFitReceipt} from './workspace-fit-receipt.js';
 import {artworkFrameFit,artworkFrameModel} from '@exhibitos/spec/artwork-frame-models';
 export {artworkFrameFit,artworkFrameModel} from '@exhibitos/spec/artwork-frame-models';
 import {pairedPortalFit,portalFinishModel} from '@exhibitos/spec/portal-finish-models';
@@ -8,15 +9,23 @@ export {portalFinishModel} from '@exhibitos/spec/portal-finish-models';
 export const WORKSPACE_FURNISHING_NAMESPACE='org.exhibitos.studio/workspace-furnishings';
 export type WorkspaceFurnishingKind='pedestal'|'bench'|'stool'|'partition'|'info-stand'|'barrier'|'display-case'|'artwork-frame'|'portal-finish';
 export interface WorkspaceFurnishingModel {mime:'model/gltf-binary';bytes:number;sha256:string}
-export interface WorkspaceFurnishingDescriptor {id:string;version:1;kind:WorkspaceFurnishingKind;name:string;rights:unknown;provenance:string;model:WorkspaceFurnishingModel}
-export interface WorkspaceFurnishingDeclaration extends Omit<WorkspaceFurnishingDescriptor,'id'|'version'> {requestId:string;preparationPolicy?:'omit-unused-invalid-tangent-r1'}
+export interface WorkspaceFurnishingDescriptor {id:string;version:1;kind:WorkspaceFurnishingKind;name:string;rights:unknown;provenance:string;model:WorkspaceFurnishingModel;fit?:WorkspaceFitReceipt}
+export interface WorkspaceFurnishingDeclaration extends Omit<WorkspaceFurnishingDescriptor,'id'|'version'|'fit'> {requestId:string;preparationPolicy?:'omit-unused-invalid-tangent-r1';fitProfile?:WorkspaceFitProfile}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).sort().join(',')===keys.slice().sort().join(',');
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
 /** Structural checks only; the server must separately validate rights, live
  * workspace ownership and the complete GLB before registration or use. */
-export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allowStool?:boolean;allowRoomVisual?:boolean;allowArtworkFrame?:boolean;allowFramePreparation?:boolean;allowPortalFinish?:boolean}={}):value is WorkspaceFurnishingDeclaration{
- if(!object(value)||!exact(value,Object.hasOwn(value,'preparationPolicy')?['requestId','kind','name','rights','provenance','model','preparationPolicy']:['requestId','kind','name','rights','provenance','model'])||(Object.hasOwn(value,'preparationPolicy')&&(!options.allowFramePreparation||value.preparationPolicy!=='omit-unused-invalid-tangent-r1'||value.kind!=='artwork-frame'))||!uuid(value.requestId)||typeof value.kind!=='string'||!['pedestal','bench',...(options.allowStool?['stool']:[]),...(options.allowRoomVisual?['partition','info-stand','barrier','display-case']:[]),...(options.allowArtworkFrame?['artwork-frame']:[]),...(options.allowPortalFinish?['portal-finish']:[])].includes(value.kind)||typeof value.name!=='string'||value.name.trim()!==value.name||value.name.length<1||value.name.length>120||typeof value.provenance!=='string'||value.provenance.trim()!==value.provenance||value.provenance.length<1||value.provenance.length>1024||!object(value.model))return false;
+export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allowStool?:boolean;allowRoomVisual?:boolean;allowArtworkFrame?:boolean;allowFramePreparation?:boolean;allowPortalFinish?:boolean;allowReusableFit?:boolean}={}):value is WorkspaceFurnishingDeclaration{
+ if(!object(value))return false;
+ const fields=['requestId','kind','name','rights','provenance','model'];
+ if(Object.hasOwn(value,'fitProfile')){
+  if(!options.allowReusableFit||Object.hasOwn(value,'preparationPolicy')||
+   !(value.kind==='artwork-frame'&&value.fitProfile==='straight-ring-v1'||value.kind==='portal-finish'&&value.fitProfile==='continuous-portal-v1'))return false;
+  fields.push('fitProfile');
+ }
+ if(Object.hasOwn(value,'preparationPolicy'))fields.push('preparationPolicy');
+ if(!exact(value,fields)||(Object.hasOwn(value,'preparationPolicy')&&(!options.allowFramePreparation||value.preparationPolicy!=='omit-unused-invalid-tangent-r1'||value.kind!=='artwork-frame'))||!uuid(value.requestId)||typeof value.kind!=='string'||!['pedestal','bench',...(options.allowStool?['stool']:[]),...(options.allowRoomVisual?['partition','info-stand','barrier','display-case']:[]),...(options.allowArtworkFrame?['artwork-frame']:[]),...(options.allowPortalFinish?['portal-finish']:[])].includes(value.kind)||typeof value.name!=='string'||value.name.trim()!==value.name||value.name.length<1||value.name.length>120||typeof value.provenance!=='string'||value.provenance.trim()!==value.provenance||value.provenance.length<1||value.provenance.length>1024||!object(value.model))return false;
  const m=value.model;return exact(m,['mime','bytes','sha256'])&&m.mime==='model/gltf-binary'&&Number.isSafeInteger(m.bytes)&&Number(m.bytes)>0&&Number(m.bytes)<=32*1024*1024&&typeof m.sha256==='string'&&/^[a-f0-9]{64}$/.test(m.sha256);
 }
 
