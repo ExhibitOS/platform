@@ -149,6 +149,10 @@ export class Auth {
       AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
     ) AS product_image_output,
     EXISTS (
+      SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
+      AND j.derived->>'kind'='fresh-product-image' AND j.original_asset_id=a.id
+    ) AS fresh_image_original,
+    EXISTS (
       SELECT 1 FROM import_jobs j JOIN artworks w ON (w.tenant_id,w.id)=(j.tenant_id,j.artwork_id)
       JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(w.tenant_id,w.id,w.revision)
       WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id AND j.derived->>'kind'='fresh-product-image'
@@ -161,7 +165,7 @@ export class Auth {
     WHERE a.tenant_id=$1 AND a.id=$2 AND a.deleted_at IS NULL AND r.deleted_at IS NULL`,[s.tenantId,id]);
   const row=result.rows[0]; if (!row) throw new AccessDenied();
   const artwork=await artworkAccess(client,{tenantId:s.tenantId,userId:s.userId},row.artwork_id);
-  if(row.product_image_output&&!row.approved_fresh_image_coarse&&(artwork.approved_asset_id!==id||artwork.approved_revision!==artwork.revision))throw new AccessDenied();
+  if(row.fresh_image_original||row.product_image_output&&!row.approved_fresh_image_coarse&&(artwork.approved_asset_id!==id||artwork.approved_revision!==artwork.revision))throw new AccessDenied();
   if (permission) {
    if (!allowedRights(row.rights,permission)||(artwork.cms_managed||artwork.metadata?.rights!==undefined)&&!allowedRights(artwork.metadata?.rights,permission)) throw new ApiError(403,'RIGHTS_DENIED');
    return {authorized:true,assetId:id,scope:'authorization-only',packageProduced:false};

@@ -54,7 +54,7 @@ function importedTextInvariant(m:ArtworkMetadata){
   // Only existing title/description/medium and private notes are text edits.
   return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,displayReference:m.displayReference,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
 }
-interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown}}
+interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
   !!v &&
   typeof v === "object" &&
@@ -521,6 +521,7 @@ export class Cms {
         rightsRevision: asset.rights_revision,
       },
       ...(importedArtwork?{importedArtwork}:{}),
+      ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'?{freshImagePreparation:lineage.snapshot.freshImagePreparation}:{}),
       ...(modelPair?{modelPair}:{}),
       ...(lineage?.snapshot.compactVariant&&(lineage.snapshot.asset as {id?:string})?.id===asset.id&&json((lineage.snapshot.metadata as ArtworkMetadata).rights)===json(a.metadata.rights)?{compactVariant:lineage.snapshot.compactVariant}:{}),
     };

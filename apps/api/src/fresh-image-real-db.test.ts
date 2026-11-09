@@ -91,9 +91,18 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    expect(generic.statusCode,generic.body).toBe(409);
    const derivative=()=>app!.inject({method:'GET',url:`${api}/assets/${ready.coarse.assetId}/bytes`,headers});
    expect((await derivative()).statusCode).toBe(403);
+   const originalPath=`${api}/assets/${ready.original.assetId}`;
+   const verifyPrivateSource=async()=>{
+    for(const [method,suffix] of [['GET',''],['GET','/bytes'],['POST','/export-check']] as const){
+     const response=await app!.inject({method,url:originalPath+suffix,headers});
+     expect(response.statusCode,response.body).toBe(403);
+    }
+   };
+   await verifyPrivateSource();
    const approvals=await Promise.all([approve(),approve()]);
    for(const approval of approvals)expect(approval.statusCode,approval.body).toBe(200);
    expect(approvals[0]!.json()).toEqual(approvals[1]!.json());
+   await verifyPrivateSource();
    expect((await create()).json().id).toBe(id);
    const approved=await app.inject({method:'GET',url:`${api}/studio/artworks/${artworkId}`,headers});
    expect(approved.statusCode,approved.body).toBe(200);
