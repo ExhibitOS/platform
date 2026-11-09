@@ -124,6 +124,6 @@ export function builtInStoolSolids(candidate:Exhibition){
   const room=candidate.rooms.find(room=>room.id===placement.roomId)!;
   const {position,yaw,scale}=placement;
   const pose:ArtifactPose={position,rotation:[0,Math.sin(yaw/2),0,Math.cos(yaw/2)],scale:[scale,scale,scale]};
-  return [{vertices:artifactCorners(dimensions,[local,pose,room.transform],true)}];
+  return [{stoolPlacementId:placement.id,vertices:artifactCorners(dimensions,[local,pose,room.transform],true)}];
  });
 }

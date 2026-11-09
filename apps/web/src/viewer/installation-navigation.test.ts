@@ -32,8 +32,12 @@ test('verified built-in stool blocks its floor footprint while leaving paths aro
  doc.extensions={...doc.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{version:2,
   furnishings:[{id,version:1,kind:'stool',name:'Gallery stool',rights:{},provenance:'ExhibitOS',model}],
   placements:[{id:'10000000-0000-4000-8000-000000000021',roomId:doc.rooms[0]!.id,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}};
- const camera=await createNavigationController(doc,{position:[0,1.65,2]});
+ let visible=false;
+ const camera=await createNavigationController(doc,{position:[0,1.65,2],stoolVisible:()=>visible});
  try {
+  expect(camera.isWalkable([0,1.65,0])).toBe(true);
+  visible=true;
+  expect(camera.isWalkable([0,1.65,0])).toBe(false);
   for(let frame=0;frame<180;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
   expect(camera.state().blocked).toBe(true);
   expect(camera.state().eyePosition[2]).toBeGreaterThan(.43);
@@ -42,9 +46,13 @@ test('verified built-in stool blocks its floor footprint while leaving paths aro
    for(let frame=0;frame<120;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
    expect(camera.state().eyePosition[2]).toBeLessThan(-1);
   }
+  visible=false;
+  camera.reset({position:[0,1.65,2]});
+  for(let frame=0;frame<180;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
+  expect(camera.state().eyePosition[2]).toBeLessThan(-1);
  }finally{camera.dispose();}
  model.sha256='0'.repeat(64);
- const unknown=await createNavigationController(doc,{position:[0,1.65,2]});
+ const unknown=await createNavigationController(doc,{position:[0,1.65,2],stoolVisible:()=>true});
  try {
   for(let frame=0;frame<180;frame++)unknown.advance(1/60,{forward:1,right:0,paused:false});
   expect(unknown.state().eyePosition[2]).toBeLessThan(-1);

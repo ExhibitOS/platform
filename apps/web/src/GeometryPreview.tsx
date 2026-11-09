@@ -1356,6 +1356,7 @@ export function GeometryPreview({
                 canLookSeated:canUseBench,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
                   panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),
+                stoolVisible:publicSource&&hasWorkspaceFurnishings?id=>ownerFurnishings?.placementVisible(id)===true:undefined,
                 wasWalkingBeforeSeat:()=>panelResume?.wasWalkingBeforeSeat()??false,
                 onNearbyBench:id=>{
                   if(disposed)return;
