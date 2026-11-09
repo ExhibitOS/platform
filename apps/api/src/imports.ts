@@ -27,6 +27,7 @@ export class Imports {
  constructor(pool:Pool,blobs:BlobStore,nativeWorkspace?:NativeOexWorkspaceContext,modelExecution?:ModelPreparationExecution){if(modelExecution)assertModelPreparationExecution(modelExecution,blobs,nativeWorkspace);this.pool=pool;this.blobs=blobs;this.nativeWorkspace=nativeWorkspace;this.modelExecution=modelExecution;}
  async requiredModelReady(c:PoolClient,s?:{tenantId:string;userId:string}){if(!this.modelExecution)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');await this.modelExecution.assertReady(c,s);}
  async largeModelReady(c:PoolClient,s:{tenantId:string;userId:string}){
+  if(this.modelExecution?.mode!=='native')throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
   await this.requiredModelReady(c,s);
   const result=await c.query('SELECT 1 FROM schema_migrations WHERE name=$1 AND sha256=$2',['046_large_model_preparation.sql','88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4']);
   if(!result.rowCount)throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
@@ -51,7 +52,7 @@ export class Imports {
    await assertProductImageAssets(c,row);
    return row;
   }
-  if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}if(storedModelPreparation(row)){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
+  if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}const modelPreparation=storedModelPreparation(row);if(modelPreparation){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(modelPreparation.profileId===LARGE_MODEL_RECIPE.id)await this.largeModelReady(c,s);if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   if(input.imagePreparation!==undefined||isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
@@ -134,10 +135,9 @@ export class Imports {
  async upload(c:PoolClient,s:Session,id:string,bytes:Buffer,large=false){
   const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   if((storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id)!==large)throw new ApiError(409,'MODEL_PREPARATION_PROFILE_MISMATCH');
-  if(large)await this.largeModelReady(c,s);
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-  if(storedPreparedImage(row)){
-   if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
+  if(large||storedPreparedImage(row)){
+   if(!this.blobs.putDurable)throw new ApiError(503,large?'STORAGE_UNAVAILABLE':'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
    await this.blobs.putDurable(row.object_key,bytes);
   }else await this.blobs.put(row.object_key,bytes);
   return {received:bytes.length};
@@ -146,7 +146,6 @@ export class Imports {
   const row=await this.access(c,s,id);if(['queued','processing','approved'].includes(row.state))return this.view(row);
   if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
-  if(large)await this.largeModelReady(c,s);
   let bytes:Buffer;try{bytes=Buffer.from(large||storedPreparedImage(row)?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   const derived=this.prepared(row);if(derived)await this.preparedBytes(row,derived);
@@ -189,7 +188,10 @@ export class Imports {
    await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter);
    const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter+" ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
-   if(storedModelPreparation(r)){await this.requiredModelReady(c,{tenantId:r.tenant_id,userId:r.user_id});const writer=this.modelExecution?.writer;if(writer){const value={...r.model_preparation,claim:{token:lease,...writer.identity}};await c.query('UPDATE import_jobs SET model_preparation=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.model_preparation=value;}}
+   const preparation=storedModelPreparation(r);
+   if(preparation){
+    const actor={tenantId:r.tenant_id,userId:r.user_id};
+    if(preparation.profileId===LARGE_MODEL_RECIPE.id)await this.largeModelReady(c,actor);else await this.requiredModelReady(c,actor);const writer=this.modelExecution?.writer;if(writer){const value={...r.model_preparation,claim:{token:lease,...writer.identity}};await c.query('UPDATE import_jobs SET model_preparation=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.model_preparation=value;}}
    const prepared=storedPreparedImage(r);
    if(prepared?.kind==='fresh-product-image'){
     await this.freshImageReady(c,{tenantId:r.tenant_id,userId:r.user_id});

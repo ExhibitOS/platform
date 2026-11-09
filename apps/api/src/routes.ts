@@ -446,6 +446,13 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-original-static-approval`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req)=>approveOriginalStaticSource(c,s,(req.params as {id:string}).id,req.body as OriginalStaticApprovalInput,studio,cms,importer(),store)));
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
  if(modelPreparationExecution&&store)app.post(`${prefix}/imports/model-inspection`,{bodyLimit:COMPACT_MODEL_LIMITS.sourceBytes,schema:{querystring:object({})}},importMutation(async(c,s,req)=>{await importer().requiredModelReady(c,s);return inspectModelOriginal(req.body as Buffer);}));
+ if(modelPreparationExecution&&nativeOexWorkspace&&nativeBoundedEditing&&store)app.post(`${prefix}/imports/large-model-inspection`,{
+  bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes,schema:{querystring:object({})},
+ },nativeMutation(async(c,s,req)=>{
+  await importer().largeModelReady(c,s);
+  if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');
+  return inspectModelOriginal(req.body,LARGE_MODEL_RECIPE.id);
+ }));
  app.post(`${cp}/artworks/:id/compact-preparations`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id,sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},bytes:{type:'integer',minimum:28,maximum:33554432},idempotencyKey:{...str,minLength:1,maxLength:128},generation:{...str,minLength:1,maxLength:128}})}},importMutation(async(c,s,req,reply)=>{reply.code(201);return importer().createCompact(c,s,cmsId(req),req.body as CompactVariantInput);}));
  app.post(`${cp}/artworks/:id/compact-preparations/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},jobId:id})}},importMutation(async(c,s,req)=>{await importer().requiredModelReady(c,s);return cms.approveCompact(c,s,cmsId(req),req.body as {revision:number;jobId:string});}));
  if(nativeOexWorkspace&&nativeBoundedEditing&&modelPreparationExecution)app.post(`${cp}/artworks/:id/fresh-image-preparations/approve`,{

@@ -58,7 +58,9 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(row.model_preparation!==undefined&&row.model_preparation!==null){
    const preparation=row.model_preparation,request=obj(preparation)?preparation.request:undefined;
    const invalid=()=>issues.push({code:'INVALID_REQUIRED_MODEL_IMPORT',binding});
-   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||request.profileId!=='embedded-model-compact-20k-512-v1'||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
+   const large=obj(request)&&request.profileId==='embedded-model-compact-large-20k-512-v2';
+
+   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||(large?(request.sourceFull!==undefined||Number(row.expected_bytes)>64*1024*1024):request.profileId!=='embedded-model-compact-20k-512-v1')||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
    if(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'MODEL_PREPARATION_WORKER_DRAIN_UNCONFIRMED',binding});
    if(request.sourceFull!==undefined){
     const full=request.sourceFull;
