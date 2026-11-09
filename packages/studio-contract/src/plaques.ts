@@ -3,8 +3,13 @@ import {TEMPLATE_NAMESPACE} from './index.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,validateArtifactPose,type ArtifactPose} from './artifact-affine.js';
 export const PLAQUE_NAMESPACE='org.exhibitos.studio/plaques';
-export const PLAQUE_LIMITS=Object.freeze({count:32,bytes:16384,width:512,height:256,desktop:4,compact:2,introductionText:1024,introductionLocales:8,captionLocales:8,captionArtist:80,captionDate:48});
-export interface ArtworkPlaqueCaptionTranslation {locale:string;artist:string;date:string}
+export const PLAQUE_LIMITS=Object.freeze({count:32,bytes:16384,width:512,height:256,desktop:4,compact:2,introductionText:1024,introductionLocales:8,captionLocales:8,captionArtist:80,captionDate:48,captionMedium:96,captionDimensions:96});
+export interface ArtworkPlaqueCaptionTranslation {
+ locale:string;artist:string;date:string;
+ medium?:string;
+ /** Museum-recorded original dimensions, distinct from scene placement dimensions. */
+ dimensions?:string;
+}
 export interface ArtworkPlaqueCaption {translations:ArtworkPlaqueCaptionTranslation[]}
 /** Room-local metres, +Y up; plane front is +Z. */
 export interface StudioPlaque {
@@ -34,8 +39,10 @@ function validArtworkCaption(value:unknown):value is ArtworkPlaqueCaption {
   value.translations.length<1||value.translations.length>PLAQUE_LIMITS.captionLocales)return false;
  const tags=new Set<string>();
  for(const row of value.translations){
-  if(!object(row)||!closed(row,['locale','artist','date'])||!localeTag(row.locale)||!captionText(row.locale,48)||
-   !captionText(row.artist,PLAQUE_LIMITS.captionArtist)||!captionText(row.date,PLAQUE_LIMITS.captionDate))return false;
+  if(!object(row)||!allowed(row,['locale','artist','date'],['medium','dimensions'])||!localeTag(row.locale)||!captionText(row.locale,48)||
+   !captionText(row.artist,PLAQUE_LIMITS.captionArtist)||!captionText(row.date,PLAQUE_LIMITS.captionDate)||
+   (Object.hasOwn(row,'medium')&&!captionText(row.medium,PLAQUE_LIMITS.captionMedium))||
+   (Object.hasOwn(row,'dimensions')&&!captionText(row.dimensions,PLAQUE_LIMITS.captionDimensions)))return false;
   const tag=row.locale.toLowerCase();
   if(tags.has(tag))return false;
   tags.add(tag);
@@ -81,11 +88,15 @@ export function validateStudioPlaques(candidate:unknown){
  const seen=new Set<string>();
  value.plaques.forEach((p,i)=>{
   const path='/plaques/'+i;
-  if(!object(p)||!(value.version===3?allowed(p,plaqueFields,['artworkCaption']):closed(p,plaqueFields))||!uuid(p.id)||!uuid(p.roomId)||typeof p.visible!=='boolean'||!object(p.source)||!object(p.dimensions)||!closed(p.dimensions,['width','height'])||!finite(p.dimensions.width,.2,2)||!finite(p.dimensions.height,.15,1.2)) {add('PLAQUE_SCHEMA',path,'Invalid bounded plaque');return;}
+  if(!object(p)||!(value.version===3?allowed(p,plaqueFields,['artworkCaption']):closed(p,plaqueFields))||!uuid(p.id)||!uuid(p.roomId)||typeof p.visible!=='boolean'||!object(p.source)||!object(p.dimensions)||!closed(p.dimensions,['width','height'])) {add('PLAQUE_SCHEMA',path,'Invalid bounded plaque');return;}
   const s=p.source;
   if(s.kind==='artwork'?!closed(s,['kind','placementId'])||!uuid(s.placementId):!closed(s,['kind'])||(s.kind!=='room'&&s.kind!=='exhibition')){add('PLAQUE_SCHEMA',path+'/source','Expected an existing text source');return;}
+  const artwork=s.kind==='artwork';
+  if(!finite(p.dimensions.width,artwork?0.15:0.20,2)||!finite(p.dimensions.height,artwork?0.10:0.15,1.2)){
+   add('PLAQUE_SCHEMA',path+'/dimensions','Invalid bounded plaque size');return;
+  }
   if(Object.hasOwn(p,'artworkCaption')&&(s.kind!=='artwork'||!validArtworkCaption(p.artworkCaption)))
-   add('PLAQUE_SCHEMA',path+'/artworkCaption','Expected bounded localized artist and date on an artwork plaque');
+   add('PLAQUE_SCHEMA',path+'/artworkCaption','Expected bounded localized artwork caption metadata');
   if(seen.has(p.id.toLowerCase()))add('PLAQUE_REFERENCE',path+'/id','Plaque UUID must be unique');seen.add(p.id.toLowerCase());
   const room=rooms.find(r=>typeof r.id==='string'&&equal(r.id,p.roomId as string));
   if(!room||!object(room.dimensions)){add('PLAQUE_REFERENCE',path+'/roomId','Existing room required');return;}
