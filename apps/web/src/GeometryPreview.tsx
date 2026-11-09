@@ -77,7 +77,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, stagingHayesDetailBudget, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor, type DetailTier } from "@exhibitos/studio-contract";
@@ -1768,7 +1768,7 @@ export function GeometryPreview({
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let detailImageCandidate:InstanceType<typeof three.Object3D>|undefined;
-        let detailResidentWait:{assetId:string;bytes:number}|undefined;
+        let detailBudgetWait:{assetId:string;bytes:number;phase:'resident'|'transition'}|undefined;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined,retryOriginalDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
@@ -1826,6 +1826,16 @@ export function GeometryPreview({
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
+        const selectedBudget=(art:(typeof arts)[number],asset?:typeof art.assets[number])=>{
+          const image=selectedImageDetail(art,viewerBudget)?.budget;
+          if(image||art.artworkType!=='sculpture')return image;
+          return stagingHayesDetailBudget({
+            enabled:diagnosticsEnabled(),indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256,
+            assetSha256:(asset??art.assets.find(value=>value.id===art.primaryAssetId))?.sha256,
+            deviceMemory:(navigator as Navigator&{deviceMemory?:number}).deviceMemory,
+            coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,budget:viewerBudget,
+          });
+        };
         let diagnosticPeak=0,diagnosticPeakTexture=0,diagnosticPeakMesh=0;
         let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
         let diagnosticDetailPlacement:string|null=null;
@@ -1842,7 +1852,7 @@ export function GeometryPreview({
           const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
           const displayedId=detailPinnedArtwork?(detailPinned?.userData.viewerAssetId as string|undefined):selectedId?active.get(selectedId):undefined;
           const displayedAsset=selectedArt?.assets.find(asset=>asset.id===displayedId);
-          const selectedLimits=selectedArt&&detailPinnedArtwork?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(selectedArt,viewerBudget)?.budget}):undefined;
+          const selectedLimits=selectedArt&&detailPinnedArtwork?requestLimits({detailPromotion:true,detailBudget:selectedBudget(selectedArt)}):undefined;
           const detailOmitted=!!detailPinned||!!detailImageCandidate||detailRetired;
           return {version:1,capturedAt:new Date().toISOString(),lifecycle:gpuLost?'context-lost':disposed||publicDisplayStopped?'stopped':'live',identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
             selected:{placementId:diagnosticDetailPlacement,artworkRevisionId:selectedId,reason:detailPinnedArtwork?'detail':currentArtwork?'attended':null},
@@ -1853,8 +1863,8 @@ export function GeometryPreview({
             assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
         });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
-        const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
-          const target=task?.detailPromotion?task.imageBudget:undefined;
+        const requestLimits=(task?:{detailPromotion?:boolean;detailBudget?:DeviceBudget})=>{
+          const target=task?.detailPromotion?task.detailBudget:undefined;
           return {
             resident:assetBudgetBytes+Math.max(0,(target?.maxCacheBytes??viewerBudget.maxCacheBytes)-viewerBudget.maxCacheBytes),
             transition:transitionBudgetBytes+Math.max(0,(target?.maxTransitionBytes??target?.maxCacheBytes??viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes)-(viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes)),
@@ -1928,7 +1938,11 @@ export function GeometryPreview({
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
-          peak.reserve(key,bytes,limit);
+          try{peak.reserve(key,bytes,limit);}catch(error){
+            if(task?.detailPromotion&&task.art.revisionId===detailPinnedArtwork&&Number.isSafeInteger(bytes)&&bytes>0)
+              detailBudgetWait={assetId:task.inventory.id,bytes,phase:'transition'};
+            throw error;
+          }
         };
         type DetailTransfer={loaded(bytes:number):void;finish():void};
         let beginDetailTransfer:((tier:DetailTier,bytes:number)=>DetailTransfer)|undefined;
@@ -1938,7 +1952,7 @@ export function GeometryPreview({
             art: Document["artworks"][number];
             inventory: Document["artworks"][number]["assets"][number];
             prepareOnly:boolean; downloadOnly:boolean;full?:boolean;manual?:boolean;
-            imageBudget?:DeviceBudget;detailPromotion?:boolean;detailTransfer?:DetailTransfer;
+            detailBudget?:DeviceBudget;detailPromotion?:boolean;detailTransfer?:DetailTransfer;
             thumbnailWork?:(signal:AbortSignal)=>Promise<void>;
           }
         >();
@@ -1983,7 +1997,7 @@ export function GeometryPreview({
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
-                const bytes=await readArtworkBytes(t.art,t.inventory,signal,t.detailTransfer?.loaded),budget=t.imageBudget??viewerBudget;
+                const bytes=await readArtworkBytes(t.art,t.inventory,signal,t.detailTransfer?.loaded),budget=t.detailBudget??viewerBudget;
                 signal.throwIfAborted();
                 stage(t.inventory.id,'verified-download',undefined,key);
                 checkImageDecode(bytes,t.art,t.inventory,budget);
@@ -1992,7 +2006,7 @@ export function GeometryPreview({
                 imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget,undefined,t.detailTransfer?.loaded);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.detailBudget,undefined,t.detailTransfer?.loaded);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
@@ -2065,7 +2079,7 @@ export function GeometryPreview({
           if (disposed || gpuLost || publicDisplayStopped) return;
           updateArtworkNotice();
           const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
-          const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
+          const selectedLimits=detailArt?requestLimits({detailPromotion:true,detailBudget:selectedBudget(detailArt)}):undefined;
           // A verified download-only preparation may settle without an object.
           // Its expendable encoded cache must also fit the current steady scope.
           for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=(selectedLimits?.resident??assetBudgetBytes))break;byteCache.delete(asset.id);}
@@ -2171,10 +2185,11 @@ export function GeometryPreview({
             update();
             return;
           }
-          if(detailPromotion&&detailResidentWait?.assetId===inventory.id){
-            const {bytes}=detailResidentWait,limit=requestLimits({detailPromotion,imageBudget}).resident;
+          const detailBudget=detailPromotion?selectedBudget(art,inventory):undefined;
+          if(detailPromotion&&detailBudgetWait?.assetId===inventory.id){
+            const {bytes,phase}=detailBudgetWait,limit=requestLimits({detailPromotion,detailBudget})[phase];
             if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))return;
-            detailResidentWait=undefined;
+            detailBudgetWait=undefined;
           }
           if(prepareOnly&&minimumObjects.get(art.revisionId)?.assetId===inventory.id)return;
           if (active.get(art.revisionId) === inventory.id) {
@@ -2205,7 +2220,7 @@ export function GeometryPreview({
               // A speculative load cannot spend a peer's retained preparation.
               const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
-              const preflightLimit=requestLimits({detailPromotion,imageBudget}).transition;
+              const preflightLimit=requestLimits({detailPromotion,detailBudget}).transition;
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>preflightLimit;
               if(downloadOnly&&(cached||known!==undefined)){
                 if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
@@ -2219,7 +2234,7 @@ export function GeometryPreview({
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
           const detailTransfer=detailPromotion?beginDetailTransfer?.('approved-full',inventory.bytes):undefined;
-          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion,detailTransfer };
+          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,detailBudget,detailPromotion,detailTransfer };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
           const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
@@ -2260,7 +2275,7 @@ export function GeometryPreview({
                   if(art.revisionId===demandContext().owner)reclaimForCurrent();
                   reduceSurfaceForCurrent(art.revisionId);
                 }else if(selectedPromotion&&Number.isSafeInteger(required)&&required>0){
-                  detailResidentWait={assetId:inventory.id,bytes:required};
+                  detailBudgetWait={assetId:inventory.id,bytes:required,phase:'resident'};
                 }else retryAfter.set(art.revisionId,performance.now()+5000);
                 update();return;
               }
@@ -2710,7 +2725,7 @@ export function GeometryPreview({
             const pendingDetail=pending.get(art.revisionId);
             if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);}
             desired.set(art.revisionId,active.get(art.revisionId)!);
-            detailResidentWait=undefined;
+            detailBudgetWait=undefined;
             const spare=detailImageCandidate;detailImageCandidate=undefined;if(spare)destroy(spare);
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;diagnosticDetailPlacement=null;if(retired&&object)destroy(object);

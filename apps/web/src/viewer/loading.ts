@@ -34,6 +34,21 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
  return selectedImageCapacity(budget,memory);
 }
+/** One static staging trial, scoped to the measured Hayes full model and
+ * the unhinted touch Auto policy. Browser signals do not identify a phone. */
+export function stagingHayesDetailBudget(input:{
+ enabled:boolean;indexSha256?:string;assetSha256?:string;deviceMemory?:number;
+ coarsePointer:boolean;finePointer:boolean;budget:DeviceBudget;
+}):DeviceBudget|undefined {
+ const {budget}=input;
+ if(!input.enabled||input.indexSha256!=='054b6756a6aa468e25eaa634b84800fb01d3b21d11f0fff6075f5d54291e8d68'||
+    input.assetSha256!=='694a9cf81dfbf12fd0841ae45240c5ae0f1d7cb129d0ee122be7cff86c4625bc'||
+    input.deviceMemory!==undefined||!input.coarsePointer||input.finePointer||
+    budget.maxCacheBytes!==192*1024*1024||budget.maxTransitionBytes!==256*1024*1024||
+    budget.maxTriangles!==100000||budget.maxTextureSize!==2048)return;
+ return {...budget,maxCacheBytes:256*1024*1024,maxTransitionBytes:272*1024*1024};
+}
+
 /** Explicit high-quality choice permits more triangles than Auto. Known
  * constrained devices retain their existing limits. Explicit desktop uses the
  * development starting budget (192 MiB steady / 256 MiB transition); actual
