@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {deflateSync} from 'node:zlib';
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
 import sharp from 'sharp';
-import {prepareProductImageInWorker} from './product-image-preparation-process.ts';
-import {imageHash,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
+import {prepareFreshImageInWorker,prepareProductImageInWorker} from './product-image-preparation-process.ts';
+import {pngCrc} from './png-pixels.ts';
+import {FRESH_IMAGE_RECIPE_SHA256,imageHash,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
 import {canonicalImageHash,productImageView} from './product-image-intent.ts';
 
 it('prepares the selected JPEG in the product worker and preserves the source identity',async()=>{
@@ -57,4 +59,27 @@ it('accepts the bounded fallback in the durable ready receipt',async()=>{
   approved_key:`${tenantId}/approved/${full.sha256}`,asset_id:full.assetId,original_asset_id:original.assetId,
   derived:{kind:'product-image-pair',request:{version:1,profile:PRODUCT_IMAGE_PROFILE,artworkRevision:1},workspaceId,principalId,result}};
  expect(productImageView(row)).toMatchObject({status:'ready',workerDrained:true,full,coarse});
+},30000);
+
+it('processes a strict PNG above the legacy decoded limit under the distinct fresh receipt',async()=>{
+ const width=3072,height=2048;
+ const header=Buffer.alloc(13);
+ header.writeUInt32BE(width);header.writeUInt32BE(height,4);header[8]=8;header[9]=2;
+ const rows=Buffer.alloc((width*3+1)*height);
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const i=y*(width*3+1)+1+x*3;
+  rows[i]=x%256;rows[i+1]=y%256;rows[i+2]=(x+y)%256;
+ }
+ const chunk=(name:string,body:Buffer)=>{
+  const type=Buffer.from(name),encoded=Buffer.alloc(body.length+12);
+  encoded.writeUInt32BE(body.length);type.copy(encoded,4);body.copy(encoded,8);
+  encoded.writeUInt32BE(pngCrc(encoded.subarray(4,-4)),encoded.length-4);
+  return encoded;
+ };
+ const original=Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('IDAT',deflateSync(rows)),chunk('IEND',Buffer.alloc(0))]);
+ const identity={mime:'image/png' as const,sha256:imageHash(original),bytes:original.length};
+ const result=await prepareFreshImageInWorker(original,identity);
+ expect(result).toMatchObject({workerDrained:true,receipt:{recipeSHA256:FRESH_IMAGE_RECIPE_SHA256,
+  source:{...identity,width,height,iccSHA256:null},full:{width:2048,height:1365},coarse:{width:512,height:341}}});
+ expect(imageHash(original)).toBe(identity.sha256);
 },30000);
