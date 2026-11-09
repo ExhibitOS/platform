@@ -79,3 +79,41 @@ test('nearby action requires the exact visible bench and clears eligibility outs
   }
   expect(onNearbyBench.mock.lastCall).toEqual([null]);
 });
+
+
+test.each(['mouse','touch'])('seated %s drag rotates in place and preserves the standing camera',async pointerType=>{
+  const d=benchFixture(),camera=new PerspectiveCamera(63,1,.01,100);
+  camera.position.set(0,1.65,3);camera.lookAt(0,1.2,0);
+  const doc=Object.assign(new EventTarget(),{activeElement:null,pointerLockElement:null,hidden:false});
+  const canvas=Object.assign(new EventTarget(),{
+    dataset:{},style:{touchAction:''},focus:vi.fn(),setPointerCapture:vi.fn(),hasPointerCapture:()=>false,
+  }) as unknown as HTMLCanvasElement;
+  let frame:FrameRequestCallback|undefined;
+  vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
+  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{frame=callback;return 1;});
+  vi.stubGlobal('cancelAnimationFrame',()=>{frame=undefined;});
+  const controls={enabled:true,target:new Vector3(0,1.2,0),update(){}} as OrbitControls;
+  const adapter=await createWalkingCamera({
+    document:d,camera,initialCamera:camera.clone(),controls,canvas,
+    settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode(){},onMessage(){},
+  });
+  try{
+    const bench=(d.extensions![N] as unknown as {benches:{id:string}[]}).benches[0]!;
+    const standing={eye:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
+    adapter.actions.sit!(bench.id);
+    const seated={eye:camera.position.toArray(),quaternion:camera.quaternion.toArray()};
+    for(const [type,x,y] of [['pointerdown',10,20],['pointermove',60,45],['pointerup',60,45]] as const){
+      canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerType,pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
+    }
+    expect(frame).toBeDefined();
+    frame?.(performance.now());
+    expect(camera.position.toArray()).toEqual(seated.eye);
+    expect(camera.quaternion.toArray()).not.toEqual(seated.quaternion);
+    expect(JSON.parse(canvas.dataset.navigationState!)).toMatchObject({walking:false,paused:true,velocity:[0,0,0]});
+    adapter.actions.stand!();
+    expect(camera.position.toArray()).toEqual(standing.eye);
+    expect(camera.quaternion.toArray()).toEqual(standing.quaternion);
+    expect(controls.target.toArray()).toEqual(standing.target);
+    expect(camera.fov).toBe(standing.fov);
+  }finally{adapter.dispose();}
+});

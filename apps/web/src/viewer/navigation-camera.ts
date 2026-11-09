@@ -27,6 +27,7 @@ export async function createWalkingCamera({
   resumeDrag,
   resumeBenchArrow,
   activateBench,
+  canLookSeated = () => true,
   onSeat,
   onNearbyBench,
   workspaceBenchAvailability,
@@ -51,6 +52,7 @@ export async function createWalkingCamera({
   resumeDrag?: () => boolean;
   resumeBenchArrow?: () => boolean;
   activateBench?: () => boolean;
+  canLookSeated?: () => boolean;
   onSeat?: (benchId:string|null) => void;
   onNearbyBench?: (benchId: string | null) => void;
   workspaceBenchAvailability?: (link:WorkspaceBenchVisual) => 'pending'|'ready'|'unavailable';
@@ -182,19 +184,39 @@ export async function createWalkingCamera({
       seated.resumeInput = false;
     }
     controller.pause();
-    targetYaw = controller.state().yaw;
+    targetYaw = seated?.yaw ?? controller.state().yaw;
     targetPitch = pitch;
     cancelAnimationFrame(frame);
     onMode(walking, true, reason);
     publish();
+    if(seated)return;
     onMessage(reason === "escape" || reason === "pointerlock" || reason === "user"
       ? "걷기가 멈췄습니다. W/A/S/D 또는 빈 공간 클릭으로 다시 걸을 수 있어요."
       : "걷기가 일시 정지되었습니다. 다시 걷기는 직접 선택하세요.");
   };
+  const startPointerLook = () => {
+    if(!seated)return (resumeDrag??resumeMovement)?.()??false;
+    if(disposed||!canLookSeated())return false;
+    input.enable(false);
+    return true;
+  };
+  const queueSeatedLook = () => {
+    if(!seated||disposed||!canLookSeated())return;
+    cancelAnimationFrame(frame);
+    frame=requestAnimationFrame(()=>{
+      if(!seated||disposed||!canLookSeated())return;
+      const {yawDelta,pitchDelta}=input.sample(0);
+      seated.yaw+=yawDelta;
+      pitch=Math.max(-1.396,Math.min(1.396,pitch+pitchDelta));
+      targetYaw=seated.yaw;
+      targetPitch=pitch;
+      apply();
+    });
+  };
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement, resumeDrag, resumeBenchArrow, activateBench);
+  }, isPanelFocus, resumeMovement, startPointerLook, resumeBenchArrow, activateBench, queueSeatedLook);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
@@ -281,10 +303,10 @@ export async function createWalkingCamera({
         }
         const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
         const snapshot={benchId:bench.id,workspaceVisual:bench.workspaceVisual,eye,yaw,pitch:seatPitch,fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
-        input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;
+        input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;canvas.style.touchAction="none";
         pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
         camera.fov=fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
-        onMessage('앉아서 감상 중입니다. 일어서서 돌아가기를 선택하면 이전 위치로 돌아갑니다.');
+        onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 이전 위치와 시점으로 돌아갑니다.');
       } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
     },
     sitNearby: expectedBenchId => {
@@ -350,7 +372,7 @@ export async function createWalkingCamera({
       onMessage("정지 관람입니다. 시점 버튼과 작품 목록을 사용할 수 있습니다.");
     },
     capture: () => {
-      if(orderedViewing)return;
+      if(seated||orderedViewing)return;
       start();
       void input.capture();
     },
