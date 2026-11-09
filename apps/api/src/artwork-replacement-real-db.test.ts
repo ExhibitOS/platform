@@ -37,9 +37,10 @@ async function unusedPort(){const server=createServer();await new Promise<void>(
 
 const replacementCases=[
  {name:'legacy isolated PostgreSQL worker expiry, protected staging, retry, atomic rollback and replay',product:false},
- {name:'server-generated JPEG preparation and authenticated atomic replacement on isolated PostgreSQL',product:true},
+ {name:'server-generated JPEG preparation and authenticated atomic replacement on isolated PostgreSQL',product:true,existingPreview:true},
+ {name:'first replacement preview and retained approval repair on isolated PostgreSQL',product:true,existingPreview:false},
 ];
-for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||
+for(const {name,product,existingPreview} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||
  !process.env.EXHIBITOS_WHEAT_SAVED||(product?!process.env.EXHIBITOS_PRODUCT_JPEG:!process.env.EXHIBITOS_WHEAT_FULL||!process.env.EXHIBITOS_WHEAT_ORIGINAL||!process.env.EXHIBITOS_WHEAT_PROPOSAL))(name,async()=>{
  const pool=new Pool({connectionString:process.env.WHEAT_TEST_PG}),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),rightsId=randomUUID(),root=process.env.WHEAT_TEST_ROOT!;
  try{
@@ -48,7 +49,7 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
   const find=(v:unknown):Extract<Lifecycle,{kind:'exhibition-draft'}>|undefined=>{if(!v||typeof v!=='object')return;const o=v as Record<string,unknown>;if(o.kind==='exhibition-draft'&&o.candidate&&typeof o.candidate==='object'&&Array.isArray((o.candidate as {artworks?:unknown}).artworks))return v as Extract<Lifecycle,{kind:'exhibition-draft'}>;for(const x of Object.values(v)){const result=find(x);if(result)return result;}return;};
   const draft=find(data);if(!draft)throw Error('draft missing');const prior=draft.candidate.artworks.find((a:Artwork)=>a.assets.some(x=>x.sha256==='2d202bfa522a54dd6e0a73063ff2eabdb7f90aae246ba9322d6505019c5bda9f'));if(!prior)throw Error('artwork missing');
   prior.extensions!['org.exhibitos.studio/cms']={tenantId,artworkId:prior.id,revision:prior.revision};
-  const priorPreview=product?await (await import('sharp')).default({create:{width:32,height:24,channels:3,background:'#733519'}}).png().toBuffer():undefined;
+  const priorPreview=existingPreview?await (await import('sharp')).default({create:{width:32,height:24,channels:3,background:'#733519'}}).png().toBuffer():undefined;
   if(priorPreview){
    const id=randomUUID();
    prior.assets.push({id,path:`assets/${id}/thumbnail.png`,role:'preview',mime:'image/png',bytes:priorPreview.length,sha256:sha256(priorPreview)});
@@ -108,10 +109,39 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
    const assetCount=async()=>Number((await pool.query('SELECT count(*) AS n FROM assets WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n);
    const receiptCount=async()=>Number((await pool.query('SELECT count(*) AS n FROM studio_requests WHERE tenant_id=$1 AND request_id=$2',[tenantId,request.requestId])).rows[0].n);
    const beforeAssets=await assetCount();
-   await expect(mutate(async(c,s)=>{await replace(c,s);throw Error('force replacement rollback');})).rejects.toThrow('force replacement rollback');
+   let staged:typeof draft|undefined;
+   await expect(mutate(async(c,s)=>{await replace(c,s);staged=(await studio.access(c,s,draft.exhibitionId)).metadata;throw Error('force replacement rollback');})).rejects.toThrow('force replacement rollback');
    expect((await mutate((c,s)=>cms.studioArtwork(c,s,prior.id))).artwork.primaryAssetId).toBe(old.id);
    expect(await assetCount()).toBe(beforeAssets);
    expect(await receiptCount()).toBe(0);
+   if(!existingPreview){
+    if(!staged)throw Error('missing staged first thumbnail');
+    const historical=staged.candidate.artworks.find(artwork=>artwork.id===prior.id)!;
+    const thumbnail=artworkThumbnailFor(historical)!;
+    const full=Buffer.from(await blobs.get(`${tenantId}/approved/${prepared.full.sha256}`));
+    expect(thumbnail.sha256).toBe(sha256(prepareProductImageThumbnail(full,prepared.full)));
+    historical.assets=historical.assets.filter(asset=>asset.id!==thumbnail.id);
+    delete historical.extensions![ARTWORK_THUMBNAIL_NAMESPACE];
+    // Seed an immutable revision in the format used before first-preview generation.
+    await pool.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,2,$3)',[tenantId,prior.id,metadata]);
+    await pool.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,2,$3,$4)',[tenantId,prior.id,prepared.full.assetId,{metadata,asset:{id:prepared.full.assetId,sha256:prepared.full.sha256,bytes:prepared.full.bytes,mime:'image/png',rightsRevision:1},importedArtwork:historical}]);
+    await pool.query('UPDATE artworks SET revision=2,approved_revision=2,approved_asset_id=$3 WHERE tenant_id=$1 AND id=$2',[tenantId,prior.id,prepared.full.assetId]);
+    await pool.query('UPDATE exhibitions SET revision=2,metadata=$3 WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId,staged]);
+    await pool.query('INSERT INTO exhibition_revisions(tenant_id,exhibition_id,revision,snapshot) VALUES($1,$2,2,$3)',[tenantId,draft.exhibitionId,staged]);
+    const repairInput={...request,kind:'product-image-thumbnail-repair-v1' as const,requestId:randomUUID(),artworkRevision:2};
+    const repair=(c:PoolClient,s:Session)=>replaceApprovedArtwork(c,s,draft.exhibitionId,repairInput,etag(2,staged!),studio,cms,imports,blobs);
+    await expect(mutate(async(c,s)=>{await repair(c,s);throw Error('force repair rollback');})).rejects.toThrow('force repair rollback');
+    expect(await assetCount()).toBe(beforeAssets);
+    const repaired=await mutate(repair);
+    expect(repaired.revision).toBe(3);
+    expect(await mutate(repair)).toEqual(repaired);
+    expect(await assetCount()).toBe(beforeAssets+1);
+    const repairedArt=(await mutate((c,s)=>cms.studioArtwork(c,s,prior.id))).artwork;
+    expect(repairedArt.assets.filter(asset=>asset.role!=='preview')).toEqual(historical.assets);
+    expect(artworkThumbnailFor(repairedArt)?.sha256).toBe(thumbnail.sha256);
+    expect(await mutate(async(c,s)=>imports.view(await imports.access(c,s,id)))).toMatchObject({imagePreparation:prepared});
+    return;
+   }
    const committed=await mutate(replace);
    expect(committed.revision).toBe(2);
    expect(await mutate(replace)).toEqual(committed);
@@ -123,12 +153,12 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
    expect(updated.primaryAssetId).toBe(prepared.full.assetId);
    const thumbnail=artworkThumbnailFor(updated)!;
    expect(thumbnail.id).not.toBe(artworkThumbnailFor(prior)?.id);
-   expect(thumbnail.sha256).not.toBe(sha256(priorPreview!));
+   if(priorPreview)expect(thumbnail.sha256).not.toBe(sha256(priorPreview));
    const full=Buffer.from(await blobs.get(`${tenantId}/approved/${prepared.full.sha256}`));
    const preview=prepareProductImageThumbnail(full,prepared.full);
    expect(thumbnail.sha256).toBe(sha256(preview));
    expect(Buffer.from(await blobs.get(`${tenantId}/approved/${thumbnail.sha256}`))).toEqual(preview);
-   expect(Buffer.from(await blobs.get(`${tenantId}/approved/${sha256(priorPreview!)}`))).toEqual(priorPreview);
+   if(priorPreview)expect(Buffer.from(await blobs.get(`${tenantId}/approved/${sha256(priorPreview)}`))).toEqual(priorPreview);
    const history=(await pool.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=1',[tenantId,prior.id])).rows[0].snapshot;
    expect(artworkThumbnailFor(history.importedArtwork)).toEqual(artworkThumbnailFor(prior));
    return;

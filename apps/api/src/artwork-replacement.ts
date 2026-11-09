@@ -3,7 +3,6 @@ import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {Cms,validMetadata} from './cms.ts';
 import {Imports} from './imports.ts';
@@ -18,18 +17,20 @@ import {Studio,etag,insertStudioReceipt,type Draft,type StudioResponse} from './
 
 interface ReviewedImageReplacement {requestId:string;artworkId:string;artworkRevision:number;importJobId:string}
 interface ApprovedModelCandidateReplacement extends ReviewedImageReplacement {kind:'approved-model-candidate-v1';placementId:string}
-export type ArtworkReplacementInput=ReviewedImageReplacement|ApprovedModelCandidateReplacement;
+interface ProductImageThumbnailRepair extends ReviewedImageReplacement {kind:'product-image-thumbnail-repair-v1'}
+export type ArtworkReplacementInput=ReviewedImageReplacement|ApprovedModelCandidateReplacement|ProductImageThumbnailRepair;
 /** Must run inside the authenticated native request's single DB transaction.
  * No caller-supplied asset identifiers, keys, hashes or snapshots are trusted. */
 export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId:string,input:ArtworkReplacementInput,match:string,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore):Promise<StudioResponse>{
  const model=input&&typeof input==='object'&&'kind' in input&&input.kind==='approved-model-candidate-v1'?input:undefined;
- const keys=model?'artworkId,artworkRevision,importJobId,kind,placementId,requestId':'artworkId,artworkRevision,importJobId,requestId';
+ const repair=input&&typeof input==='object'&&'kind' in input&&input.kind==='product-image-thumbnail-repair-v1';
+ const keys=repair?'artworkId,artworkRevision,importJobId,kind,requestId':model?'artworkId,artworkRevision,importJobId,kind,placementId,requestId':'artworkId,artworkRevision,importJobId,requestId';
  if(!input||Object.keys(input).sort().join(',')!==keys||!Number.isSafeInteger(input.artworkRevision)||input.artworkRevision<1)throw new ApiError(400,'INVALID_INPUT');
  for(const id of [exhibitionId,input.artworkId,input.importJobId,input.requestId])uuid(id);
  if(model){uuid(model.placementId);await imports.requiredModelReady(c,s);}
  const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
  const row=await studio.access(c,s,exhibitionId);if(row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
- const requestHash=createHash('sha256').update(JSON.stringify([model?.kind??'replace-approved-artwork-v1',s.tenantId,s.userId,owner.workspaceId,exhibitionId,input.requestId,input.artworkId,input.artworkRevision,input.importJobId,match,...(model?[model.placementId]:[])])).digest('hex');
+ const requestHash=createHash('sha256').update(JSON.stringify([repair?'product-image-thumbnail-repair-v1':model?.kind??'replace-approved-artwork-v1',s.tenantId,s.userId,owner.workspaceId,exhibitionId,input.requestId,input.artworkId,input.artworkRevision,input.importJobId,match,...(model?[model.placementId]:[])])).digest('hex');
  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:${s.userId}:${input.requestId}`]);
  const receipt=await c.query('SELECT * FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId]);
  if(receipt.rowCount){if(receipt.rows[0].payload_sha256!==requestHash||receipt.rows[0].exhibition_id!==exhibitionId)throw new ApiError(409,'REQUEST_CONFLICT');return receipt.rows[0].response as StudioResponse;}
@@ -44,41 +45,44 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  const job=await imports.access(c,s,input.importJobId);
  const product=storedProductImage(job);
  if(product){
-  if(job.user_id!==s.userId||job.artwork_id!==input.artworkId||product.request.artworkRevision!==input.artworkRevision||job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
+  if(job.user_id!==s.userId||job.artwork_id!==input.artworkId||(!repair&&product.request.artworkRevision!==input.artworkRevision)||job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
   const receipt=productImageReceipt(job);
   assertImageReplacementCurrent(artwork,input,job.rights);
   const {artwork:prior}=await cms.studioArtwork(c,s,input.artworkId);
+  if(repair){
+   if(artwork.approved_asset_id!==receipt.full.assetId)throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
+   const selection=await c.query('SELECT 1 FROM artwork_thumbnail_selections WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3',[s.tenantId,input.artworkId,input.artworkRevision]);
+   if(selection.rowCount)throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+  }
   const {rows:[primary]}=await c.query(
    "SELECT a.rights_id,r.revision AS rights_revision,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",
    [s.tenantId,input.artworkId,receipt.full.assetId],
   );
   if(!primary)throw new ApiError(409,'ASSET_INTEGRITY');
-  await readReplacementAsset(blobs,job.object_key,receipt.original.bytes,receipt.original.sha256);
+  if(!repair)await readReplacementAsset(blobs,job.object_key,receipt.original.bytes,receipt.original.sha256);
   const full=await readReplacementAsset(blobs,job.approved_key,receipt.full.bytes,receipt.full.sha256);
-  if(receipt.coarse)await readReplacementAsset(blobs,`${s.tenantId}/quarantine/import-${job.id}/product-coarse`,receipt.coarse.bytes,receipt.coarse.sha256);
+  if(!repair&&receipt.coarse)await readReplacementAsset(blobs,`${s.tenantId}/quarantine/import-${job.id}/product-coarse`,receipt.coarse.bytes,receipt.coarse.sha256);
   if(!allowedRights(job.rights,'display')||!allowedRights(job.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
   const now=(await c.query('SELECT clock_timestamp() AS at')).rows[0].at as Date;
-  let thumbnail:{id:string;bytes:number;sha256:string}|undefined;
-  let preview:Buffer|undefined;
-  if(prior.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE]!==undefined){
-   if(!artworkThumbnailFor(prior))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
-   if(!isDeepStrictEqual(primary.rights,job.rights))throw new ApiError(409,'ASSET_INTEGRITY');
-   if(!blobs.putDurable)throw new ApiError(503,'STORAGE_UNAVAILABLE');
-   try{preview=prepareProductImageThumbnail(full,receipt.full);}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
-   thumbnail={id:randomUUID(),bytes:preview.length,sha256:sha256(preview)};
-  }
-  const next=productImageReplacementSnapshot(prior,receipt,{tenantId:s.tenantId,revisionId:randomUUID(),at:now.toISOString(),thumbnail});
-  const previewKey=thumbnail?`${s.tenantId}/approved/${thumbnail.sha256}`:undefined;
-  if(thumbnail&&previewKey)await c.query(
+  if(!isDeepStrictEqual(primary.rights,job.rights))throw new ApiError(409,'ASSET_INTEGRITY');
+  if(!blobs.putDurable)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+  let preview:Buffer;
+  try{preview=prepareProductImageThumbnail(full,receipt.full);}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+  const thumbnail={id:randomUUID(),bytes:preview.length,sha256:sha256(preview)};
+  const next=productImageReplacementSnapshot(prior,receipt,{tenantId:s.tenantId,revisionId:randomUUID(),at:now.toISOString(),thumbnail,repair});
+  const previewKey=`${s.tenantId}/approved/${thumbnail.sha256}`;
+  await c.query(
    "INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",
    [s.tenantId,thumbnail.id,input.artworkId,primary.rights_id,previewKey,thumbnail.sha256,thumbnail.bytes],
   );
   const response=await commitImageReplacement(c,s,exhibitionId,input,match,studio,cms,artwork,prior,next,now,{...receipt.full,rightsRevision:primary.rights_revision});
   await insertStudioReceipt(c,[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
   // Write immutable content only after all transactional CAS checks pass.
-  if(preview&&previewKey)await blobs.putDurable!(previewKey,preview);
+  await blobs.putDurable(previewKey,preview);
+  await readReplacementAsset(blobs,previewKey,thumbnail.bytes,thumbnail.sha256);
   return response;
  }
+ if(repair)throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
  const coarse=storedImageCoarse(job);
  if(!coarse||job.user_id!==s.userId||job.artwork_id!==input.artworkId||coarse.intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||!coarse.assetId||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string')throw new ApiError(409,'COARSE_JOB_NOT_READY');
  assertImageReplacementCurrent(artwork,input,job.rights);
