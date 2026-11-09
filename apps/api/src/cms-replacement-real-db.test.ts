@@ -6,6 +6,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import sharp from 'sharp';
+import {prepareProductImage} from './product-image-preparation.ts';
 import {LOD_NAMESPACE} from '@exhibitos/studio-contract';
 import {FileBlobStore,migrate,sha256,transaction} from '@exhibitos/storage';
 import {Cms} from './cms.ts';
@@ -44,7 +45,8 @@ it.skipIf(!process.env.PROVENANCE_TEST_PG)('rejects staged image outputs and rea
   await pool.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,artworkId,metadata]);
   await pool.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[tenantId,rightsId,rights]);
   const seedAsset=async(edge:number,background:string)=>{
-   const id=randomUUID(),image=await sharp({create:{width:edge,height:edge,channels:3,background}}).png().toBuffer();
+   const id=randomUUID(),jpeg=await sharp({create:{width:edge,height:edge,channels:3,background}}).jpeg().toBuffer();
+   const {full:image}=await prepareProductImage(jpeg,{sha256:sha256(jpeg),bytes:jpeg.length});
    const hash=sha256(image),key=`${tenantId}/approved/${hash}`;
    await blobs.putDurable(key,image);
    await pool.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",[tenantId,id,artworkId,rightsId,key,hash,image.length]);
