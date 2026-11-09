@@ -60,7 +60,7 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   await migrate(pool,new URL('../../../database/native-fresh-image-preparation/',import.meta.url).pathname);
   expect((await session()).json().nativeFreshImagePreparationProfile).toBe('ordinary-image-preparation-v1');
   for(const mime of ['image/png','image/jpeg'] as const){
-   const artworkId=randomUUID(),metadata={title:`Fresh ${mime}`,description:'',dimensions:{width:1.5,height:1,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'meter',scaleApplied:true}};
+   const artworkId=randomUUID(),metadata={title:`Fresh ${mime}`,description:'',dimensions:{width:1.5,height:1,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'m',scaleApplied:true}};
    await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[tenantId,artworkId,artistId,metadata]);
    await pool.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,artworkId,metadata]);
    const width=3072,height=2048,rgb=Buffer.alloc(width*height*3);
@@ -87,7 +87,9 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    const ready=readyResponse.json().imagePreparation;
    expect(ready,readyResponse.body).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:source.length,mime},full:{width:2048,height:1365},coarse:{width:512,height:341}});
    const generic=await app.inject({method:'POST',url:`${api}/cms/artworks/${artworkId}/approve`,headers,payload:{revision:1,assetId:ready.full.assetId}});
-   expect(generic.statusCode).toBe(409);
+   expect(generic.statusCode,generic.body).toBe(409);
+   const derivative=()=>app!.inject({method:'GET',url:`${api}/assets/${ready.coarse.assetId}/bytes`,headers});
+   expect((await derivative()).statusCode).toBe(403);
    const approvals=await Promise.all([approve(),approve()]);
    for(const approval of approvals)expect(approval.statusCode,approval.body).toBe(200);
    expect(approvals[0]!.json()).toEqual(approvals[1]!.json());
@@ -100,6 +102,9 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    const download=await app.inject({method:'GET',url:`${api}/assets/${ready.full.assetId}/bytes`,headers});
    expect(download.statusCode,download.body).toBe(200);
    expect(sha256(download.rawPayload)).toBe(ready.full.sha256);
+   const coarse=await derivative();
+   expect(coarse.statusCode,coarse.body).toBe(200);
+   expect(sha256(coarse.rawPayload)).toBe(ready.coarse.sha256);
    const row=(await pool.query('SELECT object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,id])).rows[0];
    expect(await blobs.getBounded(row.object_key,source.length)).toEqual(source);
    const snapshots=await transaction(pool,c=>c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,artworkId]));
