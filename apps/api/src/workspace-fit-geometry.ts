@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-type Point = [number, number, number];
-export type WorkspaceFitProfile = 'straight-ring-v1' | 'continuous-portal-v1';
+import type {WorkspaceFitGeometry,WorkspaceFitProfile} from '@exhibitos/studio-contract';
 
-export type WorkspaceFitGeometry =
- | {profile:'straight-ring-v1';openingWidth:number;openingHeight:number;imagePlaneZ:number}
- | {profile:'continuous-portal-v1';openingWidth:number;openingHeight:number;minZ:number;maxZ:number};
+type Point = [number, number, number];
 
 const epsilon = 1e-5;
 const near = (a:number,b:number) => Math.abs(a-b)<=epsilon;
@@ -40,17 +37,51 @@ function readAccessor(bin:Buffer,accessor:Layout|undefined,views:View[],position
  return values.every(Number.isFinite)?values:undefined;
 }
 
+type Triangle = [number,number,number];
+type Face = {normal:Point;offset:number;boundary:Map<string,number>};
+const dot=(a:Point,b:Point)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const difference=(a:Point,b:Point):Point=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+function faceNormal(a:Point,b:Point,c:Point):Point|undefined{
+ const u=difference(b,a),v=difference(c,a);
+ const n:Point=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+ const length=Math.hypot(...n);
+ if(length<=1e-10)return;
+ return [n[0]/length,n[1]/length,n[2]/length];
+}
+function addBoundary(edges:Map<string,number>,[a,b,c]:Triangle){
+ for(const [start,end] of [[a,b],[b,c],[c,a]] as const){
+  const forward=start<end,key=forward?`${start},${end}`:`${end},${start}`;
+  const count=(edges.get(key)??0)+(forward?1:-1);
+  if(count)edges.set(key,count);else edges.delete(key);
+ }
+}
 function matchesFaces(points:Point[],indices:number[],corners:Point[],faces:string) {
  corners.sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]);
  const mapped=points.map(point=>corners.findIndex(corner=>point.every((n,i)=>near(n,corner[i]!))));
- if(mapped.includes(-1)||new Set(mapped).size!==corners.length||indices.length%3!==0)return false;
- const expected=new Set(faces.split(' '));
- for(let i=0;i<indices.length;i+=3){
-  const a=mapped[indices[i]!]!,b=mapped[indices[i+1]!]!,c=mapped[indices[i+2]!]!;
-  const face=a<b&&a<c?[a,b,c]:b<c?[b,c,a]:[c,a,b];
-  if(!expected.delete(face.join(',')))return false;
+ const expected=faces.split(' ').map(value=>value.split(',').map(Number) as Triangle);
+ if(mapped.includes(-1)||new Set(mapped).size!==corners.length||indices.length!==expected.length*3)return false;
+ const planes:Face[]=[];
+ for(const triangle of expected){
+  const [a,b,c]=triangle.map(i=>corners[i]!) as [Point,Point,Point];
+  const normal=faceNormal(a,b,c)!;
+  const offset=dot(normal,a);
+  let plane=planes.find(f=>near(dot(f.normal,normal),1)&&near(f.offset,offset));
+  if(!plane){plane={normal,offset,boundary:new Map()};planes.push(plane);}
+  addBoundary(plane.boundary,triangle);
  }
- return expected.size===0;
+ const actual=planes.map(()=>new Map<string,number>());
+ for(let i=0;i<indices.length;i+=3){
+  const triangle=[mapped[indices[i]!]!,mapped[indices[i+1]!]!,mapped[indices[i+2]!]!] as Triangle;
+  const [a,b,c]=triangle.map(i=>corners[i]!) as [Point,Point,Point];
+  const normal=faceNormal(a,b,c);
+  if(!normal)return false;
+  const plane=planes.findIndex(f=>near(dot(f.normal,normal),1)&&[a,b,c].every(point=>near(dot(f.normal,point),f.offset)));
+  if(plane<0)return false;
+  addBoundary(actual[plane]!,triangle);
+ }
+ // Positive winding and the same directed planar boundary imply the same
+ // coverage, including the portal opening. Internal diagonals cancel.
+ return planes.every(({boundary},i)=>boundary.size===actual[i]!.size&&[...boundary].every(([edge,count])=>actual[i]!.get(edge)===count));
 }
 
 /** Call only after the existing worker has fully validated the GLB container.

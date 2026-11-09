@@ -272,3 +272,5 @@ export * from './door-connection.js';
 export * from './workspace-furnishing.js';
 
 export * from './artwork-detail-quality.js';
+
+export * from './workspace-fit-receipt.js';
