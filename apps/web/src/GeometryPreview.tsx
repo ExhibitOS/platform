@@ -30,7 +30,7 @@ import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
-import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
+import {BorrowedDetailInitialObjectError,borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
 import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
@@ -2749,16 +2749,16 @@ export function GeometryPreview({
               lastDrawnTier=tier;
               try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
             };
-            let mounted=false,preparedRejected=false;
+            let mounted=false,preparedRejected=false,canvasReturned=false;
             const mount=(initial:InstanceType<typeof three.Object3D>)=>borrowedDetailPreview({
               three,renderer,object:initial,
               request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},
               environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),
-              onRelease:()=>{if(mounted)restore();},onFlatImageDraw:reportDrawnTier,
+              onRelease:()=>{canvasReturned=true;if(mounted)restore();},onFlatImageDraw:reportDrawnTier,
             });
             let scope:ReturnType<typeof borrowedDetailPreview>;
             try{scope=mount(object);}catch(error){
-              if(!preparedOwned||signal.aborted||disposed||gpuLost||renderer.getContext().isContextLost())throw error;
+              if(!preparedOwned||(!canvasReturned&&!(error instanceof BorrowedDetailInitialObjectError))||signal.aborted||disposed||gpuLost||publicDisplayStopped||renderer.getContext().isContextLost())throw error;
               const rejected=object;object=wallObject;detailPinned=wallObject;detailRetired=false;
               destroy(rejected);preparedRejected=true;scope=mount(wallObject);
             }

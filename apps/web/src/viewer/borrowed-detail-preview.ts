@@ -6,6 +6,7 @@ import type {ImageViewport} from './flat-image-view';
 import type {DetailView} from './detail-gesture';
 import type {DetailTier} from '@exhibitos/studio-contract';
 
+export class BorrowedDetailInitialObjectError extends Error {}
 export interface DetailQualityProgress {tier:DetailTier;loadedBytes:number;totalBytes:number|null}
 export interface SharedDetailSession {update(view:DetailView):void;dispose():void}
 export interface SharedDetailRequest {
@@ -44,12 +45,16 @@ export function borrowedDetailPreview(input:{
  const saved={size:renderer.getSize(new three.Vector2()),ratio:renderer.getPixelRatio(),style:canvas.style.cssText,label:canvas.getAttribute('aria-label'),tabIndex:canvas.tabIndex};
  const pixelLimit=canvas.width*canvas.height;
  const scene=new three.Scene();scene.background=new three.Color('#181a20');
- const flat=request.flatImage?flatImagePreview(three,input.object):undefined;
  let imageObject=input.object;
  let clone=input.object.clone(true);clone.updateMatrixWorld(true);
  let box=new three.Box3().setFromObject(clone,true),centre=box.getCenter(new three.Vector3());const size=box.getSize(new three.Vector3());
  let extent=Math.max(size.x,size.y,size.z);
- if(box.isEmpty()||!Number.isFinite(extent)||extent<=0)throw Error('DETAIL_BOUNDS_UNAVAILABLE');
+ if(box.isEmpty()||!Number.isFinite(extent)||extent<=0)throw new BorrowedDetailInitialObjectError('DETAIL_BOUNDS_UNAVAILABLE');
+ let flat:ReturnType<typeof flatImagePreview>|undefined;
+ if(request.flatImage)try{flat=flatImagePreview(three,input.object);}catch(error){
+  if(error instanceof Error&&error.message==='DETAIL_IMAGE_UNAVAILABLE')throw new BorrowedDetailInitialObjectError(error.message);
+  throw error;
+ }
  const pivot=new three.Group(),contents=new three.Group();
  pivot.position.copy(centre);contents.position.copy(centre).negate();contents.add(clone);pivot.add(contents);scene.add(pivot);
  const markerGeometry=request.anchors.length?new three.SphereGeometry(extent*.015,12,8):undefined;
