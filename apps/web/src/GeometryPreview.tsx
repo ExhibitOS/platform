@@ -2658,6 +2658,7 @@ export function GeometryPreview({
           // replacement can be requested again after the detail scope returns.
           const loading=pending.get(art.revisionId);if(loading){pending.delete(art.revisionId);scheduler.cancel(loading);}
           desired.set(art.revisionId,active.get(art.revisionId)!);
+          const wallObject=object;
           let preparedOwned=false;
           if((input.flatImage||art.artworkType==='sculpture'&&!input.anchors.length)&&tiers.get(String(object.userData.viewerAssetId).toLowerCase())==='coarse'){
             let higher:ReturnType<typeof selectAssetVariant>|undefined;
@@ -2748,11 +2749,24 @@ export function GeometryPreview({
               lastDrawnTier=tier;
               try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
             };
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw:reportDrawnTier});
+            let mounted=false,preparedRejected=false;
+            const mount=(initial:InstanceType<typeof three.Object3D>)=>borrowedDetailPreview({
+              three,renderer,object:initial,
+              request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},
+              environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),
+              onRelease:()=>{if(mounted)restore();},onFlatImageDraw:reportDrawnTier,
+            });
+            let scope:ReturnType<typeof borrowedDetailPreview>;
+            try{scope=mount(object);}catch(error){
+              if(!preparedOwned||signal.aborted||disposed||gpuLost||renderer.getContext().isContextLost())throw error;
+              const rejected=object;object=wallObject;detailPinned=wallObject;detailRetired=false;
+              destroy(rejected);preparedRejected=true;scope=mount(wallObject);
+            }
+            mounted=true;
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
-            let approvedStarted=false;
+            let approvedStarted=preparedRejected;
             const startApproved=()=>{
               if(approvedStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;
               approvedStarted=true;
