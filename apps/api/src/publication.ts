@@ -217,7 +217,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     // Until byte authority and public resource delivery are connected, fail closed.
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE)&&!materialAuthorized)throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE)&&!workspaceAuthorized)throw new ApiError(422,'WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED');
-    if(!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!validateViewerExperience(candidate).valid||!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     checkedPreparedFurnishings(candidate,furnishings);
     const furniture=furnishingsFor(candidate);
     const doc = structuredClone(candidate), ids = new Map<string, string>(), assets: {
@@ -288,8 +288,8 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     doc.mediaAssets=media.map(p=>({...structuredClone(p.source),path:`media/${map(p.source.id)}/audio.wav`}));
     if(still&&doc.extensions)doc.extensions[SPACE_STILL_NAMESPACE]={version:1,asset:{...structuredClone(still),path:`space-still/${map(still.id)}/image.png`}};
     const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
-    const snapshot = remap(doc) as Exhibition;
     const workspace=workspaceAuthorized?projectWorkspaceFurnishings(candidate,map):undefined;
+    const snapshot = remap(doc) as Exhibition;
     const workspaceMaterials=materialAuthorized?projectWorkspaceMaterials(candidate,map):undefined;
     if(workspaceMaterials)snapshot.extensions={...snapshot.extensions,[WORKSPACE_MATERIAL_NAMESPACE]:workspaceMaterials.extension as unknown as NonNullable<Exhibition['extensions']>[string]};
     if(workspace)snapshot.extensions={...snapshot.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:workspace.extension as unknown as NonNullable<Exhibition['extensions']>[string]};
