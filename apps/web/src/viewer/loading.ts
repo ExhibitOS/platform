@@ -268,7 +268,7 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
  return modelDecodeReserve(inventory.bytes,budget,bytes,variant?.textureSize,phase);
 }
 /** Shared GLB decode accounting; callers independently establish profile and hash. */
-function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:ArrayBuffer,textureSize:number|undefined,phase:'complete'|'cpu'){
+export function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:ArrayBuffer,textureSize:number|undefined,phase:'complete'|'cpu'){
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
  const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{bufferViews?:Array<{buffer?:number;byteOffset?:number;byteLength:number;byteStride?:number}>;images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source?:number;extensions?:{KHR_texture_basisu?:{source?:number}}}>;extensionsUsed?:unknown;extensionsRequired?:unknown;animations?:unknown;skins?:unknown};
