@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {DetailView} from './detail-gesture';
 export interface ImageViewport {width:number;height:number;imageWidth:number;imageHeight:number;pixelRatio:number}
-export function imageFit(v:ImageViewport){
+export function containedImageSize(v:Pick<ImageViewport,'width'|'height'|'imageWidth'|'imageHeight'>){
  const scale=Math.min(v.width/v.imageWidth,v.height/v.imageHeight);
- const width=v.imageWidth*scale,height=v.imageHeight*scale;
+ return {width:v.imageWidth*scale,height:v.imageHeight*scale,scale};
+}
+export function imageFit(v:ImageViewport){
+ const {width,height,scale}=containedImageSize(v);
  return {width,height,maxZoom:Math.max(1,1/(scale*v.pixelRatio))};
 }
 export function flatImageView(view:DetailView,v:ImageViewport):DetailView{

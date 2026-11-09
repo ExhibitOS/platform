@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {flatImageView,imageFit,zoomImage,FlatImageGesture} from './flat-image-view';
+import {containedImageSize,flatImageView,imageFit,zoomImage,FlatImageGesture} from './flat-image-view';
 const v={width:800,height:600,imageWidth:2400,imageHeight:1200,pixelRatio:1};
 test('contains full image without distortion and caps zoom at admitted source pixels',()=>{
  expect(imageFit(v)).toEqual({width:800,height:400,maxZoom:3});
@@ -17,4 +17,14 @@ test('pinch and one-pointer transitions pan the image without rotation or a jump
  const pinched=gesture.move(2,{x:200,y:0},{yaw:0,pitch:0,zoom:2},v);expect(pinched.zoom).toBe(3);expect(pinched.yaw).toBe(0);expect(pinched.pitch).toBe(0);
  gesture.end(2);const panned=gesture.move(1,{x:-90,y:0},pinched,v);expect(panned.panX).toBe((pinched.panX??0)+10);
  gesture.clear();expect(gesture.move(1,{x:999,y:999},panned,v)).toEqual(panned);
+});
+
+test('contains both authored Aristotle tiers in the same physical footprint',()=>{
+ const footprint={width:1.365,height:1.435};
+ for(const [imageWidth,imageHeight] of [[1942,2048],[486,512],[400,200]] as const){
+  const face=containedImageSize({...footprint,imageWidth,imageHeight});
+  expect(face.width/face.height).toBeCloseTo(imageWidth/imageHeight,12);
+  expect(face.width).toBeLessThanOrEqual(footprint.width);
+  expect(face.height).toBeLessThanOrEqual(footprint.height);
+ }
 });

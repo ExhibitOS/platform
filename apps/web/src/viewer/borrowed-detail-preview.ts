@@ -32,6 +32,7 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
+ onFlatImageDraw?(object:Three.Object3D):void;
 }):SharedDetailSession&{render():boolean;replaceImage(object:Three.Object3D):void;replaceModel(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
@@ -41,6 +42,7 @@ export function borrowedDetailPreview(input:{
  const pixelLimit=canvas.width*canvas.height;
  const scene=new three.Scene();scene.background=new three.Color('#181a20');
  const flat=request.flatImage?flatImagePreview(three,input.object):undefined;
+ let imageObject=input.object;
  let clone=input.object.clone(true);clone.updateMatrixWorld(true);
  let box=new three.Box3().setFromObject(clone,true),centre=box.getCenter(new three.Vector3());const size=box.getSize(new three.Vector3());
  let extent=Math.max(size.x,size.y,size.z);
@@ -61,7 +63,14 @@ export function borrowedDetailPreview(input:{
   if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
   const current=renderer.getSize(new three.Vector2());
   if(current.x!==width||current.y!==height||canvas.width!==Math.floor(width*ratio)||canvas.height!==Math.floor(height*ratio))renderer.setSize(width,height,false);
-  if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});return true;}
+  if(flat){
+   const drawnImage=imageObject;
+   const state=flat.render(renderer,width,height,view);
+   request.imageViewport?.(state.viewport);
+   canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});
+   if(drawnImage===imageObject)input.onFlatImageDraw?.(drawnImage);
+   return true;
+  }
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
   camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
@@ -85,7 +94,12 @@ export function borrowedDetailPreview(input:{
   canvas.setAttribute('aria-label',flat?'작품 정면 이미지':'작품 상세 3D 미리보기');request.host.appendChild(canvas);
   request.signal.addEventListener('abort',dispose,{once:true});observer.observe(request.host);render();
  }catch(error){dispose();throw error;}
- return {render,replaceImage(object:Three.Object3D){if(!flat)return;const rollback=flat.replace(object);try{render();}catch(error){rollback();throw error;}},
+ return {render,replaceImage(object:Three.Object3D){
+  if(!flat)return;
+  const previous=imageObject,rollback=flat.replace(object);
+  imageObject=object;
+  try{render();}catch(error){imageObject=previous;rollback();throw error;}
+ },
   /** The caller owns both objects and may swap only after independently proving
    * their identity, budget and coordinates. Existing anchors are not silently
    * projected onto a different model. A false draw is not a committed swap. */

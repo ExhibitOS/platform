@@ -1,6 +1,7 @@
 import {guardedXrFrame} from './viewer/xr-frame-fence';
 import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
+import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
@@ -1542,7 +1543,11 @@ export function GeometryPreview({
           let retainedModelBytes=0,decodeBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
+            let imageWidth=0,imageHeight=0;
             const bitmap=await decodeArtworkBitmap(bytes!,imageBudget,signal,bitmap=>{
+              // Use the authored tier aspect before any GPU-budget resize rounds it again.
+              imageWidth=bitmap.width;
+              imageHeight=bitmap.height;
               if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
               const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
               if(publicSource&&declared!==undefined&&Math.max(bitmap.width,bitmap.height)>declared)throw Error('DECODE_VARIANT_UNDERCLAIM');
@@ -1553,10 +1558,8 @@ export function GeometryPreview({
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
             resources.push(texture);
-            const geometry = new three.PlaneGeometry(
-              artwork.dimensions.width,
-              artwork.dimensions.height,
-            );
+            const face=containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
+            const geometry = new three.PlaneGeometry(face.width,face.height);
             const material = new three.MeshStandardMaterial({
               map: texture,
               side: three.DoubleSide,
@@ -2684,7 +2687,18 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
+            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail])):undefined;
+            let lastDrawnImageTier:'approved-full'|'lightweight'|undefined;
+            const onFlatImageDraw=(drawn:InstanceType<typeof three.Object3D>)=>{
+              const assetId:unknown=drawn.userData.viewerAssetId;
+              const detail=typeof assetId==='string'?tiers?.get(assetId.toLowerCase()):undefined;
+              if(detail!=='full'&&detail!=='coarse')return;
+              const tier=detail==='full'?'approved-full':'lightweight';
+              if(tier===lastDrawnImageTier)return;
+              lastDrawnImageTier=tier;
+              try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
+            };
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
@@ -2734,7 +2748,7 @@ export function GeometryPreview({
                     });
                     if(diagnosticsEnabled())diagnosticOriginalLimits={transition:profile.transitionCapBytes,scene:profile.maxSceneBytes};
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;lastDrawnImageTier=undefined;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,

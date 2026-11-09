@@ -12,9 +12,10 @@ import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepa
 import {LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {MAX_UPLOAD} from './upload-limits.ts';
 export {MAX_UPLOAD} from './upload-limits.ts';
-export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; coarsePreparation?:ImageCoarseIntent|ProductImageIntent; modelPreparation?:ModelPreparationIntent; }
+export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; coarsePreparation?:ImageCoarseIntent|ProductImageIntent; modelPreparation?:ModelPreparationIntent; imagePreparation?:FreshImageIntent; }
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
-import {isProductImageIntent,productImageView,storedProductImage,type ProductImageIntent} from './product-image-intent.ts';
+import type {FreshImageIntent} from './fresh-image-intent.ts';
+import {isProductImageIntent,productImageView,storedPreparedImage,type ProductImageIntent} from './product-image-intent.ts';
 import {assertProductImageAssets,createProductImageImport,workProductImageImport} from './product-image-import.ts';
 import {imageCoarseIntent,imageCoarsePolicy,storedImageCoarse,type ImageCoarseIntent} from './image-coarse-intent.ts';
 import {prepareIntentImageCoarse} from './artwork-coarse-preparation.ts';
@@ -30,6 +31,11 @@ export class Imports {
   const result=await c.query('SELECT 1 FROM schema_migrations WHERE name=$1 AND sha256=$2',['046_large_model_preparation.sql','88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4']);
   if(!result.rowCount)throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
  }
+ async freshImageReady(c:PoolClient,s:{tenantId:string;userId:string}){
+  await this.requiredModelReady(c,s);
+  const result=await c.query('SELECT 1 FROM schema_migrations WHERE name=$1 AND sha256=$2',['047_fresh_image_preparation.sql','682a7bf2f07a3b43cb8c398758c37568723c85abc372be1f374a59a29f474bf7']);
+  if(!result.rowCount)throw new ApiError(503,'FRESH_IMAGE_PREPARATION_UNAVAILABLE');
+ }
  async createCompact(c:PoolClient,s:Session,artworkId:string,input:CompactVariantInput){await this.requiredModelReady(c,s);return this.view(await createCompactVariant(c,s,artworkId,input,this.modelExecution!));}
  async coarseOwner(c:PoolClient,tenantId:string,principalId:string,workspaceId?:string){const owner=this.nativeWorkspace;if(!owner||owner.tenantId!==tenantId||owner.principalId!==principalId||(workspaceId!==undefined&&owner.workspaceId!==workspaceId))throw new ApiError(403,'FORBIDDEN');await owner.assertDatabase(c);return owner;}
  async boundedBlob(key:string,bytes:number){const read=this.blobs.getBounded;if(!read)throw new ApiError(503,'STORAGE_UNAVAILABLE');return read.call(this.blobs,key,bytes);}
@@ -37,10 +43,10 @@ export class Imports {
   const result=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id]);
   const row=result.rows[0];if(!row)throw new ApiError(403,'FORBIDDEN');
   await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);
-  const product=storedProductImage(row);
+  const product=storedPreparedImage(row);
   if(product){
    if(product.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
-   await this.requiredModelReady(c,s);
+   if(product.kind==='fresh-product-image')await this.freshImageReady(c,s);else await this.requiredModelReady(c,s);
    await this.coarseOwner(c,s.tenantId,s.userId,product.workspaceId);
    await assertProductImageAssets(c,row);
    return row;
@@ -48,7 +54,7 @@ export class Imports {
   if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}if(storedModelPreparation(row)){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
-  if(isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
+  if(input.imagePreparation!==undefined||isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
   const preparation=modelPreparationIntent(input.modelPreparation);
   const large=preparation?.profileId===LARGE_MODEL_RECIPE.id;
   if(preparation?.sourceFull||preparation?.sourceDisplayReference)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
@@ -115,7 +121,7 @@ export class Imports {
    ...(row.mime==='image/png'?{workerDrainVersion:row.png_drain_version===1?1:0,workerDrained:row.png_drain_version===1&&row.lease_id==null&&Array.isArray(row.png_worker_tokens)&&row.png_worker_tokens.length===0&&['approved','failed','cancelled'].includes(String(row.state))}:{}),
    ...(model?{modelDerivation:{...(result??{}),operationID:model.operationID,generation:model.generation,profileId:model.profileId,status:result?.status??(['failed','cancelled'].includes(String(row.state))?'failed':'pending'),workerDrained:row.lease_id==null}}:row.derived==null?{}:{originalAssetId:product?product.original?.assetId:row.original_asset_id})};
  }
- prepared(row:Record<string,unknown>){if(storedProductImage(row)||this.model(row))return undefined;const state=storedImageCoarse(row),raw=row.derived as Record<string,unknown>|null;const input=state&&raw?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='viewerCoarse')):raw;const derived=preparedImageInput(input??undefined);if((row.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(422,'FORMAT_REJECTED');return derived;}
+ prepared(row:Record<string,unknown>){if(storedPreparedImage(row)||this.model(row))return undefined;const state=storedImageCoarse(row),raw=row.derived as Record<string,unknown>|null;const input=state&&raw?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='viewerCoarse')):raw;const derived=preparedImageInput(input??undefined);if((row.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(422,'FORMAT_REJECTED');return derived;}
  async preparedBytes(row:Record<string,unknown>,derived:PreparedImage){
   let bytes:Buffer;try{const coarse=storedImageCoarse(row);bytes=Buffer.from(coarse?await this.boundedBlob(String(row.derived_object_key),derived.bytes):await this.blobs.get(String(row.derived_object_key)));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==derived.bytes||sha256(bytes)!==derived.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');return bytes;
@@ -130,7 +136,7 @@ export class Imports {
   if((storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id)!==large)throw new ApiError(409,'MODEL_PREPARATION_PROFILE_MISMATCH');
   if(large)await this.largeModelReady(c,s);
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-  if(storedProductImage(row)){
+  if(storedPreparedImage(row)){
    if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
    await this.blobs.putDurable(row.object_key,bytes);
   }else await this.blobs.put(row.object_key,bytes);
@@ -141,7 +147,7 @@ export class Imports {
   if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
   if(large)await this.largeModelReady(c,s);
-  let bytes:Buffer;try{bytes=Buffer.from(large||storedProductImage(row)?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
+  let bytes:Buffer;try{bytes=Buffer.from(large||storedPreparedImage(row)?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   const derived=this.prepared(row);if(derived)await this.preparedBytes(row,derived);
   const result=await c.query("UPDATE import_jobs SET state='queued',progress=10,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id]);return this.view(result.rows[0]);
@@ -178,17 +184,30 @@ export class Imports {
    const feature=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='hayes_attempt_id' AND NOT attisdropped) AS selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AS model_selected");
    const inactive=!this.modelExecution?.isActive();
    const modelFilter=(feature.rows[0]?.model_selected===true&&inactive?' AND model_preparation IS NULL':'')
-    +(inactive?" AND (derived->>'kind') IS DISTINCT FROM 'product-image-pair'":'');
+    +(inactive?" AND COALESCE(derived->>'kind','') NOT IN ('product-image-pair','fresh-product-image')":'');
    const hayesFilter=feature.rows[0]?.selected===true?" AND hayes_attempt_id IS NULL AND NOT (state='queued' AND mime='model/gltf-binary' AND expected_hash='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6' AND expected_bytes=8383096)":'';
    await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter);
    const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter+" ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
    if(storedModelPreparation(r)){await this.requiredModelReady(c,{tenantId:r.tenant_id,userId:r.user_id});const writer=this.modelExecution?.writer;if(writer){const value={...r.model_preparation,claim:{token:lease,...writer.identity}};await c.query('UPDATE import_jobs SET model_preparation=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.model_preparation=value;}}
-   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
+   const prepared=storedPreparedImage(r);
+   if(prepared?.kind==='fresh-product-image'){
+    await this.freshImageReady(c,{tenantId:r.tenant_id,userId:r.user_id});
+    const writer=this.modelExecution?.writer;
+    if(!writer||prepared.claim)throw new ApiError(503,'FRESH_IMAGE_PREPARATION_UNAVAILABLE');
+    const value={...prepared,claim:{token:lease,...writer.identity}};
+    await c.query('UPDATE import_jobs SET derived=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);
+    r.derived=value;
+   }
+   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);
+   if(prepared?.kind==='fresh-product-image'){
+    r.state='processing';r.lease_id=lease;r.png_worker_tokens=[lease];
+   }
+   return r;
   });if(!row)return false;
   try{
    if(storedModelPreparation(row)){await workRequiredModelPreparation(this.pool,this.blobs,row,lease,hooks,this.modelExecution?.writer,this.nativeWorkspace);return true;}
-   if(storedProductImage(row)){await workProductImageImport(this,row,lease,hooks);return true;}
+   if(storedPreparedImage(row)){await workProductImageImport(this,row,lease,hooks);return true;}
    const coarse=storedImageCoarse(row);if(coarse&&!this.blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
    const bytes=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return Buffer.from(coarse?await this.boundedBlob(String(row.object_key),Number(row.expected_bytes)):await this.blobs.get(row.object_key));});if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
    const derived=this.prepared(row);let display:Buffer=bytes;
@@ -254,8 +273,17 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
-   if(row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   if((row.derived as {kind?:string}|null)?.kind==='fresh-product-image'){
+    await transaction(this.pool,c=>c.query(`UPDATE import_jobs SET derived=derived-'claim',
+     png_worker_tokens=array_remove(png_worker_tokens,$3::uuid),
+     lease_id=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_id END,
+     lease_until=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_until END
+     WHERE tenant_id=$1 AND id=$2 AND derived#>>'{claim,token}'=$3::uuid::text AND state IN ('failed','cancelled')`,
+     [row.tenant_id,row.id,lease]));
+   }else{
+    if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
+    if(row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   }
   }return true;
  }
 }

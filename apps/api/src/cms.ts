@@ -1,3 +1,5 @@
+import type {Imports} from './imports.ts';
+import {preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
@@ -52,7 +54,7 @@ function importedTextInvariant(m:ArtworkMetadata){
   // Only existing title/description/medium and private notes are text edits.
   return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,displayReference:m.displayReference,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
 }
-interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown}}
+interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
   !!v &&
   typeof v === "object" &&
@@ -366,6 +368,68 @@ export class Cms {
       ).rows,
     };
   }
+  async approveFreshImage(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string},imports:Imports){
+    if(!exact(b,['revision','jobId']))throw new ApiError(400,'INVALID_INPUT');
+    uuid(b.jobId);
+    const artwork=await this.ownArtwork(c,s,id);
+    if(artwork.revision!==b.revision)throw new ApiError(409,'REVISION_CONFLICT');
+    const job=await imports.access(c,s,b.jobId),state=storedPreparedImage(job);
+    if(state?.kind!=='fresh-product-image'||job.artwork_id!==id||state.request.artworkRevision!==b.revision||
+       job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_NOT_READY');
+    const receipt=preparedImageReceipt(job),metadata=artwork.metadata;
+    if(!validMetadata(metadata)||metadata.displayReference||json(metadata.rights)!==json(job.rights)||
+       !allowedRights(metadata.rights,'display')||!allowedRights(metadata.rights,'export'))throw new ApiError(409,'APPROVAL_INVALID');
+    const prior=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',
+      [s.tenantId,id,b.revision])).rows[0];
+    if(prior){
+      if(artwork.approved_revision!==b.revision||artwork.approved_asset_id!==receipt.full.assetId||
+         prior.snapshot?.freshImagePreparation!==receipt.sha256)throw new ApiError(409,'APPROVAL_CONFLICT');
+      return this.detail(c,s,id);
+    }
+    if(artwork.approved_revision!=null||artwork.approved_asset_id!=null||
+       (await c.query('SELECT 1 FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 LIMIT 1',[s.tenantId,id])).rowCount)
+      throw new ApiError(409,'APPROVAL_CONFLICT');
+    const assets=[receipt.full,...(receipt.coarse?[receipt.coarse]:[])];
+    const verify=async(key:unknown,asset:{bytes:number;sha256:string})=>{
+      if(typeof key!=='string')throw new ApiError(409,'ASSET_INTEGRITY');
+      let bytes:Buffer;
+      try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+      if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+    };
+    await verify(job.object_key,receipt.original);
+    await verify(job.approved_key,receipt.full);
+    if(receipt.coarse)await verify(`${s.tenantId}/quarantine/import-${b.jobId}/product-coarse`,receipt.coarse);
+    const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,artwork.artist_id])).rows[0];
+    const primary=(await c.query('SELECT r.revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2',
+      [s.tenantId,receipt.full.assetId])).rows[0];
+    if(typeof artist?.metadata?.name!=='string'||!Number.isSafeInteger(primary?.revision))throw new ApiError(409,'APPROVAL_INVALID');
+    const revisionId=revisionIdentity(s,id,b.revision),createdAt=new Date().toISOString();
+    const importedArtwork:Artwork={
+      schemaVersion:'1.0.0-draft.1',kind:'artwork',id,revisionId,revision:b.revision,createdAt,
+      metadata:{title:metadata.title,artist:artist.metadata.name,description:metadata.description,...(metadata.medium===undefined?{}:{medium:metadata.medium})},
+      artworkType:'image',units:'meter',coordinates:'right-handed-y-up',
+      dimensions:{width:metadata.dimensions.width,height:metadata.dimensions.height,...(metadata.dimensions.depth===undefined?{}:{depth:metadata.dimensions.depth})},
+      transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},
+      primaryAssetId:receipt.full.assetId,
+      assets:assets.map(asset=>({id:asset.assetId,path:`assets/${asset.assetId}/image.png`,role:'image',mime:'image/png',bytes:asset.bytes,sha256:asset.sha256})),
+      rights:structuredClone(metadata.rights) as Artwork['rights'],
+      provenance:{authorship:metadata.provenance.source,events:[{id:revisionId,type:'edited',at:createdAt,description:'CMS reviewed server-prepared display images.'}]},
+      extensions:{
+        'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision},
+        ...(metadata.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:metadata.creationYear}}),
+        [LOD_NAMESPACE]:{version:1,variants:assets.map((asset,index)=>({assetId:asset.assetId,detail:index===0?'full':'coarse',textureSize:Math.max(asset.width,asset.height)}))},
+      },
+    } as Artwork;
+    if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid)
+      throw new ApiError(409,'APPROVAL_INVALID');
+    qualifyDemoDisplay(importedArtwork);
+    const snapshot={metadata,asset:{id:receipt.full.assetId,mime:receipt.full.mime,bytes:receipt.full.bytes,sha256:receipt.full.sha256,rightsRevision:primary.revision},
+      importedArtwork,freshImagePreparation:receipt.sha256};
+    await c.query('INSERT INTO artwork_approvals VALUES($1,$2,$3,$4,$5,now())',[s.tenantId,id,b.revision,receipt.full.assetId,snapshot]);
+    await c.query('UPDATE artworks SET approved_revision=$3,approved_asset_id=$4 WHERE tenant_id=$1 AND id=$2',
+      [s.tenantId,id,b.revision,receipt.full.assetId]);
+    return this.detail(c,s,id);
+  }
   async approve(
     c: PoolClient,
     s: Session,
@@ -386,7 +450,7 @@ export class Cms {
       `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision,
         EXISTS (
           SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
-          AND j.derived->>'kind'='product-image-pair'
+          AND j.derived->>'kind' IN ('product-image-pair','fresh-product-image')
           AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
         ) AS product_image_output
         FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
@@ -457,6 +521,7 @@ export class Cms {
         rightsRevision: asset.rights_revision,
       },
       ...(importedArtwork?{importedArtwork}:{}),
+      ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'?{freshImagePreparation:lineage.snapshot.freshImagePreparation}:{}),
       ...(modelPair?{modelPair}:{}),
       ...(lineage?.snapshot.compactVariant&&(lineage.snapshot.asset as {id?:string})?.id===asset.id&&json((lineage.snapshot.metadata as ArtworkMetadata).rights)===json(a.metadata.rights)?{compactVariant:lineage.snapshot.compactVariant}:{}),
     };
