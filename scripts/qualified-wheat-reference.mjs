@@ -9,12 +9,12 @@ import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 import {buildNativeDetailPlan} from './native-detail-plan.mjs';
 
 export const WHEAT_REFERENCE=Object.freeze({
- indexSha256:'d889eae056dfa20988390ed7793624a58c98aef153b0f37fbae9eafb9107a1a2',
- publicationSha256:'725633f01b24b6aac92b29f93713f264d1afc15c0badea91be808cd150574082',
- publicationId:'6fa4f1dd-9a22-4084-ad37-e50ee77d21c3',
- revisionSha256:'675f4732ca5f953e4df190ec595fb847efae7c85f01fafa29d4ffa4fb0b22732',
+ indexSha256:'50888213fc0ccbf37164ff0a1b14fc21c7bb8443aaab4a292e211efaae97a726',
+ publicationSha256:'f66ff2b453125df5a6a69c3b893f0c9ca46b752d743a753943b4e0a16ec75e7b',
+ publicationId:'946b312b-88b5-4920-977c-4db47b4e4a3f',
+ revisionSha256:'1b9cbad79b1e561b82a56b236cabc9c270500406bb40966b62636e018985748d',
  assetSha256:'b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',
- candidateId:'318004d9-cf36-4a09-9895-f17fd2ff9462',
+ candidateId:'725097fe-56b5-4fb6-9a21-05170171fd0a',
 });
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
@@ -29,7 +29,7 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);if(sha(bytes)!==WHEAT_REFERENCE.indexSha256)fail();
  const index=parseStaticJson(bytes);
- if(!keys(index,['version','publication','assets','resources','detailAssets'])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==35||!Array.isArray(index.resources)||index.resources.length!==4||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
+ if(!keys(index,['version','publication','assets','resources','detailAssets'])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==36||!Array.isArray(index.resources)||index.resources.length!==4||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
  const entries=[index.publication,...index.assets,...index.resources,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
