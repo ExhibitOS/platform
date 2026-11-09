@@ -31,7 +31,8 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
   const selected = !detail || (snapshot.selected.reason === "detail" && snapshot.selected.placementId === detail.placementId &&
     snapshot.selected.artworkRevisionId === detail.artworkRevisionId);
   const displayed = selected && (!detail || (snapshot.displayed.artworkRevisionId === detail.artworkRevisionId &&
-    (snapshot.displayed.tier === "detail-approved" || snapshot.displayed.tier === "acquired-original")));
+    (snapshot.displayed.tier === "detail-lightweight" || snapshot.displayed.tier === "detail-approved" ||
+      snapshot.displayed.tier === "acquired-original")));
   return {
     version: 1,
     capturedAt: token(snapshot.capturedAt, isoTime),
@@ -90,7 +91,7 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
       artworkRevisionId: displayed ? token(snapshot.displayed.artworkRevisionId, uuid) : null,
       assetId: displayed ? token(snapshot.displayed.assetId, uuid) : null,
       sha256: displayed ? token(snapshot.displayed.sha256, sha256) : null,
-      tier: displayed ? token(snapshot.displayed.tier, /^(?:scene|detail-approved|acquired-original)$/) : null,
+      tier: displayed ? token(snapshot.displayed.tier, /^(?:scene|detail-lightweight|detail-approved|acquired-original)$/) : null,
     },
     assets: snapshot.assets.slice(0, 32).flatMap(asset => {
       const assetId = token(asset.assetId, uuid);

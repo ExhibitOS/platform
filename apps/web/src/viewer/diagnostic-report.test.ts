@@ -15,7 +15,14 @@ it('recognizes an observed acquired original by verified hash without an asset i
 it('does not project another placement display or its detail limits',()=>{
  const result=report(second);expect(result.requestedDetail.attachment).toBe('not-observed');expect(result.snapshot.displayed.tier).toBeNull();expect(result.snapshot.device.budget.selectedDetailResidentBytes).toBeNull();expect(result.snapshot.device.budget.originalDetailSceneBytes).toBeNull();expect(result.snapshot.device.budget.originalDetailTransitionBytes).toBeNull();
 });
-it('requires a valid original hash or an approved asset id to mark attachment observed',()=>{
+it.each(['detail-lightweight','detail-approved'] as const)('reports a committed %s asset with its verified identity',tier=>{
+ const displayed={artworkRevisionId,assetId:first,sha256:'b'.repeat(64),tier};
+ const expected={publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}};
+ const result=JSON.parse(createDiagnosticReport({...snapshot,displayed},expected));
+ expect(result.requestedDetail.attachment).toBe('observed');
+ expect(result.snapshot.displayed).toEqual(displayed);
+});
+it('requires a valid original hash or a rendered detail asset id to mark attachment observed',()=>{
  const expected={publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}};
  for(const displayed of [
   {...snapshot.displayed,sha256:null},

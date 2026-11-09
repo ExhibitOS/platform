@@ -6,7 +6,7 @@ export type DiagnosticSnapshot={
  lifecycle:'live'|'stopped'|'context-lost';
  identity:{publicationId:string|null;revisionSha256:string|null;indexSha256:string|null;buildId:string|null;sourceCommit:string|null};
  selected:{placementId:string|null;artworkRevisionId:string|null;reason:'detail'|'attended'|null};
- displayed:{artworkRevisionId:string|null;assetId:string|null;sha256:string|null;tier:'scene'|'detail-approved'|'acquired-original'|null};
+ displayed:{artworkRevisionId:string|null;assetId:string|null;sha256:string|null;tier:'scene'|'detail-lightweight'|'detail-approved'|'acquired-original'|null};
  device:{deviceMemoryGiB:number|null;coarsePointer:boolean;finePointer:boolean;pixelRatio:number;viewportWidth:number;viewportHeight:number;budget:{maxCacheBytes:number;maxTransitionBytes:number;maxTextureSize:number;maxTriangles:number;effectiveResidentBytes:number;effectiveTransitionBytes:number;selectedDetailResidentBytes:number|null;selectedDetailTransitionBytes:number|null;originalDetailTransitionBytes:number|null;originalDetailSceneBytes:number|null}|null};
  navigation:{roomId:string|null;position:[number,number,number];quaternion:[number,number,number,number];verticalFov:number}|null;
  memory:{residentEstimateBytes:number|null;transitionEstimateBytes:number|null;peakTransitionEstimateBytes:number|null;textureEstimateBytes:number|null;peakTextureEstimateBytes:number|null;meshEstimateBytes:number|null;peakMeshEstimateBytes:number|null;renderTargetEstimateBytes:number|null;peakRenderTargetEstimateBytes:null;gpuPhysicalBytes:null};
