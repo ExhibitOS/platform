@@ -2687,10 +2687,11 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId,variant.detail])):undefined;
+            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail])):undefined;
             let lastDrawnImageTier:'approved-full'|'lightweight'|undefined;
             const onFlatImageDraw=(drawn:InstanceType<typeof three.Object3D>)=>{
-              const detail=tiers?.get(drawn.userData.viewerAssetId);
+              const assetId:unknown=drawn.userData.viewerAssetId;
+              const detail=typeof assetId==='string'?tiers?.get(assetId.toLowerCase()):undefined;
               if(detail!=='full'&&detail!=='coarse')return;
               const tier=detail==='full'?'approved-full':'lightweight';
               if(tier===lastDrawnImageTier)return;

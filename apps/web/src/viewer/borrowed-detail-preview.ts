@@ -63,7 +63,14 @@ export function borrowedDetailPreview(input:{
   if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
   const current=renderer.getSize(new three.Vector2());
   if(current.x!==width||current.y!==height||canvas.width!==Math.floor(width*ratio)||canvas.height!==Math.floor(height*ratio))renderer.setSize(width,height,false);
-  if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});input.onFlatImageDraw?.(imageObject);return true;}
+  if(flat){
+   const drawnImage=imageObject;
+   const state=flat.render(renderer,width,height,view);
+   request.imageViewport?.(state.viewport);
+   canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});
+   if(drawnImage===imageObject)input.onFlatImageDraw?.(drawnImage);
+   return true;
+  }
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
   camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
