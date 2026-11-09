@@ -2,7 +2,15 @@
 import {useCallback,useEffect,useRef,useState,type CSSProperties,type RefObject} from 'react';
 import type {EntranceTransitionEffect} from '@exhibitos/studio-contract';
 import {EntryProgress} from './EntryProgress';
+import type {entranceRuntime} from './entrance-runtime';
 export interface EntranceStage {ready:boolean;message:string;error?:boolean;phase?:'space'|'artwork'|'navigation'}
+/** A public cover theme alone does not request a door-opening effect. */
+export function publicEntryTransition(runtime?:ReturnType<typeof entranceRuntime>|null):EntranceTransitionEffect {
+ if(!runtime||(!runtime.authored&&runtime.settings.presentation===undefined))return 'none';
+ const inheritedDoor=runtime.authored&&runtime.design.effects.transition==='doors'&&
+  runtime.settings.design?.effects?.transition===undefined;
+ return inheritedDoor?'none':runtime.effects.transition;
+}
 /** Keep controls quiet during entry, but make the existing recovery settings reachable after an error. */
 export function entryControlsBlocked(mode:'cover'|'text'|'3d',stageReady:boolean,viewerUnavailable:boolean,entryFailed:boolean){return mode==='3d'&&!stageReady&&!viewerUnavailable&&!entryFailed;}
 /** One entry lifecycle for public viewing and authenticated native previews. */
