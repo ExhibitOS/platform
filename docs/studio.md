@@ -140,6 +140,21 @@ content is a conflict. Another workspace cannot read or complete its owner’s
 material, and the snapshot guard rejects another workspace’s version. An
 appearance binding does not alter the separately stored floor sound.
 
+For a color source PNG with one C2PA manifest immediately after its image
+header, prepare the upload from a built Platform checkout:
+
+```sh
+npm run pretypecheck
+node scripts/prepare-workspace-color-map.mjs original.png ORIGINAL_SHA256 color.png > preparation.json
+```
+
+Keep the unchanged original and the preparation receipt together. The command
+removes the bounded manifest chunk, preserves all remaining PNG bytes, and
+validates the result against the ordinary color-map profile. Use the receipt's
+`color` descriptor and the new PNG for normal authenticated intake. Record the
+source and preparation receipt in the material provenance. The command does
+not verify C2PA assertions or grant any usage rights.
+
 The shared Spec defines a distinct OEX draft.12 profile for portable material
 bytes and bindings. The private bounded OEX candidate handles floor and wall
 color-only materials; other map roles remain unsupported for OEX output.
