@@ -1,10 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Download counts do not include decoding, physics, or the first rendered scene.
-// Keep this indeterminate until the existing first-usable-scene boundary removes it.
-export function EntryProgress({active,phase}:{active:boolean;phase:"space"|"artwork"|"navigation"}) {
-  const label=phase==="space"?"공간을 열고 있어요.":phase==="artwork"?"첫 작품을 준비하고 있어요.":"안전한 관람을 준비하고 있어요.";
-  return <div className="publication-entry-meter-space">
-    {active&&<><div className="publication-entry-meter" role="progressbar" aria-label="전시장 입장 준비" aria-valuetext={label}><span aria-hidden="true" /></div>
-      <p className="publication-entry-phase" role="status">{label}</p></>}
-  </div>;
+import type {RefObject} from 'react';
+
+export type EntryDownloadProgress = Readonly<{
+  receivedBytes: number;
+  requiredBytes: number | null;
+}>;
+
+export function EntryProgress({download,statusRef}:{
+  download?: EntryDownloadProgress | null;
+  statusRef?: RefObject<HTMLParagraphElement | null>;
+}) {
+  // The static owner supplies a denominator only after its exact plan is known.
+  if (download === null) return null;
+  const required = download?.requiredBytes;
+  const received = download?.receivedBytes;
+  const downloading = typeof required === 'number' && Number.isSafeInteger(required) && required > 0 &&
+    typeof received === 'number' && Number.isSafeInteger(received) && received >= 0 && received < required;
+  const percent = downloading ? Math.min(99, Math.floor(received / required * 100)) : undefined;
+  return <p ref={statusRef} tabIndex={-1} className="publication-entry-progress"
+    role={downloading ? 'progressbar' : 'status'}
+    aria-label={downloading ? '전시장 입장 파일 받는 중' : undefined}
+    aria-valuemax={downloading ? 100 : undefined}
+    aria-valuenow={percent}>
+    {percent === undefined ? '전시장 준비 중' : `${percent}%`}
+  </p>;
 }

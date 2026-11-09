@@ -1,4 +1,6 @@
 import {guardedXrFrame} from './viewer/xr-frame-fence';
+import type {EntranceReadiness} from './viewer/entrance-readiness';
+import type {PublicationAssetFetcher} from './publication-client';
 import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
@@ -164,6 +166,8 @@ export function GeometryPreview({
   compactControls = false,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
+  entranceMode,
+  entranceReadiness,
   focusEntry,
   controlsHost,
   viewFov,
@@ -183,6 +187,8 @@ export function GeometryPreview({
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
   immersive?: boolean;
+  entranceMode?: 'cover'|'enter';
+  entranceReadiness?: EntranceReadiness;
   focusEntry?:()=>boolean;
   controlsHost?: HTMLElement|null;
   viewFov?: number;
@@ -198,7 +204,7 @@ export function GeometryPreview({
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
-  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean;error?:boolean})=>void;
+  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean;firstEntranceFrame:boolean;entranceAssetFailed:boolean;error?:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
@@ -243,6 +249,7 @@ export function GeometryPreview({
     detailPublication?:PublicPublication;
     coverOriginalEligible?:()=>boolean;
     fetcher?: typeof fetch;
+    assetFetcher?: PublicationAssetFetcher;
     floorFetcher?: typeof fetch;
     retainedMaterialBytes?:number;
     check?: () => Promise<void>;
@@ -368,6 +375,18 @@ export function GeometryPreview({
     ((kind: "next" | "auto" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
   const [assetReport,setAssetReport]=useState({loaded:0,failed:0});
+  const entranceModeRef=useRef(entranceMode);entranceModeRef.current=entranceMode;
+  const entrancePhaseAction=useRef<(()=>void)|undefined>(undefined);
+  const [firstEntranceFrame,setFirstEntranceFrame]=useState(false);
+  const [entranceAssetFailed,setEntranceAssetFailed]=useState(false);
+  useEffect(()=>{
+    if(entranceMode==='cover'){
+      enteredWalking.current=false;
+      walkingActions.current?.pause('panel');
+      setFirstEntranceFrame(false);
+    }
+    entrancePhaseAction.current?.();
+  },[entranceMode]);
   const [restart, setRestart] = useState(0);
   const [shadowMessage,setShadowMessage]=useState('');
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
@@ -392,10 +411,10 @@ export function GeometryPreview({
   const viewingStyleRef=useRef<ViewingStyle>('free');
   const [viewingStyle,setViewingStyle]=useState<ViewingStyle>('free');
   const enteredWalking=useRef(false);
-  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry]);
+  useEffect(()=>{if(immersive&&entranceMode!=='cover'&&ready&&(entranceReadiness?firstEntranceFrame:assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry,entranceMode,entranceReadiness,firstEntranceFrame]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
+  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed,entranceMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -466,6 +485,8 @@ export function GeometryPreview({
     setReady(false);
     setBuildFailed(false);
     setAssetReport({loaded:0,failed:0});
+    setFirstEntranceFrame(false);
+    setEntranceAssetFailed(false);
     setMessage("공간 미리보기를 준비합니다.");
     setMaterialIssueCount(0);
     setDetailRestoreStatus(null);setPublicMessage("전시를 준비하고 있어요.");
@@ -880,6 +901,10 @@ export function GeometryPreview({
         });
       };
       let galleryArtworkDrawn = false, artworkDrawnInFrame = false;
+      let entrancePlanReady=false, entranceNeedsArtwork=false, entranceFrameReported=false;
+      const entranceBytesReady=()=>{const progress=entranceReadiness?.snapshot();return !!progress&&progress.receivedBytes===progress.requiredBytes;};
+      let entranceNavigationReady=false, entranceTransfersVerified=false, entranceAssetsAdmitted=false;
+      const entranceVerifiedAssets=new Set<string>();
       const render = (restore=false) => {
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
@@ -894,6 +919,12 @@ export function GeometryPreview({
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           if (!galleryArtworkDrawn && artworkDrawnInFrame && !renderer.getContext().isContextLost()) galleryArtworkDrawn = true;
+          if(entranceReadiness&&entranceModeRef.current==='enter'&&!entranceFrameReported&&entrancePlanReady&&entranceBytesReady()&&entranceTransfersVerified&&entranceAssetsAdmitted&&
+             (!entranceNeedsArtwork||galleryArtworkDrawn)&&!renderer.getContext().isContextLost()){
+            entranceFrameReported=true;
+            entranceReadiness.releaseCoverTransfer();
+            setFirstEntranceFrame(true);
+          }
           // Only the current camera snapshot rides an existing rendered frame.
           // Loading, thumbnail and quality accounting retain their 200ms cadence.
           publishMapPose();
@@ -1382,6 +1413,7 @@ export function GeometryPreview({
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
               if(restoreQuality)qualityRebuildReady.current=true;
+              entranceNavigationReady=true;
               setWalkPreparation('ready');
             })()
               .catch(() => {
@@ -1434,7 +1466,7 @@ export function GeometryPreview({
           release: () => {},
         };
         walkingActions.current = pending;
-        if(restoreQuality)void initialize(undefined,true);
+        if(restoreQuality||entranceReadiness)void initialize(undefined,true);
       }
       // A native preview borrows this exact scene/camera. It never changes the
       // renderer effect's document, budget, immersive or editing dependencies.
@@ -1516,10 +1548,12 @@ export function GeometryPreview({
         setPublicMessage(issue);
         setSceneIssue(issue);
       };
+      const entranceOptionalBodies=new Map<string,Promise<ArrayBuffer>>();
       const readArtworkBytes = async (
-        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void,
+        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void, reuseEntranceOptional=true,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
+        const report=(received:number)=>{entranceReadiness?.receive(inventory,received);progress?.(received);};
         let bytes: ArrayBuffer;
         let response: Response;
         if (publicSource) {
@@ -1532,15 +1566,22 @@ export function GeometryPreview({
             // Reuse still checks authoritative availability.
             await checkPublicAvailability(signal);
             bytes = cached;
-            cacheHits++;progress?.(bytes.byteLength);
+            cacheHits++;report(bytes.byteLength);
+            if(entranceReadiness)entranceVerifiedAssets.add(inventory.id);
           } else {
-            bytes = await fetchVerifiedAsset({
-              ...publicSource,
-              asset: source,
-              inventory,
-              signal,progress,
-            });
+            const pendingBytes=entranceReadiness?.coverBytes(inventory)??(reuseEntranceOptional?entranceOptionalBodies.get(inventory.id):undefined);
+            const shared=pendingBytes?await pendingBytes.catch(()=>undefined):undefined;
+            signal.throwIfAborted();
+            if(shared){
+              await checkPublicAvailability(signal);
+              bytes=shared;
+              report(bytes.byteLength);
+            }else{
+              entranceReadiness?.receive(inventory,0);
+              bytes=await fetchVerifiedAsset({...publicSource,asset:source,inventory,signal,progress:entranceReadiness?report:progress});
+            }
             byteCache.set(inventory.id, bytes, bytes.byteLength);
+            if(entranceReadiness)entranceVerifiedAssets.add(inventory.id);
           }
         } else {
           const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
@@ -2236,6 +2277,8 @@ export function GeometryPreview({
           const key=pending.get(artId);
           if(key)scheduler.setPriorityOverride(key,mapPins.has(artId)||viewingPins.has(artId)?-200:undefined);
         };
+        const entranceAssets=new Map<string,(typeof arts)[number]['assets'][number]>();
+        let entrancePlanUnavailable=false;
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
           if(publicDisplayStopped)return;
           const ownsDetail=art.revisionId===detailPinnedArtwork;
@@ -2250,9 +2293,10 @@ export function GeometryPreview({
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
             imageBudget=imageTarget?.budget??viewerBudget;
             const preferCoarse=!detailPromotion&&preferModelCoarse(art.revisionId,manual&&full);
-            inventory = imageTarget?.inventory??selectAssetVariant(art,full?0:Infinity,viewerBudget,preferCoarse);
+            const entranceAsset=entranceReadiness&&!entranceFrameReported&&!full&&!detailPromotion?entranceAssets.get(art.revisionId):undefined;
+            inventory = entranceAsset??imageTarget?.inventory??selectAssetVariant(art,full?0:Infinity,viewerBudget,preferCoarse);
             const lod = art.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
-            if (immersive && !galleryArtworkDrawn && !full && !detailPromotion && !active.has(art.revisionId) && !prepared.has(inventory.id)
+            if (!entranceAsset && immersive && !galleryArtworkDrawn && !full && !detailPromotion && !active.has(art.revisionId) && !prepared.has(inventory.id)
               && lod?.profile === BUDGET_GEOMETRY_PAIR_PROFILE) {
               inventory = selectAssetVariant(art,Infinity,viewerBudget,true);
             }
@@ -2423,13 +2467,16 @@ export function GeometryPreview({
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
                 const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
-                setArtworkRetry(art.revisionId,transitionDeferred?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity,inventory.id,transitionDeferred?'retry-origin-deferred-budget':'retry-origin-failed',error);
+                const requiredEntranceAsset=entranceReadiness&&!entranceFrameReported&&entranceAssets.get(art.revisionId)?.id===inventory.id;
+                const settledEntranceRefusal=requiredEntranceAsset&&transitionDeferred&&floorSettled&&surfaceSettled;
+
+                setArtworkRetry(art.revisionId,transitionDeferred&&!settledEntranceRefusal?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity,inventory.id,transitionDeferred?'retry-origin-deferred-budget':'retry-origin-failed',error);
                 if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===demandContext().owner)reclaimForCurrent();}
                 // A visible missing minimum must not wait for detail attention:
                 // its placeholder may be too small/off-center to win that slot.
                 const visibleMissingMinimum=!active.has(art.revisionId)&&observedVisible.get(art.revisionId)&&observedEligible.get(art.revisionId);
                 if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===demandContext().owner||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
-                if(error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
+                if(!requiredEntranceAsset&&error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
                   // Retain the authored coarse model choice until the effective
                   // resident budget increases. A repeat at the same limit cannot fit.
                   try{
@@ -2443,7 +2490,7 @@ export function GeometryPreview({
                   }catch{/* Keep the existing visible failure when no authored coarse model is supported. */}
                 }
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
-                if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
+                if (!requiredEntranceAsset && error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
@@ -2533,6 +2580,48 @@ export function GeometryPreview({
             request(art, kind === "full" || (kind === "next" && !automatic && manualFull),false,false,true);
           }
         };
+        const entranceOptionalAttempted=new Set<string>();
+        let entranceOptional:{key:string;compatibleOnEnter:boolean}|undefined;
+        const prefetchEntranceOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[])=>{
+          if(entranceModeRef.current!=='cover'||!entranceBytesReady()||!entranceAssetsAdmitted||entranceOptional||
+             renderer.domElement.ownerDocument.hidden||scheduler.stats().active||scheduler.stats().queued)return;
+          const candidates=observations.filter(item=>item.minimumEligible||entranceAssets.has(item.art.revisionId))
+            .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
+          const light: Array<{art:(typeof arts)[number];inventory:(typeof arts)[number]['assets'][number];compatibleOnEnter:boolean}>=[];
+          const higher: typeof light=[];
+          for(const {art} of candidates){
+            try{
+              const coarse=selectAssetVariant(art,Infinity,viewerBudget,true);
+              const ordinary=selectAssetVariant(art,Infinity,viewerBudget);
+              const full=selectAssetVariant(art,0,viewerBudget);
+              if(!entranceAssets.has(art.revisionId)&&lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId===coarse.id))
+                light.push({art,inventory:coarse,compatibleOnEnter:ordinary.id===coarse.id});
+              if(lodVariantsFor(art).some(variant=>variant.detail==='full'&&variant.assetId===full.id)&&full.id!==coarse.id)
+                higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
+            }catch{/* No optional derivative fits the current admission policy. */}
+          }
+          const cache=byteCache.stats();
+          const next=[...light,...higher].find(({inventory})=>!entranceOptionalAttempted.has(inventory.id)&&
+            !byteCache.get(inventory.id)&&cache.bytes+inventory.bytes<=cache.maxBytes&&peak.total()+inventory.bytes*4<=transitionBudgetBytes);
+          if(!next)return;
+          const {art,inventory,compatibleOnEnter}=next;
+          entranceOptionalAttempted.add(inventory.id);
+          const key=`entrance-encoded/${inventory.id}/${sequence++}`;
+          entranceOptional={key,compatibleOnEnter};
+          tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
+            peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
+            const body=readArtworkBytes(art,inventory,signal,undefined,false);
+            entranceOptionalBodies.set(inventory.id,body);
+            try{await body;}finally{
+              if(entranceOptionalBodies.get(inventory.id)===body)entranceOptionalBodies.delete(inventory.id);
+              peak.release(key);
+            }
+          }});
+          void scheduler.request(key,10000).catch(()=>{}).finally(()=>{
+            tasks.delete(key);
+            if(entranceOptional?.key===key)entranceOptional=undefined;
+          });
+        };
         const automaticDemand=()=>{
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
@@ -2592,6 +2681,39 @@ export function GeometryPreview({
             }
             return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible};
           });
+          if(entranceReadiness&&!entranceFrameReported){
+            if(!entranceNavigationReady)return;
+            if(!entrancePlanReady){
+              const visible=observations.filter(observation=>observation.visible);
+              const movement=observations.filter(item=>!item.visible&&(item.eligible||(item.minimumEligible&&item.distance<=3)))
+                .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
+              const candidates=[...visible,...movement];
+              for(const {art} of candidates){
+                try{entranceAssets.set(art.revisionId,selectAssetVariant(art,Infinity,viewerBudget,true));}
+                catch{entrancePlanUnavailable=true;}
+              }
+              entranceNeedsArtwork=visible.length>0;
+              entrancePlanReady=true;
+              entranceReadiness.setRequiredAssets([...entranceAssets.values()]);
+            }
+            if(!entranceReadiness.hasCoverSelection())return;
+            const now=performance.now();
+            for(const {art,visible,minimumEligible} of observations){
+              const id=art.revisionId;
+              observedVisible.set(id,visible);
+              observedEligible.set(id,minimumEligible);
+              if(entranceAssets.has(id)&&!active.has(id)&&!pending.has(id)&&(retryAfter.get(id)??0)<=now)request(art);
+            }
+            entranceTransfersVerified=[...entranceAssets.values()].every(asset=>entranceVerifiedAssets.has(asset.id));
+            entranceAssetsAdmitted=[...entranceAssets].every(([id,asset])=>objects.has(id)&&active.get(id)===asset.id);
+            const failedRequired=[...entranceAssets.keys()].some(id=>!pending.has(id)&&
+              (failed.has(id)&&(retryAfter.get(id)??Infinity)===Infinity||
+              floorSettled&&surfaceSettled&&minimumBlocked.has(id)&&retryAfter.get(id)===Infinity));
+            setEntranceAssetFailed(entrancePlanUnavailable||failedRequired);
+            prefetchEntranceOptional(observations);
+            if(entranceModeRef.current==='enter')render();
+            return;
+          }
           for(const observation of observations){
             observedVisible.set(observation.art.revisionId,observation.visible);
             if(!automatic)continue;
@@ -3021,7 +3143,7 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover')preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           unregisterDiagnostic();
@@ -3042,6 +3164,7 @@ export function GeometryPreview({
           viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
           cancelDetail?.();sharedDetail?.dispose();
           if(detailEntry.current.mountPreview===mountSharedDetail)delete detailEntry.current.mountPreview;
+          if(entrancePhaseAction.current===applyEntrancePhase)entrancePhaseAction.current=undefined;
           clearInterval(statsTimer);
           cancelPublicThumbnail();
           scheduler.dispose();
@@ -3053,8 +3176,14 @@ export function GeometryPreview({
           byteCache.clear();
           renderer.domElement.dataset.disposed = "true";
         };
-        for (const art of arts.slice(0, viewerBudget.entranceAssets))
-          request(art);
+        const applyEntrancePhase=()=>{
+          if(entranceModeRef.current==='cover')entranceFrameReported=false;
+          else if(entranceOptional&&!entranceOptional.compatibleOnEnter)scheduler.cancel(entranceOptional.key);
+          automaticDemand();
+          render();
+        };
+        if(entranceReadiness){entrancePhaseAction.current=applyEntrancePhase;applyEntrancePhase();}
+        else for (const art of arts.slice(0, viewerBudget.entranceAssets))request(art);
         update();
         if(hasWorkspaceFurnishings){
           await Promise.allSettled(catalogSettled);if(disposed||gpuLost)return;
