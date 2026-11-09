@@ -54,3 +54,43 @@ export async function recoverFreshImageClaims(pool,owner,guard,admission){
   await guard.assertLive();await c.query('COMMIT');return rows.length;
  }catch(error){try{await c.query('ROLLBACK');}catch{broken=true;}throw error;}finally{c.release(broken);}
 }
+
+/** Exact 046 recovery. The v3 assertion binds the prior generation selected by
+ * Manager after its verified owner drain. No 047 or ordinary-model rows match. */
+export async function recoverLargeModelClaims(pool,store,owner,guard,admission){
+ assertIssuedFurnishingOrdinaryAdmission(admission);
+ const identity=guard.identity;
+ if(admission.writer!==guard||admission.fields.admissionKind!=='interrupted-reopen'||
+    !owner||owner.workspaceId!==identity.workspaceId||owner.tenantId!==identity.tenantId||owner.principalId!==identity.principalId||
+    typeof store?.getLargeModelSource!=='function')throw Error('LARGE_MODEL_RECOVERY_UNAVAILABLE');
+ const c=await pool.connect();let broken=false;
+ try{
+  await c.query('BEGIN');await guard.assertLive();
+  const lock=await c.query('SELECT pg_try_advisory_xact_lock(82002) AS locked');
+  if(lock.rows[0]?.locked!==true)throw Error('FURNISHING_RECOVERY_BUSY');
+  await owner.assertDatabase(c);
+  const rows=(await c.query(`SELECT id,state,mime,lease_id,png_worker_tokens,object_key,expected_hash,expected_bytes,
+   asset_id,original_asset_id,model_preparation AS preparation FROM import_jobs
+   WHERE tenant_id=$1 AND user_id=$2 AND model_preparation#>>'{request,profileId}'='embedded-model-compact-large-20k-512-v2'
+   AND (cardinality(png_worker_tokens)>0 OR model_preparation ? 'claim') ORDER BY id FOR UPDATE`,
+   [identity.tenantId,identity.principalId])).rows;
+  for(const row of rows){
+   const {id,state,lease_id:lease,png_worker_tokens:tokens,preparation}=row,claim=preparation?.claim;
+   if(!uuid.test(id)||preparation?.kind!=='required-model-compact'||Object.hasOwn(preparation.request,'sourceFull')||
+      Object.hasOwn(preparation,'result')||row.mime!=='model/gltf-binary'||row.asset_id!==null||row.original_asset_id!==null||
+      !claim||!uuid.test(claim.token)||claim.runtimeGeneration!==admission.fields.previousRuntimeGeneration||tokens.length!==1||tokens[0]!==claim.token||
+      !['processing','failed','cancelled'].includes(state)||(state==='processing'?lease!==claim.token:lease!==null&&lease!==claim.token)||
+      row.object_key!==`${identity.tenantId}/quarantine/import-${id}/${row.expected_hash}`||
+      ['workspaceId','tenantId','principalId','rootDevice','rootInode','lockDevice','lockInode'].some(key=>claim[key]!==identity[key]))
+    throw Error('LARGE_MODEL_RECOVERY_UNAVAILABLE');
+   await store.getLargeModelSource(row.object_key,Number(row.expected_bytes));
+   const updated=await c.query(`UPDATE import_jobs SET model_preparation=model_preparation-'claim',png_worker_tokens='{}',
+    lease_id=NULL,lease_until=NULL,state=CASE WHEN state='processing' THEN 'failed' ELSE state END,
+    error_code=CASE WHEN state='processing' THEN 'MODEL_PREPARATION_INTERRUPTED' ELSE error_code END,
+    available_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 AND model_preparation#>>'{claim,token}'=$3 RETURNING id`,
+    [identity.tenantId,id,claim.token]);
+   if(updated.rowCount!==1)throw Error('LARGE_MODEL_RECOVERY_UNAVAILABLE');
+  }
+  await guard.assertLive();await c.query('COMMIT');return rows.length;
+ }catch(error){try{await c.query('ROLLBACK');}catch{broken=true;}throw error;}finally{c.release(broken);}
+}

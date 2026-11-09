@@ -11,9 +11,13 @@ import {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {collectServiceInventory,createServiceBackup,FileBlobStore,migrate,restoreServiceBackup,sha256,transaction} from '@exhibitos/storage';
 // @ts-expect-error The test exercises the private JavaScript lease exchange.
-import {acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
+import {acceptFurnishingOrdinaryAdmission,acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 // @ts-expect-error The private lease encoder has no TypeScript declarations.
 import {encodeFurnishingLeaseFrame} from '../../../scripts/native-workspace-furnishing-lease.mjs';
+// @ts-expect-error Private native admission protocol helpers are implemented in JavaScript.
+import {encodeFurnishingOrdinaryAssertion} from '../../../scripts/native-workspace-furnishing-ordinary-assertion.mjs';
+// @ts-expect-error Native startup recovery is implemented in JavaScript.
+import {recoverLargeModelClaims} from '../../../scripts/native-workspace-furnishing-recovery.mjs';
 import {buildApp} from './app.ts';
 import {Imports} from './imports.ts';
 import {COMPACT_MODEL_RECIPE,LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
@@ -43,15 +47,20 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   while(fd<10){fd=openSync(lock,constants.O_RDWR);descriptors.push(fd);}
   const rootStat=lstatSync(root,{bigint:true}),lockStat=fstatSync(fd,{bigint:true});
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID();
-  const issueWriter=async()=>{
+  const issueWriter=async(previousRuntimeGeneration?:string)=>{
    const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
    const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
    let open=true;
    const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
    const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
-   return writer;
+   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',
+    {runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,
+     admissionKind:previousRuntimeGeneration?'interrupted-reopen':'clean-reopen',activeBindingSHA256:'b'.repeat(64),
+     ...(previousRuntimeGeneration?{previousRuntimeGeneration}:{})},secret);
+   const admission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});
+   return {writer,admission,channel};
   };
-  const writer=await issueWriter();
+  let owner=await issueWriter();
   const origin='http://127.0.0.1:13200',token=randomBytes(32).toString('base64url'),csrf=randomBytes(32).toString('base64url');
   const auth={mode:'local' as const,origin,bindHost:'127.0.0.1'};
   const headers={host:'127.0.0.1:13200',origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
@@ -72,7 +81,7 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'Synthetic owner'}]);
   await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,ownerUid]);
   const workspace=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid,blobRoot:blobs.root}));
-  const execution=createNativeModelPreparationExecution(blobs,workspace,writer,()=>true);
+  let execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
   let selected=false;
   const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution,
    lifecycle:{migrationDirectory,supplementalMigrationDirectory,webRoot,blobRoot:blobs.root,
@@ -143,6 +152,37 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   expect(queued.statusCode,queued.body).toBe(200);
   await app.close();
   app=start();
+  let claim:Record<string,unknown>|undefined;
+  const failedWorker=new Imports(pool,blobs,workspace,execution);
+  expect(await failedWorker.work({afterCopy:async()=>{
+   claim=(await pool.query("SELECT model_preparation->'claim' AS claim FROM import_jobs WHERE tenant_id=$1 AND id=$2",[tenantId,id])).rows[0]?.claim;
+   throw Error('fixture rolls back the real prepared attempt');
+  }})).toBe(true);
+  expect(claim).toMatchObject({runtimeGeneration:owner.writer.identity.runtimeGeneration,workspaceId,tenantId,principalId:userId});
+  const failed=(await app.inject({method:'GET',url:jobUrl,headers})).json();
+  expect(failed).toMatchObject({id,state:'failed',errorCode:'WORKER_FAILED',modelPreparation:{workerDrained:true}});
+  // Restore the precise pre-commit row captured above. Physical process drain
+  // and re-entry are independently owned by the Manager validation.
+  await pool.query(`UPDATE import_jobs SET state='processing',lease_id=$3::uuid,
+   lease_until=now()+interval '30 seconds',png_worker_tokens=ARRAY[$3::uuid],
+   model_preparation=jsonb_set(model_preparation,'{claim}',$4)
+   WHERE tenant_id=$1 AND id=$2`,[tenantId,id,claim!.token,claim]);
+  await expect(recoverLargeModelClaims(pool,blobs,workspace,owner.writer,owner.admission)).rejects.toThrow('LARGE_MODEL_RECOVERY_UNAVAILABLE');
+  await app.close();
+  await owner.channel.close();
+  owner=await issueWriter(randomUUID());
+  await expect(recoverLargeModelClaims(pool,blobs,workspace,owner.writer,owner.admission)).rejects.toThrow('LARGE_MODEL_RECOVERY_UNAVAILABLE');
+  await owner.channel.close();
+  owner=await issueWriter(String(claim!.runtimeGeneration));
+  execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
+  app=start();
+  expect(await recoverLargeModelClaims(pool,blobs,workspace,owner.writer,owner.admission)).toBe(1);
+  expect(await recoverLargeModelClaims(pool,blobs,workspace,owner.writer,owner.admission)).toBe(0);
+  const recovered=(await app.inject({method:'GET',url:jobUrl,headers})).json();
+  expect(recovered).toMatchObject({id,state:'failed',attempts:1,errorCode:'MODEL_PREPARATION_INTERRUPTED',modelPreparation:{workerDrained:true}});
+  const retry=await app.inject({method:'POST',url:`${jobUrl}/retry`,headers});
+  expect(retry.statusCode,retry.body).toBe(200);
+  expect(retry.json().id).toBe(id);
   const claims=await Promise.all([new Imports(pool,blobs,workspace,execution).work(),new Imports(pool,blobs,workspace,execution).work()]);
   expect(claims.sort()).toEqual([false,true]);
   const observed=await app.inject({method:'GET',url:jobUrl,headers});

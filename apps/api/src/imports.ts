@@ -277,12 +277,15 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   if((row.derived as {kind?:string}|null)?.kind==='fresh-product-image'){
-    await transaction(this.pool,c=>c.query(`UPDATE import_jobs SET derived=derived-'claim',
+   const fresh=(row.derived as {kind?:string}|null)?.kind==='fresh-product-image';
+   const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
+   if(fresh||large){
+    const field=fresh?'derived':'model_preparation';
+    await transaction(this.pool,c=>c.query(`UPDATE import_jobs SET ${field}=${field}-'claim',
      png_worker_tokens=array_remove(png_worker_tokens,$3::uuid),
      lease_id=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_id END,
      lease_until=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_until END
-     WHERE tenant_id=$1 AND id=$2 AND derived#>>'{claim,token}'=$3::uuid::text AND state IN ('failed','cancelled')`,
+     WHERE tenant_id=$1 AND id=$2 AND ${field}#>>'{claim,token}'=$3::uuid::text AND state IN ('failed','cancelled')`,
      [row.tenant_id,row.id,lease]));
    }else{
     if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
