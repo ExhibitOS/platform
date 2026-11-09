@@ -265,9 +265,9 @@ export class Imports {
    if((row.derived as {kind?:string}|null)?.kind==='fresh-product-image'){
     await transaction(this.pool,c=>c.query(`UPDATE import_jobs SET derived=derived-'claim',
      png_worker_tokens=array_remove(png_worker_tokens,$3::uuid),
-     lease_id=CASE WHEN lease_id=$3 THEN NULL ELSE lease_id END,
-     lease_until=CASE WHEN lease_id=$3 THEN NULL ELSE lease_until END
-     WHERE tenant_id=$1 AND id=$2 AND derived#>>'{claim,token}'=$3::text AND state IN ('failed','cancelled')`,
+     lease_id=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_id END,
+     lease_until=CASE WHEN lease_id=$3::uuid THEN NULL ELSE lease_until END
+     WHERE tenant_id=$1 AND id=$2 AND derived#>>'{claim,token}'=$3::uuid::text AND state IN ('failed','cancelled')`,
      [row.tenant_id,row.id,lease]));
    }else{
     if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
