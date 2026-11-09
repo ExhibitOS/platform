@@ -16,9 +16,8 @@ describe('previous private copy compatibility', () => {
     const root=new URL('../../../../demos/reference-exhibition/',import.meta.url);
     const read=(path:string)=>JSON.parse(readFileSync(new URL(path,root),'utf8'));
     const oldIndex=read('private-copy-bases/8f58935dd614adbfa231b083552c1af188fc8ce10984fdddf97d7b9f716718a2/static-publication-index.json');
-    const newIndex=read('source/qualified-wheat-v4-index.json');
     const previous=read(`private-copy-bases/8f58935dd614adbfa231b083552c1af188fc8ce10984fdddf97d7b9f716718a2/${oldIndex.publication.path}`).exhibition as ExhibitionV1;
-    const active=read(`source/${newIndex.publication.path}`).exhibition as ExhibitionV1;
+    const active=read('source/data/d63557800e3e97d6f64025a74b2c4bc063f1e1ecbff28185573411e04f97a5ba.json').exhibition as ExhibitionV1;
     expect(retainsCopyRights(previous,active)).toBe(true);
     const altered=structuredClone(active),hayes=altered.artworks.find(a=>a.assets.some(x=>x.sha256==='42c4d5adc2b51690c5dec78f742494c7424e7f364b35c45da6e5f557ed88a1d6'))!;
     hayes.assets.find(a=>a.sha256.startsWith('42c4'))!.sha256='0'.repeat(64);

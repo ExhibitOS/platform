@@ -2687,7 +2687,18 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
+            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail])):undefined;
+            let lastDrawnImageTier:'approved-full'|'lightweight'|undefined;
+            const onFlatImageDraw=(drawn:InstanceType<typeof three.Object3D>)=>{
+              const assetId:unknown=drawn.userData.viewerAssetId;
+              const detail=typeof assetId==='string'?tiers?.get(assetId.toLowerCase()):undefined;
+              if(detail!=='full'&&detail!=='coarse')return;
+              const tier=detail==='full'?'approved-full':'lightweight';
+              if(tier===lastDrawnImageTier)return;
+              lastDrawnImageTier=tier;
+              try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
+            };
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
@@ -2737,7 +2748,7 @@ export function GeometryPreview({
                     });
                     if(diagnosticsEnabled())diagnosticOriginalLimits={transition:profile.transitionCapBytes,scene:profile.maxSceneBytes};
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;lastDrawnImageTier=undefined;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,

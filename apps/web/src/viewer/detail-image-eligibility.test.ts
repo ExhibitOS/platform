@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {qualifiedDetailImageProfile,type QualifiedDetailImage} from './detail-image-attempt';
+import {aristotleR9Wheat,qualifiedDetailImageProfile,type QualifiedDetailImage} from './detail-image-attempt';
 import {matchesMeasuredWheatImage,type DetailProjectionBinding} from './detail-image-eligibility';
 const sha='b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',a='a'.repeat(64),b='b'.repeat(64);
 const binding:DetailProjectionBinding={indexSha256:a,publicationSha256:b,candidate:{artworkRevisionId:'art',sha256:sha,bytes:8291194,mime:'image/jpeg',width:4000,height:3184}};
@@ -32,4 +32,12 @@ it('admits only the exact r7 Wheat original and its measured envelope',()=>{
  expect(matchesMeasuredWheatImage(p,attestation,gallery)).toBe(true);
  for(const change of [{staticIndexSha256:a},{publicationSha256:b},{revisionSha256:a},{artworkRevisionId:'other'},{candidateId:'other'},{sourceBindingSha256:a},{maxSceneBytes:201326593},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
  expect(qualifiedDetailImageProfile(revision,'other')).toBeUndefined();expect(qualifiedDetailImageProfile(a,artwork)).toBeUndefined();
+});
+
+it('binds the r9 Wheat original to its exact publication and existing measured limits',()=>{
+ const p=qualifiedDetailImageProfile(aristotleR9Wheat.revisionSha256,aristotleR9Wheat.artworkRevisionId)!;
+ const attestation:DetailProjectionBinding={indexSha256:p.staticIndexSha256,publicationSha256:p.publicationSha256,candidate:{artworkRevisionId:p.artworkRevisionId,sha256:p.sha256,bytes:p.bytes,mime:p.mime,width:p.width,height:p.height}};
+ expect(matchesMeasuredWheatImage(p,attestation,gallery)).toBe(true);
+ for(const change of [{staticIndexSha256:a},{sourceBindingSha256:a},{featureReportSha256:b},{candidateId:'other'},{maxSceneBytes:201326593},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
+ expect(qualifiedDetailImageProfile(p.revisionSha256,'other')).toBeUndefined();
 });
