@@ -61,6 +61,18 @@ it('accepts the bounded fallback in the durable ready receipt',async()=>{
  expect(productImageView(row)).toMatchObject({status:'ready',workerDrained:true,full,coarse});
 },30000);
 
+it('preserves RGB pixels across filtered PNG scanlines in the fresh worker',async()=>{
+ const width=3,height=2;
+ const expected=Buffer.from([11,22,33,44,55,66,77,88,99,101,102,103,104,105,106,107,108,109]);
+ const original=await sharp(expected,{raw:{width,height,channels:3}}).png({adaptiveFiltering:true}).toBuffer();
+ const identity={mime:'image/png' as const,sha256:imageHash(original),bytes:original.length};
+ const result=await prepareFreshImageInWorker(original,identity);
+ expect(result.workerDrained).toBe(true);
+ expect(result.receipt.source).toMatchObject({...identity,width,height});
+ const actual=await sharp(result.full).raw().toBuffer();
+ expect(actual).toEqual(expected);
+},30000);
+
 it('processes a strict PNG above the legacy decoded limit under the distinct fresh receipt',async()=>{
  const width=3072,height=2048;
  const header=Buffer.alloc(13);

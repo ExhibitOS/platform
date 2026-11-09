@@ -68,7 +68,13 @@ async function prepareImage<Mime extends SourceMime>(source:Buffer,identity:{sha
  if(mime==='image/png'&&fresh){
   const {width,height,channels,pixels}=decodePngPixels(source,PRODUCT_IMAGE_LIMITS.pixels,PRODUCT_IMAGE_LIMITS.edge,256,false,true);
   if(channels!==3)fail();
-  return prepareImagePixels(source,identity,mime,fresh,width,height,pixels,null);
+  // The decoder reconstructs scanlines in place and retains each row's filter byte.
+  const rowBytes=width*3,rowStride=rowBytes+1;
+  for(let y=0;y<height;y++){
+   const rowStart=y*rowStride+1;
+   pixels.copyWithin(y*rowBytes,rowStart,rowStart+rowBytes);
+  }
+  return prepareImagePixels(source,identity,mime,fresh,width,height,pixels.subarray(0,rowBytes*height),null);
  }
  if(mime!=='image/jpeg')return fail();
  const sharp=(await import('sharp')).default;if(sharp.versions.sharp!=='0.35.4'||sharp.versions.vips!=='8.18.6'||sharp.versions.mozjpeg!=='0826579')fail('IMAGE_PREPARATION_CODEC_VERSION');
