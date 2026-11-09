@@ -74,7 +74,7 @@ export async function workRequiredModelPreparation(pool:Pool,blobs:BlobStore,row
  await transaction(pool,c=>assertModelPreparationContext(c,row));
  const bytes=Buffer.from(await blobs.getBounded(String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
  if(writer){assertModelPreparationWriter(writer);await writer.assertLive();if(writer.identity.tenantId!==row.tenant_id||writer.identity.principalId!==row.user_id)throw new ApiError(403,'FORBIDDEN');}
- const prepared=await prepareCompactModelInWorker(bytes,{bytes:bytes.length,sha256:String(row.expected_hash)},{writerFd:writer?.writerFd});
+ const prepared=await prepareCompactModelInWorker(bytes,{bytes:bytes.length,sha256:String(row.expected_hash)},{profile:intent.profileId,writerFd:writer?.writerFd});
  await hooks?.beforeCommit?.();
  await transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
