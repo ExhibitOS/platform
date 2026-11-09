@@ -6,6 +6,8 @@ import type {ImageViewport} from './flat-image-view';
 import type {DetailView} from './detail-gesture';
 import type {DetailTier} from '@exhibitos/studio-contract';
 
+export class BorrowedDetailInitialObjectError extends Error {}
+export interface DetailQualityProgress {tier:DetailTier;loadedBytes:number;totalBytes:number|null}
 export interface SharedDetailSession {update(view:DetailView):void;dispose():void}
 export interface SharedDetailRequest {
  placementId:string;host:HTMLElement;signal:AbortSignal;view:DetailView;
@@ -20,6 +22,8 @@ export interface SharedDetailRequest {
  /** The renderer owner reports only committed draws, or null when removed.
   * Draw generations are positive, strictly increasing within this session. */
  renderedTier?(tier:DetailTier|null,drawGeneration:number):void;
+ /** The pending higher tier. A terminal null carries the same attempt generation. */
+ qualityProgress?(value:DetailQualityProgress|null,attemptGeneration:number):void;
  unavailable(reason:'rights'|'graphics'|'restoring'|'recovery'):void;
 }
 export type SharedDetailPreview=(request:SharedDetailRequest)=>Promise<SharedDetailSession>;
@@ -41,12 +45,16 @@ export function borrowedDetailPreview(input:{
  const saved={size:renderer.getSize(new three.Vector2()),ratio:renderer.getPixelRatio(),style:canvas.style.cssText,label:canvas.getAttribute('aria-label'),tabIndex:canvas.tabIndex};
  const pixelLimit=canvas.width*canvas.height;
  const scene=new three.Scene();scene.background=new three.Color('#181a20');
- const flat=request.flatImage?flatImagePreview(three,input.object):undefined;
  let imageObject=input.object;
  let clone=input.object.clone(true);clone.updateMatrixWorld(true);
  let box=new three.Box3().setFromObject(clone,true),centre=box.getCenter(new three.Vector3());const size=box.getSize(new three.Vector3());
  let extent=Math.max(size.x,size.y,size.z);
- if(box.isEmpty()||!Number.isFinite(extent)||extent<=0)throw Error('DETAIL_BOUNDS_UNAVAILABLE');
+ if(box.isEmpty()||!Number.isFinite(extent)||extent<=0)throw new BorrowedDetailInitialObjectError('DETAIL_BOUNDS_UNAVAILABLE');
+ let flat:ReturnType<typeof flatImagePreview>|undefined;
+ if(request.flatImage)try{flat=flatImagePreview(three,input.object);}catch(error){
+  if(error instanceof Error&&error.message==='DETAIL_IMAGE_UNAVAILABLE')throw new BorrowedDetailInitialObjectError(error.message);
+  throw error;
+ }
  const pivot=new three.Group(),contents=new three.Group();
  pivot.position.copy(centre);contents.position.copy(centre).negate();contents.add(clone);pivot.add(contents);scene.add(pivot);
  const markerGeometry=request.anchors.length?new three.SphereGeometry(extent*.015,12,8):undefined;
@@ -55,9 +63,9 @@ export function borrowedDetailPreview(input:{
  scene.add(new three.HemisphereLight(0xffffff,0x333344,.6));
  const light=new three.DirectionalLight(0xffffff,2);light.position.set(3,4,5);scene.add(light);
  const camera=new three.PerspectiveCamera(45,1,.01,100);
- let view=request.view,disposed=false,unsafeModelDraw=false;
+ let view=request.view,disposed=false,unsafeDraw=false;
  const render=()=>{
-  if(disposed||unsafeModelDraw||request.beforeRender?.()===false)return false;
+  if(disposed||unsafeDraw||request.beforeRender?.()===false)return false;
   const width=Math.max(1,request.host.clientWidth),height=Math.max(1,request.host.clientHeight);
   const ratio=Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height)));
   if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
@@ -73,7 +81,9 @@ export function borrowedDetailPreview(input:{
   }
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
-  camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
+  const metersPerPixel=2*fit.distance*Math.tan(camera.fov*Math.PI/360)/height;
+  const target=centre.clone().add(new three.Vector3(-(view.panX??0)*metersPerPixel,(view.panY??0)*metersPerPixel,0));
+  camera.position.copy(target).add(new three.Vector3(0,0,fit.distance));camera.lookAt(target);
   pivot.rotation.set(view.pitch*Math.PI/180,view.yaw*Math.PI/180,0,'YXZ');
   const environment=input.environment();scene.environment=environment.map;scene.environmentIntensity=environment.intensity;
   renderer.render(scene,camera);
@@ -83,10 +93,10 @@ export function borrowedDetailPreview(input:{
  const dispose=()=>{
   if(disposed)return;disposed=true;observer.disconnect();request.signal.removeEventListener('abort',dispose);
   flat?.dispose();scene.clear();markerGeometry?.dispose();markerMaterial?.dispose();
-  delete canvas.dataset.detailState;let keepHidden:boolean;try{keepHidden=request.keepHiddenOnDispose?.()===true||unsafeModelDraw;}catch{keepHidden=true;}canvas.style.cssText=saved.style;if(keepHidden)canvas.style.visibility='hidden';canvas.tabIndex=saved.tabIndex;
+  delete canvas.dataset.detailState;let keepHidden:boolean;try{keepHidden=request.keepHiddenOnDispose?.()===true||unsafeDraw;}catch{keepHidden=true;}canvas.style.cssText=saved.style;if(keepHidden)canvas.style.visibility='hidden';canvas.tabIndex=saved.tabIndex;
   if(saved.label===null)canvas.removeAttribute('aria-label');else canvas.setAttribute('aria-label',saved.label);
   if(next?.parentNode===parent)parent.insertBefore(canvas,next);else parent.appendChild(canvas);
-  let deferred:boolean;try{deferred=request.deferRestore?.()===true||unsafeModelDraw;}catch{deferred=true;}if(!deferred){renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);}
+  let deferred:boolean;try{deferred=request.deferRestore?.()===true||unsafeDraw;}catch{deferred=true;}if(!deferred){renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);}
   input.onRelease();
  };
  try{
@@ -95,23 +105,36 @@ export function borrowedDetailPreview(input:{
   request.signal.addEventListener('abort',dispose,{once:true});observer.observe(request.host);render();
  }catch(error){dispose();throw error;}
  return {render,replaceImage(object:Three.Object3D){
-  if(!flat)return;
+  if(!flat||disposed)throw Error('DETAIL_IMAGE_SWAP_UNAVAILABLE');
   const previous=imageObject,rollback=flat.replace(object);
   imageObject=object;
-  try{render();}catch(error){imageObject=previous;rollback();throw error;}
+  let drawn:boolean;
+  try{drawn=render();}catch(error){
+   imageObject=previous;rollback();
+   try{unsafeDraw=!render();}catch{unsafeDraw=true;}
+   if(unsafeDraw){canvas.style.visibility='hidden';throw error;}
+   throw Error('DETAIL_DRAW_ROLLED_BACK',{cause:error});
+  }
+  if(!drawn){imageObject=previous;rollback();throw Error('DETAIL_DRAW_UNCONFIRMED');}
  },
   /** The caller owns both objects and may swap only after independently proving
    * their identity, budget and coordinates. Existing anchors are not silently
    * projected onto a different model. A false draw is not a committed swap. */
   replaceModel(object:Three.Object3D){
-   if(disposed||unsafeModelDraw||flat||request.anchors.length)throw Error('DETAIL_MODEL_SWAP_UNAVAILABLE');
+   if(disposed||unsafeDraw||flat||request.anchors.length)throw Error('DETAIL_MODEL_SWAP_UNAVAILABLE');
    const next=object.clone(true);next.updateMatrixWorld(true);const nextBox=new three.Box3().setFromObject(next,true),nextSize=nextBox.getSize(new three.Vector3()),nextCentre=nextBox.getCenter(new three.Vector3()),nextExtent=Math.max(nextSize.x,nextSize.y,nextSize.z);
    if(nextBox.isEmpty()||!Number.isFinite(nextExtent)||nextExtent<=0)throw Error('DETAIL_BOUNDS_UNAVAILABLE');
    const previous={clone,box,centre,extent};contents.remove(clone);contents.add(next);clone=next;box=nextBox;centre=nextCentre;extent=nextExtent;pivot.position.copy(centre);contents.position.copy(centre).negate();
    const rollback=()=>{contents.remove(next);contents.add(previous.clone);({clone,box,centre,extent}=previous);pivot.position.copy(centre);contents.position.copy(centre).negate();};
-   let drawn:boolean;try{drawn=render();}catch(error){rollback();unsafeModelDraw=true;canvas.style.visibility='hidden';throw error;}
+   let drawn:boolean;try{drawn=render();}catch(error){rollback();try{unsafeDraw=!render();}catch{unsafeDraw=true;}if(unsafeDraw)canvas.style.visibility='hidden';throw error;}
    if(!drawn){rollback();throw Error('DETAIL_DRAW_UNCONFIRMED');}
   },update(nextView){view=nextView;render();},dispose};
+}
+
+/** A refused resident allocation waits for actual capacity, including only
+ * speculative peers that the selected promotion can reclaim. */
+export function detailResidentRetryReady(candidateBytes:number,residentBytes:number,residentLimit:number,preparedBytes:number){
+ return residentBytes+candidateBytes-residentLimit<=preparedBytes;
 }
 
 /** Callback for the existing viewer statistics tick; owns no timer or admission. */

@@ -33,7 +33,7 @@ export interface PublicFurnishingNotice extends PublicResource {assetId:string}
 type DeepReadonly<T> = T extends (...args:never[])=>unknown ? T : T extends object ? {readonly [K in keyof T]:DeepReadonly<T[K]>} : T;
 /** Failures from these calls are DetailAccessFailure; confirmed retirement covers
  * only this call's owned reads and cleanup, never authorization to fall back. */
-export interface DetailAccess {readonly revisionSha256:string; candidatesFor(artworkRevisionId:string,signal?:AbortSignal):Promise<readonly DeepReadonly<DetailCandidate>[]>; recheck(candidateId:string,signal:AbortSignal):Promise<void>; fetch(candidateId:string,signal:AbortSignal):Promise<Uint8Array>}
+export interface DetailAccess {readonly revisionSha256:string; candidatesFor(artworkRevisionId:string,signal?:AbortSignal):Promise<readonly DeepReadonly<DetailCandidate>[]>; recheck(candidateId:string,signal:AbortSignal):Promise<void>; fetch(candidateId:string,signal:AbortSignal,progress?:(loadedBytes:number)=>void):Promise<Uint8Array>}
 export interface LocalPublicationSource {kind?: "static"; verifiedIndexSha256?:string; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; detailAccess?:DetailAccess; check(): Promise<void>}
 export interface PublicPublication {
   local?: LocalPublicationSource;
