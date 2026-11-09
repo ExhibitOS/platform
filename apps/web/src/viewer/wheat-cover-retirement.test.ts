@@ -3,7 +3,7 @@ import {expect,it} from 'vitest';
 import {createWheatCoverRetirement,tracksWheatCover} from './wheat-cover-retirement';
 const primary={sha256:'cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7',bytes:8103573,mime:'image/png'};
 const variant={sha256:'0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304',bytes:509458,mime:'image/png'};
-it('tracks only the two exact Wheat publication revisions',()=>{
+it('tracks only registered Wheat publication revisions',()=>{
  expect(tracksWheatCover('41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8')).toBe(true);
  expect(tracksWheatCover('66595ef205a030ba360791fe75b970e9a4a536e5d4e1cf37505c49bc96f91648')).toBe(true);
  expect(tracksWheatCover('ab2e073f1b74b1989f362d35578b53c5854b8d5654c058ae81cfa0fc6ed3fd88')).toBe(true);

@@ -60,7 +60,18 @@ export const wingedR12Wheat:QualifiedDetailImage=Object.freeze({...aristotleR9Wh
  artworkRevisionId:'842a5114-b169-4046-a653-3e7dbbaf8bc9',
  sourceBindingSha256:'fa7aa858d24c96f814669c5211872f48e6f25bb7197df907f0c6f6906b7c410b',
 });
-export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return [measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat].find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+// The r19 painting update rebinds the same measured original to its exact publication.
+const r19Wheat:QualifiedDetailImage=Object.freeze({...wingedR12Wheat,
+ staticIndexSha256:'af7e1967477a9b1d247da21bc27b894561c74da1f0d2614b7b29443fa4975d5d',
+ publicationSha256:'009511e3133cc8c89ca0237cb55fed0043df9967dc7f0914c4fe165653f74aff',
+ candidateId:'bbd79da8-830c-4356-bf49-af131de40ba6',
+ revisionSha256:'be7e7511319007e510e24a511acb709d52d45417f9378ff50508464dce54ffbe',
+ artworkRevisionId:'9e775fc4-a06b-43e6-a561-e65d31127197',
+ sourceBindingSha256:'491a245e8606dc666ecdf9df575102d146d49d95cb6da0ca6cd03b3176aca0eb',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat]);
+export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
 export interface DetailImageViewport {width:number;height:number;canvasWidth:number;canvasHeight:number;pixelRatio:number;devicePixelRatio:number}
 /** A measured profile cannot survive an unmeasured canvas or DPR change. */
