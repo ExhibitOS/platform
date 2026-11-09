@@ -8,8 +8,8 @@ type Rectangle = {x:number;y:number;width:number;height:number};
 type RoomLights = readonly {room:Three.Group;light:Three.DirectionalLight|Three.SpotLight}[];
 type Receiver = {group:Three.Group;rectangles:readonly Rectangle[]};
 
-// One mask plus bounded CPU/GPU geometry and instance matrices.
-const SUPPORT_CONTACT_BYTES=8192;
+// 8 KiB CPU/GPU mask copies, 1 KiB paired instance buffers, plus geometry.
+const SUPPORT_CONTACT_BYTES=12*1024;
 export function supportContactFits(used:number,limit:number){
   return used<=limit-SUPPORT_CONTACT_BYTES;
 }

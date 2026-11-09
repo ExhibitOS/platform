@@ -34,6 +34,6 @@ it('uses only visible geometry in the verified catalog legs',()=>{
 it('leaves the existing scene allocation alone when the optional pass cannot fit',()=>{
   const scene=400_000;
   expect(supportContactFits(scene,scene)).toBe(false);
-  expect(supportContactFits(scene,scene+8191)).toBe(false);
-  expect(supportContactFits(scene,scene+8192)).toBe(true);
+  expect(supportContactFits(scene,scene+12*1024-1)).toBe(false);
+  expect(supportContactFits(scene,scene+12*1024)).toBe(true);
 });
