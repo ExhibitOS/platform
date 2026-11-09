@@ -317,9 +317,12 @@ export function GeometryPreview({
   const suspendedWasWalking = useRef(false);
   const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
   const seatedBenchRef=useRef<string|null>(null);
-  const benchReturnButton=useRef<HTMLButtonElement|null>(null);
+  const benchActionButton=useRef<HTMLButtonElement|null>(null);
+  const benchAction=useRef<((benchId:string,seated:boolean)=>boolean)|null>(null);
+  const nearbyBenchRef=useRef<string|null>(null);
+  const [nearbyBenchId,setNearbyBenchId]=useState<string|null>(null);
   const [seatedBenchId,setSeatedBenchId]=useState<string|null>(null);
-  useEffect(()=>{if(seatedBenchId)benchReturnButton.current?.focus({preventScroll:true});},[seatedBenchId]);
+  useEffect(()=>{if(seatedBenchId)benchActionButton.current?.focus({preventScroll:true});},[seatedBenchId]);
   const currentWalkMode = useRef({ walking: false, paused: true });
   const preparedEntry = useRef<boolean | null>(null);
   const committedEntry = useRef<boolean | null>(null);
@@ -451,6 +454,7 @@ export function GeometryPreview({
     let canvasRestorePromise:Promise<void>=Promise.resolve();
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);
+    nearbyBenchRef.current=null;setNearbyBenchId(null);benchAction.current=null;
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
@@ -1223,6 +1227,21 @@ export function GeometryPreview({
           "walking-instructions",
         );
         let initialization: Promise<void> | undefined;
+        const tryBenchAction=(benchId:string,seated:boolean)=>{
+          if(disposed||gpuLost||xrActive.current||suspendedRef.current||sharedDetail||
+            viewingStyleRef.current!=='free'||renderer.domElement.ownerDocument.hidden)return false;
+          const canvas=renderer.domElement,shell=canvas.closest('.publication-shell');
+          if(shell?.querySelector('details[data-visitor-panel][open]')||
+            canvas.ownerDocument.querySelector('dialog[open],[aria-modal="true"]'))return false;
+          const actions=walkingActions.current;
+          if(seated){
+            if(seatedBenchRef.current!==benchId||!actions?.stand)return false;
+            actions.stand();
+            return seatedBenchRef.current===null;
+          }
+          return !seatedBenchRef.current&&nearbyBenchRef.current===benchId&&actions?.sitNearby?.(benchId)===true;
+        };
+        benchAction.current=tryBenchAction;
         const initialize = async (teleportViewpointId?: string, preserveCurrent=false) => {
           if (disposed || xrActive.current) return;
           if (!initialization) {
@@ -1258,7 +1277,7 @@ export function GeometryPreview({
                 // A dialog may focus before the suspension effect, and Safari can
                 // report null relatedTarget. The existing committed entry still
                 // identifies this temporary obstruction without erasing its base stop.
-                isPanelFocus: target => committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
+                isPanelFocus: target => target===benchActionButton.current || committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => viewingStyleRef.current==='free'&&(panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 resumeDrag: () => viewingStyleRef.current==='free'&&(panelResume?.drag(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 settings: { ...walkSettingsRef.current },
@@ -1283,6 +1302,14 @@ export function GeometryPreview({
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
                   panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),
                 wasWalkingBeforeSeat:()=>panelResume?.wasWalkingBeforeSeat()??false,
+                onNearbyBench:id=>{
+                  if(disposed)return;
+                  nearbyBenchRef.current=id;setNearbyBenchId(id);
+                },
+                activateBench:()=>{
+                  const button=benchActionButton.current,id=button?.dataset.benchAction;
+                  return !!id&&!!button?.getClientRects().length&&tryBenchAction(id,button.dataset.benchSeated==='true');
+                },
                 onSeat:id=>{
                   if(disposed)return;
                   seatedBenchRef.current=id;setSeatedBenchId(id);
@@ -2938,6 +2965,7 @@ export function GeometryPreview({
       const next=qualityIntent.current;
       if(immersive&&publicSource&&viewerBudget&&next.scope===qualityScope&&next.budget&&next.budget!==viewerBudget&&!xrActive.current&&!seatedBenchRef.current&&viewingStyleRef.current==='free'&&!sharedDetail)preserveQualityFrame();
       disposed = true;
+      benchAction.current=null;
       resizeAction.current = null;
       abort.abort();
       release();
@@ -2962,6 +2990,7 @@ export function GeometryPreview({
     clearQualityFrame,
   ]);
   const ControlsFrame = immersive || compactControls ? "details" : "div";
+  const visibleBenchId=ready&&viewingStyle==='free'&&!xrRunning&&!suspendNavigation?(seatedBenchId??(immersive?nearbyBenchId:null)):null;
   const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : detailRestoreMessage ? "detail-restore" : ready ? artworkNotice : undefined;
   const noticeMessage = noticeState === "scene" ? sceneIssue
     : noticeState === "detail-restore" ? detailRestoreMessage
@@ -2973,7 +3002,6 @@ export function GeometryPreview({
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       {materialIssueCount>0&&<p role="status">마감 텍스처 {materialIssueCount}종의 표시를 완료하지 못했어요. 저장된 재질 설정은 유지됩니다.</p>}
-      {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
       {immersive && ready && viewingStyle==='free' && !seatedBenchId && !xrRunning && !suspendNavigation &&
         walkPaused && !panelResumeAvailable && (
           <button className="viewer-navigation-resume" onClick={()=>walkingActions.current?.start()}>
@@ -2983,6 +3011,11 @@ export function GeometryPreview({
       <div className="geometry-stage watermark-display-stage">
         <div className="geometry-render-host" ref={host} />
         <WatermarkOverlay candidate={document}/>
+        {visibleBenchId&&<button ref={benchActionButton} className="bench-return" data-bench-action={visibleBenchId}
+          data-bench-seated={!!seatedBenchId} aria-keyshortcuts="F"
+          onClick={()=>benchAction.current?.(visibleBenchId,!!seatedBenchId)}>
+          {seatedBenchId?'일어서기':'앉기'}
+        </button>}
         {viewerBudget && walkingMode && viewingStyle==='free' && (
           <WalkingTouch
             available={ready && !xrRunning && !suspendNavigation}

@@ -12,6 +12,8 @@
 main.publication-shell button{background:transparent;color:var(--publication-ink);border:1px solid var(--publication-muted)}
 main.publication-shell .bench-return{background:var(--publication-paper);color:var(--publication-ink)}
 main.publication-shell .bench-return:focus-visible{outline-offset:-4px}
+.geometry-immersive[data-input-mode=touch]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}
+@media (pointer:coarse){.geometry-immersive[data-input-mode=auto]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}}
 main.publication-shell>button,main.publication-shell section[aria-label="3D 관람 오류"]>button{background:var(--publication-action);color:var(--publication-paper);border-color:var(--publication-action)}
 main.publication-shell>button:focus-visible,main.publication-shell section[aria-label="3D 관람 오류"]>button:focus-visible{outline-color:var(--publication-ink)}
 main.publication-shell button:disabled{opacity:1;color:var(--publication-muted);cursor:not-allowed}
