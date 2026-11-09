@@ -60,9 +60,10 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   await migrate(pool,new URL('../../../database/native-fresh-image-preparation/',import.meta.url).pathname);
   expect((await session()).json().nativeFreshImagePreparationProfile).toBe('ordinary-image-preparation-v1');
   for(const mime of ['image/png','image/jpeg'] as const){
-   const artworkId=randomUUID(),metadata={title:`Fresh ${mime}`,description:'',dimensions:{width:1.5,height:1,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'m',scaleApplied:true}};
-   await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[tenantId,artworkId,artistId,metadata]);
-   await pool.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,artworkId,metadata]);
+   const metadata={title:`Fresh ${mime}`,description:'',dimensions:{width:1.5,height:1,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'m',scaleApplied:true,notes:''}};
+   const draft=await app.inject({method:'POST',url:`${api}/cms/artworks`,headers,payload:{artistId,...metadata}});
+   expect(draft.statusCode,draft.body).toBe(201);
+   const artworkId=draft.json().id as string;
    const width=3072,height=2048,rgb=Buffer.alloc(width*height*3);
    for(let i=0;i<rgb.length;i++)rgb[i]=(i+Math.floor(i/(width*3)))%256;
    const image=sharp(rgb,{raw:{width,height,channels:3}});
