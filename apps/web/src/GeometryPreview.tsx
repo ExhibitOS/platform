@@ -2826,7 +2826,6 @@ export function GeometryPreview({
                       for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
                       evictPrepared(deficit);
                     }
-                    let transfer:DetailTransfer|undefined;
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
@@ -2843,7 +2842,7 @@ export function GeometryPreview({
                     });
                     if(diagnosticsEnabled())diagnosticOriginalLimits={transition:profile.transitionCapBytes,scene:profile.maxSceneBytes};
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    transfer=beginDetailTransfer?.('acquired-original',profile.bytes);const attempt=originalAttempt;
+                    const transfer=beginDetailTransfer?.('acquired-original',profile.bytes),attempt=originalAttempt;
                     const fallback=()=>{retireOriginal();void attempt.close().then(()=>{redrawSettledBaseline();activateLegacy();},()=>{});};
                     void attempt.show().then(shown=>{
                       if(shown&&current()){
