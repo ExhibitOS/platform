@@ -1,0 +1,347 @@
+{
+  "supplierRecipe": {
+    "file": "supplier-recipe.tar.gz",
+    "url": "https://codeload.github.com/lovell/sharp-libvips/tar.gz/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+    "sha256": "aea60d36644f88b47a3998564f12264fd7638dc4559f083e9ff3fb25c9caa87b"
+  },
+  "supplierInputs": [
+    {
+      "input": "aom",
+      "version": "3.15.0",
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.15.0.tar.gz",
+      "sha256": "ea08c38ecc078bc85bb1b691020e52b06250f1a81fe7ca5b624629225081af96",
+      "bytes": 6622801,
+      "mutableRoute": false
+    },
+    {
+      "input": "archive",
+      "version": "3.8.9",
+      "url": "https://github.com/libarchive/libarchive/releases/download/v3.8.9/libarchive-3.8.9.tar.xz",
+      "sha256": "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde",
+      "bytes": 6617696,
+      "mutableRoute": false
+    },
+    {
+      "input": "cairo",
+      "version": "1.18.4",
+      "url": "https://cairographics.org/releases/cairo-1.18.4.tar.xz",
+      "sha256": "445ed8208a6e4823de1226a74ca319d3600e83f6369f99b14265006599c32ccb",
+      "bytes": 32578804,
+      "mutableRoute": false
+    },
+    {
+      "input": "cgif",
+      "version": "0.5.3",
+      "url": "https://github.com/dloebl/cgif/archive/v0.5.3.tar.gz",
+      "sha256": "dcc7731e974ee77db75df26c99aca4d95f11ca2d267d870d42bce1e0d1e1e75f",
+      "bytes": 40021,
+      "mutableRoute": false
+    },
+    {
+      "input": "exif",
+      "version": "0.6.26",
+      "url": "https://github.com/libexif/libexif/releases/download/v0.6.26/libexif-0.6.26.tar.xz",
+      "sha256": "4a055ed6575e61ca46c3172be3c753cc16c9becd0f99ec71d58dd0e471476c0c",
+      "bytes": 1335488,
+      "mutableRoute": false
+    },
+    {
+      "input": "expat",
+      "version": "2.8.3",
+      "url": "https://github.com/libexpat/libexpat/releases/download/R_2_8_3/expat-2.8.3.tar.xz",
+      "sha256": "f6256df90c906773d344da084402b7d3e4f22ed41b1a59c989098a83d3ea0c85",
+      "bytes": 517264,
+      "mutableRoute": false
+    },
+    {
+      "input": "ffi",
+      "version": "3.8.0",
+      "url": "https://api.github.com/repos/libffi/libffi/releases/assets/506805115",
+      "sha256": "7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4",
+      "bytes": 1581626,
+      "mutableRoute": false,
+      "accept": "application/octet-stream"
+    },
+    {
+      "input": "fontconfig",
+      "version": "2.18.3",
+      "url": "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.18.3/fontconfig-2.18.3.tar.gz",
+      "sha256": "9ae01e1d53acdef56010c5451cd34aa41d325b2faccd8606448d8fa01b2496b3",
+      "bytes": 666753,
+      "mutableRoute": false
+    },
+    {
+      "input": "freetype",
+      "version": "2.14.3",
+      "url": "https://github.com/freetype/freetype/archive/VER-2-14-3.tar.gz",
+      "sha256": "dc49de6b01a266eef4876a4dd34d9842c475d3e28ff2eff63bd2fb760ab56261",
+      "bytes": 2515533,
+      "mutableRoute": false
+    },
+    {
+      "input": "fribidi",
+      "version": "1.0.16",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+      "sha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+      "bytes": 1098260,
+      "mutableRoute": false
+    },
+    {
+      "input": "glib",
+      "version": "2.89.4",
+      "url": "https://download.gnome.org/sources/glib/2.89/glib-2.89.4.tar.xz",
+      "sha256": "1cdbb799f558832e6f14b8337b5fd599c6918ab144977b55e05e00a5e2e84a2c",
+      "bytes": 5830980,
+      "mutableRoute": false
+    },
+    {
+      "input": "harfbuzz",
+      "version": "14.3.1",
+      "url": "https://github.com/harfbuzz/harfbuzz/archive/14.3.1.tar.gz",
+      "sha256": "05e602daf0846d7497d842807766ea32ca270f3e2c9284ce03811a2a1ed669c9",
+      "bytes": 37889473,
+      "mutableRoute": false
+    },
+    {
+      "input": "heif",
+      "version": "1.23.2",
+      "url": "https://github.com/strukturag/libheif/releases/download/v1.23.2/libheif-1.23.2.tar.gz",
+      "sha256": "8bd5d41d19dc84536d118b04774709f244df6104ef66d623dad5fa4650143405",
+      "bytes": 2111195,
+      "mutableRoute": false
+    },
+    {
+      "input": "highway",
+      "version": "1.4.0",
+      "url": "https://github.com/google/highway/archive/1.4.0.tar.gz",
+      "sha256": "e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c",
+      "bytes": 3691240,
+      "mutableRoute": false
+    },
+    {
+      "input": "imagequant",
+      "version": "2.4.1",
+      "url": "https://github.com/lovell/libimagequant/archive/v2.4.1.tar.gz",
+      "sha256": "47d2a84b7b1052975c9d50a3d4e3cacbf57b43d84a4c3131210848ead9964dfb",
+      "bytes": 45792,
+      "mutableRoute": false
+    },
+    {
+      "input": "lcms",
+      "version": "2.19.1",
+      "url": "https://api.github.com/repos/mm2/Little-CMS/releases/assets/413352057",
+      "sha256": "bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8",
+      "bytes": 5728743,
+      "mutableRoute": false,
+      "accept": "application/octet-stream"
+    },
+    {
+      "input": "mozjpeg",
+      "version": "0826579",
+      "url": "https://codeload.github.com/mozilla/mozjpeg/tar.gz/0826579",
+      "sha256": "1dc1e510d1f0a550f5dfc6f6924ba01143cbb427a02d17f102701d4d427d135d",
+      "bytes": 2442053,
+      "mutableRoute": false,
+      "commit": "08265790774cd0714832c9e675522acbe5581437"
+    },
+    {
+      "input": "pango",
+      "version": "1.58.2",
+      "url": "https://download.gnome.org/sources/pango/1.58/pango-1.58.2.tar.xz",
+      "sha256": "342385b6ca3b7c73455d7c80a13b7dbe4489e00bc3bd4c5bd6ed4dce421e374a",
+      "bytes": 1918112,
+      "mutableRoute": false
+    },
+    {
+      "input": "pixman",
+      "version": "0.46.4",
+      "url": "https://cairographics.org/releases/pixman-0.46.4.tar.gz",
+      "sha256": "d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c",
+      "bytes": 827198,
+      "mutableRoute": false
+    },
+    {
+      "input": "png",
+      "version": "1.6.58",
+      "url": "https://github.com/pnggroup/libpng/archive/v1.6.58.tar.gz",
+      "sha256": "a9d4df463d36a6e5f9c29bd6f4967312d17e996c1854f3511f833924eb1993cf",
+      "bytes": 1592190,
+      "mutableRoute": false
+    },
+    {
+      "input": "proxy-libintl",
+      "version": "0.5",
+      "url": "https://github.com/frida/proxy-libintl/archive/0.5.tar.gz",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+      "bytes": 13056,
+      "mutableRoute": false
+    },
+    {
+      "input": "rsvg",
+      "version": "2.62.91",
+      "url": "https://download.gnome.org/sources/librsvg/2.62/librsvg-2.62.91.tar.xz",
+      "sha256": "6caeae129d40dd88f8ec49436fd89bfe4ada716a125187a7fa0def8fcaa0b250",
+      "bytes": 6766696,
+      "mutableRoute": false
+    },
+    {
+      "input": "tiff",
+      "version": "4.7.2",
+      "url": "https://gitlab.com/libtiff/libtiff/-/archive/v4.7.2/libtiff-v4.7.2.tar.gz",
+      "sha256": "62b15f44c10106065211efa22a2dc77937bd97ee1f6e3afd2c9659010de112eb",
+      "bytes": 2616788,
+      "mutableRoute": false
+    },
+    {
+      "input": "uhdr",
+      "version": "2.0.2",
+      "url": "https://github.com/google/libultrahdr/archive/v2.0.2.tar.gz",
+      "sha256": "aa8d193bb887c348c419780511dd03b374f4e07af8812b6d3f80c8537cf1ef2c",
+      "bytes": 1518872,
+      "mutableRoute": false
+    },
+    {
+      "input": "vips",
+      "version": "8.18.6",
+      "url": "https://github.com/libvips/libvips/releases/download/v8.18.6/vips-8.18.6.tar.xz",
+      "sha256": "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e",
+      "bytes": 25431000,
+      "mutableRoute": false
+    },
+    {
+      "input": "webp",
+      "version": "1.6.0",
+      "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz",
+      "sha256": "e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564",
+      "bytes": 4296070,
+      "mutableRoute": false
+    },
+    {
+      "input": "xml2",
+      "version": "2.15.3",
+      "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.3.tar.xz",
+      "sha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07",
+      "bytes": 3152452,
+      "mutableRoute": false
+    },
+    {
+      "input": "zlib-ng",
+      "version": "2.3.3",
+      "url": "https://github.com/zlib-ng/zlib-ng/archive/2.3.3.tar.gz",
+      "sha256": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1",
+      "bytes": 2447397,
+      "mutableRoute": false
+    },
+    {
+      "input": "glib-patch.patch",
+      "version": null,
+      "url": "https://gist.github.com/kleisauke/284d685efa00908da99ea6afbaaf39ae/raw/bdad5489a61c217850631571caf57f5db6ea8b2c/glib-without-gregex.patch",
+      "sha256": "b1f2930a11292e529de137c7eb723850e0cc0969b1a2b0358196389312acd272",
+      "bytes": 7759,
+      "mutableRoute": false
+    },
+    {
+      "input": "vips-patch.patch",
+      "version": null,
+      "url": "https://gist.githubusercontent.com/lovell/313a6901e9db1bf285f2a1f1180499e4/raw/3988223c7dfa4d22745d9392034b0117abef1446/libvips-cpp-soversion.patch",
+      "sha256": "256b7d6f8c973bb53b20cff5171c7117d6b35d3aa4e72d22cb906f4fe1e2c890",
+      "bytes": 514,
+      "mutableRoute": false
+    },
+    {
+      "input": "mozjpeg-patch.patch",
+      "version": null,
+      "url": "https://api.github.com/repos/mozilla/mozjpeg/commits/f90668e0e4fb79c81e1f24a0ccc0e2090af761bf",
+      "sha256": "a65f87cadf3a6052e44d6314c906f6e2891352f82646b8a6f0b8fcf2c1891e7c",
+      "bytes": 8103,
+      "mutableRoute": false,
+      "accept": "application/vnd.github.patch"
+    },
+    {
+      "input": "uhdr-patch.patch",
+      "version": null,
+      "sha256": "57658db2a11ae964755e513b01db21bcfa408c350b11b3a6ef9bc8576fb749ba",
+      "bytes": 7567,
+      "mutableRoute": false,
+      "commitPatchURLs": [
+        "https://api.github.com/repos/google/libultrahdr/commits/e2daed8da97d8857dcec2fd68d2f6f3326170f67",
+        "https://api.github.com/repos/google/libultrahdr/commits/7af35883ee575266cc43bbd05686734ebd5b1a82"
+      ]
+    }
+  ],
+  "toolDownloads": [
+    {
+      "file": "cmake-3.31.6-py3-none-macosx_10_10_universal2.whl",
+      "sha256": "da9d4fd9abd571fd016ddb27da0428b10277010b23bb21e3678f8b9e96e1686e",
+      "bytes": 47224338
+    },
+    {
+      "file": "meson-1.11.0-py3-none-any.whl",
+      "sha256": "9774eb62bbf2cb8043aa3feb771c09b510d112c0c382221e29aea7453ecce753",
+      "bytes": 1078425
+    },
+    {
+      "file": "meson-1.9.1-py3-none-any.whl",
+      "sha256": "f824ab770c041a202f532f69e114c971918ed2daff7ea56583d80642564598d0",
+      "bytes": 1030356
+    },
+    {
+      "file": "nasm-2.16.03.tar.xz",
+      "sha256": "1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148",
+      "bytes": 1032388
+    },
+    {
+      "file": "ninja-1.13.0-py3-none-macosx_10_9_universal2.whl",
+      "sha256": "fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1",
+      "bytes": 310125
+    },
+    {
+      "file": "pkgconf-2.5.1.tar.xz",
+      "sha256": "cd05c9589b9f86ecf044c10a2269822bc9eb001eced2582cfffd658b0a50c243",
+      "bytes": 328064
+    }
+  ],
+  "cargoC": {
+    "sourceURL": "https://static.crates.io/crates/cargo-c/cargo-c-0.10.18+cargo-0.92.0.crate",
+    "sha256": "2a15984245971462c8e0e6c4e7f1d11f1693af9f7fa11b35c099ab76d749c523",
+    "lockSHA256": "14e438039df865fbd1d4c68bc4ed61a2ee015c12f41bb47b942d4ee316d49d31"
+  },
+  "sharpBuildInputs": [
+    {
+      "version": "0.35.4",
+      "resolved": "https://registry.npmjs.org/sharp/-/sharp-0.35.4.tgz",
+      "integrity": "sha512-n++8XWcj+jCOr2IOl7h8LbKnGBDY4aPbmprMONBNFdn0ImXqpGVv5zliDs0V9HbmbCQLpbuo2ej9rAoOQTvMDA==",
+      "packageLockPath": "node_modules/sharp"
+    },
+    {
+      "version": "2.1.2",
+      "resolved": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
+      "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==",
+      "packageLockPath": "node_modules/detect-libc"
+    },
+    {
+      "version": "7.8.5",
+      "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
+      "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
+      "packageLockPath": "node_modules/semver"
+    },
+    {
+      "version": "1.1.0",
+      "resolved": "https://registry.npmjs.org/@img/colour/-/colour-1.1.0.tgz",
+      "integrity": "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==",
+      "packageLockPath": "node_modules/@img/colour"
+    },
+    {
+      "version": "1.3.3",
+      "resolved": "https://registry.npmjs.org/@img/sharp-libvips-darwin-arm64/-/sharp-libvips-darwin-arm64-1.3.3.tgz",
+      "integrity": "sha512-suTBPTDGrI9WodccaDdwZItTSaBYASlBk1NSfElSHrUfzu3szG6lvIF58+WiFvnfzuK8ZBFS5zE00PxqxnRiPg==",
+      "packageLockPath": "node_modules/@img/sharp-libvips-darwin-arm64"
+    },
+    {
+      "version": "0.35.4",
+      "resolved": "https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.4.tgz",
+      "integrity": "sha512-Uhfl4V4lhP2nbUVF9+hyH1+luj86f1gUFeo8ALYxFoULoU+G87D43BfeMP8XHsk9boxAnCY/bf2EHwhA7MuGsA==",
+      "packageLockPath": "node_modules/@img/sharp-darwin-arm64"
+    }
+  ]
+}

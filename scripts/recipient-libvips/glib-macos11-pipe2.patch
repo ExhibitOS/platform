@@ -1,0 +1,10 @@
+--- a/meson.build
++++ b/meson.build
+@@ -746,7 +746,6 @@
+   'memmem',
+   'mmap',
+   'newlocale',
+-  'pipe2',
+   'poll',
+   'prlimit',
+   'readlink',
