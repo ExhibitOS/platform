@@ -386,7 +386,7 @@ export class Cms {
       `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision,
         EXISTS (
           SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
-          AND j.derived->>'kind'='product-image-pair'
+          AND j.derived->>'kind' IN ('product-image-pair','fresh-product-image')
           AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
         ) AS product_image_output
         FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
