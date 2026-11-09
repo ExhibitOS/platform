@@ -33,3 +33,15 @@ it('mounts the fixed portal at the authoritative wall-local door bottom',async()
  const candidate={rooms:[{id:id(1),dimensions:{width:8,height:3,depth:8},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]}}],surfaces:[{id:id(4),roomId:id(1),type:'wall',transform:pose}],openings:[{id:id(5),surfaceId:id(4),type:'door',dimensions:{width:2.4,height:2.6},offset:[1,-.2]}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:6,furnishings:[{id:id(2),version:1,kind:'portal-finish',name:'Portal',rights:{permissions:{display:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:164044,sha256:sha}}],placements:[],frameAttachments:[],openingAttachments:[attachment]}}};
  const mounted=await mountOwnerWorkspacePlacement({...f.options,candidate,placementId:id(5),openingAttachment:attachment});expect(f.object.matrixAutoUpdate).toBe(false);expect(new three.Vector3().setFromMatrixPosition(f.object.matrix).toArray()).toEqual([3,0,-4]);mounted.dispose();
 });
+
+it('mounts both measured continuous portal sizes at the wall-local door bottom',async()=>{
+ for(const [width,height,depth] of [[2.4,2.6,.2],[1.4,2.2,.12]] as const){
+  const f=setup(),sha='a'.repeat(64),pose={position:[2,1.5,-4],rotation:[0,0,0,1],scale:[1,1,1]},attachment={openingId:id(5),furnishingId:id(2),furnishingVersion:1 as const,modelSha256:sha};
+  const descriptor={id:id(2),version:1,kind:'portal-finish',name:'Portal',rights:{permissions:{display:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256:sha},fit:{version:1,sourceSha256:sha,sourceBytes:100,geometry:{profile:'continuous-portal-v1',openingWidth:width,openingHeight:height,minZ:-depth/2,maxZ:depth/2}}};
+  const candidate={rooms:[{id:id(1),dimensions:{width:8,height:3,depth:8},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]}}],surfaces:[{id:id(4),roomId:id(1),type:'wall',dimensions:{width:8,height:3},transform:pose}],openings:[{id:id(5),surfaceId:id(4),type:'door',dimensions:{width,height},offset:[1,height/2-1.5]}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:7,furnishings:[descriptor],placements:[],frameAttachments:[],openingAttachments:[attachment]},'org.exhibitos.studio/architectural-finishes':{version:1,walls:[{surfaceId:id(4),depth,preset:'plain',trimWidth:.04,baseboardHeight:.1,ceilingBand:false}]}}};
+  const mounted=await mountOwnerWorkspacePlacement({...f.options,candidate,placementId:id(5),openingAttachment:attachment});
+  expect(f.object.matrixAutoUpdate).toBe(false);
+  expect(new three.Vector3().setFromMatrixPosition(f.object.matrix).toArray()).toEqual([3,0,-4]);
+  mounted.dispose();
+ }
+});

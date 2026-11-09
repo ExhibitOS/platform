@@ -15,7 +15,7 @@ import {workspaceFurnishingOutputBytes,workspaceFurnishingOutputInventory} from 
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
-import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
+import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
 import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
 import {FLOOR_NAMESPACE,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -140,7 +140,7 @@ export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,
  return selected;
 }
 /** Only typed UUID fields and material surface keys are rewritten. UUID-shaped human prose is untouched. */
-export function remapOex(e:Exhibition){
+export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings){
  if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  const furniture=furnishingsFor(e);
  const ids=new Map<string,string>();
@@ -164,6 +164,7 @@ export function remapOex(e:Exhibition){
  const attachments=source.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
  if(source.extensions){delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(portableFurnishings)delete source.extensions?.[WORKSPACE_FURNISHING_NAMESPACE];
  const exhibition=visit(source)as Exhibition;
  if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(floors)exhibition.extensions={...exhibition.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -198,6 +199,23 @@ export function remapOex(e:Exhibition){
   if(source.provenance.scaleConversion&&target.provenance.scaleConversion)target.provenance.scaleConversion.appliedToAssetIds=source.provenance.scaleConversion.appliedToAssetIds.map(scopedId);
  }
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
+ if(portableFurnishings){
+  const localId=(value:string)=>ids.get(value.toLowerCase())!;
+  for(const item of [...portableFurnishings.furnishings,...portableFurnishings.placements]){
+   const key=item.id.toLowerCase();
+   if(ids.has(key))throw new ApiError(422,'OEX_PROFILE_INVALID');
+   ids.set(key,randomUUID());
+  }
+  const {furnishings,placements,frameAttachments,openingAttachments}=portableFurnishings;
+  exhibition.extensions={...exhibition.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{
+   version:portableFurnishings.version,
+   furnishings:furnishings.map(item=>({...item,id:localId(item.id)})),
+   placements:placements.map(item=>({...item,id:localId(item.id),furnishingId:localId(item.furnishingId),roomId:localId(item.roomId)})),
+   ...(frameAttachments?{frameAttachments:frameAttachments.map(item=>({...item,placementId:localId(item.placementId),furnishingId:localId(item.furnishingId),artworkRevisionId:localId(item.artworkRevisionId),assetId:scoped.get(item.artworkRevisionId.toLowerCase())?.get(item.assetId.toLowerCase())}))}:{}),
+   ...(openingAttachments?{openingAttachments:openingAttachments.map(item=>({...item,openingId:localId(item.openingId),furnishingId:localId(item.furnishingId)}))}:{}),
+  } as unknown as NonNullable<Exhibition['extensions']>[string]};
+  checkOexProfile(exhibition,false,undefined,false,true);
+ }
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
 export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[];footstepResources:FootstepResource[]}>{
@@ -205,7 +223,7 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
-   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=parsed.manifest.formatVersion===OEX_FOOTSTEP_RESOURCE_VERSION?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
+   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=[OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -573,7 +591,13 @@ export class Oex {
     for(const resource of footstepResources){
      await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
-    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+    const portable=e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+    if(portable?.version===7){
+     if(!this.workspaceFurnishing)throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+     await this.workspaceFurnishing.authorize(c,s);
+    }
+    const now=Date.now();
+    if(grants.some(r=>!allowedRights(r,'export',now))||portable?.version===7&&portable.furnishings.some(({rights})=>!allowedRights(rights,'display',now)||!allowedRights(rights,'export',now)))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
     const result={...response,exhibitionId:e.id,idMap,assetAliases};
     const terminal=await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3 AND state='processing' AND lease_until>clock_timestamp() AND payload_sha256=$5 AND user_id=$6 RETURNING id",[s.tenantId,id,lease,result,payloadSha256,s.userId]);
@@ -601,7 +625,10 @@ export class Oex {
   try{
    const parsed=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const bytes=await this.uploaded(row);try{return await decodeOex(bytes);}catch{throw new ApiError(422,'OEX_INVALID');}});
    requireSupportedOexImport(parsed.exhibition);
-   checkOexProfile(parsed.exhibition);
+   const portable=parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V7_VERSION?parsed.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings:undefined;
+   const service=this.workspaceFurnishing;
+   if(parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V7_VERSION&&(!portable||portable.version!==7||!service?.supportsReusableFit()||!this.blobs.putDurable))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+   checkOexProfile(parsed.exhibition,false,undefined,false,!!portable);
    const sourceStill=spaceStillFor(parsed.exhibition);
    const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
@@ -611,7 +638,19 @@ export class Oex {
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
    for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
    for(const [path,bytes] of checkedOexFurnishingFiles(parsed.exhibition,parsed.files)){if(qualified.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');qualified.set(path,bytes);}
-   const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
+   const portableEntries=new Map<string,{receipt:object;path:string}>();
+   if(portable&&service)await transaction(this.pool,async c=>{
+    const s=await this.actor(c,row);
+    for(const resource of workspaceFurnishingOutputInventory(parsed.exhibition)){
+     const descriptor=portable.furnishings.find(item=>item.id===resource.furnishingId)!;
+     const bytes=parsed.files.get(resource.path);
+     if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');
+     const receipt=await service.validatePortableImport(c,s,descriptor,bytes);
+     qualified.set(resource.artifactPath,bytes);
+     portableEntries.set(descriptor.id,{receipt,path:resource.artifactPath});
+    }
+   });
+   const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition,portable),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
@@ -632,7 +671,14 @@ export class Oex {
     const current=(await c.query("SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[row.tenant_id,id,lease])).rows[0]as Job|undefined;if(!current)return;
     const s=await this.actor(c,current);
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
-    for(const[key,bytes]of storedBytes)await this.blobs.put(key,bytes);
+    if(portable&&service)await service.authorize(c,s);
+    for(const[key,bytes]of storedBytes){
+     if(portable)await this.blobs.putDurable!(key,bytes);
+     else await this.blobs.put(key,bytes);
+    }
+    if(portable&&service)for(const [sourceId,{receipt,path}]of portableEntries){
+     await service.registerPortableImport(c,s,receipt,idMap[sourceId.toLowerCase()]!,sourceKeys.get(path)!);
+    }
     const mediaDurations=new Map(e.mediaAssets.map(m=>[m.id,validatePcmWav(restoredBytes.get(m.path)!).durationSeconds]));
     await this.attachPrepared(c,s,{id,leaseId:lease,payloadSha256:row.payload_sha256},{exhibition:e,idMap,assetAliases,keys,mediaDurations,floorResources:parsed.floorResources,materialResources:parsed.materialResources,footstepResources:parsed.footstepResources});
    });

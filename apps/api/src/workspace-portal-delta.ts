@@ -12,12 +12,12 @@ export function portalStateChanged(before:Draft,after:Draft,namespace:string):bo
 }
 
 /** One opening visual attachment changes; all other draft data stays fixed.
- * This only bridges the currently used v5 shape and v6, not older profiles. */
+ * The delta bridges v5 through v7; all other scene data stays fixed. */
 export function ordinaryPortalDelta(before:Draft,after:Draft,namespace:string):boolean{
  const leftDraft=structuredClone(before),rightDraft=structuredClone(after);
  const extract=(draft:Draft)=>{
   const extensions=draft.candidate.extensions??{},raw=extensions[namespace] as unknown as {version:number;furnishings:{id:string;kind:string}[];placements:unknown[];frameAttachments?:unknown[];openingAttachments?:{openingId:string}[]}|undefined;
-  if(raw&&(![5,6].includes(raw.version)||!Array.isArray(raw.furnishings)||!Array.isArray(raw.placements)||!Array.isArray(raw.frameAttachments)||raw.version===6&&!Array.isArray(raw.openingAttachments)))throw Error('PORTAL_INVALID');
+  if(raw&&(![5,6,7].includes(raw.version)||!Array.isArray(raw.furnishings)||!Array.isArray(raw.placements)||!Array.isArray(raw.frameAttachments)||raw.version>=6&&!Array.isArray(raw.openingAttachments)))throw Error('PORTAL_INVALID');
   const result={version:raw?.version,rows:raw?.openingAttachments??[],base:raw?{furnishings:raw.furnishings.filter(item=>item.kind!=='portal-finish'),placements:raw.placements,frameAttachments:raw.frameAttachments}:undefined};
   if(draft.candidate.extensions){delete draft.candidate.extensions[namespace];if(!Object.keys(draft.candidate.extensions).length)delete draft.candidate.extensions;}return result;
  };
@@ -26,6 +26,6 @@ export function ordinaryPortalDelta(before:Draft,after:Draft,namespace:string):b
   if(!isDeepStrictEqual(leftDraft,rightDraft)||!isDeepStrictEqual(a.base??{furnishings:[],placements:[],frameAttachments:[]},b.base??{furnishings:[],placements:[],frameAttachments:[]}))return false;
   const keys=new Set([...a.rows.map(row=>row.openingId),...b.rows.map(row=>row.openingId)]);let changes=0;
   for(const key of keys)if(!isDeepStrictEqual(a.rows.filter(row=>row.openingId===key),b.rows.filter(row=>row.openingId===key)))changes++;
-  return changes===1&&(a.version===6||b.version===6);
+  return changes===1&&[a.version,b.version].some(version=>version===6||version===7);
  }catch{return false;}
 }
