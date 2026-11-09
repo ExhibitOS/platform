@@ -307,7 +307,14 @@ export class ExhibitionAudio implements AudioApi {
   update(state: NavigationState) {
     this.position = [...state.eyePosition];
     const floorChanged=this.floor!==state.floorSurfaceId;
-    if(floorChanged){for(const source of [...this.stepSources])this.stop(source);this.floor=state.floorSurfaceId;}
+    if (floorChanged) {
+      // A step already sounding belongs to the old floor. A continuous
+      // crossing changes the next step, without cutting the current one.
+      if (state.paused || state.recovered) {
+        for (const source of [...this.stepSources]) this.stop(source);
+      }
+      this.floor = state.floorSurfaceId;
+    }
     this.setRoom(state.roomId,floorChanged);
     if (this.context && this.state.enabled) {
       const listener = this.context.listener, now = this.context.currentTime;
