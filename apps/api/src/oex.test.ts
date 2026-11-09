@@ -45,7 +45,7 @@ describe('OEX service boundaries',()=>{
   workspace.furnishings[0]!.kind='info-stand';
   expect(validateViewerExperience(e).valid).toBe(false);
   workspace.furnishings[0]!.kind='barrier';
-  door.surfaceId=e.surfaces.find(surface=>surface.type==='floor')!.id;
+  wall.type='floor';
   expect(validateViewerExperience(e).valid).toBe(false);
  });
  it('preserves bounded poster settings and remaps the cover with its approved PNG inventory', async () => {
