@@ -17,20 +17,21 @@ import {Studio,etag,insertStudioReceipt,type Draft,type StudioResponse} from './
 
 interface ReviewedImageReplacement {requestId:string;artworkId:string;artworkRevision:number;importJobId:string}
 interface ApprovedModelCandidateReplacement extends ReviewedImageReplacement {kind:'approved-model-candidate-v1';placementId:string}
-interface ProductImageThumbnailRepair extends ReviewedImageReplacement {kind:'product-image-thumbnail-repair-v1'}
+export const PRODUCT_IMAGE_THUMBNAIL_REPAIR='product-image-thumbnail-repair-v1' as const;
+interface ProductImageThumbnailRepair extends ReviewedImageReplacement {kind:typeof PRODUCT_IMAGE_THUMBNAIL_REPAIR}
 export type ArtworkReplacementInput=ReviewedImageReplacement|ApprovedModelCandidateReplacement|ProductImageThumbnailRepair;
 /** Must run inside the authenticated native request's single DB transaction.
  * No caller-supplied asset identifiers, keys, hashes or snapshots are trusted. */
 export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId:string,input:ArtworkReplacementInput,match:string,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore):Promise<StudioResponse>{
  const model=input&&typeof input==='object'&&'kind' in input&&input.kind==='approved-model-candidate-v1'?input:undefined;
- const repair=input&&typeof input==='object'&&'kind' in input&&input.kind==='product-image-thumbnail-repair-v1';
+ const repair=input&&typeof input==='object'&&'kind' in input&&input.kind===PRODUCT_IMAGE_THUMBNAIL_REPAIR;
  const keys=repair?'artworkId,artworkRevision,importJobId,kind,requestId':model?'artworkId,artworkRevision,importJobId,kind,placementId,requestId':'artworkId,artworkRevision,importJobId,requestId';
  if(!input||Object.keys(input).sort().join(',')!==keys||!Number.isSafeInteger(input.artworkRevision)||input.artworkRevision<1)throw new ApiError(400,'INVALID_INPUT');
  for(const id of [exhibitionId,input.artworkId,input.importJobId,input.requestId])uuid(id);
  if(model){uuid(model.placementId);await imports.requiredModelReady(c,s);}
  const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
  const row=await studio.access(c,s,exhibitionId);if(row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
- const requestHash=createHash('sha256').update(JSON.stringify([repair?'product-image-thumbnail-repair-v1':model?.kind??'replace-approved-artwork-v1',s.tenantId,s.userId,owner.workspaceId,exhibitionId,input.requestId,input.artworkId,input.artworkRevision,input.importJobId,match,...(model?[model.placementId]:[])])).digest('hex');
+ const requestHash=createHash('sha256').update(JSON.stringify([repair?PRODUCT_IMAGE_THUMBNAIL_REPAIR:model?.kind??'replace-approved-artwork-v1',s.tenantId,s.userId,owner.workspaceId,exhibitionId,input.requestId,input.artworkId,input.artworkRevision,input.importJobId,match,...(model?[model.placementId]:[])])).digest('hex');
  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:${s.userId}:${input.requestId}`]);
  const receipt=await c.query('SELECT * FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId]);
  if(receipt.rowCount){if(receipt.rows[0].payload_sha256!==requestHash||receipt.rows[0].exhibition_id!==exhibitionId)throw new ApiError(409,'REQUEST_CONFLICT');return receipt.rows[0].response as StudioResponse;}
