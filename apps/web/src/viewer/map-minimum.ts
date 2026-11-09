@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /** Borrow the existing scheduler's minimum. Pins prevent eviction only; they
  * never reserve extra bytes or bypass the scheduler's admission checks.
+ * Release lets the shared scheduler restore ordinary queue priority.
  */
-export async function retainMapMinimum(options:{id:string;signal:AbortSignal;pins:Map<string,number>;waiters:Set<()=>void>;ready:()=>boolean;failed:()=>boolean;request:()=>void}) {
+export async function retainMapMinimum(options:{id:string;signal:AbortSignal;pins:Map<string,number>;waiters:Set<()=>void>;ready:()=>boolean;failed:()=>boolean;request:()=>void;onLastRelease:()=>void}) {
  const {id,signal,pins,waiters}=options;signal.throwIfAborted();
  pins.set(id,(pins.get(id)??0)+1);let released=false;
- const release=()=>{if(released)return;released=true;signal.removeEventListener('abort',release);const count=(pins.get(id)??1)-1;if(count>0)pins.set(id,count);else pins.delete(id);};
+ const release=()=>{if(released)return;released=true;signal.removeEventListener('abort',release);const count=(pins.get(id)??1)-1;if(count>0)pins.set(id,count);else{pins.delete(id);options.onLastRelease();}};
  signal.addEventListener('abort',release,{once:true});
  try {
   await new Promise<void>((resolve,reject)=>{
