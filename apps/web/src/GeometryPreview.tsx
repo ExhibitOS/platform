@@ -49,7 +49,8 @@ import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor} from '@exhibitos/studio-contract';
-import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {supportContacts} from './viewer/support-contacts';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -544,6 +545,8 @@ export function GeometryPreview({
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      // One 4 KiB mask plus the bounded geometry and instance matrices.
+      const supportContactReserve=publicSource&&!document.scripts.length?8192:0;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
       const mapImageIds=document.placements.filter(p=>document.artworks.some(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase()&&a.artworkType==='image')).map(p=>p.id);
       const mapThumbnailReserve=viewerBudget&&onMapThumbnail?mapThumbnailRosterReserve(mapImageIds.length):0;
@@ -554,7 +557,7 @@ export function GeometryPreview({
       // The bounded 2D frame belongs only to this rebuild. The old WebGL
       // renderer and its allocations are still disposed before the new build.
       let qualityFrameReserve=qualityFrame.current?1024*1024:0;
-      const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
+      const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
       const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
       const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
@@ -579,12 +582,12 @@ export function GeometryPreview({
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
       let assetBudgetBytes=Math.max(1,availableAssetBytes-materialReserve-snapshotReserve-qualityFrameReserve);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const refreshAssetLimits=()=>{
         const materialBytes=serialMaterialPhaseBytes(floorPlan,surfacePlan,floorSettled,surfaceSettled);
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve-qualityFrameReserve);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
@@ -823,12 +826,14 @@ export function GeometryPreview({
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
       });owned.push(shadowPass);
       let shadowRoom: InstanceType<typeof three.Group> | undefined;
+      let contactShadows: ReturnType<typeof installSupportContactShadows> | undefined;
       const publishNavigationState = (state: NavigationState) => {
         if (publicSource && state.grounded && state.roomId) {
           const room = rooms.get(state.roomId.toLowerCase());
           if (room && room !== shadowRoom) {
             shadowRoom = room;
             shadowPass.setRoom(room);
+            contactShadows?.setRoom(room);
           }
         }
         navigationCallbacks.current.onNavigationState?.(state);
@@ -934,9 +939,22 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      let contactBench:{model:Object3D;hostId:string}|undefined;
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
       if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
+      if(supportContactReserve)void Promise.allSettled(catalogSettled).then(()=>{
+        if(disposed||gpuLost)return;
+        const contacts=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,shadowCandidates,contactBench);
+        contactShadows=installSupportContactShadows(three,contacts,compactQuality,value=>{
+          renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);
+        });
+        owned.push(contactShadows);
+        contactShadows.setRoom(shadowRoom);
+        render();
+      }).catch(()=>{
+        if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';
+      });
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
