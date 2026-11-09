@@ -25,7 +25,7 @@ describe('OEX service boundaries',()=>{
  it('preserves per-placement exit destinations through the workspace room-visual remap',async()=>{
   const e=await fixture(),wall=e.surfaces.find(surface=>surface.type==='wall')!;
   const furnishingId='70000000-0000-4000-8000-000000000001',placementId='70000000-0000-4000-8000-000000000002';
-  const workspace:WorkspaceFurnishings={version:3,furnishings:[{id:furnishingId,version:1,kind:'barrier',name:'Exit',rights:e.artworks[0]!.rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256:'a'.repeat(64)}}],placements:[{id:placementId,roomId:wall.roomId,furnishingId,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]};
+  const workspace:WorkspaceFurnishings={version:3,furnishings:[{id:furnishingId,version:1,kind:'barrier',name:'Exit',rights:e.artworks[0]!.rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256:'a'.repeat(64)}}],placements:[{id:placementId,roomId:wall.roomId,furnishingId,furnishingVersion:1,position:[...wall.transform.position],yaw:Math.atan2(2*wall.transform.rotation[1]*wall.transform.rotation[3],1-2*wall.transform.rotation[1]**2),scale:1}]};
   const experience=experienceFor(e);
   const door={placementId,surfaceId:wall.id,primary:{name:'ExhibitOS',url:'https://exhibitos.org/'},additional:[{name:'Museum',url:'https://example.org/visit'}]};
   experience.exitDoors=[door];
@@ -45,6 +45,14 @@ describe('OEX service boundaries',()=>{
   workspace.furnishings[0]!.kind='info-stand';
   expect(validateViewerExperience(e).valid).toBe(false);
   workspace.furnishings[0]!.kind='barrier';
+  const visual=workspace.placements[0]!,yaw=visual.yaw;
+  visual.yaw+=Math.PI/2;
+  expect(validateViewerExperience(e).valid).toBe(false);
+  visual.yaw=yaw;
+  visual.position[0]+=Math.sin(yaw)*.25;
+  visual.position[2]+=Math.cos(yaw)*.25;
+  expect(validateViewerExperience(e).valid).toBe(false);
+  visual.position=[...wall.transform.position];
   wall.type='floor';
   expect(validateViewerExperience(e).valid).toBe(false);
  });

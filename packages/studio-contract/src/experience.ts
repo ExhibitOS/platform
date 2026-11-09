@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {artifactPoint,validateArtifactPose,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
 import {WORKSPACE_FURNISHING_NAMESPACE} from './workspace-furnishing.js';
 export const EXPERIENCE_NAMESPACE = 'org.exhibitos.viewer/experience';
 export interface ExitDestination {name:string;url:string}
@@ -32,6 +33,22 @@ export function exitDestinationUrl(value:unknown):string|undefined {
     const url=new URL(value);
     if(url.protocol==='https:'&&url.hostname&&!url.username&&!url.password)return url.href;
   }catch{/* The caller reports invalid authored metadata. */}
+}
+function anchorsExitToWall(visual:Record<string,unknown>,wall:Record<string,unknown>){
+  if(!object(wall.transform)||!object(wall.dimensions)||!Array.isArray(visual.position)||visual.position.length!==3||
+    typeof visual.yaw!=='number'||typeof wall.dimensions.width!=='number'||typeof wall.dimensions.height!=='number')return false;
+  const pose=wall.transform as unknown as ArtifactPose;
+  try{
+    validateArtifactPose(pose);
+    const [x,y,z,w]=pose.rotation;
+    const local=artifactPoint(visual.position.map((n,i)=>n-pose.position[i]!) as AffinePoint,
+      {position:[0,0,0],rotation:[-x,-y,-z,w],scale:[1,1,1]});
+    const normal=artifactPoint([0,0,1],{position:[0,0,0],rotation:pose.rotation,scale:[1,1,1]});
+    const facing=normal[0]*Math.sin(visual.yaw)+normal[2]*Math.cos(visual.yaw);
+    return Math.abs(local[2])<=.08&&facing>=.98
+      &&Math.abs(local[0])<=wall.dimensions.width*pose.scale[0]/2
+      &&Math.abs(local[1])<=wall.dimensions.height*pose.scale[1]/2+.01;
+  }catch{return false;}
 }
 export function validateViewerExperience(candidate:unknown) {
   const errors:{code:string;path:string;message:string}[]=[];
@@ -80,7 +97,7 @@ export function validateViewerExperience(candidate:unknown) {
       if(!keys(row,['placementId','surfaceId','primary','additional'])||!Array.isArray(row.additional)||row.additional.length>4)return false;
       const visual=visuals.find(item=>ref(item.id)===ref(row.placementId));
       const wall=walls.find(item=>ref(item.id)===ref(row.surfaceId));
-      if(!visual||!wall||!rooms.has(ref(visual.roomId))||ref(visual.roomId)!==ref(wall.roomId)
+      if(!visual||!wall||!rooms.has(ref(visual.roomId))||ref(visual.roomId)!==ref(wall.roomId)||!anchorsExitToWall(visual,wall)
         ||!assets.some(asset=>asset.kind==='barrier'&&ref(asset.id)===ref(visual.furnishingId)&&asset.version===visual.furnishingVersion))return false;
       const urls=[row.primary,...row.additional].map(destination);
       return urls.every(Boolean)&&new Set(urls).size===urls.length;
