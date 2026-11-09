@@ -741,3 +741,77 @@ test('private document changes preserve sound preferences and reject resource ch
  expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false,context:'not-created'});expect(fetcher).not.toHaveBeenCalled();
  const invalid=structuredClone(changed);invalid.mediaAssets.push({} as never);expect(()=>runtime.updatePrivateExhibition(invalid)).toThrow('AUDIO_PRIVATE_SOURCE_CHANGED');expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false});runtime.dispose();
 });
+
+test('room audio distinguishes selected-but-Off from None and retains visitor overrides on return',()=>{
+ const stored=new Map<string,string>();
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>stored.get(key)??null,setItem:(key:string,value:string)=>stored.set(key,value)});
+ const first='11111111-1111-4111-8111-111111111111',second='22222222-2222-4222-8222-222222222222',track='33333333-3333-4333-8333-333333333333';
+ const publication={publication:{id:first,revisionSha256:'a'.repeat(64)},assets:[],exhibition:{id:first,
+  rooms:[{id:first},{id:second}],surfaces:[],placements:[],audioZones:[],mediaAssets:[{id:track,mime:'audio/wav'}],
+  extensions:{'org.exhibitos.viewer/experience':{version:1,footsteps:[],voices:[],annotations:[],translations:[],
+   audioDefaults:{soundOn:true},rooms:[
+    {roomId:first,reverb:.12,footstepsOn:true,reverbOn:true,bgmOn:false,bgm:{assetId:track}},
+    {roomId:second,reverb:.08,footstepsOn:false,reverbOn:false,bgmOn:false,bgm:null},
+   ]}}}} as unknown as import('../publication-client').PublicPublication;
+ const runtime=new ExhibitionAudio(publication,()=>{});
+ try{
+  expect(runtime.snapshot()).toMatchObject({soundOn:true,context:'not-created',footstepsEnabled:true,reverbEnabled:true,bgmOn:false,bgmAvailable:true,bgmPlaying:false});
+  runtime.setBgmOn(true);
+  runtime.footstepsEnabled(false);
+  runtime.reverbEnabled(true);
+  runtime.volume(.2);
+  runtime.setSoundOn(false);
+  runtime.update(state(0,{roomId:second}));
+  expect(runtime.snapshot()).toMatchObject({soundOn:false,muted:true,volume:.2,footstepsEnabled:false,reverbEnabled:true,bgmOn:true,bgmAvailable:false});
+  const returned=new ExhibitionAudio(publication,()=>{});
+  try{
+   expect(returned.snapshot()).toMatchObject({soundOn:false,muted:true,volume:.2,footstepsEnabled:false,reverbEnabled:true,bgmOn:true,bgmAvailable:true});
+   expect(returned.snapshot().context).toBe('not-created');
+  }finally{returned.dispose();}
+ }finally{runtime.dispose();vi.unstubAllGlobals();}
+});
+
+test('entered and ready gates room loops, crossing crossfades, narration ducks, and hiding stops',async()=>{
+ const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222',voice='33333333-3333-4333-8333-333333333333';
+ const publication={publication:{id:a,revisionSha256:'a'.repeat(64)},assets:[],exhibition:{id:a,
+  rooms:[{id:a},{id:b}],surfaces:[],placements:[],audioZones:[],mediaAssets:[a,b,voice].map(id=>({id,mime:'audio/wav'})),
+  extensions:{'org.exhibitos.viewer/experience':{version:1,footsteps:[],annotations:[],translations:[],
+   voices:[{assetId:voice,placementId:a,locale:'ko',transcript:'Narration'}],audioDefaults:{soundOn:true},
+   rooms:[{roomId:a,reverb:.12,bgmOn:true,bgm:{assetId:a}},{roomId:b,reverb:.12,bgmOn:true,bgm:{assetId:b}}]}}}} as unknown as import('../publication-client').PublicPublication;
+ const parameter=()=>({value:0,setValueAtTime:vi.fn(),setTargetAtTime:vi.fn(),cancelScheduledValues:vi.fn(),linearRampToValueAtTime:vi.fn()});
+ const gains:ReturnType<typeof parameter>[]=[];
+ const sources:Array<{buffer:AudioBuffer|null;loop:boolean;connect:ReturnType<typeof vi.fn>;disconnect:ReturnType<typeof vi.fn>;start:ReturnType<typeof vi.fn>;stop:ReturnType<typeof vi.fn>}>= [];
+ const listener=new Proxy({}, {get:()=>parameter()});
+ const context={state:'running',currentTime:1,destination:{},listener,resume:vi.fn(async()=>{}),close:vi.fn(async()=>{}),
+  createGain:()=>{const gain=parameter();gains.push(gain);return {gain,connect:vi.fn(),disconnect:vi.fn()};},
+  createBufferSource:()=>{const source={buffer:null,loop:false,connect:vi.fn(node=>node),disconnect:vi.fn(),start:vi.fn(),stop:vi.fn()};sources.push(source);return source;}};
+ vi.stubGlobal('AudioContext',class{constructor(){return context;}});
+ const runtime=new ExhibitionAudio(publication,()=>{});
+ const internal=runtime as unknown as {checkAvailability:()=>Promise<void>;load:(id:string)=>Promise<AudioBuffer>};
+ internal.checkAvailability=async()=>{};
+ const bodies=new Map([a,b,voice].map(id=>[id,{duration:2} as AudioBuffer]));
+ const load=vi.fn(async(id:string)=>bodies.get(id)!);
+ internal.load=load;
+ try{
+  runtime.enterFromGesture();
+  await vi.waitFor(()=>expect(runtime.snapshot().enabled).toBe(true));
+  expect(context.resume).toHaveBeenCalledOnce();
+  expect(load).not.toHaveBeenCalled();
+  expect(sources).toHaveLength(0);
+  runtime.setGalleryReady(true);
+  await vi.waitFor(()=>expect(runtime.snapshot().bgmPlaying).toBe(true));
+  expect(sources[0]).toMatchObject({loop:true,buffer:bodies.get(a)});
+  expect(gains[2]?.linearRampToValueAtTime).toHaveBeenLastCalledWith(.12,1.45);
+  runtime.lifecycle(false,true);
+  await runtime.playVoice(voice);
+  expect(gains[1]?.setTargetAtTime).toHaveBeenLastCalledWith(.35,1,.03);
+  runtime.stopVoice();
+  expect(gains[1]?.setTargetAtTime).toHaveBeenLastCalledWith(1,1,.12);
+  runtime.update(state(0,{roomId:b}));
+  await vi.waitFor(()=>expect(sources.at(-1)).toMatchObject({loop:true,buffer:bodies.get(b)}));
+  expect(sources[0]?.stop).toHaveBeenLastCalledWith(1.45);
+  expect(gains[2]?.linearRampToValueAtTime).toHaveBeenLastCalledWith(0,1.45);
+  runtime.visibility(false);
+  expect(runtime.snapshot().bgmPlaying).toBe(false);
+ }finally{runtime.dispose();vi.unstubAllGlobals();}
+});

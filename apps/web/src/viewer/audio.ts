@@ -23,6 +23,10 @@ export interface AudioState {
   footsteps: number;
   footstepsEnabled: boolean;
   reverbEnabled: boolean;
+  soundOn?: boolean;
+  bgmOn?: boolean;
+  bgmAvailable?: boolean;
+  bgmPlaying?: boolean;
   material: FloorSound;
   roomId: string | null;
   loaded: number;
@@ -34,6 +38,9 @@ export interface AudioState {
   message: string;
 }
 export interface AudioApi {
+  enterFromGesture: () => void;
+  leaveGallery: () => void;
+  setGalleryReady: (ready:boolean) => void;
   playVoice: (assetId: string) => Promise<void>;
   stopVoice: () => void;
   voicePlayback: () => VoicePlayback;
@@ -41,8 +48,28 @@ export interface AudioApi {
 }
 interface Experience {
   footsteps: Array<{ surfaceId: string; material: string; assetId?: string; bank?:{assetId:string}[] }>;
-  rooms: Array<{ roomId: string; reverb: number }>;
+  audioDefaults?: {soundOn:boolean};
+  rooms: Array<{roomId:string;reverb:number;footstepsOn?:boolean;reverbOn?:boolean;bgmOn?:boolean;bgm?:null|{assetId:string}}>;
   voices: Array<{ assetId: string; placementId: string; transcript:string }>;
+}
+type AudioPreferences = {soundOn?:boolean;footstepsOn?:boolean;reverbOn?:boolean;bgmOn?:boolean;volume?:number};
+type BgmTrack = {id:string;source:AudioBufferSourceNode;gain:GainNode};
+const BGM_GAIN=.12;
+const BGM_FADE_SECONDS=.45;
+function readAudioPreferences(key:string):AudioPreferences {
+  try {
+    const text=localStorage.getItem(key);
+    if(!text||text.length>512)return {};
+    const value=JSON.parse(text) as AudioPreferences|null;
+    if(!value||typeof value!=='object')return {};
+    const result:AudioPreferences={};
+    for(const field of ['soundOn','footstepsOn','reverbOn','bgmOn'] as const){
+      if(typeof value[field]==='boolean')result[field]=value[field];
+    }
+    if(typeof value.volume==='number'&&Number.isFinite(value.volume)&&value.volume>=0&&value.volume<=1)
+      result.volume=value.volume;
+    return result;
+  }catch{return {};}
 }
 const MAX_DECODED = 24 * 1024 * 1024;
 /** Each original, deterministic waveform is synthesized locally; no recordings or network assets. */
@@ -130,6 +157,14 @@ export class ExhibitionAudio implements AudioApi {
   private voiceListeners = new Set<(playback: VoicePlayback) => void>();
   private transitionZone?: string;
   private zoneRequest?: string;
+  private preferenceKey?: string;
+  private preferences:AudioPreferences={};
+  private entered=false;
+  private galleryReady=false;
+  private bgm?:BgmTrack;
+  private fadingBgm?:BgmTrack;
+  private wantedBgm?:string;
+  private bgmGeneration=0;
   private zone?: { id: string; source: AudioBufferSourceNode; gain: GainNode; panner: PannerNode };
   private stride = new StrideClock();
   private disposed = false;
@@ -170,9 +205,123 @@ export class ExhibitionAudio implements AudioApi {
   constructor(private publication: PublicPublication, private changed: (state: AudioState) => void) {
     this.experience = experienceFor(publication.exhibition);
     this.curation = curationFor(publication.exhibition);
+    if(this.experience.audioDefaults||this.experience.rooms.some(room=>
+      room.footstepsOn!==undefined||room.reverbOn!==undefined||room.bgmOn!==undefined||room.bgm!==undefined)){
+      this.preferenceKey='exhibitos.audio.v1/'+publication.exhibition.id.toLowerCase();
+      this.preferences=readAudioPreferences(this.preferenceKey);
+      this.state.soundOn=this.preferences.soundOn??this.experience.audioDefaults?.soundOn??false;
+      this.state.muted=!this.state.soundOn;
+      this.state.volume=this.preferences.volume??this.state.volume;
+      this.state.bgmPlaying=false;
+    }
     const start=presentationFor(publication.exhibition).startCamera;
     this.position=start?this.worldPosition(start.roomId,start.position):[0,0,0];
     this.setRoom(start?.roomId ?? publication.exhibition.rooms[0]?.id);
+  }
+  private preference<K extends keyof AudioPreferences>(field:K,value:AudioPreferences[K]){
+    if(!this.preferenceKey)return;
+    this.preferences[field]=value;
+    try{localStorage.setItem(this.preferenceKey,JSON.stringify(this.preferences));}catch{/* Session preferences still apply. */}
+  }
+  private roomExperience(){return this.experience.rooms.find(room=>room.roomId.toLowerCase()===this.room?.toLowerCase());}
+  private selectedBgm(){
+    const assetId=this.roomExperience()?.bgm?.assetId.toLowerCase();
+    return assetId?this.publication.exhibition.mediaAssets.find(asset=>asset.id.toLowerCase()===assetId&&asset.mime==='audio/wav')?.id:undefined;
+  }
+  enterFromGesture(){
+    this.entered=true;
+    if(!this.state.soundOn||this.disposed)return;
+    if(this.state.enabled&&this.context?.state==='running'){
+      this.syncBgm();
+      return;
+    }
+    void this.enable();
+  }
+  leaveGallery(){
+    this.entered=false;
+    this.setGalleryReady(false);
+  }
+  setGalleryReady(ready:boolean){
+    if(this.galleryReady===ready)return;
+    this.galleryReady=ready;
+    if(!ready){this.stopBgm();return;}
+    this.applyRoomReverb();
+    this.preload();
+    this.syncBgm();
+  }
+  setSoundOn(value:boolean){
+    this.mute(!value);
+    if(value&&this.entered)this.enterFromGesture();
+  }
+  setBgmOn(value:boolean){
+    this.preference('bgmOn',value);
+    this.state.bgmOn=value;
+    this.syncBgm();
+    this.emit();
+  }
+  private rampBgm(track:BgmTrack,gain:number){
+    const now=this.context!.currentTime,param=track.gain.gain,previous=param.value;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(previous,now);
+    param.linearRampToValueAtTime(gain,now+BGM_FADE_SECONDS);
+  }
+  private fadeBgm(){
+    if(this.fadingBgm)this.stop(this.fadingBgm.source);
+    this.fadingBgm=this.bgm;
+    this.bgm=undefined;
+    if(this.fadingBgm){
+      this.rampBgm(this.fadingBgm,0);
+      this.fadingBgm.source.stop(this.context!.currentTime+BGM_FADE_SECONDS);
+    }
+  }
+  private stopBgm(){
+    this.bgmGeneration++;
+    this.wantedBgm=undefined;
+    for(const track of [this.bgm,this.fadingBgm])if(track)this.stop(track.source);
+    this.bgm=undefined;
+    this.fadingBgm=undefined;
+    this.updateMaster();
+  }
+  private syncBgm(){
+    if(!this.preferenceKey)return;
+    const allowed=this.entered&&this.galleryReady&&this.state.soundOn&&this.state.bgmOn&&!this.state.muted&&
+      this.visible&&this.state.enabled&&this.context?.state==='running';
+    const id=allowed?this.selectedBgm():undefined;
+    if(id===this.wantedBgm)return;
+    this.wantedBgm=id;
+    const generation=++this.bgmGeneration;
+    if(!id){this.fadeBgm();return;}
+    if(id===this.bgm?.id)return;
+    const current=()=>generation===this.bgmGeneration&&!this.disposed&&this.entered&&this.galleryReady&&this.visible&&!this.state.muted;
+    void (async()=>{
+      await this.checkAvailability();
+      if(!current())return;
+      const buffer=await this.load(id);
+      if(!current())return;
+      const source=this.context!.createBufferSource(),gain=this.context!.createGain();
+      source.buffer=buffer;
+      source.loop=true;
+      gain.gain.value=0;
+      source.connect(gain).connect(this.background!);
+      this.track(source,()=>{
+        gain.disconnect();
+        if(this.bgm?.source===source)this.bgm=undefined;
+        if(this.fadingBgm?.source===source)this.fadingBgm=undefined;
+        this.updateMaster();
+      });
+      if(this.fadingBgm)this.stop(this.fadingBgm.source);
+      try{source.start();}catch(error){this.stop(source);throw error;}
+      this.fadeBgm();
+      this.bgm={id,source,gain};
+      this.rampBgm(this.bgm,BGM_GAIN);
+      this.updateMaster();
+      this.emit();
+    })().catch(()=>{
+      if(!current())return;
+      this.fadeBgm();
+      this.state.message='이 공간의 배경음을 재생하지 못했어요.';
+      this.emit();
+    });
   }
   /** Private editing changes scene references, never the verified resource authority. */
   updatePrivateExhibition(exhibition:PublicPublication['exhibition']) {
@@ -216,6 +365,7 @@ export class ExhibitionAudio implements AudioApi {
     this.state.decodedBytes = [...this.buffers.values()].reduce((n, b) => n + b.length * b.numberOfChannels * 4, 0);
     this.state.active = this.playing.size;
     this.state.suspended = !this.visible || !this.audible;
+    if(this.preferenceKey)this.state.bgmPlaying=!!(this.bgm||this.fadingBgm);
     this.emittedZoneGain=this.state.zoneGain;
     this.changed(this.snapshot());
   }
@@ -236,18 +386,20 @@ export class ExhibitionAudio implements AudioApi {
       this.state.message = this.state.enabled ? "소리를 켰습니다. 음성 버튼에서 설명을 들을 수 있습니다. 환경 효과는 공간 소리 설정에서 선택하세요." : "브라우저가 소리를 허용하지 않았습니다. 설명을 읽거나 다시 켜세요.";
       this.updateMaster();
       if (this.state.enabled) { this.setRoom(this.room,true); this.applyRoomReverb(); this.preload();
-        this.availabilityTimer ??= setInterval(()=>{if(this.playing.size || this.moving)void this.checkAvailability().catch(()=>{this.state.enabled=false;this.silence();this.buffers.clear();this.state.message="전시 또는 소리 권한이 변경되었습니다. 재생을 멈췄습니다.";this.emit();});},10000);
+        this.availabilityTimer ??= setInterval(()=>{if(this.playing.size || this.moving)void this.checkAvailability().catch(()=>{this.state.enabled=false;this.stopBgm();this.silence();this.buffers.clear();this.state.message="전시 또는 소리 권한이 변경되었습니다. 재생을 멈췄습니다.";this.emit();});},10000);
       }
     } catch { this.state.message = "소리를 시작할 수 없습니다. 음성 설명은 글로 읽을 수 있습니다."; }
     this.emit();
   }
-  volume(value: number) { this.state.volume = Number.isFinite(value)?Math.max(0, Math.min(1, value)):0; this.updateMaster(); this.emit(); }
+  volume(value: number) { this.state.volume = Number.isFinite(value)?Math.max(0, Math.min(1, value)):0; this.preference('volume',this.state.volume); this.updateMaster(); this.emit(); }
   footstepsEnabled(value:boolean) {
+    this.preference('footstepsOn',value);
     this.state.footstepsEnabled=value;this.stride.reset();
     if(!value){for(const source of [...this.stepSources])this.stop(source);this.clearReverb();this.applyRoomReverb();}
     this.setRoom(this.room,true);this.emit();
   }
   reverbEnabled(value:boolean) {
+    this.preference('reverbOn',value);
     this.state.reverbEnabled=value;
     if(value)this.applyRoomReverb();else this.clearReverb();
     this.emit();
@@ -269,7 +421,8 @@ export class ExhibitionAudio implements AudioApi {
   private applyRoomReverb() {
     const context=this.context,room=this.publication.exhibition.rooms.find(r=>r.id===this.room);
     if(!this.state.reverbEnabled||!this.state.enabled||!context||context.state!=='running'
-        ||this.disposed||!this.visible||this.state.muted||!this.background||!room?.dimensions||this.convolver)return;
+        ||this.disposed||!this.visible||this.state.muted||!this.background||!room?.dimensions||this.convolver
+        ||(this.preferenceKey&&!this.galleryReady))return;
     const wet=Math.max(0,Math.min(1,this.experience.rooms.find(r=>r.roomId===room.id)?.reverb??0.12));
     if(wet===0)return;
     const seconds=Math.min(1.8,Math.max(0.15,Math.cbrt(room.dimensions.width*room.dimensions.height*room.dimensions.depth)/12));
@@ -283,17 +436,34 @@ export class ExhibitionAudio implements AudioApi {
     this.convolver.connect(this.wet).connect(this.background);this.state.reverbSeconds=seconds;
     if(this.zone)this.connectReverb(this.zone.gain);
   }
-  mute(value: boolean) { this.state.muted = value; if (value) this.silence(); this.updateMaster(); if(!value)this.preload(); this.emit(); }
-  private updateMaster() { if (this.master && this.context) this.master.gain.setValueAtTime(this.state.muted || !this.visible || !this.audible ? 0 : this.state.volume, this.context.currentTime); }
+  mute(value: boolean) {
+    if(this.preferenceKey){this.state.soundOn=!value;this.preference('soundOn',!value);}
+    this.state.muted=value;
+    if(value){this.stopBgm();this.silence();}
+    else{
+      if(this.preferenceKey&&this.moving)this.audible=true;
+      this.preload();
+      this.syncBgm();
+    }
+    this.updateMaster();
+    this.emit();
+  }
+  private updateMaster() { if (this.master && this.context) this.master.gain.setValueAtTime(this.state.muted || !this.visible || (!this.audible&&!this.bgm&&!this.fadingBgm) ? 0 : this.state.volume, this.context.currentTime); }
   private stop(source: AudioBufferSourceNode) { try { source.stop(); } catch { /* Already ended. */ } source.disconnect(); this.playing.delete(source); source.onended?.(new Event("ended")); source.onended=null; }
-  private silence() { this.stopScriptAudio(); this.audible=false; this.updateMaster(); this.generation++; this.voice = undefined; this.voiceStatus("stopped"); for (const source of [...this.playing]) this.stop(source); this.zone = undefined; this.state.zoneId=null; this.zoneRequest=undefined; this.transitionZone=undefined; this.state.zoneGain=0; this.stride.reset(); this.clearReverb(); }
+  private silence() { this.stopScriptAudio(); this.audible=false; this.updateMaster(); this.generation++; this.voice = undefined; this.voiceStatus("stopped"); for (const source of [...this.playing]) if(source!==this.bgm?.source&&source!==this.fadingBgm?.source)this.stop(source); this.zone = undefined; this.state.zoneId=null; this.zoneRequest=undefined; this.transitionZone=undefined; this.state.zoneGain=0; this.stride.reset(); this.clearReverb(); }
   lifecycle(moving: boolean, detail = false) {
     this.moving = moving; this.detail = detail;
     if (!moving) this.silence();
     else { this.audible=true; this.updateMaster(); this.applyRoomReverb(); this.preload(); }
     this.emit();
   }
-  visibility(visible: boolean) { this.visible = visible; if (!visible) this.silence(); this.updateMaster(); if(visible)this.preload(); this.emit(); }
+  visibility(visible: boolean) {
+    this.visible=visible;
+    if(!visible){this.stopBgm();this.silence();}
+    else{this.preload();this.syncBgm();}
+    this.updateMaster();
+    this.emit();
+  }
   updatePose(position: [number,number,number], yaw: number) {
     if(this.moving)return;
     const room=this.publication.exhibition.rooms.find(room=>{
@@ -388,6 +558,13 @@ export class ExhibitionAudio implements AudioApi {
     if (!id || (id === this.room&&!force)) return;
     const changed=id!==this.room;
     this.room = id; this.state.roomId = id;
+    if(this.preferenceKey){
+      const room=this.roomExperience();
+      this.state.footstepsEnabled=this.preferences.footstepsOn??room?.footstepsOn??false;
+      this.state.reverbEnabled=this.preferences.reverbOn??room?.reverbOn??false;
+      this.state.bgmOn=this.preferences.bgmOn??room?.bgmOn??false;
+      this.state.bgmAvailable=!!this.selectedBgm();
+    }
     const doc = this.publication.exhibition, index = doc.rooms.findIndex(r => r.id === id);
     const rooms = new Set([id, doc.rooms[index + 1]?.id].filter(Boolean));
     this.allowed = new Set(this.state.zoneTransitions?doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId):[]);
@@ -401,7 +578,9 @@ export class ExhibitionAudio implements AudioApi {
     const steps=this.resolvedSteps();if(this.state.footstepsEnabled&&(steps.kind==='builtin'||steps.kind==='publication'))for(const id of steps.ids)this.allowed.add(id);
     for (const [key] of this.buffers) if (!this.allowed.has(key) && ![...this.playing].some(source=>source.buffer===this.buffers.get(key))) this.buffers.delete(key);
     if(changed){this.clearReverb();this.applyRoomReverb();}
-    if (this.state.enabled) this.preload(); this.emit();
+    if (this.state.enabled) this.preload();
+    this.syncBgm();
+    this.emit();
   }
   private preloadTargets(){
     const bank=this.selectedStepBank(),priority=bank?.id?[bank.id]:[];
@@ -409,7 +588,7 @@ export class ExhibitionAudio implements AudioApi {
     return [...new Set([...priority,...other])].filter(id=>this.allowed.has(id)&&!this.failedStepPreloads.has(id)&&!this.pressureDeferredSteps.has(id)).slice(0,8);
   }
   private preload() {
-    if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return;
+    if (!this.state.enabled || !this.visible || this.disposed || this.state.muted || (this.preferenceKey&&!this.galleryReady)) return;
     const bank=this.selectedStepBank(),missing=this.preloadTargets().filter(id=>!this.buffers.has(id)&&!this.pending.has(id));
     for(const id of missing.slice(0,Math.max(0,8-this.pending.size)))void this.load(id,true).then(buffer=>{
       if(bank?.id===id&&!bank.legacy&&(!Number.isFinite(buffer.duration)||buffer.duration<RECORDED_STEP_LIMITS.minClipSeconds||buffer.duration>RECORDED_STEP_LIMITS.maxClipSeconds)){
@@ -591,5 +770,5 @@ export class ExhibitionAudio implements AudioApi {
     try{source.start();}catch(error){this.stop(source);throw error;}
     this.audible=true;this.updateMaster();this.emit();
   }
-  dispose() { if(this.disposed)return; this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.background?.disconnect(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
+  dispose() { if(this.disposed)return; this.stopBgm(); this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.background?.disconnect(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
 }
