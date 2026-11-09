@@ -36,11 +36,11 @@ test('known-memory Compact can admit the measured model phase without enlarging 
 });
 test('touch auto without a memory hint uses bounded steady and transition headroom',()=>{
  const touch={coarsePointer:true};
- expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024});
+ expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
  expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
- expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024});
+ expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({deviceMemory:2,coarsePointer:false,finePointer:true})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false,finePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);

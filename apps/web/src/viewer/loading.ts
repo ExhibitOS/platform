@@ -25,9 +25,9 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
   const fine=input.coarsePointer===false&&input.finePointer===true;
   return selectedImageCapacity({...budget,maxCacheBytes:(fine?256:192)*1024*1024,maxTransitionBytes:(fine?320:256)*1024*1024},memory);
  }
- // Browsers without a memory hint can still need overlap for a visible
- // minimum. Bound touch auto headroom without changing texture admission.
- if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024};
+ // Use the verified touch support floor when the browser supplies no hint.
+ // Pointer input selects the policy; it does not identify a device model.
+ if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  // An explicit fine-pointer Auto session without a memory hint uses the same
  // bounded allocation allowance as the existing detailed desktop setting.
  // Triangle and texture limits stay at the ordinary desktop profile.
