@@ -10,7 +10,8 @@ import {storedImageCoarse} from './image-coarse-intent.ts';
 import {modelPreparationDrained,modelPreparationReceipt,storedModelPreparation} from './model-preparation-intent.ts';
 import {COMPACT_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {allowedRights} from './rights.ts';
-import {artworkReplacementSnapshot} from './artwork-replacement-snapshot.ts';
+import {artworkReplacementSnapshot,productImageReplacementSnapshot} from './artwork-replacement-snapshot.ts';
+import {storedProductImage,productImageReceipt,productImageDrained} from './product-image-intent.ts';
 import {Studio,etag,insertStudioReceipt,type Draft,type StudioResponse} from './studio.ts';
 
 interface ReviewedImageReplacement {requestId:string;artworkId:string;artworkRevision:number;importJobId:string}
@@ -36,10 +37,33 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
   await insertStudioReceipt(c,[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
   return response;
  }
- const job=await imports.access(c,s,input.importJobId),coarse=storedImageCoarse(job);
- if(!coarse||job.user_id!==s.userId||job.artwork_id!==input.artworkId||coarse.intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||!coarse.assetId||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string')throw new ApiError(409,'COARSE_JOB_NOT_READY');
+ // The image worker locks artwork before job; replacement uses that order too.
  const artwork=await cms.ownArtwork(c,s,input.artworkId);
- if(artwork.revision!==input.artworkRevision||artwork.approved_revision!==input.artworkRevision||!validMetadata(artwork.metadata)||!isDeepStrictEqual(artwork.metadata.rights,job.rights)||!allowedRights(job.rights,'display')||!allowedRights(job.rights,'export'))throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
+ const job=await imports.access(c,s,input.importJobId);
+ const product=storedProductImage(job);
+ if(product){
+  if(job.user_id!==s.userId||job.artwork_id!==input.artworkId||product.request.artworkRevision!==input.artworkRevision||job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
+  const receipt=productImageReceipt(job);
+  assertImageReplacementCurrent(artwork,input,job.rights);
+  const {artwork:prior}=await cms.studioArtwork(c,s,input.artworkId);
+  const {rows:[primary]}=await c.query(
+   "SELECT r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",
+   [s.tenantId,input.artworkId,receipt.full.assetId],
+  );
+  if(!primary)throw new ApiError(409,'ASSET_INTEGRITY');
+  await readReplacementAsset(blobs,job.object_key,receipt.original.bytes,receipt.original.sha256);
+  await readReplacementAsset(blobs,job.approved_key,receipt.full.bytes,receipt.full.sha256);
+  if(receipt.coarse)await readReplacementAsset(blobs,`${s.tenantId}/quarantine/import-${job.id}/product-coarse`,receipt.coarse.bytes,receipt.coarse.sha256);
+  if(!allowedRights(job.rights,'display')||!allowedRights(job.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+  const now=(await c.query('SELECT clock_timestamp() AS at')).rows[0].at as Date;
+  const next=productImageReplacementSnapshot(prior,receipt,{tenantId:s.tenantId,revisionId:randomUUID(),at:now.toISOString()});
+  const response=await commitImageReplacement(c,s,exhibitionId,input,match,studio,cms,artwork,prior,next,now,{...receipt.full,rightsRevision:primary.rights_revision});
+  await insertStudioReceipt(c,[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
+  return response;
+ }
+ const coarse=storedImageCoarse(job);
+ if(!coarse||job.user_id!==s.userId||job.artwork_id!==input.artworkId||coarse.intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||!coarse.assetId||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string')throw new ApiError(409,'COARSE_JOB_NOT_READY');
+ assertImageReplacementCurrent(artwork,input,job.rights);
  const {artwork:prior}=await cms.studioArtwork(c,s,input.artworkId);
  const rows=(await c.query("SELECT a.*,r.metadata AS rights,r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,input.artworkId,[job.original_asset_id,job.asset_id,coarse.assetId]])).rows;
  const original=rows.find(x=>x.id===job.original_asset_id),primary=rows.find(x=>x.id===job.asset_id),low=rows.find(x=>x.id===coarse.assetId),derived=job.derived as {sha256:string;bytes:number;recipe:unknown};
@@ -50,15 +74,29 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  if(binding.length!==1||!isDeepStrictEqual(binding[0].metadata,{version:1,kind:'viewer-image-coarse',sourceJobId:job.id,primaryAssetId:job.asset_id,primarySha256:derived.sha256,coarseAssetId:coarse.assetId,objectKey:coarse.stageKey,sha256:coarse.sha256,bytes:coarse.bytes,width:512,height:408,profile:'viewer-png-box-512-v1',provenance:'server-generated'}))throw new ApiError(409,'COARSE_STATE_INVALID');
  await readReplacementAsset(blobs,original.object_key,Number(original.bytes),original.sha256);const full=await readReplacementAsset(blobs,primary.object_key,Number(primary.bytes),primary.sha256),reduced=await readReplacementAsset(blobs,low.object_key,Number(low.bytes),low.sha256);
  if(!allowedRights(job.rights,'display')||!allowedRights(job.rights,'export')||rows.some(x=>!allowedRights(x.rights,'display')||!allowedRights(x.rights,'export')))throw new ApiError(403,'RIGHTS_DENIED');
- const now=(await c.query('SELECT clock_timestamp() AS at')).rows[0].at as Date,revision=artwork.revision+1;
+ const now=(await c.query('SELECT clock_timestamp() AS at')).rows[0].at as Date;
  const next=artworkReplacementSnapshot(prior,{tenantId:s.tenantId,revisionId:randomUUID(),at:now.toISOString(),primaryId:job.asset_id,coarseId:coarse.assetId,intent:coarse.intent,originalSha256:job.expected_hash,primary:full,coarse:reduced});
- const updated=await c.query('UPDATE artworks SET revision=$3,approved_revision=$3,approved_asset_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND revision=$6 AND approved_revision=$6 RETURNING id',[s.tenantId,input.artworkId,revision,job.asset_id,now,input.artworkRevision]);if(!updated.rowCount)throw new ApiError(409,'REVISION_CONFLICT');
- await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,$3,$4)',[s.tenantId,input.artworkId,revision,artwork.metadata]);
- await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,$3,$4,$5)',[s.tenantId,input.artworkId,revision,job.asset_id,{metadata:artwork.metadata,asset:{id:job.asset_id,sha256:primary.sha256,bytes:Number(primary.bytes),mime:primary.mime,rightsRevision:primary.rights_revision},importedArtwork:next}]);
- const verified=await cms.studioArtwork(c,s,input.artworkId);if(!isDeepStrictEqual(verified.artwork,next))throw new ApiError(409,'APPROVAL_INVALID');
- const response=await studio.putArtworkReplacement(c,s,exhibitionId,prior,next,randomUUID(),match);
+ const response=await commitImageReplacement(c,s,exhibitionId,input,match,studio,cms,artwork,prior,next,now,{
+  assetId:job.asset_id,sha256:primary.sha256,bytes:Number(primary.bytes),mime:primary.mime,rightsRevision:primary.rights_revision,
+ });
  await insertStudioReceipt(c,[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
  return response;
+}
+
+function assertImageReplacementCurrent(artwork:Awaited<ReturnType<Cms['ownArtwork']>>,input:ReviewedImageReplacement,rights:unknown){
+ if(artwork.revision!==input.artworkRevision||artwork.approved_revision!==input.artworkRevision||!validMetadata(artwork.metadata)||!isDeepStrictEqual(artwork.metadata.rights,rights)||!allowedRights(rights,'display')||!allowedRights(rights,'export'))throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
+}
+
+async function commitImageReplacement(c:PoolClient,s:Session,exhibitionId:string,input:ReviewedImageReplacement,match:string,studio:Studio,cms:Cms,artwork:Awaited<ReturnType<Cms['ownArtwork']>>,prior:Awaited<ReturnType<Cms['studioArtwork']>>['artwork'],next:typeof prior,now:Date,primary:{assetId:string;sha256:string;bytes:number;mime:string;rightsRevision:number}){
+ const revision=artwork.revision+1;
+ const updated=await c.query('UPDATE artworks SET revision=$3,approved_revision=$3,approved_asset_id=$4,updated_at=$5 WHERE tenant_id=$1 AND id=$2 AND revision=$6 AND approved_revision=$6 RETURNING id',[s.tenantId,input.artworkId,revision,primary.assetId,now,input.artworkRevision]);
+ if(!updated.rowCount)throw new ApiError(409,'REVISION_CONFLICT');
+ await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,$3,$4)',[s.tenantId,input.artworkId,revision,artwork.metadata]);
+ const asset={id:primary.assetId,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime,rightsRevision:primary.rightsRevision};
+ await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,$3,$4,$5)',[s.tenantId,input.artworkId,revision,primary.assetId,{metadata:artwork.metadata,asset,importedArtwork:next}]);
+ const verified=await cms.studioArtwork(c,s,input.artworkId);
+ if(!isDeepStrictEqual(verified.artwork,next))throw new ApiError(409,'APPROVAL_INVALID');
+ return studio.putArtworkReplacement(c,s,exhibitionId,prior,next,randomUUID(),match);
 }
 
 /** Use the already approved candidate as-is. CMS approval and original custody

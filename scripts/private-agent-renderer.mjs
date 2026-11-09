@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {checkedPublicProjection} from './private-agent-publication.mjs';
 import {createHash,randomUUID} from 'node:crypto';
-import {createReadStream,fstatSync} from 'node:fs';
-import {readFile,writeFile,lstat,realpath,mkdir,rm} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {constants,createReadStream,fstatSync} from 'node:fs';
+import {readFile,writeFile,lstat,realpath,mkdir,rm,rename,open} from 'node:fs/promises';
 import {resolve,dirname,join,isAbsolute,relative} from 'node:path';
 import {createServer} from 'node:http';
 import {pathToFileURL,fileURLToPath} from 'node:url';
@@ -33,13 +34,14 @@ const equal=(a,b)=>canonical(a)===canonical(b);
 export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new AbortController().signal,onStage=()=>{},publicationRuntimeRoot,publicationRuntimeSha256}={}){
  signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);const raw=await readFile(inputPath);if(raw.length>1100000)fail('AGENT_INPUT_LIMIT');const input=JSON.parse(raw),inputSha256=hash(raw);
  const checkInput=async()=>{signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);if(await digest(inputPath,signal)!==inputSha256)fail('AGENT_STALE');};
- if(input.version!==1||!['bench-proposal','surface-texture-proposal','scene-snapshot'].includes(input.operation))fail('AGENT_REQUEST');
+ if(input.version!==1||!['bench-proposal','surface-texture-proposal','scene-snapshot','raw-asset-comparison'].includes(input.operation))fail('AGENT_REQUEST');
  if(!isAbsolute(outputPath)||resolve(outputPath)!==outputPath)fail('AGENT_PATH');await plain(dirname(outputPath),true);
  try{await lstat(outputPath);fail('AGENT_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
  if(input.operation==='bench-proposal'||input.operation==='surface-texture-proposal'){
   if(Object.keys(input).sort().join(',')!=='frame,operation,request,version')fail('AGENT_REQUEST');
   const reply=input.operation==='bench-proposal'?(await import(pathToFileURL(join(root,'dist-agent/bench.mjs')))).benchProposal(input.frame,input.request):(await import(pathToFileURL(join(root,'dist-agent/surface.mjs')))).surfaceTextureProposal(input.frame,input.request);await checkInput();return publish({version:1,operation:input.operation,requestId:reply.requestId,inputSha256,reply});
  }
+ if(input.operation==='raw-asset-comparison')return compareRawAssets();
  const keys=['binding','candidateSha256','exportReceiptPath','exportReceiptSha256','indexSha256','oexPath','oexSha256','operation','requestId','saved','snapshot','staticRoot','version'];if(Object.hasOwn(input,'exported'))keys.push('exported');if(Object.keys(input).sort().join(',')!==keys.sort().join(','))fail('AGENT_REQUEST');
  const {saved,binding,snapshot}=input;
  const snapshotKeys=snapshot&&'inspectionCamera' in snapshot?'height,inspectionCamera,placementId,width':'height,placementId,viewpointId,width';
@@ -84,6 +86,131 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
    await browser.close();browser=undefined;await new Promise(resolve=>server.close(resolve));server=undefined;await recheck();return await publish(result,png,recheck);
   }finally{signal.removeEventListener('abort',abort);}
  }finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));}
+ async function compareRawAssets(){
+  const roles=['reference','candidate'];
+  const {settings}=input;
+  const camera=settings?.inspectionCamera;
+  const vector=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000);
+  const keys=(value,expected)=>value&&Object.keys(value).sort().join(',')===expected;
+  if(!keys(input,'candidate,operation,reference,requestId,settings,version')||!uuid.test(input.requestId)||
+    !keys(settings,'height,inspectionCamera,lightPreset,width')||settings.width!==640||settings.height!==360||settings.lightPreset!=='neutral-v1'||
+    !keys(camera,'fov,position,target')||!vector(camera.position)||!vector(camera.target)||!Number.isFinite(camera.fov)||
+    camera.fov<10||camera.fov>120||camera.position.reduce((sum,n,i)=>sum+(n-camera.target[i])**2,0)<=1e-12)fail('AGENT_REQUEST');
+
+  const readAsset=async role=>{
+   const asset=input[role];
+   await plain(asset.path);
+   const file=await open(asset.path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+   try{
+    const stat=await file.stat();
+    if(!stat.isFile()||stat.uid!==process.getuid()||stat.size!==asset.bytes)fail('AGENT_STALE');
+    const buffer=Buffer.allocUnsafe(asset.bytes+1);
+    let offset=0;
+    while(offset<buffer.length){
+     signal.throwIfAborted();
+     const {bytesRead}=await file.read(buffer,offset,buffer.length-offset,offset);
+     if(!bytesRead)break;
+     offset+=bytesRead;
+    }
+    const bytes=buffer.subarray(0,offset);
+    if(offset!==asset.bytes||hash(bytes)!==asset.sha256)fail('AGENT_STALE');
+    return bytes;
+   }finally{await file.close();}
+  };
+  for(const role of roles){
+   const asset=input[role];
+   if(!keys(asset,'bytes,mime,path,sha256')||typeof asset.path!=='string'||asset.mime!=='model/gltf-binary'||
+    !hex.test(asset.sha256)||!Number.isSafeInteger(asset.bytes)||asset.bytes<28||asset.bytes>32*1024*1024)fail('AGENT_REQUEST');
+   const bytes=await readAsset(role);
+   await new Promise((resolve,reject)=>{
+    const child=execFile(process.execPath,['--max-old-space-size=128',join(root,'dist-agent/validation-worker.mjs'),asset.mime],{
+     signal,timeout:5000,maxBuffer:4096,killSignal:'SIGKILL',env:{PATH:process.env.PATH},
+    });
+    let stdout='',runtimeFailure=false;
+    child.stdout.setEncoding('utf8').on('data',chunk=>{stdout+=chunk;});
+    child.stderr.on('data',()=>{runtimeFailure=true;});
+    child.stdin.on('error',()=>{});
+    child.on('error',()=>{runtimeFailure=true;});
+    child.once('close',code=>{
+     if(signal.aborted)reject(signal.reason);
+     else if(!runtimeFailure&&code===0&&stdout.trim()==='VALID')resolve();
+     else reject(Error(!runtimeFailure&&code===1&&!stdout.trim()?'AGENT_MODEL_FORMAT':'AGENT_VALIDATOR_UNAVAILABLE'));
+    });
+    child.stdin.end(bytes);
+   });
+  }
+
+  let server,browser;
+  const nonce=randomUUID(),images=new Map();
+  try{
+   server=createServer(async(req,res)=>{
+    try{
+     if(req.headers.host!==`127.0.0.1:${server.address().port}`||req.method!=='GET'){res.writeHead(403).end();return;}
+     res.setHeader('Cache-Control','no-store');
+     if(req.url==='/'+nonce){
+      res.setHeader('Content-Type','text/html');
+      res.end('<!doctype html><meta charset="utf-8"><script type="module" src="/renderer.js"></script>');
+     }else if(req.url==='/renderer.js'){
+      res.setHeader('Content-Type','text/javascript');
+      res.end(await readFile(join(root,'dist-agent/renderer.js')));
+     }else if(roles.some(role=>req.url==='/'+nonce+'/raw/'+role)){
+      res.setHeader('Content-Type','model/gltf-binary');
+      res.end(await readAsset(req.url.split('/').at(-1)));
+     }else res.writeHead(404).end();
+    }catch{res.writeHead(409).end();}
+   });
+   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+   const origin=`http://127.0.0.1:${server.address().port}`;
+   const {chromium}=await import('@playwright/test');
+   signal.throwIfAborted();
+   browser=await chromium.launch({headless:true});
+   const close=()=>{void browser.close().catch(()=>{});};
+   signal.addEventListener('abort',close,{once:true});
+   try{
+    signal.throwIfAborted();
+    for(const role of roles){
+     const context=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
+     try{
+      const page=await context.newPage(),errors=[];
+      page.on('pageerror',error=>errors.push(error.message));
+      await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+      await page.goto(origin+'/'+nonce);
+      await page.waitForFunction(()=>typeof window.captureRawAsset==='function');
+      const asset=input[role];
+      const capture=await page.evaluate(async value=>{
+       try{return {image:await window.captureRawAsset(value)};}
+       catch(error){return {code:error instanceof Error?error.message:'AGENT_RENDER_FAILED'};}
+      },{role,bytes:asset.bytes,sha256:asset.sha256,camera});
+      if(errors.length)fail('AGENT_RENDER');
+      if(!capture.image)fail(capture.code==='MODEL_RESIDENT_BUDGET'?'AGENT_MODEL_RESIDENT_BUDGET':capture.code);
+      const {pngBase64,...diagnostics}=capture.image;
+      const bytes=Buffer.from(pngBase64,'base64');
+      if(bytes.length>524288||bytes.length<33||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||
+        bytes.readUInt32BE(16)!==640||bytes.readUInt32BE(20)!==360)fail('AGENT_PNG');
+      images.set(role,{bytes,result:{sha256:asset.sha256,bytes:asset.bytes,png:{path:role+'.png',sha256:hash(bytes),bytes:bytes.length},...diagnostics}});
+     }finally{await context.close();}
+    }
+   }finally{signal.removeEventListener('abort',close);}
+  }finally{
+   try{await browser?.close();}
+   finally{if(server?.listening)await new Promise(resolve=>server.close(resolve));}
+  }
+  const result={version:1,operation:input.operation,requestId:input.requestId,inputSha256,settings,
+   reference:images.get('reference').result,candidate:images.get('candidate').result};
+  signal.throwIfAborted();
+  try{await mkdir(outputPath,{mode:0o700});}
+  catch(error){if(error.code==='EEXIST')fail('AGENT_OUTPUT_EXISTS');throw error;}
+  try{
+   for(const {bytes,result:{png}} of images.values())await writeFile(join(outputPath,png.path),bytes,{flag:'wx',mode:0o600,signal});
+   const marker=join(outputPath,'.result-'+randomUUID());
+   await writeFile(marker,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600,signal});
+   await checkInput();
+   for(const role of roles)await readAsset(role);
+   signal.throwIfAborted();
+   await rename(marker,join(outputPath,'result.json'));
+   return result;
+  }catch(error){await rm(outputPath,{recursive:true,force:true});throw error;}
+ }
  async function publish(result,png,recheck=checkInput){
   await recheck();let created=false;
   try{await mkdir(outputPath,{mode:0o700});created=true;if(png)await writeFile(join(outputPath,'scene.png'),png,{flag:'wx',mode:0o600});await recheck();await writeFile(join(outputPath,'result.json'),JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});signal.throwIfAborted();return result;}

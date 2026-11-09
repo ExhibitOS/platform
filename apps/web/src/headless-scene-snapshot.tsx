@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createRoot} from 'react-dom/client';
 import {freezeCanonical,watermarkFor} from '@exhibitos/studio-contract';
+import {captureRawAsset} from './raw-asset-snapshot';
 import {GeometryPreview} from './GeometryPreview';
 import {loadStaticPublication} from './static-publication-source';
 import {DEVICE_BUDGETS} from './viewer/loading';
@@ -34,4 +35,4 @@ export async function captureExport(input:{requestId:string;candidateSha256:stri
  }finally{root.unmount();host.remove();}
 }
 const active=new AbortController();
-Object.assign(window,{captureExport:(input:Parameters<typeof captureExport>[0])=>captureExport(input,active.signal),cancelExport:()=>active.abort(Error('AGENT_CANCELLED'))});
+Object.assign(window,{captureExport:(input:Parameters<typeof captureExport>[0])=>captureExport(input,active.signal),captureRawAsset:(input:Parameters<typeof captureRawAsset>[0])=>captureRawAsset(input,active.signal),cancelExport:()=>active.abort(Error('AGENT_CANCELLED'))});

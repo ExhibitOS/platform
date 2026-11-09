@@ -12,6 +12,7 @@ import {freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
 import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {Imports} from './imports.ts';
+import {createServiceModelPreparationExecution} from './model-preparation-import.ts';
 import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
@@ -33,7 +34,12 @@ import {newDraft} from '../../web/src/drafts/example.ts';
 
 async function unusedPort(){const server=createServer();await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw Error('NO_PORT');const port=address.port;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));return port;}
 
-it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env.EXHIBITOS_WHEAT_SAVED||!process.env.EXHIBITOS_WHEAT_FULL||!process.env.EXHIBITOS_WHEAT_ORIGINAL||!process.env.EXHIBITOS_WHEAT_PROPOSAL)('isolated PostgreSQL worker expiry, protected staging, retry, atomic rollback and replay',async()=>{
+const replacementCases=[
+ {name:'legacy isolated PostgreSQL worker expiry, protected staging, retry, atomic rollback and replay',product:false},
+ {name:'server-generated JPEG preparation and authenticated atomic replacement on isolated PostgreSQL',product:true},
+];
+for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||
+ !process.env.EXHIBITOS_WHEAT_SAVED||(product?!process.env.EXHIBITOS_PRODUCT_JPEG:!process.env.EXHIBITOS_WHEAT_FULL||!process.env.EXHIBITOS_WHEAT_ORIGINAL||!process.env.EXHIBITOS_WHEAT_PROPOSAL))(name,async()=>{
  const pool=new Pool({connectionString:process.env.WHEAT_TEST_PG}),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),rightsId=randomUUID(),root=process.env.WHEAT_TEST_ROOT!;
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
@@ -53,6 +59,54 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   // Real DB writes and validators; only native bounded-provenance admission is
   // replaced by a test stub. No official owner database or runtime is used.
   const bindAccess=(studio:Studio)=>vi.spyOn(studio,'access').mockImplementation(async(c:PoolClient,_s:Session,id:string)=>{const result=await c.query('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id]);if(!result.rowCount)throw Error('missing exhibition');return {...result.rows[0],nativeBounded:true};});
+  if(product){
+   // Keep the production auth transaction, worker, byte store and commit.
+   // The sealed native readiness and material registry are fixture boundaries.
+   await migrate(pool,new URL('../../../database/native-model-preparation/',import.meta.url).pathname);
+   const imports=new Imports(pool,blobs,undefined,createServiceModelPreparationExecution(blobs,()=>true));
+   vi.spyOn(imports,'coarseOwner').mockImplementation(async(c,tenant,principal,workspace)=>{
+    if(tenant!==tenantId||principal!==userId||workspace!==undefined&&workspace!==workspaceId)throw Error('wrong fixture owner');
+    await owner.assertDatabase(c);
+    return owner;
+   });
+   const materials=draft.candidate.extensions?.['org.exhibitos.studio/workspace-materials'] as {materials:{id:string;version:number}[]};
+   const materialService={readVersion:async(_c:PoolClient,_s:Session,id:string,version:number)=>{
+    const material=materials.materials.find(m=>m.id===id&&m.version===version);
+    if(!material)throw Error('missing fixture material');
+    return structuredClone(material);
+   }} as unknown as WorkspaceMaterialIntakes;
+   const studio=new Studio(owner,true,materialService);bindAccess(studio);
+   const auth=new Auth(pool),token=randomBytes(32).toString('base64url'),csrf=randomUUID();
+   await pool.query("INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '1 hour')",
+    [randomUUID(),sha256(Buffer.from(token)),sha256(Buffer.from(csrf)),csrf,tenantId,userId]);
+   const mutate=<T>(action:(c:PoolClient,s:Session)=>Promise<T>)=>auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,action);
+   const original=await readFile(process.env.EXHIBITOS_PRODUCT_JPEG!);
+   const input={artworkId:prior.id,idempotencyKey:randomUUID(),mime:'image/jpeg' as const,sha256:sha256(original),bytes:original.length,scaleMeters:1,rights:prior.rights,
+    coarsePreparation:{version:1 as const,profile:'product-image-pair-2048-512-v1' as const,artworkRevision:1}};
+   expect(input.sha256).toBe('55dc9232dd6b412cea4964f19e98a56f6bd1fa7213e4e947834413cf65d8776a');
+   const job=await mutate((c,s)=>imports.create(c,s,input)),id=String(job.id);
+   await mutate((c,s)=>imports.upload(c,s,id,original));
+   await mutate((c,s)=>imports.complete(c,s,id));
+   expect(await imports.work()).toBe(true);
+   const ready=await mutate(async(c,s)=>imports.view(await imports.access(c,s,id))),prepared='imagePreparation' in ready?ready.imagePreparation:undefined;
+   expect(ready).toMatchObject({state:'approved',errorCode:null});
+   if(prepared?.provenance!=='server-generated'||!prepared.full||!prepared.coarse)throw Error('missing prepared image pair');
+   expect(prepared).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:original.length},
+    full:{sha256:'8d62ecbe291f5c4f386541b0526dda9f718095e05f14438b9e428ddb4e3bdbfa'},
+    coarse:{sha256:'f13ddffb704a02744868c0229e1ff39174fec77831f6c1dd7351f0c08fe661ac'}});
+   for(const asset of [prepared.full,prepared.coarse])await expect(mutate((c,s)=>cms.approve(c,s,prior.id,{revision:1,assetId:asset.assetId}))).rejects.toMatchObject({code:'ASSET_NOT_APPROVED'});
+   const request={requestId:randomUUID(),artworkId:prior.id,artworkRevision:1,importJobId:id};
+   const replace=(c:PoolClient,s:Session)=>replaceApprovedArtwork(c,s,draft.exhibitionId,request,etag(1,draft),studio,cms,imports,blobs);
+   await expect(mutate(async(c,s)=>{await replace(c,s);throw Error('force replacement rollback');})).rejects.toThrow('force replacement rollback');
+   expect((await mutate((c,s)=>cms.studioArtwork(c,s,prior.id))).artwork.primaryAssetId).toBe(old.id);
+   const committed=await mutate(replace);
+   expect(committed.revision).toBe(2);
+   expect(await mutate(replace)).toEqual(committed);
+   const reopened=await mutate((c,s)=>studio.access(c,s,draft.exhibitionId));
+   expect(reopened.revision).toBe(2);
+   expect(reopened.metadata.candidate.artworks.find((a:Artwork)=>a.id===prior.id)?.primaryAssetId).toBe(prepared.full.assetId);
+   return;
+  }
   const proposal=JSON.parse(await readFile(process.env.EXHIBITOS_WHEAT_PROPOSAL!,'utf8')),original=await readFile(process.env.EXHIBITOS_WHEAT_ORIGINAL!),full=await readFile(process.env.EXHIBITOS_WHEAT_FULL!);
   const input={artworkId:prior.id,idempotencyKey:randomUUID(),mime:'image/jpeg' as const,sha256:sha256(original),bytes:original.length,scaleMeters:1,rights:prior.rights,derived:{mime:'image/png' as const,bytes:full.length,sha256:sha256(full),recipe:proposal.preparation.recipe},coarsePreparation:{version:1 as const,profile:'viewer-png-box-512-v1' as const,approvalId:'ce328328-97fa-56cf-8fc1-6bafd4573153',artworkRevision:1}};
   const job=await transaction(pool,c=>imports.create(c,session,input));const id=String(job.id);await transaction(pool,async c=>{await imports.upload(c,session,id,original);await imports.uploadDerived(c,session,id,full);await imports.complete(c,session,id);});

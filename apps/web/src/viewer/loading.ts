@@ -15,23 +15,22 @@ function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):Devi
  // scene/cache budgets, or grants new capacity to unknown/constrained devices.
  return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
 }
+const desktopArtworkCapacity={maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024};
+function supportsDesktopArtworkCapacity(input:Parameters<typeof deviceBudget>[0]){
+ const memory=input.deviceMemory;
+ return input.coarsePointer===false&&input.finePointer===true&&(memory===undefined||Number.isFinite(memory)&&memory>=8);
+}
 export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean;finePointer?:boolean}):DeviceBudget {
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
- // Limits bound tracked allocations. They do not reserve memory up front.
+ // These are tracked allocation ceilings, with the same texture edge.
+ if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000},memory);
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
-  // Explicit fine-pointer sessions can use the same bounded allowance as the
-  // existing detailed profile; tracked scene and transition limits still apply.
-  const fine=input.coarsePointer===false&&input.finePointer===true;
-  return selectedImageCapacity({...budget,maxCacheBytes:(fine?256:192)*1024*1024,maxTransitionBytes:(fine?320:256)*1024*1024},memory);
+  return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
- // Browsers without a memory hint can still need overlap for a visible
- // minimum. Bound touch auto headroom without changing texture admission.
- if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024};
- // An explicit fine-pointer Auto session without a memory hint uses the same
- // bounded allocation allowance as the existing detailed desktop setting.
- // Triangle and texture limits stay at the ordinary desktop profile.
- if(memory===undefined&&input.coarsePointer===false&&input.finePointer===true)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
+ // Use the verified touch support floor when the browser supplies no hint.
+ // Pointer input selects the policy; it does not identify a device model.
+ if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
  return selectedImageCapacity(budget,memory);
 }
@@ -53,6 +52,7 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
+  if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...DESKTOP_NEAR_BUDGET,...desktopArtworkCapacity},memory);
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
     ?{...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024}
     :DESKTOP_NEAR_BUDGET;
@@ -61,12 +61,12 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
-export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
+export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget,preferCoarse=false):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
  const fits=(v:typeof full)=>!!v&&(v.triangles===undefined||v.triangles<=budget.maxTriangles)&&(v.textureSize===undefined||v.textureSize<=budget.maxTextureSize);
  const lod=artwork.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
  const budgetFallback=lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE;
- let selected=coarse&&(!fits(full)||!budgetFallback&&distance>2)&&fits(coarse)?coarse:fits(full)?full:undefined;
+ let selected=coarse&&(preferCoarse||!fits(full)||!budgetFallback&&distance>2)&&fits(coarse)?coarse:fits(full)?full:undefined;
  // Images already resize uniformly before GPU upload. Permit only a small,
  // bounded source when no authored variant fits; model limits stay unchanged.
  if(!selected&&artwork.artworkType==='image'){
@@ -268,7 +268,7 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
  return modelDecodeReserve(inventory.bytes,budget,bytes,variant?.textureSize,phase);
 }
 /** Shared GLB decode accounting; callers independently establish profile and hash. */
-function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:ArrayBuffer,textureSize:number|undefined,phase:'complete'|'cpu'){
+export function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:ArrayBuffer,textureSize:number|undefined,phase:'complete'|'cpu'){
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
  const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{bufferViews?:Array<{buffer?:number;byteOffset?:number;byteLength:number;byteStride?:number}>;images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source?:number;extensions?:{KHR_texture_basisu?:{source?:number}}}>;extensionsUsed?:unknown;extensionsRequired?:unknown;animations?:unknown;skins?:unknown};

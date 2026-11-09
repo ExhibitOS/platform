@@ -55,3 +55,39 @@ from its already-admitted runtime configuration, outside the agent JSON. Fixed A
 module suffixes and exact manifest entries are verified; a client cannot select a
 script URL or executable. Results record the producer pins and placement/viewpoint
 mapping. The live native/CMS authority remains with the issuer.
+
+## Local GLB comparison
+
+Use the fixed command above with this v1 request and keep its owner pipe open.
+Each descriptor names an absolute, owner-owned regular file and pins its byte
+count and lowercase SHA-256. The roles describe the comparison and allow two
+derivatives, such as an approved full model and its compact counterpart.
+
+```json
+{
+  "version": 1,
+  "operation": "raw-asset-comparison",
+  "requestId": "f79e41bf-8a8e-41ed-88a0-dc7080cb432f",
+  "reference": {"path": "/absolute/full.glb", "mime": "model/gltf-binary", "bytes": 16036864, "sha256": "<64 lowercase hex digits>"},
+  "candidate": {"path": "/absolute/compact.glb", "mime": "model/gltf-binary", "bytes": 1874704, "sha256": "<64 lowercase hex digits>"},
+  "settings": {
+    "width": 640,
+    "height": 360,
+    "inspectionCamera": {"position": [195, 110, 505], "target": [0, 0, 0], "fov": 42},
+    "lightPreset": "neutral-v1"
+  }
+}
+```
+
+Use GLBs admitted by the strict ordinary validator and the embedded PNG render
+path. Per input, the encoded file is capped at 32 MiB, the model at 100,000
+triangles, and texture edges at 2,048 pixels. Decoded estimates must fit the
+comparison's 320 MiB resident and 416 MiB transition ceilings. Both models use
+the same model-space camera and light at identity transform. The renderer
+closes the first model's browser context before starting the second.
+
+The local command creates no workspace, profile, or CMS record. Wait for
+`result.json` before consuming `reference.png` and `candidate.png`. The result
+records exact input and PNG digests and estimated memory. The exclusive output
+directory is cleaned up on pre-commit failure. To cancel, send
+`{"cancel":true}` through the owner pipe or use the existing signal controls.
