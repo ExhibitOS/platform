@@ -49,7 +49,7 @@ async function copyTrackedTree(name, destination, excluded = new Set()) {
   return new Set(paths.filter(path=>!excluded.has(path)));
 }
 const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.27.tgz';
-const OEX_SPEC_HASH='d4ecf0f2bfa2ef0640443936b5e280f465c5ea98acfbe2178ecd2c1e2a51c67e';
+const OEX_SPEC_HASH='2daa9c2df2c5a4e37028b926eac01d029fd2180738d9bf9e10cdb97c0cf3b058';
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
