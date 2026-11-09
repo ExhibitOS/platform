@@ -77,11 +77,3 @@
 @media(prefers-reduced-motion:reduce){.publication-cover-surface[data-entering=true] .publication-entry-ticket{visibility:hidden}.entrance-cover-spread,.entrance-paper-left,.entrance-paper-leaf{animation:none!important;transform:none!important}.entrance-paper-outside,.publication-entry-door{display:none}.publication-entry-ticket-stub,.publication-entry-ticket{animation:none!important;transform:none!important}.publication-entry-overlay[data-ready=true]{visibility:hidden}}
 
 /* Only verified download totals are determinate. Scene preparation has its own indicator. */
-.publication-entry-meter-space{min-height:2.75rem;margin:0 0 .75rem}
-.publication-entry-meter{height:3px;overflow:hidden;background:#182d3226;border-radius:2px}
-.publication-entry-meter>span{display:block;width:30%;height:100%;background:var(--publication-action,#135967);animation:entry-indeterminate 1.6s ease-in-out infinite alternate}
-.publication-entry-phase{font-size:.875rem;line-height:1.5;margin:.4rem 0 0;color:var(--publication-muted,#51656a)}
-@keyframes entry-indeterminate{from{transform:translateX(-100%)}to{transform:translateX(334%)}}
-.publication-shell[data-reduced-motion=true] .publication-entry-meter:not([data-determinate])>span{animation:none;transform:translateX(116%)}
-@media(prefers-reduced-motion:reduce){.publication-entry-meter:not([data-determinate])>span{animation:none;transform:translateX(116%)}}
-.publication-entry-meter[data-determinate]>span{animation:none}
