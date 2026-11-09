@@ -266,6 +266,25 @@ test('recorded step bank reuses one selected buffer with its natural end and kee
  const random=vi.spyOn(Math,'random').mockReturnValue(0);
  try{runtime.lifecycle(true);stride();stride();stride();assert.deepEqual(calls.map(c=>c[2]),[.7,.7,.7]);runtime.mute(true);runtime.mute(false);runtime.visibility(false);runtime.visibility(true);runtime.lifecycle(true);stride();assert.equal(calls.at(-1)?.[2],.7);runtime.footstepsEnabled(false);assert(sources.every(s=>s.stopped));stride();assert.equal(calls.length,4);}finally{runtime.dispose();random.mockRestore();}
 });
+test('continuous floor crossing keeps the current step and selects the next floor sample',()=>{
+ const f=preparedShortStep(),other='other-floor',sample='other-step';
+ f.internal.experience.footsteps=[
+  {surfaceId:f.id,material:'wood',bank:[{assetId:f.id}]},
+  {surfaceId:other,material:'stone',bank:[{assetId:sample}]},
+ ];
+ f.internal.buffers.set(sample,{duration:.43,length:20640,numberOfChannels:1} as AudioBuffer);
+ try{
+  f.runtime.lifecycle(true);f.stride();
+  assert.deepEqual(f.calls,[[0,0,.7]]);
+  f.runtime.update(state(.62,{floorSurfaceId:other}));
+  assert.equal(f.sources[0]!.stopped,false);
+  for(let x=.72;x<=1.32;x+=.1)f.runtime.update(state(x,{floorSurfaceId:other}));
+  assert.deepEqual(f.calls,[[0,0,.7],[0,0,.43]]);
+  assert.equal(f.runtime.snapshot().material,'stone');
+  f.runtime.lifecycle(false);
+  assert.equal(f.sources[1]!.stopped,true);
+ }finally{f.runtime.dispose();}
+});
 test('authored concrete recording reduces both envelope peaks while other floor recordings retain their gain',()=>{
  const random=vi.spyOn(Math,'random').mockReturnValue(.5);
  try{
