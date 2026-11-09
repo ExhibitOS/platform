@@ -8,6 +8,7 @@ import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
 import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {USER_ASSET_CATALOGUE} from '../packages/studio-contract/dist/user-asset-catalogue.js';
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
 
@@ -134,14 +135,15 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
   if(workspaceMaterialPublicationSelected)await writeFile(join(platformRoot,'scripts/native-workspace-material-publication-capability-v1.json'),WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspaceMaterialMultimapSelected)await writeFile(join(platformRoot,'scripts/native-workspace-material-multimap-capability-v1.json'),WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,{flag:'wx',mode:0o600});
 }
-// Only the four already-qualified catalogue pairs are part of this native
-// runtime. Verify the existing catalogue's exact bytes and notices before and
-// after copying; do not copy the broader authored-asset library.
+// Verify the selected release's exact models and notices before and after
+// copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
   '1.0.0':{commit:'4ac7d23c1b557d8e303ad04d78379bcefab50b40',manifestSHA256:'f11ba6f4407e31531230cdb94921d7d7baef3caca49b1859f8696fa1a39c4530',bytes:3562},
   '1.1.0':{commit:'90fb64d44b9c9fd91bb5c09045f92077484d1030',manifestSHA256:'b0173c3e8c5e0b85b66ca2e4a1f569fc1f5ca811d501b35cccd70739e5c6588f',bytes:4460},
+  '1.2.0':{commit:'830dee95df738ab7805cae6a0ff80d1f2639a001',manifestSHA256:'db9427c19ecaaceb3029c49bd4700955fa9a0b2cb568b422d5238f589e44f4e1',bytes:7079},
 };
 const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
+const DEFAULT_WORKSPACE_ORIGINALS={'freestanding-info-stand':'info-stand','gallery-stool':'stool','upholstered-gallery-bench':'bench'};
 const DEFAULT_FRAME_ID='black-aluminum-frame';
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
@@ -151,7 +153,7 @@ const DEFAULT_FRAME_ENTRY={
   provenance:{sourceSha256:'17c571accc4ed2554731d4ce89f3cad4faa66cf2bca83321ecd92ad2537093d9',recipe:'omit-unused-invalid-tangent-r1'},
 };
 /** Validate the immutable public release against the already-qualified runtime catalogue. */
-export async function verifyDefaultFurnishingsManifest(root){
+async function readDefaultFurnishingsManifest(root){
   const manifestPath=join(root,'manifest.json');
   if(await checkedSource(manifestPath,'file')!==manifestPath)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const manifestSize=(await lstat(manifestPath)).size;
@@ -161,16 +163,26 @@ export async function verifyDefaultFurnishingsManifest(root){
   if(!match)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const [version,release]=match;
   const manifest=JSON.parse(bytes.toString('utf8'));
-  const hosts=version==='1.1.0'?{...DEFAULT_FURNISHINGS_HOSTS,[DEFAULT_FRAME_ID]:'artwork-frame'}:DEFAULT_FURNISHINGS_HOSTS;
+  const hosts={...DEFAULT_FURNISHINGS_HOSTS,
+    ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
+    ...(version==='1.2.0'?DEFAULT_WORKSPACE_ORIGINALS:{}),
+  };
   if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!==version||!Array.isArray(manifest.assets)||manifest.assets.length!==Object.keys(hosts).length)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const seen=new Set();
   for(const item of manifest.assets){
     const id=item.catalogId;
     if(!Object.hasOwn(hosts,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     seen.add(id);
-    const entry=id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id),model=item.model,notice=item.rights?.notice;
-    if(item.catalogVersion!==entry.version||item.hostKind!==hosts[id]||model?.path!==entry.path||model.mime!==entry.mime||model.bytes!==entry.bytes||model.sha256!==entry.sha256||item.rights?.licenseId!==entry.rights.licenseId||notice?.path!==entry.rights.noticePath||notice.bytes!==entry.rights.noticeBytes||notice.sha256!==entry.rights.noticeSha256||item.provenance?.sourceSha256!==entry.provenance.sourceSha256||item.provenance?.recipe!==entry.provenance.recipe)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+    const workspaceOriginal=Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id);
+    const entry=workspaceOriginal?USER_ASSET_CATALOGUE.find(asset=>asset.id===id):id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
+    const model=item.model,notice=item.rights?.notice;
+    // The pinned release carries its own distribution notices for these originals.
+    if(!entry||item.catalogVersion!==entry.version||item.hostKind!==hosts[id]||model?.path!==entry.path||model.mime!==entry.mime||model.bytes!==entry.bytes||model.sha256!==entry.sha256||item.rights?.licenseId!==entry.rights.licenseId||notice?.path!==entry.rights.noticePath||(!workspaceOriginal&&(notice.bytes!==entry.rights.noticeBytes||notice.sha256!==entry.rights.noticeSha256))||item.provenance?.sourceSha256!==entry.provenance.sourceSha256||item.provenance?.recipe!==entry.provenance.recipe)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   }
+  return {release,manifest,bytes};
+}
+export async function verifyDefaultFurnishingsManifest(root){
+  const {release}=await readDefaultFurnishingsManifest(root);
   return {commit:release.commit,manifestSHA256:release.manifestSHA256};
 }
 export async function checkedDefaultFurnishingsRoot(root){
@@ -185,10 +197,18 @@ export async function checkedDefaultFurnishingsRoot(root){
 export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  if(release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
+  const includesWorkspaceOriginals=release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.2.0'].manifestSHA256;
+  const bundled=includesWorkspaceOriginals?await readDefaultFurnishingsManifest(sourceRoot):undefined;
+  if(bundled&&bundled.release.manifestSHA256!==release.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
+  if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
   const seen = new Set();
   for (const id of ids) {
-    const entry = id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
+    const workspaceOriginal=bundled&&Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
+    const entry = workspaceOriginal?{...workspaceOriginal.model,rights:{
+      licenseId:workspaceOriginal.rights.licenseId,
+      noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
+    }}:id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
     if (entry.rights.licenseId !== 'CC0-1.0') fail('NATIVE_PACKAGE_FURNISHING_INVALID');
     const files = [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256]];
     // Seal the acquired source separately. The frame API resolves model.glb only.
@@ -207,6 +227,7 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
       if (!copied.isFile() || copied.isSymbolicLink() || copied.size !== bytes || await hash(output) !== sha256) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
     }
   }
+  if(bundled)await writeFile(join(platformRoot,'assets/furnishings/default-manifest.json'),bundled.bytes,{flag:'wx',mode:0o600});
 }
 async function inventory(root, path = root) {
   const entries = [];
@@ -285,7 +306,8 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   nodeBinary = await checkedSource(nodeBinary, 'file'); nodeLicense = await checkedSource(nodeLicense, 'file');
   npmCLI = await checkedSource(npmCLI, 'file'); postgresRoot = await checkedSource(postgresRoot, 'directory');
   const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
-  if(furnishingsRelease?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if(furnishingsRelease?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.2.0'].manifestSHA256&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   const provenance = JSON.parse(await readFile(postgresSourceReceipt, 'utf8'));
   if (provenance.release !== 'v2.9.6' || provenance.assetID !== 512422981 || provenance.sha256 !== '9fc7d0dc08cf46dfd94bb32cbaaad81b41b37847a42d6dcb2f9fbd292813defb') fail('NATIVE_PACKAGE_POSTGRES_SOURCE_INVALID');
   const noticeRoot = join(source, 'notices/native-runtime');
