@@ -8,6 +8,7 @@ import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {artworkAccess,transaction,sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError} from './api-error.ts';
 import {allowedRights} from './rights.ts';
+import {LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {prepareCompactModelInWorker} from './oam-original-preparation-process.ts';
 import {storedModelPreparation,createModelPreparationReceipt,modelPreparationReceipt} from './model-preparation-intent.ts';
 
@@ -72,9 +73,11 @@ export async function workRequiredModelPreparation(pool:Pool,blobs:BlobStore,row
  const intent=storedModelPreparation(row);if(!intent||!blobs.getBounded)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
  if(intent.sourceFull)return workCompactVariant(pool,blobs,row,lease,hooks,writer,nativeWorkspace);
  await transaction(pool,c=>assertModelPreparationContext(c,row));
- const bytes=Buffer.from(await blobs.getBounded(String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
+ const read=intent.profileId===LARGE_MODEL_RECIPE.id?blobs.getLargeModelSource:blobs.getBounded;
+ if(!read)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
+ const bytes=Buffer.from(await read.call(blobs,String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
  if(writer){assertModelPreparationWriter(writer);await writer.assertLive();if(writer.identity.tenantId!==row.tenant_id||writer.identity.principalId!==row.user_id)throw new ApiError(403,'FORBIDDEN');}
- const prepared=await prepareCompactModelInWorker(bytes,{bytes:bytes.length,sha256:String(row.expected_hash)},{writerFd:writer?.writerFd});
+ const prepared=await prepareCompactModelInWorker(bytes,{bytes:bytes.length,sha256:String(row.expected_hash)},{profile:intent.profileId,writerFd:writer?.writerFd});
  await hooks?.beforeCommit?.();
  await transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
@@ -92,6 +95,6 @@ export async function workRequiredModelPreparation(pool:Pool,blobs:BlobStore,row
   if(originalAssetId!==assetId)await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',$8,'quarantine')",[row.tenant_id,originalAssetId,row.artwork_id,rightsId,row.object_key,row.expected_hash,row.expected_bytes,row.scale_meters]);
   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',$8,'approved')",[row.tenant_id,assetId,row.artwork_id,rightsId,displayKey,prepared.receipt.output.sha256,prepared.bytes.length,row.scale_meters]);
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalAssetId,{version:1,kind:'required-model-preparation',originalAssetId,displayAssetId:assetId,serverReceipt:receipt,provenance:'server-generated'}]);
-  const committed=await c.query("UPDATE import_jobs SET state='approved',asset_id=$3,original_asset_id=$4,approved_key=$5,model_preparation=$6,progress=100,error_code=NULL,lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$7 AND lease_until>clock_timestamp() AND $7::uuid=ANY(png_worker_tokens) RETURNING id",[row.tenant_id,row.id,assetId,originalAssetId===assetId?null:originalAssetId,displayKey,{kind:'required-model-compact',request:intent,result:receipt},lease]);if(!committed.rowCount)throw new ApiError(409,'LEASE_EXPIRED');
+  const committed=await c.query("UPDATE import_jobs SET state='approved',asset_id=$3,original_asset_id=$4,approved_key=$5,model_preparation=$6,progress=100,error_code=NULL,lease_id=NULL,lease_until=NULL,png_worker_tokens=CASE WHEN $8 THEN array_remove(png_worker_tokens,$7::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$7 AND lease_until>clock_timestamp() AND $7::uuid=ANY(png_worker_tokens) RETURNING id",[row.tenant_id,row.id,assetId,originalAssetId===assetId?null:originalAssetId,displayKey,{kind:'required-model-compact',request:intent,result:receipt},lease,intent.profileId===LARGE_MODEL_RECIPE.id]);if(!committed.rowCount)throw new ApiError(409,'LEASE_EXPIRED');
  });
 }

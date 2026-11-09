@@ -3,9 +3,16 @@ import {createHash,randomUUID} from 'node:crypto';
 import {readFile,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {PoolClient} from 'pg';
-import type {BlobStore} from './blobs.js';
+import {isLargeModelSourceKey,LARGE_MODEL_SOURCE_LIMIT,type BlobStore} from './blobs.js';
 import {confirmedHayesReleaseBindings} from './hayes-release-inventory.js';
-export interface ObjectReference {key:string;binding:string;required:boolean;expectedBytes?:number;expectedSha256?:string;aggregate?:{id:string;index:number;count:number;bytes:number;sha256:string}}
+export interface ObjectReference {key:string;binding:string;required:boolean;expectedBytes?:number;expectedSha256?:string;largeModelSource?:true;aggregate?:{id:string;index:number;count:number;bytes:number;sha256:string}}
+export const LARGE_MODEL_MIGRATION={name:'046_large_model_preparation.sql',sha256:'88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4'} as const;
+export function largeModelInventorySource(migrations:ServiceInventory['migrations'],ref:ObjectReference,key:string,expectedBytes:number,sha256:string){
+ const [tenant,,intake]=key.split('/');
+ return ref?.largeModelSource===true&&ref.binding===`import_jobs:${tenant}:${intake?.slice(7)}:source`&&ref.key===key&&ref.expectedBytes===expectedBytes&&ref.expectedSha256===sha256&&
+  expectedBytes>32*1024*1024&&expectedBytes<=LARGE_MODEL_SOURCE_LIMIT&&isLargeModelSourceKey(key)&&key.endsWith('/'+sha256)&&
+  migrations.some(entry=>entry.name===LARGE_MODEL_MIGRATION.name&&entry.sha256===LARGE_MODEL_MIGRATION.sha256);
+}
 export interface InventoryIssue {code:string;key?:string;binding?:string}
 export interface ServiceInventory {schemaVersion:'1.0.0-draft.1';createdAt:string;schemaDigest?:string;migrations:{name:string;sha256:string}[];tables:{name:string;rowCount:number;sha256:string}[];objects:{key:string;bytes:number;sha256:string;referenced:boolean;bindings:string[]}[];references:ObjectReference[];issues:InventoryIssue[]}
 export function inventoryCanonical(value:unknown):string {
@@ -58,7 +65,14 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(row.model_preparation!==undefined&&row.model_preparation!==null){
    const preparation=row.model_preparation,request=obj(preparation)?preparation.request:undefined;
    const invalid=()=>issues.push({code:'INVALID_REQUIRED_MODEL_IMPORT',binding});
-   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||request.profileId!=='embedded-model-compact-20k-512-v1'||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
+   const large=obj(request)&&request.profileId==='embedded-model-compact-large-20k-512-v2';
+
+   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||(large?(request.sourceFull!==undefined||Number(row.expected_bytes)>LARGE_MODEL_SOURCE_LIMIT):request.profileId!=='embedded-model-compact-20k-512-v1')||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
+   if(large&&Number(row.expected_bytes)>32*1024*1024){
+    const source=references[0];
+    if(!source||!isLargeModelSourceKey(source.key)||source.key!==`${tenant}/quarantine/import-${row.id}/${row.expected_hash}`){invalid();break;}
+    source.largeModelSource=true;
+   }
    if(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'MODEL_PREPARATION_WORKER_DRAIN_UNCONFIRMED',binding});
    if(request.sourceFull!==undefined){
     const full=request.sourceFull;
@@ -279,9 +293,15 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
  const bindings=new Map<string,ObjectReference[]>();for(const ref of report.references){const list=bindings.get(ref.key)??[];list.push(ref);bindings.set(ref.key,list);}
  for(const key of [...actualKeys].sort()){
   if(!keyValid(key)||(options.tenantId&&!key.startsWith(options.tenantId+'/'))){report.issues.push({code:'INVALID_STORE_KEY'});continue;}
-  let data:Uint8Array;try{data=await store.get(key);}catch{report.issues.push({code:'OBJECT_UNREADABLE',key});continue;}
+  const refs=bindings.get(key)??[];
+  const large=refs.find(ref=>ref.expectedBytes!==undefined&&ref.expectedSha256!==undefined&&largeModelInventorySource(report.migrations,ref,key,ref.expectedBytes,ref.expectedSha256));
+  let data:Uint8Array;
+  try{
+   if(large&&!store.getLargeModelSource)throw Error('large model custody unavailable');
+   data=large?await store.getLargeModelSource!(key,large.expectedBytes!):await store.get(key);
+  }catch{report.issues.push({code:'OBJECT_UNREADABLE',key});continue;}
   if(data.length===0)report.issues.push({code:'OBJECT_EMPTY',key});
-  const digest=createHash('sha256').update(data).digest('hex'),refs=bindings.get(key)??[];
+  const digest=createHash('sha256').update(data).digest('hex');
   report.objects.push({key,bytes:data.length,sha256:digest,referenced:refs.length>0,bindings:refs.map(r=>r.binding).sort()});
   for(const ref of refs){if(ref.expectedBytes!==undefined&&ref.expectedBytes!==data.length)report.issues.push({code:'OBJECT_SIZE',key,binding:ref.binding});if(ref.expectedSha256!==undefined&&ref.expectedSha256!==digest)report.issues.push({code:'OBJECT_HASH',key,binding:ref.binding});}
  }

@@ -1,4 +1,4 @@
-import {FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,verifyFreshImageMigration,assertExactFreshImageCatalog,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,verifyModelPreparationMigration,assertExactModelPreparationCatalog} from './native-oex-normal-catalog.mjs';
+import {LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,verifyLargeModelMigration,assertExactLargeModelCatalog,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,verifyFreshImageMigration,assertExactFreshImageCatalog,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,verifyModelPreparationMigration,assertExactModelPreparationCatalog} from './native-oex-normal-catalog.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Called only inside openLocalWorkspace's transaction, before owner/session
 // writes. The caller must supply the authenticated inherited owner channel.
@@ -24,22 +24,22 @@ export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,{
 }
 
 /** Recheck the ledger before the last asynchronous writer/payload fence. */
-export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped,framePreparation=false,hayesOriginal=false,hayesDisposition=false,hayesRelease=false,modelPreparation=false,freshImage=false}){
+export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped,framePreparation=false,hayesOriginal=false,hayesDisposition=false,hayesRelease=false,modelPreparation=false,largeModel=false,freshImage=false}){
  assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
  if(ordinaryAdmission.writer!==writer||writer.identity.mode!==mode)throw Error('FURNISHING_ADMISSION_INVALID');
  if(mode==='workspace-furnishing-039-to-040-upgrade-v1')await assertExactWorkspaceMaterialMultimapCatalog(c);
  if(mode==='workspace-furnishing-040-to-044-upgrade-v1'&&!hayesRelease)throw Error('FURNISHING_ADMISSION_INVALID');
  if(mode==='workspace-furnishing-044-to-045-upgrade-v1'&&!modelPreparation)throw Error('FURNISHING_ADMISSION_INVALID');
- if(freshImage)await assertExactFreshImageCatalog(c);else if(modelPreparation)await assertExactModelPreparationCatalog(c);else if(hayesRelease)await assertExactHayesReleaseCatalog(c);else if(hayesDisposition)await assertExactHayesDispositionCatalog(c);else if(hayesOriginal)await assertExactHayesOriginalCatalog(c);else if(framePreparation)await assertExactWorkspaceFramePreparationCatalog(c);
+ if(freshImage)await assertExactFreshImageCatalog(c);else if(largeModel)await assertExactLargeModelCatalog(c);else if(modelPreparation)await assertExactModelPreparationCatalog(c);else if(hayesRelease)await assertExactHayesReleaseCatalog(c);else if(hayesDisposition)await assertExactHayesDispositionCatalog(c);else if(hayesOriginal)await assertExactHayesOriginalCatalog(c);else if(framePreparation)await assertExactWorkspaceFramePreparationCatalog(c);
  await writer.assertLive();
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
 
-export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,freshImageDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
+export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,allowLargeModelInterrupted=false,freshImageDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
  const selected=['workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'];
  const upgrade=mode==='workspace-furnishing-039-to-040-upgrade-v1',upgrade44=mode==='workspace-furnishing-040-to-044-upgrade-v1',upgrade45=mode==='workspace-furnishing-044-to-045-upgrade-v1';
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1',...selected].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
- if(freshImageDirectory&&(!modelPreparationDirectory||upgrade||upgrade44||upgrade45||selected.includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');
+ if((freshImageDirectory||largeModelDirectory)&&(!modelPreparationDirectory||freshImageDirectory&&largeModelDirectory||upgrade||upgrade44||upgrade45||selected.includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');
  if(modelPreparationDirectory&&(!hayesReleaseDirectory||upgrade44||upgrade||selected.includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');
  if(upgrade45&&(!modelPreparationDirectory||!hayesChannel?.isOpen()||!ordinaryAdmission||!writer||!Number.isSafeInteger(ownerUid)||ownerUid<0))throw Error('FURNISHING_ADMISSION_INVALID');
  if(hayesReleaseDirectory&&!hayesDispositionDirectory)throw Error('FURNISHING_ADMISSION_INVALID');
@@ -50,10 +50,10 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(upgrade&&(!ordinaryAdmission||!writer||!writerDirectory||!publicationDirectory||!materialPublicationDirectory||!materialMultimapDirectory||!Number.isSafeInteger(ownerUid)||ownerUid<0))throw Error('FURNISHING_ADMISSION_INVALID');
  if(selected.includes(mode)&&(!publicationDirectory||!writer||!ordinaryAdmission)||mode==='workspace-furnishing-039-selected-import-v7'&&(!materialPublicationDirectory||materialMultimapDirectory)||mode==='workspace-furnishing-040-selected-import-v7'&&(!materialPublicationDirectory||!materialMultimapDirectory)||mode==='workspace-furnishing-038-selected-import-v7'&&(materialPublicationDirectory||materialMultimapDirectory))throw Error('FURNISHING_ADMISSION_INVALID');
  if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if((ordinaryAdmission.fields.admissionKind==='catalog-upgrade-039-to-040')!==upgrade||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-040-to-044')!==upgrade44||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-044-to-045')!==upgrade45||ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1',...selected].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
- if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!freshImageDirectory||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory||materialPublicationDirectory&&!publicationDirectory||materialMultimapDirectory&&!materialPublicationDirectory)throw Error('NATIVE_OEX_CATALOG');
- const writerOptions={...(writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{}),...(publicationDirectory?{workspaceFurnishingPublicationDirectory:publicationDirectory}:{}),...(materialPublicationDirectory?{workspaceMaterialPublicationDirectory:materialPublicationDirectory}:{}),...(materialMultimapDirectory?{workspaceMaterialMultimapDirectory:materialMultimapDirectory}:{}),...(framePreparationDirectory?{workspaceFramePreparationDirectory:framePreparationDirectory}:{}),...(hayesOriginalDirectory?{hayesOriginalDirectory}:{}),...(hayesDispositionDirectory?{hayesDispositionDirectory}:{}),...(hayesReleaseDirectory?{hayesReleaseDirectory}:{}),...(modelPreparationDirectory?{modelPreparationDirectory}:{}),...(freshImageDirectory?{freshImageDirectory}:{})};
+ const writerOptions={...(writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{}),...(publicationDirectory?{workspaceFurnishingPublicationDirectory:publicationDirectory}:{}),...(materialPublicationDirectory?{workspaceMaterialPublicationDirectory:materialPublicationDirectory}:{}),...(materialMultimapDirectory?{workspaceMaterialMultimapDirectory:materialMultimapDirectory}:{}),...(framePreparationDirectory?{workspaceFramePreparationDirectory:framePreparationDirectory}:{}),...(hayesOriginalDirectory?{hayesOriginalDirectory}:{}),...(hayesDispositionDirectory?{hayesDispositionDirectory}:{}),...(hayesReleaseDirectory?{hayesReleaseDirectory}:{}),...(modelPreparationDirectory?{modelPreparationDirectory}:{}),...(freshImageDirectory?{freshImageDirectory}:{}),...(largeModelDirectory?{largeModelDirectory}:{})};
  await c.query('SELECT pg_advisory_xact_lock(82001)');
  const occupied=(await c.query("SELECT EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND (n.nspname<>'public' OR EXISTS(SELECT 1 FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f')) OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.pronamespace=n.oid) OR EXISTS(SELECT 1 FROM pg_type t WHERE t.typnamespace=n.oid AND t.typtype IN ('e','d','c')))) AS occupied")).rows[0]?.occupied;
  if(occupied!==false){
@@ -98,7 +98,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
    await c.query(sql);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256]);
    await assertExactModelPreparationCatalog(c);
    if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen()||!hayesChannel.isOpen())throw Error('NATIVE_OEX_CATALOG');
-  }else if(rows.length!==(freshImageDirectory?46:modelPreparationDirectory?45:hayesReleaseDirectory?44:hayesDispositionDirectory?43:hayesOriginalDirectory?42:framePreparationDirectory?41:materialMultimapDirectory?40:materialPublicationDirectory?39:publicationDirectory?38:writerDirectory?37:36)||!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
+  }else if(rows.length!==((freshImageDirectory||largeModelDirectory)?46:modelPreparationDirectory?45:hayesReleaseDirectory?44:hayesDispositionDirectory?43:hayesOriginalDirectory?42:framePreparationDirectory?41:materialMultimapDirectory?40:materialPublicationDirectory?39:publicationDirectory?38:writerDirectory?37:36)||largeModelDirectory&&rows[45]?.name!==LARGE_MODEL_MIGRATION||freshImageDirectory&&rows[45]?.name!==FRESH_IMAGE_MIGRATION||!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
   if(writer)await writer.assertLive();
   // A committed first boot includes its owner in the same transaction. Never
   // create one when reopening or recovering an already occupied catalog.
@@ -128,6 +128,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(hayesDispositionDirectory)migrations.push([HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,await verifyHayesDispositionMigration(hayesDispositionDirectory)]);
  if(hayesReleaseDirectory)migrations.push([HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,await verifyHayesReleaseMigration(hayesReleaseDirectory)]);
  if(modelPreparationDirectory)migrations.push([MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,await verifyModelPreparationMigration(modelPreparationDirectory)]);
+ if(largeModelDirectory)migrations.push([LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,await verifyLargeModelMigration(largeModelDirectory)]);
  if(freshImageDirectory)migrations.push([FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,await verifyFreshImageMigration(freshImageDirectory)]);
  if(!channel.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
  await migrateInTransaction(c,base);

@@ -6,7 +6,7 @@ import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
-import {inventoryCanonical,type ServiceInventory,type MigrationCatalogEntry} from './service-inventory.js';
+import {inventoryCanonical,largeModelInventorySource,type ServiceInventory,type MigrationCatalogEntry} from './service-inventory.js';
 import {encryptBackupFile,decryptBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
 export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string;aliases?:string[]}
 export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2'|'1.0.0-draft.3';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
@@ -56,9 +56,22 @@ async function identity(c:PoolClient):Promise<BackupManifest['sourceIdentity']>{
  if(!row||!/^\d+$/.test(row.system)||!/^\d+$/.test(row.oid)||typeof row.database!=='string')throw Error('BACKUP_SOURCE_IDENTITY');return {systemIdentifier:row.system,databaseOid:row.oid,database:row.database};
 }
 function comparable(inventory:ServiceInventory){const {createdAt:_createdAt,...rest}=inventory;void _createdAt;return inventoryCanonical(rest);}
+const legacyObjectLimit=32*1024*1024;
+async function readBackupObject(store:BlobStore,key:string,bytes:number){
+ if(bytes<=legacyObjectLimit)return store.get(key);
+ if(!store.getLargeModelSource)throw Error('BACKUP_CONFIG');
+ return store.getLargeModelSource(key,bytes);
+}
+async function writeBackupObject(store:BlobStore,key:string,bytes:Uint8Array,alreadyPresent=false){
+ if(bytes.length>legacyObjectLimit){
+  if(!store.putLargeModelSource)throw Error('RESTORE_CONFIG');
+  await store.putLargeModelSource(key,bytes);
+ }else if(store.putDurable)await store.putDurable(key,bytes);
+ else if(!alreadyPresent)await store.put(key,bytes);
+}
 function validateInventory(v:ServiceInventory){
  if(!v||v.schemaVersion!=='1.0.0-draft.1'||!hex(v.schemaDigest)||!Array.isArray(v.migrations)||!v.migrations.length||!Array.isArray(v.tables)||!Array.isArray(v.objects)||!Array.isArray(v.references)||!Array.isArray(v.issues)||v.issues.length)throw Error('BACKUP_INVENTORY_INVALID');
- if(v.migrations.some(m=>typeof m.name!=='string'||!hex(m.sha256))||v.tables.some(t=>typeof t.name!=='string'||!Number.isSafeInteger(t.rowCount)||t.rowCount<0||!hex(t.sha256))||v.objects.some(o=>!objectKey(o.key)||!Number.isSafeInteger(o.bytes)||o.bytes<1||o.bytes>32*1024*1024||!hex(o.sha256)))throw Error('BACKUP_INVENTORY_INVALID');
+ if(v.migrations.some(m=>typeof m.name!=='string'||!hex(m.sha256))||v.tables.some(t=>typeof t.name!=='string'||!Number.isSafeInteger(t.rowCount)||t.rowCount<0||!hex(t.sha256))||v.objects.some(o=>!objectKey(o.key)||!Number.isSafeInteger(o.bytes)||o.bytes<1||!hex(o.sha256)||o.bytes>legacyObjectLimit&&!v.references.some(ref=>largeModelInventorySource(v.migrations,ref,o.key,o.bytes,o.sha256))))throw Error('BACKUP_INVENTORY_INVALID');
  if(new Set(v.objects.map(o=>o.key)).size!==v.objects.length)throw Error('BACKUP_INVENTORY_INVALID');
 }
 function validateManifest(m:BackupManifest){
@@ -93,7 +106,7 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
   const dump=join(scratch,'database.dump');await options.dump(dump,snapshotId);await append('database',dump);
   const content=new Map<string,BackupFile>();
   for(const o of inventory.objects){
-   const data=await options.store.get(o.key);if(data.length!==o.bytes||sha(data)!==o.sha256)throw Error('BACKUP_SOURCE_CHANGED');
+   const data=await readBackupObject(options.store,o.key,o.bytes);if(data.length!==o.bytes||sha(data)!==o.sha256)throw Error('BACKUP_SOURCE_CHANGED');
    const identity=`${o.sha256}:${o.bytes}`,existing=content.get(identity);
    if(existing){(existing.aliases??=[]).push(o.key);manifest.schemaVersion='1.0.0-draft.3';continue;}
    const plain=join(scratch,`object-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append('object',plain,{key:o.key});content.set(identity,manifest.files.at(-1)!);
@@ -160,7 +173,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   const definitions=(await c.query("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' UNION ALL SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' UNION ALL SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'")).rows;
   if(definitions.length||(await options.store.listAll()).length)throw Error('RESTORE_TARGET_NOT_EMPTY');
   await options.restore(verified.files.find(f=>f.role==='database')!.plainPath);
-  for(const f of verified.files.filter(f=>f.role==='object')){const data=await readFile(f.plainPath);for(const key of [f.key!,...(f.aliases??[])]){if(options.store.putDurable)await options.store.putDurable(key,data);else await options.store.put(key,data);}}
+  for(const f of verified.files.filter(f=>f.role==='object')){const data=await readFile(f.plainPath);for(const key of [f.key!,...(f.aliases??[])]){await writeBackupObject(options.store,key,data);}}
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');transaction=true;
   const inventory=await options.snapshot(c,retainedMigrations(verified.manifest.inventory));validateInventory(inventory);if(comparable(inventory)!==comparable(verified.manifest.inventory))throw Error('RESTORE_INVENTORY_MISMATCH');
   await c.query('COMMIT');transaction=false;
@@ -190,9 +203,9 @@ export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:Bl
  if(existing.some(key=>!expected.has(key)))throw Error('RESTORE_OBJECT_CONFLICT');
  const present=new Set(existing);
  for(const [key,file]of expected){
-  const bytes=present.has(key)?await options.store.get(key):await readFile(file.plainPath);
+  const bytes=present.has(key)?await readBackupObject(options.store,key,file.bytes):await readFile(file.plainPath);
   if(bytes.length!==file.bytes||sha(bytes)!==file.sha256)throw Error('RESTORE_OBJECT_CONFLICT');
-  if(options.store.putDurable)await options.store.putDurable(key,bytes);else if(!present.has(key))await options.store.put(key,bytes);
+  await writeBackupObject(options.store,key,bytes,present.has(key));
  }
  const manifestBytes=await secretRead(join(options.destination,'manifest.json'));
  await verifyRestoredInventory({pool:options.pool,snapshot:options.snapshot,manifestBytes,expectedManifestSha256:verified.authenticatedManifestSha256,snapshotSystemIdentifier:options.snapshotSystemIdentifier});
