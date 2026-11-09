@@ -174,18 +174,24 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const [exitDialog,setExitDialog]=useState<ViewerExitDoor|null>(null);
   const exitOpener=useRef<HTMLElement|null>(null);
+  const pendingExit=useRef<ViewerExitDoor|null>(null);
+  const invalidateExit=useCallback(()=>{
+    pendingExit.current=null;
+    exitOpener.current=null;
+    setExitDialog(null);
+  },[]);
   const requestExit=(placementId:string)=>{
-    if(!value||modeRef.current!=='3d'||!stageReady||viewerUnavailable||selectedId||overview||exitDialog)return;
+    if(!value||modeRef.current!=='3d'||!stageReady||viewerUnavailable||selectedId||overview||pendingExit.current)return;
     const door=experienceFor(value.exhibition).exitDoors?.find(candidate=>candidate.placementId.toLowerCase()===placementId.toLowerCase());
     if(!door)return;
     const active=document.activeElement;
     exitOpener.current=active instanceof HTMLElement&&active!==document.body?active:null;
+    pendingExit.current=door;
     setExitDialog(door);
   };
   const cancelExit=()=>{
     const opener=exitOpener.current,placementId=exitDialog?.placementId;
-    exitOpener.current=null;
-    setExitDialog(null);
+    invalidateExit();
     requestAnimationFrame(()=>{
       if(modeRef.current!=='3d')return;
       const root=publicationRoot.current;
@@ -221,7 +227,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
-  const showTextArtworks=useCallback(()=>{entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[stopVoice,entry.cancel,setSelectedId]);
+  const showTextArtworks=useCallback(()=>{invalidateExit();entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[invalidateExit,stopVoice,entry.cancel,setSelectedId]);
   const cancelEntry=()=>{entry.cancel();setMenuOpen(false);modeChanged.current=true;};
   const enter=()=>{
     if(modeRef.current==="3d")return;
@@ -236,8 +242,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     setGuideRequest(undefined);
     setSelectedId(null);
     setOverview(null);
-    setExitDialog(null);
-    exitOpener.current=null;
+    invalidateExit();
     setValue(null);
     setError("");
     try {
@@ -389,7 +394,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;entry.cancel();}}>전시 표지로</button>}
 
           </div></details>
-          {showLiveStage && <div className="publication-live-stage" data-stage-ready={mode==='3d'&&stageReady} aria-hidden={!stageInteractive} inert={!stageInteractive} hidden={coverPrefetch&&viewerUnavailable}><ViewerBoundary key={entranceReadiness?thumbnailKey:entryAttempt} focusFallback={mode==='3d'&&selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
+          {showLiveStage && <div className="publication-live-stage" data-stage-ready={mode==='3d'&&stageReady} aria-hidden={!stageInteractive} inert={!stageInteractive} hidden={coverPrefetch&&viewerUnavailable}><ViewerBoundary key={entranceReadiness?thumbnailKey:entryAttempt} focusFallback={mode==='3d'&&selectedId === null && overview === null} onUnavailable={() => {invalidateExit();setViewerUnavailable(true);}} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
             <Viewer entranceMode={entranceReadiness?(mode==='cover'?'cover':'enter'):undefined} entranceReadiness={entranceReadiness} coverOriginalEligible={coverRetirement?.canAdmit} focusEntry={focusEntry} focusEntryPrompt={focusEntryPrompt} helpReady={mode==='3d'&&stageReady&&viewingReady&&!entry.entryFailed&&!viewerUnavailable} choiceRequired={!(guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&(guideDismissal.choiceShown||guideDismissal.choiceMade||guideDismissal.dismissed))&&viewingState.style==='free'&&preferredViewingStyle.current==='free'} orderedAvailable={viewingReady&&viewingPlan.stops.length>0} choicePending={viewingState.status==='preparing'} onChoicePresented={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceShown:true}))} onChooseViewingStyle={style=>{if(style===viewingState.style)chooseViewingStyle(style);else viewingActions.setStyle(style);}} hintAlreadyShown={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&!!guideDismissal.hintShown} onHintShown={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),hintShown:true}))} viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null || exitDialog !== null} onExitRequest={requestExit} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
@@ -402,7 +407,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             showDiagnosticExport
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();const opener=orderedDetailOpener.current;orderedDetailOpener.current=null;if(opener)requestAnimationFrame(()=>{if(opener.isConnected&&opener.getClientRects().length&&!document.hidden&&!publicationRoot.current?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]'))opener.focus({preventScroll:true});});}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
-          {exitDialog&&<ExitConfirmation key={exitDialog.placementId} door={exitDialog} onCancel={cancelExit} navigate={url=>window.location.assign(url)}/>}
+          {mode==="3d"&&stageReady&&!viewerUnavailable&&exitDialog&&<ExitConfirmation key={exitDialog.placementId} door={exitDialog} onCancel={cancelExit} navigate={url=>{
+            if(pendingExit.current===exitDialog&&modeRef.current==="3d")window.location.assign(url);
+          }}/>}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
