@@ -9,6 +9,17 @@ export interface MountedFurnishingCollision {
  id:string;mesh:FurnishingCollisionMesh;active:()=>boolean;
 }
 
+/** A mounted model stops contributing as soon as its render branch is hidden or detached. */
+export function mountedFurnishingCollision(three:typeof Three,id:string,root:Three.Object3D,unavailable:()=>boolean):MountedFurnishingCollision|undefined {
+ const mesh=furnishingCollisionMesh(three,root);
+ if(!mesh)return;
+ return {id,mesh,active:()=>{
+  if(unavailable()||!root.parent)return false;
+  for(let node:Three.Object3D|null=root;node;node=node.parent)if(!node.visible)return false;
+  return true;
+ }};
+}
+
 /** Read the approved visible mesh once, after its authored room/world pose.
  * Separate posts, rails and open spans keep their actual triangles. A single
  * enclosing box or convex hull would close gaps the visitor can walk through. */
