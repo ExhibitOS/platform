@@ -78,7 +78,7 @@ import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
-  AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
+  materialPlanningCapacity, AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
   fetchVerifiedAsset,
   checkImageDecode,
@@ -576,7 +576,7 @@ export function GeometryPreview({
       const otherFurnishings=catalogOtherSources(document,benchAuthority);
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
-      const materialCapacity=Math.max(0,availableAssetBytes-qualityFrameReserve);
+      const materialCapacity=materialPlanningCapacity(availableAssetBytes,qualityFrameReserve,resources);
       const builtinFloorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
       const batchStreamHold=!session&&publicSource?.materialMapBatch?MATERIAL_BATCH_STREAM_HOLD:0;
       const workspacePlan=workspaceFloorPlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-builtinFloorPlan.residentBytes-batchStreamHold));

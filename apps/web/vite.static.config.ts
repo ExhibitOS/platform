@@ -9,7 +9,10 @@ import {createHash} from "node:crypto";
 const target = process.env.EXHIBITOS_STATIC_TARGET;
 if (target !== undefined && target !== "viewer") throw Error("PUBLICATION_STATIC_TARGET_INVALID");
 const stagingDiagnostics=process.env.EXHIBITOS_STAGING_DIAGNOSTICS==='1';
-const noHintMinimumTrial=process.env.EXHIBITOS_STAGING_NO_HINT_MINIMUM==='1';
+const noHintMinimumMode=process.env.EXHIBITOS_STAGING_NO_HINT_MINIMUM;
+if(noHintMinimumMode!==undefined&&!['0','1','control'].includes(noHintMinimumMode))throw Error('NO_HINT_MINIMUM_MODE_INVALID');
+const noHintMinimumTrial=noHintMinimumMode==='1'||noHintMinimumMode==='control';
+const noHintResidentHeadroom=noHintMinimumMode==='1';
 if(noHintMinimumTrial&&!stagingDiagnostics)throw Error('NO_HINT_MINIMUM_REQUIRES_STAGING_DIAGNOSTICS');
 const packageVersion:unknown=JSON.parse(readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)),"utf8")).version;
 if(typeof packageVersion!=="string"||!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(packageVersion))throw Error("VIEWER_PACKAGE_VERSION_INVALID");
@@ -23,5 +26,5 @@ try {
   if(process.versions.node==="24.21.0"&&process.env.npm_config_user_agent?.startsWith("npm/11.19.0 ")&&process.argv.includes("build")&&/^[a-f0-9]{40}$/.test(commit)&&/^[a-f0-9]{40}$/.test(tree)&&!changes){sourceCommit=commit;sourceTree=tree;}
 } catch { /* A source-less or modified build has no verified commit identity. */ }
 const lockSha256=createHash("sha256").update(readFileSync(fileURLToPath(new URL("../../package-lock.json", import.meta.url)))).digest("hex");
-const buildId=sourceCommit&&sourceTree?createHash("sha256").update(JSON.stringify({sourceCommit,sourceTree,lockSha256,packageVersion,target:target??"default",privateEditor:process.env.EXHIBITOS_PRIVATE_EDITOR==="1",...(stagingDiagnostics?{stagingDiagnostics:true}:{}),...(noHintMinimumTrial?{noHintMinimumTrial:true}:{})})).digest("hex"):null;
-export default defineConfig({define:{__EXHIBITOS_STAGING_NO_HINT_MINIMUM__:JSON.stringify(noHintMinimumTrial),__EXHIBITOS_STAGING_DIAGNOSTICS__:JSON.stringify(stagingDiagnostics),__EXHIBITOS_VIEWER_BUILD_ID__:JSON.stringify(buildId),__EXHIBITOS_VIEWER_PACKAGE_VERSION__:JSON.stringify(packageVersion),__EXHIBITOS_VIEWER_SOURCE_COMMIT__:JSON.stringify(sourceCommit)},plugins:[react(),{name:"viewer-build-identity",transformIndexHtml:{order:"pre",handler:()=>[{tag:"meta",attrs:{name:"exhibitos-viewer-build-id",content:buildId??""},injectTo:"head"}]}}],build:{outDir:"dist-static",rollupOptions:{input:target === "viewer" && process.env.EXHIBITOS_PRIVATE_EDITOR !== "1" ? ["static.html"] : ["static.html","static-studio.html"]}}});
+const buildId=sourceCommit&&sourceTree?createHash("sha256").update(JSON.stringify({sourceCommit,sourceTree,lockSha256,packageVersion,target:target??"default",privateEditor:process.env.EXHIBITOS_PRIVATE_EDITOR==="1",...(stagingDiagnostics?{stagingDiagnostics:true}:{}),...(noHintMinimumTrial?{noHintMinimumTrial:true,noHintResidentHeadroom}:{})})).digest("hex"):null;
+export default defineConfig({define:{__EXHIBITOS_STAGING_NO_HINT_HEADROOM__:JSON.stringify(noHintResidentHeadroom),__EXHIBITOS_STAGING_NO_HINT_MINIMUM__:JSON.stringify(noHintMinimumTrial),__EXHIBITOS_STAGING_DIAGNOSTICS__:JSON.stringify(stagingDiagnostics),__EXHIBITOS_VIEWER_BUILD_ID__:JSON.stringify(buildId),__EXHIBITOS_VIEWER_PACKAGE_VERSION__:JSON.stringify(packageVersion),__EXHIBITOS_VIEWER_SOURCE_COMMIT__:JSON.stringify(sourceCommit)},plugins:[react(),{name:"viewer-build-identity",transformIndexHtml:{order:"pre",handler:()=>[{tag:"meta",attrs:{name:"exhibitos-viewer-build-id",content:buildId??""},injectTo:"head"}]}}],build:{outDir:"dist-static",rollupOptions:{input:target === "viewer" && process.env.EXHIBITOS_PRIVATE_EDITOR !== "1" ? ["static.html"] : ["static.html","static-studio.html"]}}});
