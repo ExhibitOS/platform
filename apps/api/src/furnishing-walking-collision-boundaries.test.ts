@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {expect,test} from 'vitest';
 import {
  FURNISHING_WALKING_COLLISION_NAMESPACE as COLLISION,
+ WORKSPACE_FURNISHING_NAMESPACE as WORKSPACE,
  applyBenchCommand,applyFurnishingWalkingCollisionOverride,benchesFor,furnishingWalkingCollisionState,reconcileFurnishingWalkingCollision,validateFurnishingWalkingCollision,
 } from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
@@ -56,6 +57,33 @@ test('host removal prunes inherited overrides without concealing new invalid cho
  removed.extensions![COLLISION]={version:1,overrides:[{kind:'bench',id,enabled:true}]};
  expect(reconcileFurnishingWalkingCollision(before,removed)).toBe(removed);
  expect(validateFurnishingWalkingCollision(removed).valid).toBe(false);
+});
+
+test.each([true,false])('bench attachment transfers explicit %s, with existing workspace choice taking precedence',enabled=>{
+ const {draft,id}=fixture(),doc=draft.candidate,placementId=randomUUID(),furnishingId=randomUUID();
+ const bench=benchesFor(doc)[0]!;
+ const model={mime:'model/gltf-binary',bytes:415848,sha256:'6caca94361b540fb007c6fc605e519e436462eda43f2ec5f99da6a63108bfc60'};
+ doc.extensions![WORKSPACE]={version:2,
+  furnishings:[{id:furnishingId,version:1,kind:'stool',name:'Gallery stool',rights:{},provenance:'ExhibitOS',model}],
+  placements:[{id:placementId,roomId:bench.roomId,furnishingId,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]};
+ const seat={...bench,dimensions:{width:.38,depth:.38,height:.45}};
+ const baseline=applyFurnishingWalkingCollisionOverride(doc,{kind:'bench',id},enabled);
+ const attach=(source:typeof baseline)=>reconcileFurnishingWalkingCollision(source,applyBenchCommand(source,{
+  type:'set-bench',bench:{...seat,workspaceVisual:{placementId,modelSha256:model.sha256}},
+ }));
+ const target={kind:'workspace',id:placementId} as const;
+ const linked=attach(baseline);
+ expect(linked.extensions![COLLISION]).toEqual({version:1,overrides:[{...target,enabled}]});
+ expect(attach(applyFurnishingWalkingCollisionOverride(baseline,target,!enabled)).extensions![COLLISION])
+  .toEqual({version:1,overrides:[{...target,enabled:!enabled}]});
+ const unlinked=applyBenchCommand(linked,{type:'set-bench',bench});
+ expect(reconcileFurnishingWalkingCollision(linked,unlinked).extensions![COLLISION]).toEqual(linked.extensions![COLLISION]);
+ const withoutVisual=structuredClone(unlinked);
+ delete withoutVisual.extensions![WORKSPACE];
+ expect(reconcileFurnishingWalkingCollision(linked,withoutVisual).extensions![COLLISION])
+  .toEqual({version:1,overrides:[{kind:'bench',id,enabled}]});
+ const deleted=applyBenchCommand(withoutVisual,{type:'remove-bench',benchId:id});
+ expect(reconcileFurnishingWalkingCollision(linked,deleted).extensions?.[COLLISION]).toBeUndefined();
 });
 
 test('rejects duplicate and stale target IDs instead of accepting a decorative toggle',()=>{

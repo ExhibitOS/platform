@@ -99,16 +99,20 @@ export function reconcileFurnishingWalkingCollision(before:Exhibition,after:Exhi
  if(!prior||JSON.stringify(prior)!==JSON.stringify(after.extensions?.[namespace])||
     !validateFurnishingWalkingCollision(before).valid)return after;
  const targets=new Set(furnishingWalkingCollisionTargets(after).map(row=>key(row.kind,row.id)));
- const linked=new Map(benchesFor(after).flatMap(bench=>bench.workspaceVisual?
-  [[key('bench',bench.id),bench.workspaceVisual.placementId] as const]:[]));
+ const transfers=new Map<string,FurnishingWalkingCollisionTarget>();
+ for(const bench of benchesFor(after))if(bench.workspaceVisual)
+  transfers.set(key('bench',bench.id),{kind:'workspace',id:bench.workspaceVisual.placementId});
+ for(const bench of benchesFor(before))if(bench.workspaceVisual&&targets.has(key('bench',bench.id)))
+  transfers.set(key('workspace',bench.workspaceVisual.placementId),{kind:'bench',id:bench.id});
  const settings=prior as unknown as FurnishingWalkingCollisionSettings;
  const overrides=settings.overrides.flatMap(row=>{
   const target=key(row.kind,row.id);
   if(targets.has(target))return [row];
-  const placementId=linked.get(target);
-  if(!placementId||!targets.has(key('workspace',placementId))||
-     settings.overrides.some(other=>key(other.kind,other.id)===key('workspace',placementId)))return [];
-  return [{kind:'workspace' as const,id:placementId,enabled:row.enabled}];
+  const destination=transfers.get(target);
+  if(!destination)return [];
+  const destinationKey=key(destination.kind,destination.id);
+  if(!targets.has(destinationKey)||settings.overrides.some(other=>key(other.kind,other.id)===destinationKey))return [];
+  return [{...destination,enabled:row.enabled}];
  });
  if(overrides.length===settings.overrides.length&&overrides.every((row,index)=>row===settings.overrides[index]))return after;
  const extensions:NonNullable<Exhibition['extensions']>={...after.extensions};
