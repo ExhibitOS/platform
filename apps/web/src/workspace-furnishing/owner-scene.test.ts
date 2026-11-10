@@ -5,7 +5,7 @@ import {fixtureURL} from '@exhibitos/spec';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {afterEach,expect,it,vi} from 'vitest';
-import {AssetPeakBudget,MemoryAssetCache,DEVICE_BUDGETS,deviceBudget} from '../viewer/loading';
+import {AssetPeakBudget,MemoryAssetCache,DEVICE_BUDGETS,deviceBudget,selectedDeviceBudget} from '../viewer/loading';
 import {publicWorkspaceModelSource} from './public-source';
 import {PublicWorkspaceCache} from './public-cache';
 import {guardedXrFrame} from '../viewer/xr-frame-fence';
@@ -71,28 +71,30 @@ it('loads a public furnishing through the shared artwork ledger and removes it o
  expect(await runtime.start()).toEqual({loaded:2,failed:0});expect(room.children).toHaveLength(2);expect(ledger.reservedBytes()).toBeGreaterThan(0);expect(fetcher).toHaveBeenCalledTimes(1);expect(cache.stats().bytes).toBe(bytes.length);expect(check).toHaveBeenCalledTimes(2);await vi.advanceTimersByTimeAsync(5000);expect(check).toHaveBeenCalledTimes(3);allowed=false;await vi.advanceTimersByTimeAsync(5000);expect(check).toHaveBeenCalledTimes(4);expect(room.children).toHaveLength(0);expect(runtime.stats()).toEqual({loaded:0,failed:2});expect(cache.stats().bytes).toBe(0);runtime.dispose();
 });
 
-it('keeps approved furnishings beside valid desktop artworks within the separate scene limit',async()=>{
+it.each([
+ {name:'desktop',budget:deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true}),initial:160000,grown:165101,limit:200000},
+ {name:'known high-memory Compact',budget:selectedDeviceBudget('compact',{deviceMemory:8}),initial:2940,grown:34506,limit:100000},
+])('keeps approved furnishings after $name artwork growth and still retires an over-limit scene',async({budget,initial,grown,limit})=>{
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9);
  const item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
  const extension={version:1 as const,furnishings:[item],placements:[{id:id(3),roomId:id(1),furnishingId:item.id,furnishingVersion:1 as const,position:[1,0,1] as [number,number,number],yaw:0,scale:1}]};
  const candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
  const room=new three.Group(),scene=new three.Scene(),controller=new AbortController();
- const budget=deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true});
- expect(budget).toMatchObject({maxTriangles:150000,maxSceneTriangles:200000});
+ expect(budget.maxSceneTriangles).toBe(limit);
  expect(deviceBudget({coarsePointer:true}).maxSceneTriangles).toBeUndefined();
  expect(deviceBudget({deviceMemory:4,coarsePointer:false,finePointer:true}).maxSceneTriangles).toBeUndefined();
  const fetcher=vi.fn(async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary','x-exhibitos-publication-revision':'f'.repeat(64)}})),check=async()=>{};
  const geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial(),artwork=new three.Mesh(geometry,material);
- geometry.setIndex(new three.BufferAttribute(new Uint16Array(160000*3),1));
+ geometry.setIndex(new three.BufferAttribute(new Uint16Array(initial*3),1));
  scene.add(room,artwork);
  const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:controller.signal,unavailable:()=>false,budget,transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},modelSource:descriptor=>publicWorkspaceModelSource(publicationId,'f'.repeat(64),[{assetId:item.id,mime:item.model.mime,url:`/api/v1/publications/${publicationId}/assets/${item.id}`}],extension,descriptor,fetcher,check),publicAuthority:{check,valid:()=>true}});
  try{
   expect(await runtime.start()).toEqual({loaded:1,failed:0});
-  geometry.setIndex(new three.BufferAttribute(new Uint16Array(165101*3),1));
+  geometry.setIndex(new three.BufferAttribute(new Uint16Array(grown*3),1));
   runtime.enforce();
   expect(room.children).toHaveLength(1);
   expect(runtime.stats()).toEqual({loaded:1,failed:0});
-  geometry.setIndex(new three.BufferAttribute(new Uint16Array(200001*3),1));
+  geometry.setIndex(new three.BufferAttribute(new Uint16Array((limit+1)*3),1));
   runtime.enforce();
   expect(room.children).toHaveLength(0);
   expect(runtime.stats()).toEqual({loaded:0,failed:1});
