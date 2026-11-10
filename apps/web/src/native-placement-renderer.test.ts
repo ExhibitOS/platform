@@ -4,6 +4,7 @@ import {Group,Matrix4,Mesh,MeshBasicMaterial,PerspectiveCamera,PlaneGeometry,Qua
 import type {WebGLRenderer} from 'three';
 import type {Artwork} from '@exhibitos/spec';
 import {syntheticArtwork} from './placement/model';
+import {newDraft} from './drafts/example';
 import type {NativePlacement,NativePlacementIntent} from './native-placement';
 import {installNativePlacementPreview} from './native-placement-renderer';
 afterEach(()=>vi.unstubAllGlobals());
@@ -14,16 +15,28 @@ function setup(pending=false){
  surface.userData.editorSelection={kind:'surface',id:'wall'};surface.add(new Mesh(new PlaneGeometry(4,4),new MeshBasicMaterial()));
  const camera=new PerspectiveCamera(50,1,.1,100);camera.position.z=5;camera.lookAt(0,0,0);
  const artwork=syntheticArtwork('image'),material=new MeshBasicMaterial(),object=new Mesh(new PlaneGeometry(1,1),material),release=vi.fn();
- let intent={request:{roomId:'room'},artwork,target:null,committing:false} as unknown as NativePlacementIntent;
+ const placementRequestId=crypto.randomUUID();
+ let intent={request:{roomId:'room',requestId:placementRequestId},artwork,target:null,committing:false} as unknown as NativePlacementIntent;
  const choose=vi.fn(),cancel=vi.fn(()=>{intent=null!;});
  const placement={get active(){return !!intent;},snapshot:()=>intent,choose,cancel} as unknown as NativePlacement;
  const asset={object,release};let resolve!:(value:typeof asset)=>void;
  const load=vi.fn((_artwork:Artwork,_signal:AbortSignal)=>{void _artwork;void _signal;return pending?new Promise<typeof asset>(r=>{resolve=r;}):Promise.resolve(asset);});
- const preview=installNativePlacementPreview(placement,{scene,model,camera,renderer:{domElement:canvas} as unknown as WebGLRenderer,rooms:new Map([['room',room]]),surfaces:new Map([['wall',surface]]),load,render:vi.fn()});
+ const preview=installNativePlacementPreview(placement,{scene,model,camera,renderer:{domElement:canvas} as unknown as WebGLRenderer,rooms:new Map([['room',room]]),surfaces:new Map([['wall',surface]]),document:newDraft().candidate,frameReady:()=>true,load,render:vi.fn()});
  const event=(type:string,x=100,y=100,extra={})=>{const e=Object.assign(new Event(type,{cancelable:true}),{button:0,pointerId:1,isPrimary:true,clientX:x,clientY:y,...extra});canvas.dispatchEvent(e);return e;};
  const click=(x=100,y=100)=>{event('pointerdown',x,y);event('pointerup',x,y);event('click',x,y);};
- return {preview,scene,model,room,host,canvas,material,load,release,choose,cancel,event,click,resolve:()=>resolve(asset),target:(rotation=[0,0,0,1])=>{intent.target={placement:{transform:{position:[0,0,0],rotation,scale:[1,1,1]}}} as unknown as NativePlacementIntent['target'];preview.sync();},clear:()=>{intent=null!;preview.sync();}};
+ return {preview,scene,model,room,host,canvas,material,load,release,choose,cancel,event,click,placementRequestId,resolve:()=>resolve(asset),target:(rotation=[0,0,0,1])=>{intent.target={placement:{transform:{position:[0,0,0],rotation,scale:[1,1,1]}}} as unknown as NativePlacementIntent['target'];preview.sync();},clear:()=>{intent=null!;preview.sync();}};
 }
+it('uses the same nearest surface choice for a catalogue drop only with the live artwork intent',()=>{
+ const s=setup(),binding={version:1 as const,requestId:crypto.randomUUID(),epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID()};
+ const request={...binding,targetKind:'artwork' as const,phase:'drop' as const,point:{x:.5,y:.5},placementRequestId:s.placementRequestId};
+ try{
+  expect(()=>s.preview.catalogDrop({...request,placementRequestId:crypto.randomUUID()})).toThrow('PLACEMENT_INTENT_STALE');
+  expect(s.choose).not.toHaveBeenCalled();
+  s.choose.mockImplementation(()=>s.target());
+  expect(s.preview.catalogDrop(request)).toEqual({kind:'artwork'});
+  expect(s.choose).toHaveBeenCalledWith('wall',[0,0]);
+ }finally{s.preview.dispose();}
+});
 it('a primary click returns the nearest real surface coordinate and consumes ordinary selection; a drag does not choose',()=>{
  const s=setup(),ordinary=vi.fn();s.canvas.addEventListener('click',ordinary);s.click();
  expect(s.choose).toHaveBeenCalledWith('wall',[0,0]);expect(ordinary).not.toHaveBeenCalled();

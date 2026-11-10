@@ -674,7 +674,7 @@ export function GeometryPreview({
         const binding=floorFor(document,{roomId:room.id});
         if(binding){
           const geometry=new three.PlaneGeometry(room.dimensions.width,room.dimensions.depth),floorMaterial=new three.MeshStandardMaterial({...floorAppearance(binding),side:three.DoubleSide,transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace});
-          const floor=new three.Mesh(geometry,floorMaterial);floor.rotation.x=-Math.PI/2;floor.userData.editorSelection={kind:'room',id:room.id};group.add(floor);
+          const floor=new three.Mesh(geometry,floorMaterial);floor.rotation.x=-Math.PI/2;floor.userData.editorSelection={kind:'room',id:room.id};floor.userData.catalogImplicitFloor=true;group.add(floor);
           floorUvs(three,geometry,floor,binding);floorTextures.add(floorMaterial,binding);owned.push(geometry,floorMaterial);
         }
       }
@@ -1874,7 +1874,13 @@ export function GeometryPreview({
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
-        const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
+        const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,document,render,
+          frameReady:(token,sequence)=>{
+            const bridge=editingRef.current,canvas=renderer.domElement;
+            return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!editor?.busy&&canvas.isConnected&&
+              !canvas.closest('[hidden],[inert]')&&!suspendedRef.current&&cameraAppliedToken.current===token&&
+              consumedCameraRequest.current===sequence&&(bridge.document===document||onlyLightColorChanged(document,bridge.document));
+          },
           load:async(artwork,signal)=>{
             const owner=ownerFurnishings;
             if(hasWorkspaceFurnishings&&!owner)throw Error('WORKSPACE_SCENE_BUDGET');
