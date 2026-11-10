@@ -7,6 +7,7 @@ import {HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,verifyHayesDisposit
 import {HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,verifyHayesOriginalMigration,assertExactHayesOriginalCatalog,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,verifyWorkspaceFramePreparationMigration,assertExactWorkspaceFramePreparationCatalog} from './native-oex-normal-catalog.mjs';
 import {WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,verifyWorkspaceMaterialPublicationMigration} from './native-oex-normal-catalog.mjs';
 import {WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,verifyWorkspaceMaterialMultimapMigration} from './native-oex-normal-catalog.mjs';
+import {confirmedHayesReleaseBindings} from '../packages/storage/dist/hayes-release-inventory.js';
 import {migrateInTransaction} from '../packages/storage/dist/index.js';
 import {assertIssuedFurnishingWriterLease,assertIssuedFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {verifyWorkspaceFurnishingWriterMigration,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,verifyWorkspaceFurnishingPublicationMigration,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
@@ -35,7 +36,7 @@ export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,wri
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
 
-export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,allowLargeModelInterrupted=false,catalog045PreReady=false,freshImageDirectory,infoStandPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
+export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,allowLargeModelInterrupted=false,catalog045PreReady=false,preReadyHayesCompletion,freshImageDirectory,infoStandPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
  const selected=['workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'];
  const upgrade=mode==='workspace-furnishing-039-to-040-upgrade-v1',upgrade44=mode==='workspace-furnishing-040-to-044-upgrade-v1',upgrade45=mode==='workspace-furnishing-044-to-045-upgrade-v1';
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1',...selected].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
@@ -53,6 +54,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if((ordinaryAdmission.fields.admissionKind==='catalog-upgrade-039-to-040')!==upgrade||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-040-to-044')!==upgrade44||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-044-to-045')!==upgrade45||ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1',...selected].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
  if(catalog045PreReady&&(!modelPreparationDirectory||largeModelDirectory||freshImageDirectory||infoStandPreparationDirectory||mode!=='workspace-furnishing-036-reopen-v1'||!['clean-reopen','interrupted-reopen'].includes(ordinaryAdmission?.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
  const preservePreReady=catalog045PreReady&&ordinaryAdmission?.fields.admissionKind==='interrupted-reopen';
+ if(preReadyHayesCompletion&&!preservePreReady)throw Error('FURNISHING_ADMISSION_INVALID');
  if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!preservePreReady&&!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory||materialPublicationDirectory&&!publicationDirectory||materialMultimapDirectory&&!materialPublicationDirectory)throw Error('NATIVE_OEX_CATALOG');
@@ -105,13 +107,23 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
   if(preservePreReady){
    // This route preserves a stopped generation. Active or pending work is
    // outside its authority, including any cleanup that startup could resume.
+   let verifiedJob=null, verifiedTenant=null;
+   if(preReadyHayesCompletion){
+    const {workspaceId,tenantId,principalId}=writer.identity;
+    const {jobId,completionFrameSha256}=preReadyHayesCompletion;
+    const release=await confirmedHayesReleaseBindings(c,tenantId,{workspaceId,principalId,jobId,completionFrameSha256});
+    if(!release.has(`import_jobs:${tenantId}:${jobId}`))throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+    verifiedJob=jobId;
+    verifiedTenant=tenantId;
+   }
    const idle=await c.query(`SELECT NOT EXISTS (
      SELECT 1 FROM public.workspace_furnishing_intakes WHERE worker_token IS NOT NULL OR phase IN ('uploading','validating','cancelling')
      UNION ALL SELECT 1 FROM public.workspace_material_intakes WHERE worker_token IS NOT NULL OR phase IN ('uploading','validating','cancelling')
-     UNION ALL SELECT 1 FROM public.import_jobs WHERE state IN ('uploading','queued','processing') OR lease_id IS NOT NULL OR lease_until IS NOT NULL
-       OR cardinality(png_worker_tokens)>0 OR model_preparation ? 'claim'
+     UNION ALL SELECT 1 FROM public.import_jobs WHERE state IN ('uploading','queued','processing') OR cardinality(png_worker_tokens)>0 OR model_preparation ? 'claim'
+       OR ((lease_id IS NOT NULL OR lease_until IS NOT NULL) AND
+         (tenant_id IS DISTINCT FROM $1::uuid OR id IS DISTINCT FROM $2::uuid))
      UNION ALL SELECT 1 FROM public.oex_import_jobs WHERE state IN ('uploading','queued','processing') OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending
-   ) AS idle`);
+   ) AS idle`,[verifiedTenant,verifiedJob]);
    if(idle.rows[0]?.idle!==true)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
   }
   if(writer)await writer.assertLive();
