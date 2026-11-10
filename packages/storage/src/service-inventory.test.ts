@@ -141,6 +141,11 @@ it('protects both prepared frame references without misclassifying staged rows',
  const registered=rowObjectReferences('workspace_frame_preparations',record);expect(registered.issues).toEqual([]);expect(registered.references).toHaveLength(2);expect(registered.references.every(ref=>ref.required)).toBe(true);
  const staged=rowObjectReferences('workspace_frame_preparations',{...record,state:'staged'});expect(staged.issues).toEqual([]);expect(staged.references[1]?.required).toBe(false);
  expect(rowObjectReferences('workspace_frame_preparations',{...record,source_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ const sign={...record,recipe:'normalize-legacy-sign-texture-r1',producing_manifest_sha256:'c'.repeat(64)};
+ const signed=rowObjectReferences('workspace_frame_preparations',sign);
+ expect(signed.issues).toEqual([]);expect(signed.references).toHaveLength(2);
+ expect(rowObjectReferences('workspace_frame_preparations',{...sign,producing_manifest_sha256:null}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ expect(rowObjectReferences('workspace_frame_preparations',{...sign,renderable_bytes:sign.source_bytes}).issues[0]?.code).toBe('INVALID_INVENTORY');
 });
 it('retains the job-scoped coarse key and refuses an undrained worker',()=>{
  const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha,mime:'image/jpeg',state:'approved',png_drain_version:1,png_worker_tokens:[],user_id:'user',derived_object_key:tenant+'/quarantine/prepared',derived:{mime:'image/png',bytes:12,sha256:sha,viewerCoarse:{intent:{version:1,profile:'viewer-png-box-512-v1',approvalId:'approval',artworkRevision:1},workspaceId:'workspace',principalId:'user',assetId:'asset',stageKey:`${tenant}/quarantine/import-${row.id}/coarse-${sha}`,sha256:sha,bytes:9}}};

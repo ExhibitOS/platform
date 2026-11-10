@@ -138,7 +138,10 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   add(row.received.key,phase!=='cancelling',row.received.bytes,row.received.sha256,':model');break;
  }
  case 'workspace_frame_preparations':{
-  if(!['staged','registered'].includes(String(row.state))||row.recipe!=='omit-unused-invalid-tangent-r1'||!hex(row.source_sha256)||!hex(row.renderable_sha256)||!bytes(row.source_bytes)||!bytes(row.renderable_bytes)||typeof row.workspace_id!=='string'||typeof row.intake_id!=='string'||row.source_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.source_sha256}`||row.renderable_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.renderable_sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  const recipeValid=row.recipe==='omit-unused-invalid-tangent-r1'&&row.producing_manifest_sha256==null||
+   row.recipe==='normalize-legacy-sign-texture-r1'&&hex(row.producing_manifest_sha256)&&row.source_sha256!==row.renderable_sha256&&
+   Number(row.source_bytes)<=4194304&&Number(row.renderable_bytes)>=28&&Number(row.renderable_bytes)<Number(row.source_bytes);
+  if(!['staged','registered'].includes(String(row.state))||!recipeValid||!hex(row.source_sha256)||!hex(row.renderable_sha256)||!bytes(row.source_bytes)||!bytes(row.renderable_bytes)||typeof row.workspace_id!=='string'||typeof row.intake_id!=='string'||row.source_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.source_sha256}`||row.renderable_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.renderable_sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}
   add(row.source_key,true,row.source_bytes,row.source_sha256,':source');
   add(row.renderable_key,row.state==='registered',row.renderable_bytes,row.renderable_sha256,':renderable');break;
  }
@@ -269,11 +272,15 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
    WHERE p.state='registered' ${options.tenantId?'AND p.tenant_id=$1':''} AND (
     i.id IS NULL OR i.phase<>'registered' OR i.tenant_id<>p.tenant_id OR i.user_id<>p.user_id OR i.furnishing_id<>p.furnishing_id OR i.furnishing_version<>p.furnishing_version OR
     i.declaration->>'requestId' IS DISTINCT FROM i.request_id::text OR (
-     (i.declaration->>'preparationPolicy' IS NOT DISTINCT FROM p.recipe AND i.received->>'key' IS NOT DISTINCT FROM p.source_key AND
+     (i.declaration->>'preparationPolicy' IS NOT DISTINCT FROM p.recipe AND
+      ((p.recipe='omit-unused-invalid-tangent-r1' AND i.declaration->>'kind'='artwork-frame') OR
+       (p.recipe='normalize-legacy-sign-texture-r1' AND i.declaration->>'kind'='info-stand' AND
+        i.declaration->'rights'->>'holder'='ExhibitOS' AND i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->>'licenseId'='CC0-1.0')) AND
+      i.received->>'key' IS NOT DISTINCT FROM p.source_key AND
       i.declaration->'model' IS NOT DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.source_bytes,'sha256',p.source_sha256) AND
       i.received->'bytes' IS NOT DISTINCT FROM to_jsonb(p.source_bytes) AND i.received->>'sha256' IS NOT DISTINCT FROM p.source_sha256)
      OR
-     (NOT (i.declaration ? 'preparationPolicy') AND i.declaration->>'kind'='artwork-frame' AND
+     (p.recipe='omit-unused-invalid-tangent-r1' AND NOT (i.declaration ? 'preparationPolicy') AND i.declaration->>'kind'='artwork-frame' AND
       i.received->>'key' IS NOT DISTINCT FROM p.renderable_key AND
       i.declaration->'model' IS NOT DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.renderable_bytes,'sha256',p.renderable_sha256) AND
       i.received->'bytes' IS NOT DISTINCT FROM to_jsonb(p.renderable_bytes) AND i.received->>'sha256' IS NOT DISTINCT FROM p.renderable_sha256 AND
