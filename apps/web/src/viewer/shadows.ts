@@ -39,11 +39,12 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
   return true;
 }
 
-/** One static depth pass in one existing room. Camera movement never invalidates it.
+/** One depth pass in one existing room. Only an actual room change retargets it.
  * No point-light cube maps, new lights, authored material changes or full-scene pass. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
   candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void) {
   let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
+  let currentRoom:THREE.Object3D|undefined;
   const original={enabled:renderer.shadowMap.enabled,autoUpdate:renderer.shadowMap.autoUpdate,type:renderer.shadowMap.type};
   const flags=new Map<THREE.Mesh,{cast:boolean;receive:boolean}>();
   const hooks=new Map<THREE.Mesh,{before:THREE.Mesh['onBeforeShadow'];after:THREE.Mesh['onAfterShadow'];ownedBefore:THREE.Mesh['onBeforeShadow'];ownedAfter:THREE.Mesh['onAfterShadow']}>();
@@ -117,7 +118,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(disposed||!dirty)return;dirty=false;
     if(disabled){emit(disabled);return;}
     restoreFlags();if(selected)selected.light.castShadow=false;
-    const previous=selected;selected=candidates.find(candidate=>candidate.light.intensity>0&&fit(candidate));
+    const previous=selected;selected=candidates.find(candidate=>(!currentRoom||candidate.room===currentRoom)&&candidate.light.intensity>0&&fit(candidate));
     if(previous&&previous.light!==selected?.light)releaseMap(previous.light);
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
     const meshes:THREE.Mesh[]=[],receivers:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
@@ -146,5 +147,110 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
-  return {flush,afterRender,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+  const setRoom=(room:THREE.Object3D|undefined)=>{
+    if(disposed||disabled||room===currentRoom)return;
+    currentRoom=room;
+    dirty=true;
+  };
+  return {flush,afterRender,setRoom,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+}
+
+export type SupportContact = {
+  room: THREE.Group;
+  position: readonly [number, number, number];
+  rotation: readonly [number, number, number, number];
+  width: number;
+  height: number;
+  desktop: boolean;
+};
+
+/** Primitive and allocation estimates for this pass, independent of GPU timing. */
+type SupportContactReport = {
+  activeQuads: number;
+  activeTriangles: number;
+  drawCalls: number;
+  textureBytes: number;
+};
+
+const CONTACT_LIMIT = 16;
+const ROOM_CONTACT_LIMIT = 8;
+const CONTACT_MASK_SIZE = 32;
+
+/** Room-local, receiver-clipped quads supplied by the resolved support owners. */
+export function installSupportContactShadows(three:typeof THREE,contacts:readonly SupportContact[],
+  compact:boolean,report:(value:SupportContactReport)=>void) {
+  const byRoom=new Map<THREE.Group,SupportContact[]>();
+  let admitted=0;
+  for(const contact of contacts){
+    if(admitted>=CONTACT_LIMIT)break;
+    if(!compact&&!contact.desktop)continue;
+    if(!contact.position.every(Number.isFinite)||!contact.rotation.every(Number.isFinite)||
+      Math.abs(contact.rotation.reduce((sum,value)=>sum+value*value,0)-1)>.001||
+      ![contact.width,contact.height].every(value=>value>0&&value<=1.8))continue;
+    const rows=byRoom.get(contact.room)??[];
+    if(rows.length>=ROOM_CONTACT_LIMIT)continue;
+    rows.push(contact);
+    byRoom.set(contact.room,rows);
+    admitted++;
+  }
+  if(!admitted){
+    report({activeQuads:0,activeTriangles:0,drawCalls:0,textureBytes:0});
+    return {setRoom:()=>{},dispose:()=>{}};
+  }
+
+  const geometry=new three.PlaneGeometry(1,1);
+  const pixels=new Uint8Array(CONTACT_MASK_SIZE*CONTACT_MASK_SIZE*4);
+  for(let y=0;y<CONTACT_MASK_SIZE;y++)for(let x=0;x<CONTACT_MASK_SIZE;x++){
+    const u=2*x/(CONTACT_MASK_SIZE-1)-1,v=2*y/(CONTACT_MASK_SIZE-1)-1;
+    const strength=Math.round(255*Math.max(0,1-u*u-v*v)**2);
+    const i=(y*CONTACT_MASK_SIZE+x)*4;
+    pixels[i]=pixels[i+1]=pixels[i+2]=strength;
+    pixels[i+3]=255;
+  }
+  const mask=new three.DataTexture(pixels,CONTACT_MASK_SIZE,CONTACT_MASK_SIZE);
+  mask.minFilter=three.LinearFilter;
+  mask.magFilter=three.LinearFilter;
+  mask.needsUpdate=true;
+  const material=new three.MeshBasicMaterial({
+    color:0x000000,alphaMap:mask,opacity:compact ? .18 : .14,transparent:true,depthWrite:false,toneMapped:false,
+    polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1,
+  });
+  const mesh=new three.InstancedMesh(geometry,material,Math.min(ROOM_CONTACT_LIMIT,admitted));
+  mesh.userData.exhibitosContactShadow=true;
+  const transform=new three.Object3D();
+  let active:THREE.Group|undefined,disposed=false;
+  const publish=(count:number)=>report({activeQuads:count,activeTriangles:count*2,drawCalls:count?1:0,textureBytes:pixels.byteLength});
+  publish(0);
+
+  const setRoom=(room:THREE.Group|undefined)=>{
+    const rows=room&&byRoom.get(room);
+    const next=rows?room:undefined;
+    if(disposed||next===active)return;
+    mesh.removeFromParent();
+    active=next;
+    if(rows&&next){
+      mesh.count=rows.length;
+      rows.forEach((row,index)=>{
+        transform.position.fromArray(row.position);
+        transform.quaternion.fromArray(row.rotation);
+        transform.scale.set(row.width,row.height,1);
+        transform.updateMatrix();
+        mesh.setMatrixAt(index,transform.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate=true;
+      mesh.computeBoundingSphere();
+      next.add(mesh);
+    }
+    publish(rows?.length??0);
+  };
+  const dispose=()=>{
+    if(disposed)return;
+    disposed=true;
+    mesh.removeFromParent();
+    mesh.dispose();
+    material.dispose();
+    mask.dispose();
+    geometry.dispose();
+  };
+  return {setRoom,dispose};
 }
