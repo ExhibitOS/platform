@@ -60,10 +60,14 @@ test('localized artwork caption preserves the approved artwork and all source id
  const source={kind:'artwork' as const,placementId:placement.id};
  const row={...plaque,source},before=applyPlaqueCommand(draft.candidate,{type:'add-plaque',plaque:row});
  const withIntro=applyRoomPlaqueIntroduction(before,plaque.roomId,{text:'공간 안내'});
- const artworkCaption={translations:[{locale:'ko',artist:'에두아르 마네',date:'1862~63년경'},{locale:'en',artist:'Édouard Manet',date:'ca. 1862–63'}]};
- const candidate=applyPlaqueCommand(withIntro,{type:'set-plaque',plaque:{...row,artworkCaption}});
+ const artworkCaption={translations:[
+  {locale:'ko',artist:'에두아르 마네',date:'1862~63년경',medium:'캔버스에 유채',dimensions:'65 × 81 cm'},
+  {locale:'en',artist:'Édouard Manet',date:'ca. 1862–63'},
+ ]};
+ const museumPlaque={...row,dimensions:{width:0.15,height:0.10},artworkCaption};
+ const candidate=applyPlaqueCommand(withIntro,{type:'set-plaque',plaque:museumPlaque});
  expect(candidate.extensions?.[PLAQUE_NAMESPACE]).toMatchObject({version:3});
- expect(plaquesFor(candidate)[0]).toEqual({...row,artworkCaption});
+ expect(plaquesFor(candidate)[0]).toEqual(museumPlaque);
  expect(candidate.placements).toEqual(withIntro.placements);
  expect(candidate.artworks).toEqual(withIntro.artworks);
  expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'KO-kr')).toEqual(artworkCaption.translations[0]);
@@ -79,6 +83,7 @@ test('localized artwork caption preserves the approved artwork and all source id
   expect(remapped.id).not.toBe(plaque.id);
   expect(remapped.source).toEqual({kind:'artwork',placementId:projected.placements[0]!.id});
   expect(remapped.artworkCaption).toEqual(artworkCaption);
+  expect(remapped.dimensions).toEqual(museumPlaque.dimensions);
   expect(roomPlaqueIntroductionFor(projected,remapped.roomId)).toBe('공간 안내');
  }
  expect(applyPlaqueCommand(candidate,{type:'set-plaque',plaque:row}).extensions?.[PLAQUE_NAMESPACE]).toEqual(withIntro.extensions?.[PLAQUE_NAMESPACE]);
@@ -88,6 +93,13 @@ test('localized artwork caption preserves the approved artwork and all source id
  expect(validateStudioPlaques(wrongVersion).valid).toBe(false);
  for(const invalid of [
   {...row,source:{kind:'room' as const},artworkCaption},
+  {...row,source:{kind:'room' as const},dimensions:museumPlaque.dimensions},
+  {...row,source:{kind:'exhibition' as const},dimensions:museumPlaque.dimensions},
+  {...museumPlaque,dimensions:{width:0.149,height:0.10}},
+  {...museumPlaque,dimensions:{width:0.15,height:0.099}},
+  {...museumPlaque,artworkCaption:{translations:[{locale:'en',artist:'Artist',date:'2026',medium:'x'.repeat(97)}]}},
+  {...museumPlaque,artworkCaption:{translations:[{locale:'en',artist:'Artist',date:'2026',dimensions:'10 cm\n20 cm'}]}},
+
   {...row,artworkCaption:{translations:[]}},
   {...row,artworkCaption:{translations:[{...artworkCaption.translations[0]!,locale:'ko\n'}]}},
   {...row,artworkCaption:{translations:[artworkCaption.translations[0]!,{...artworkCaption.translations[0]!,locale:'KO'}]}},
