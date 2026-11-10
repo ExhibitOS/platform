@@ -38,6 +38,7 @@ import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-bu
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
 import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
 import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
@@ -1607,6 +1608,11 @@ export function GeometryPreview({
       const byteCache = new MemoryAssetCache<ArrayBuffer>(
         assetBudgetBytes,
       );
+      let cachedOriginalKey:string|undefined;
+      const releaseCachedOriginal=()=>{
+        if(cachedOriginalKey)byteCache.delete(cachedOriginalKey);
+        cachedOriginalKey=undefined;
+      };
       let cacheHits = 0;
       const decodedResources = new Map<
         InstanceType<typeof three.Object3D>,
@@ -1623,7 +1629,7 @@ export function GeometryPreview({
       };
       let publicDisplayStopped = false;
       const stopPublicDisplay=()=>{
-        publicDisplayStopped = true;setDetailRestoreStatus(null);
+        publicDisplayStopped = true;releaseCachedOriginal();setDetailRestoreStatus(null);
         sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
         mapThumbnailRefresh.current?.();
@@ -2139,6 +2145,7 @@ export function GeometryPreview({
         };
         const reserve=(key:string,bytes:number)=>{
           const task=tasks.get(key),limit=requestLimits(task).transition;
+          if(peak.total(key)+bytes>limit)releaseCachedOriginal();
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
@@ -2681,6 +2688,80 @@ export function GeometryPreview({
           }
         };
         const entranceOptionalAttempted=new Set<string>();
+        const queueOptional=(art:(typeof arts)[number],inventory:(typeof arts)[number]['assets'][number],
+            assetId:string,compatibleOnEnter:boolean,load:(signal:AbortSignal,key:string)=>Promise<void>)=>{
+          entranceOptionalAttempted.add(assetId);
+          const key=`entrance-encoded/${assetId}/${sequence++}`;
+          const owned:OptionalArtwork={key,artId:art.revisionId,assetId,compatibleOnEnter};
+          entranceOptional=owned;
+          tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
+            const settled=load(signal,key);
+            owned.drain=settled.then(()=>{},()=>{});
+            await settled;
+          }});
+          void scheduler.request(key,10000).catch(error=>{
+            if(error?.name==='AbortError')entranceOptionalAttempted.delete(assetId);
+          }).finally(async()=>{
+            await owned.drain;
+            tasks.delete(key);
+            if(entranceOptional?.key===key)entranceOptional=undefined;
+          });
+        };
+        const detailOwner=publicSource?.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
+        const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
+        const coverReady=()=>{try{return publicSource?.coverOriginalEligible?.()===true;}catch{return false;}};
+        const detailRuntimeHints=()=> (globalThis.navigator as Navigator&{userAgentData?:Parameters<typeof matchesDetailRuntime>[2]}).userAgentData;
+        const originalCacheKey=(candidateId:string)=>`detail-original/${candidateId}`;
+        let originalPrefetchUncertain=false;
+        const prefetchOriginal=(candidates:readonly {art:(typeof arts)[number]}[],cover:boolean)=>{
+          if(originalPrefetchUncertain||!detailOwner||!detailAccess||!isVerifiedStaticDetailAccess(detailOwner,detailAccess))return;
+          const context=renderer.getContext();
+          if(typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))return;
+          for(const {art} of candidates){
+            const profile=qualifiedDetailImageProfile(publicSource?.revisionSha256,art.revisionId);
+            if(!profile||art.artworkType!=='image')continue;
+            const compatible=()=>!disposed&&!gpuLost&&!xrActive.current&&!publicDisplayStopped&&!suspendedRef.current&&
+              !renderer.domElement.ownerDocument.hidden&&renderer.getContext()===context&&
+              isVerifiedStaticDetailAccess(detailOwner,detailAccess)&&
+              matchesMeasuredWheatImage(profile,staticDetailAttestation(detailAccess,detailOwner,profile.candidateId),galleryBuffer());
+            if(!compatible())continue;
+            const cacheKey=originalCacheKey(profile.candidateId),cache=byteCache.stats(),bytes=profile.bytes;
+            // Cover uses the same spare encoded budget. Cover retirement and
+            // the measured detail viewport still gate the later decode.
+            const limit=Math.min(transitionBudgetBytes,profile.maxSceneBytes),reservation=4*bytes;
+            if(entranceOptionalAttempted.has(cacheKey)||byteCache.get(cacheKey)||cache.bytes+bytes>cache.maxBytes||
+               peak.total()+reservation>limit)continue;
+            const inventory=art.assets.find(asset=>asset.id===art.primaryAssetId);
+            if(!inventory)continue;
+            queueOptional(art,inventory,cacheKey,!cover,async(signal,key)=>{
+              if(!await matchesDetailRuntime(profile.runtime,context,detailRuntimeHints(),signal)||!compatible())return;
+              const hold=`${key}/transfer`;
+              peak.reserve(hold,reservation,limit);
+              const transferSignal=AbortSignal.any([signal,AbortSignal.timeout(12000)]);
+              try{
+                let body:Uint8Array;
+                try{body=await detailAccess.fetch(profile.candidateId,transferSignal);}
+                catch(error){
+                  if(!(error instanceof DetailAccessFailure&&error.retirement==='confirmed'))originalPrefetchUncertain=true;
+                  if(signal.aborted&&!originalPrefetchUncertain)entranceOptionalAttempted.delete(cacheKey);
+                  throw error;
+                }
+                if(transferSignal.aborted||!compatible()||body.byteLength!==bytes||!(body.buffer instanceof ArrayBuffer)||
+                   body.byteOffset!==0||body.buffer.byteLength!==bytes)return;
+                const current=byteCache.stats();
+                if(current.bytes+bytes>current.maxBytes||peak.total(hold)+bytes>limit)return;
+                releaseCachedOriginal();
+                if(byteCache.set(cacheKey,body.buffer,bytes)){
+                  cachedOriginalKey=cacheKey;
+                  stage(profile.candidateId,'optional-original-encoded',undefined,key);
+                }
+              }finally{
+                if(!originalPrefetchUncertain)peak.release(hold);
+              }
+            });
+            return;
+          }
+        };
         const prefetchOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[],cover:boolean)=>{
           if(entranceOptional||renderer.domElement.ownerDocument.hidden||suspendedRef.current||
              scheduler.stats().active||scheduler.stats().queued)return;
@@ -2702,36 +2783,25 @@ export function GeometryPreview({
                 higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
             }catch{/* No optional derivative fits the current admission policy. */}
           }
-          const cache=byteCache.stats();
+          const cache=byteCache.stats(),expendable=cachedOriginalKey?byteCache.get(cachedOriginalKey)?.byteLength??0:0;
           const next=[...light,...higher].find(({inventory})=>!entranceOptionalAttempted.has(inventory.id)&&
-            !byteCache.get(inventory.id)&&cache.bytes+inventory.bytes<=cache.maxBytes&&peak.total()+inventory.bytes*4<=transitionBudgetBytes);
-          if(!next)return;
+            !byteCache.get(inventory.id)&&cache.bytes-expendable+inventory.bytes<=cache.maxBytes&&peak.total()-expendable+inventory.bytes*4<=transitionBudgetBytes);
+          if(!next){prefetchOriginal(candidates,cover);return;}
+          if(cache.bytes+next.inventory.bytes>cache.maxBytes||peak.total()+next.inventory.bytes*4>transitionBudgetBytes)releaseCachedOriginal();
           const {art,inventory,compatibleOnEnter}=next;
-          entranceOptionalAttempted.add(inventory.id);
-          const key=`entrance-encoded/${inventory.id}/${sequence++}`;
-          const owned:OptionalArtwork={key,artId:art.revisionId,assetId:inventory.id,compatibleOnEnter};
-          entranceOptional=owned;
-          tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
+          queueOptional(art,inventory,inventory.id,compatibleOnEnter,async(signal,key)=>{
             peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
             const body=readArtworkBytes(art,inventory,signal,undefined,false);
             entranceOptionalBodies.set(inventory.id,body);
-            const settled=body.finally(()=>{
+            try{await body;}
+            finally{
               if(entranceOptionalBodies.get(inventory.id)===body)entranceOptionalBodies.delete(inventory.id);
               peak.release(key);
-            });
-            owned.drain=settled.then(()=>{},()=>{});
-            await settled;
-          }});
-          void scheduler.request(key,10000).catch(error=>{
-            if(error?.name==='AbortError')entranceOptionalAttempted.delete(inventory.id);
-          }).finally(async()=>{
-            await owned.drain;
-            tasks.delete(key);
-            if(entranceOptional?.key===key)entranceOptional=undefined;
+            }
           });
         };
         const automaticDemand=()=>{
-          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current))cancelIncompatibleOptional();
+          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current||publicDisplayStopped))cancelIncompatibleOptional();
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
@@ -2965,9 +3035,6 @@ export function GeometryPreview({
           const placement=document.placements.find(p=>p.id.toLowerCase()===input.placementId.toLowerCase());
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
-          const detailOwner=publicSource.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
-          const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
-          const coverReady=()=>{try{return publicSource.coverOriginalEligible?.()===true;}catch{return false;}};
           const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
           const selectedBinding=selectedProfile&&detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,selectedProfile.candidateId):undefined;
           let imageProfile=selectedProfile&&coverReady()&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
@@ -3205,13 +3272,13 @@ export function GeometryPreview({
                 const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
                 const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startApproved();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
                 resumeLegacy=()=>{if(legacyPending)activateLegacy();};
-                const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
+                const hints=detailRuntimeHints();
                 void matchesDetailRuntime(profile.runtime,context,hints,signal).then(matches=>{
                   if(!stillCurrent()){activateLegacy();return;}if(!matches){activateLegacy();return;}
                   const generation=++originalDetailGeneration,attemptId=`viewer-detail-${generation}-${crypto.randomUUID()}`;
                   const current=()=>generation===originalDetailGeneration&&stillCurrent();
                   const retryDeadline=performance.now()+15000;
-                  const startOriginal=()=>{if(!current())return;try{
+                  const startOriginal=()=>{if(!current())return;if(originalPrefetchUncertain){activateLegacy();return;}try{
                     // The measured original has its own tighter scene ceiling.
                     // Reclaim only expendable encoded and unshown prepared assets.
                     const sceneLimit=Math.min(profile.maxSceneBytes,profile.transitionCapBytes-profile.reservationBytes);
@@ -3221,6 +3288,15 @@ export function GeometryPreview({
                       evictPrepared(deficit);
                     }
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
+                      takePrefetchedBytes:()=>{
+                        const key=originalCacheKey(profile.candidateId);
+                        if(!current()||cachedOriginalKey!==key)return undefined;
+                        const cached=byteCache.get(key);
+                        releaseCachedOriginal();
+                        if(!cached)return undefined;
+                        stage(profile.candidateId,'optional-original-reused');
+                        return new Uint8Array(cached);
+                      },
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{
