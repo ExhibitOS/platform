@@ -7,6 +7,7 @@ import type {ChildProcess} from 'node:child_process';
 import {pngCrc} from './png-pixels.ts';
 import {inspectCompactModelSource,modelPreparationHash} from './oam-original-preparation.ts';
 import {prepareCompactModelInWorker} from './oam-original-preparation-process.ts';
+import {inspectAdoptedModelDetail} from './adopted-model-detail-report.ts';
 
 function fixture(colour=192){
  const chunk=(name:string,data:Buffer)=>{const body=Buffer.concat([Buffer.from(name),data]),b=Buffer.alloc(data.length+12);b.writeUInt32BE(data.length);body.copy(b,4);b.writeUInt32BE(pngCrc(body),b.length-4);return b;};
@@ -26,6 +27,15 @@ it('binds each job digest without a source allowlist and rejects unsupported/int
  expect(()=>inspectCompactModelSource(a,identity(b))).toThrow('MODEL_PREPARATION_INPUT_INTEGRITY');
  let spawned=false;await expect(prepareCompactModelInWorker(a,identity(b),{onSpawn:()=>{spawned=true;}})).rejects.toMatchObject({code:'MODEL_PREPARATION_INPUT_INTEGRITY'});expect(spawned).toBe(false);
  const invalid=Buffer.from(a);invalid.write('BAD!',0);expect(()=>inspectCompactModelSource(invalid,identity(invalid))).toThrow('MODEL_PREPARATION_PROFILE_UNSUPPORTED');
+});
+
+it('reports exact adopted original features using the closed GLB profile',async()=>{
+ const bytes=fixture(),source=identity(bytes);
+ const report=await inspectAdoptedModelDetail(bytes,source);
+ expect(report).toMatchObject({assetSha256:source.sha256,assetBytes:source.bytes,
+  media:{kind:'glb',triangles:1,textures:[{codec:'png',width:1,height:1,textureReferences:1}]}});
+ expect(report.cost.peakAdditionalBytes).toBe(report.cost.residentBytes+bytes.length*5);
+ await expect(inspectAdoptedModelDetail(bytes,identity(fixture(120)))).rejects.toThrow('MODEL_PREPARATION_INPUT_INTEGRITY');
 });
 
 it('preserves different compatible user originals unchanged and returns only after strict validation and close',async()=>{

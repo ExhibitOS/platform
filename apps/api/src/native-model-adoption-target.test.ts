@@ -44,7 +44,7 @@ it('binds adoption to the exact current owner, rights and placement without requ
   target:{workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:prior.id,artworkRevision:prior.revision,
    exhibitionId:draft.exhibitionId,placementId,etag:etag(1,draft)},
   receiptSha256:'a'.repeat(64),rightsSha256:modelReceiptDigest(sourceRights),
-  rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(sourceRights),
+  rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(sourceRights),sourceCreditLine:sourceRights.creditLine,
   original:{sha256:'b'.repeat(64),bytes:64},display:{sha256:'c'.repeat(64),bytes:32},
  };
  const run=(input=grant,session=s)=>lockNativeModelAdoptionTarget(c,session,input,studio,cms,imports);

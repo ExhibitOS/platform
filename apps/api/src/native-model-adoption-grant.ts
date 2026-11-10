@@ -19,7 +19,7 @@ interface Target {
 interface BlobIdentity {sha256:string;bytes:number}
 export interface NativeModelAdoptionGrant {
  version:1;operationId:string;issuedAt:number;expiresAt:number;
- source:Source;target:Target;receiptSha256:string;rightsSha256:string;rightsPolicySha256:string;
+ source:Source;target:Target;receiptSha256:string;rightsSha256:string;rightsPolicySha256:string;sourceCreditLine:string;
  original:BlobIdentity;display:BlobIdentity;
 }
 
@@ -29,6 +29,9 @@ function exact(value:unknown,keys:readonly string[]):value is Record<string,unkn
 }
 const uuid=(value:unknown):value is string=>typeof value==='string'&&UUID.test(value);
 const digest=(value:unknown):value is string=>typeof value==='string'&&SHA256.test(value);
+export function validNativeModelSourceCredit(value:unknown):value is string{
+ return typeof value==='string'&&value.trim().length>0&&Buffer.byteLength(value,'utf8')<=2048&&![...value].some(c=>c.charCodeAt(0)<32||c.charCodeAt(0)===127);
+}
 const revision=(value:unknown)=>Number.isSafeInteger(value)&&Number(value)>0&&Number(value)<=2147483647;
 function owner(value:Record<string,unknown>){
  return [value.workspaceId,value.tenantId,value.principalId,value.artworkId].every(uuid)&&revision(value.artworkRevision);
@@ -42,8 +45,8 @@ function blob(value:unknown):value is BlobIdentity{
  * A valid frame is not evidence of custody when submitted by an HTTP caller. */
 export function parseNativeModelAdoptionGrant(input:unknown,now=Date.now()):NativeModelAdoptionGrant{
  const fail=()=>new ApiError(409,'MODEL_ADOPTION_GRANT_INVALID');
- if(!exact(input,['version','operationId','issuedAt','expiresAt','source','target','receiptSha256','rightsSha256','rightsPolicySha256','original','display'])||
-    input.version!==1||!uuid(input.operationId)||!digest(input.receiptSha256)||!digest(input.rightsSha256)||!digest(input.rightsPolicySha256)||
+ if(!exact(input,['version','operationId','issuedAt','expiresAt','source','target','receiptSha256','rightsSha256','rightsPolicySha256','sourceCreditLine','original','display'])||
+    input.version!==1||!validNativeModelSourceCredit(input.sourceCreditLine)||!uuid(input.operationId)||!digest(input.receiptSha256)||!digest(input.rightsSha256)||!digest(input.rightsPolicySha256)||
     !Number.isSafeInteger(input.issuedAt)||!Number.isSafeInteger(input.expiresAt)||!Number.isSafeInteger(now))throw fail();
  const issued=Number(input.issuedAt),expires=Number(input.expiresAt);
  if(issued<0||issued>now||expires<=now||expires-issued>MAX_GRANT_AGE)throw fail();
@@ -79,7 +82,7 @@ export function createNativeModelAdoptionGrant(custody:Custody,input:{operationI
   throw new ApiError(409,'MODEL_ADOPTION_SOURCE_CHANGED');
  return parseNativeModelAdoptionGrant({
   version:1,operationId:input.operationId,issuedAt:now,expiresAt:input.expiresAt,source,target:input.target,
-  receiptSha256:receipt.sha256,rightsSha256,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(rights),
+  receiptSha256:receipt.sha256,rightsSha256,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(rights),sourceCreditLine:rights.creditLine,
   original:{sha256:receipt.original.sha256,bytes:receipt.original.bytes},
   display:{sha256:receipt.display.sha256,bytes:receipt.display.bytes},
  },now);

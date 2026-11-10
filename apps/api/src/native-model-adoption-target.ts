@@ -153,7 +153,7 @@ export async function commitNativeModelAdoptionTarget(input:{
   }
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,randomUUID(),originalId,{
    version:1,kind:'native-model-adoption',operationId:grant.operationId,grantSha256,receiptSha256:grant.receiptSha256,
-   sourceRightsSha256:grant.rightsSha256,targetRightsSha256:modelReceiptDigest(prior.rights),rightsPolicySha256:grant.rightsPolicySha256,originalId,displayId,
+   sourceRightsSha256:grant.rightsSha256,sourceCreditLine:grant.sourceCreditLine,targetRightsSha256:modelReceiptDigest(prior.rights),rightsPolicySha256:grant.rightsPolicySha256,originalId,displayId,
   }]);
   const updated=await c.query('UPDATE artworks SET revision=$3,approved_revision=$3,approved_asset_id=$4,updated_at=$5,metadata=$6 WHERE tenant_id=$1 AND id=$2 AND revision=$7 AND approved_revision=$7 RETURNING id',
    [s.tenantId,target.artworkId,revision,displayId,now,metadata,target.artworkRevision]);

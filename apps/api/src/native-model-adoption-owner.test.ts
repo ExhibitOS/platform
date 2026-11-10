@@ -11,7 +11,7 @@ it('requires an exact generation, operation and grant digest on the private adop
  const grant:NativeModelAdoptionGrant={version:1,operationId,issuedAt:now,expiresAt:now+10000,
   source:{...owner(),artworkRevisionId:randomUUID()},
   target:{...owner(),exhibitionId:randomUUID(),placementId:randomUUID(),etag:`"studio-r1-${'a'.repeat(64)}"`},
-  receiptSha256:'a'.repeat(64),rightsSha256:'b'.repeat(64),rightsPolicySha256:'e'.repeat(64),original:{sha256:'c'.repeat(64),bytes:64},
+  receiptSha256:'a'.repeat(64),rightsSha256:'b'.repeat(64),rightsPolicySha256:'e'.repeat(64),sourceCreditLine:'Example institution',original:{sha256:'c'.repeat(64),bytes:64},
   display:{sha256:'d'.repeat(64),bytes:32},
  };
  const frame={version:1,kind:'adoption-commit-target',operationId,runtimeGeneration,grantSha256:modelReceiptDigest(grant),grant};
