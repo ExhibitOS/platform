@@ -4,6 +4,7 @@ import { artifactCorners, artifactPoint, createConvexCollision } from './artifac
 import type { ArtifactPose } from './artifact-affine.js';
 import { benchesFor, validateStudioBenches } from './benches.js';
 import type { StudioBench } from './benches.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
 export {benchBoxes} from './bench-shape.js';
 import {benchBoxes} from './bench-shape.js';
@@ -13,11 +14,14 @@ export function benchPose(bench:StudioBench): ArtifactPose {
 /** Shared room/world bounds for rendering, Rapier and server presence. */
 export function benchSolids(document:Exhibition){
   if(!validateStudioBenches(document).valid)throw Error('BENCH_INVALID');
+  const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
   return benchesFor(document).flatMap(bench=>{
     const room=document.rooms.find(r=>r.id.toLowerCase()===bench.roomId.toLowerCase());
     if(!room)throw Error('BENCH_REFERENCE');
     const faces=[[0,2,6,4],[1,5,7,3],[0,4,5,1],[2,3,7,6],[0,1,3,2],[4,6,7,5]],indices=faces.flatMap(f=>[f[0]!,f[2]!,f[1]!,f[0]!,f[3]!,f[2]!]);
-    return benchBoxes(bench).map(box=>{const vertices=artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},benchPose(bench),room.transform],true);return {benchId:bench.id,roomId:bench.roomId,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};});
+    const linked=bench.workspaceVisual?.placementId.toLowerCase();
+    const scale=linked?workspace?.placements.find(placement=>placement.id.toLowerCase()===linked)?.scale:undefined;
+    return benchBoxes(bench,scale).map(box=>{const vertices=artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},benchPose(bench),room.transform],true);return {benchId:bench.id,roomId:bench.roomId,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};});
   });
 }
 export function benchSeat(document:Exhibition,benchId:string){

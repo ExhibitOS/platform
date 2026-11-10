@@ -54,3 +54,17 @@ it('compares the measured fit with the owner registry before checking its model 
  await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
  expect(service.checkDisplay).not.toHaveBeenCalled();
 });
+
+it('checks live model authority for the exact registered stool seat',async()=>{
+ const sha='6caca94361b540fb007c6fc605e519e436462eda43f2ec5f99da6a63108bfc60';
+ const stool={...item,kind:'stool',model:{...item.model,bytes:415848,sha256:sha}};
+ const doc={...candidate,extensions:{
+  'org.exhibitos.studio/workspace-furnishings':{version:2,furnishings:[stool],placements:[placement]},
+  'org.exhibitos.studio/benches':{version:1,benches:[{workspaceVisual:{placementId:placement.id,modelSha256:sha}}]},
+ }};
+ const service={supportsStool:()=>true,readVersion:vi.fn(async()=>stool),checkDisplay:vi.fn(async()=>stool)};
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).resolves.toBeUndefined();
+ expect(service.checkDisplay).toHaveBeenCalledWith(client,session,stool.id,1);
+ service.checkDisplay.mockResolvedValueOnce({...stool,model:{...stool.model,bytes:415849}});
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).rejects.toMatchObject({code:'BENCH_WORKSPACE_VISUAL'});
+});

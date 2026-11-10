@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
 import type {Artwork,Exhibition} from '@exhibitos/spec';
-import {benchesFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {benchesFor,isBuiltInGalleryStool,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {PoolClient} from 'pg';
 import {ApiError,type Session} from './auth.ts';
 import {allowedRights} from './rights.ts';
@@ -26,7 +26,7 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
   if(!placement)throw new ApiError(422,'BENCH_WORKSPACE_VISUAL');
   if(checkedBenchModels.has(placement.furnishingId))continue;
   const descriptor=await service.checkDisplay(c,s,placement.furnishingId,placement.furnishingVersion);
-  if(descriptor.kind!=='bench'||descriptor.model.sha256!==bench.workspaceVisual.modelSha256)throw new ApiError(422,'BENCH_WORKSPACE_VISUAL');
+  if((descriptor.kind!=='bench'&&!isBuiltInGalleryStool(descriptor))||descriptor.model.sha256!==bench.workspaceVisual.modelSha256)throw new ApiError(422,'BENCH_WORKSPACE_VISUAL');
   checkedBenchModels.add(placement.furnishingId);
  }
  // The immutable frame is attached to a work, so every save/preflight must

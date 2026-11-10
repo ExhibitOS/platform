@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {applyBenchCommand,applyFurnishingCommand,presentationFor,type StudioBench} from '@exhibitos/studio-contract';
+import {applyBenchCommand,applyFurnishingCommand,defaultSeatCamera,furnishingPoseTransform,presentationFor,type FurnishingPose,type StudioBench} from '@exhibitos/studio-contract';
 import {privateCatalogBench} from './catalog-bench-renderer';
 import {BENCH_CATALOG} from './catalog-bench';
 
 /** Reuse an identical camera without changing or removing any authored viewpoint. */
-export function addCatalogBench(document:Exhibition,roomId:string):Exhibition {
+export function addCatalogBench(document:Exhibition,roomId:string,pose:FurnishingPose={position:[0,0,0],yaw:0,scale:1}):Exhibition {
  const room=document.rooms.find(r=>r.id.toLowerCase()===roomId.toLowerCase());if(!room)throw Error('BENCH_REFERENCE');
- const position:[number,number,number]=[0,1.15,0],target:[number,number,number]=[0,1.15,-2],fov=50;
+ // The measured seat slat lies off the center gap in this exact v1 model.
+ const {position,target,fov}=defaultSeatCamera([-.4,.45,.05675],[0,0,-1],furnishingPoseTransform(pose));
+ const legacyPose=pose.scale===1&&pose.yaw===0&&pose.position.every(n=>n===0);
  const views=presentationFor(document).viewpoints,same=(a:readonly number[],b:readonly number[])=>a.length===b.length&&a.every((v,i)=>v===b[i]);
- const existing=views.find(v=>v.roomId.toLowerCase()===roomId.toLowerCase()&&v.fov===fov&&same(v.position,position)&&same(v.target,target));
+ const existing=views.find(v=>v.roomId.toLowerCase()===roomId.toLowerCase()&&v.fov===fov&&(same(v.position,position)&&same(v.target,target)||legacyPose&&same(v.position,[0,1.15,0])&&same(v.target,[0,1.15,-2])));
  if(!existing&&views.length>=64)throw Error('BENCH_VIEWPOINT_LIMIT');
  const id=crypto.randomUUID(),viewpointId=existing?.id??crypto.randomUUID(),{min,max}=BENCH_CATALOG.bounds;
- const bench:StudioBench={id,name:'참나무 벤치',roomId:room.id,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:max[0]-min[0],depth:max[2]-min[2],height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId};
+ const bench:StudioBench={id,name:'참나무 벤치',roomId:room.id,position:[...pose.position],yaw:pose.yaw,kind:'slab',dimensions:{width:(max[0]-min[0])*pose.scale,depth:(max[2]-min[2])*pose.scale,height:.45*pose.scale},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId};
  const candidate=applyBenchCommand(document,{type:'add-bench',bench,...(existing?{}:{viewpoint:{id:viewpointId,name:'벤치 시점',roomId:room.id,position,target,fov}})});
- return applyFurnishingCommand(candidate,{type:'set-furnishing-visual',hostKind:'bench',hostId:id,catalogId:'backless-oak-bench',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}});
+ return applyFurnishingCommand(candidate,{type:'set-furnishing-visual',hostKind:'bench',hostId:id,catalogId:'backless-oak-bench',catalogVersion:1,pose});
 }
 
 /** Remove the selected visual and its functional host together; history belongs to the caller. */

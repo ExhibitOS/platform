@@ -10,7 +10,7 @@ import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
-import {benchesFor,validateStudioBenches} from '@exhibitos/studio-contract';
+import {benchesFor,proposeWorkspaceDefaultSeats,validateStudioBenches,type WorkspaceDefaultSeatTarget} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {validateStudioInstallation,validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import { validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -35,6 +35,8 @@ export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
 type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>;
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
+
+export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
 
 export interface StudioInput {
   draft: Draft;
@@ -201,6 +203,20 @@ export class Studio {
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
+  }
+  async proposeNativeDefaultSeats(c:PoolClient,s:Session,input:NativeDefaultSeatProposalInput) {
+    if(!this.workspaceFurnishing)throw new ApiError(404,'NOT_FOUND');
+    await this.workspaceFurnishing.authorize(c,s);
+    const requestId=randomUUID();
+    checked({requestId,draft:input.draft});
+    let proposal:ReturnType<typeof proposeWorkspaceDefaultSeats>;
+    try{proposal=proposeWorkspaceDefaultSeats(input.draft.candidate,input.targets);}
+    catch{throw new ApiError(422,'BENCH_INVALID');}
+    const draft={...input.draft,candidate:proposal.candidate} as Draft;
+    checked({requestId,draft});
+    await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
+    return {additions:proposal.additions};
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
     if(!this.nativeOexWorkspace)throw new ApiError(404,'NOT_FOUND');

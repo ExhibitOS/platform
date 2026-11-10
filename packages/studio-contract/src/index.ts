@@ -270,6 +270,7 @@ export * from './room-envelope.js';
 
 export * from './door-connection.js';
 export * from './workspace-furnishing.js';
+export * from './workspace-default-seats.js';
 
 export * from './artwork-detail-quality.js';
 
