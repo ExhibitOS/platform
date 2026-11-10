@@ -6,7 +6,7 @@ import {modelGeometryResidentBytes,textureResidentBytes} from './loading';
 type Candidate=Awaited<ReturnType<DetailAccess['candidatesFor']>>[number];
 export const acquiredModelRuntime:DetailRuntimeProfile={
  renderer:'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)',platform:'macOS',
- browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:false,depth:true,antialias:true,preserveDrawingBuffer:true,
+ browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true,
 };
 export const acquiredModelTransitionCap=768*1024*1024;
 export const acquiredModelTextureEdge=4096;

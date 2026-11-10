@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {acquiredModelRuntime} from './detail-model-admission';
 import {expect,it,vi} from 'vitest';import {matchesDetailRuntime,type DetailRuntimeProfile} from './detail-runtime-profile';
 const profile:DetailRuntimeProfile={renderer:'Apple M1 Metal',platform:'macOS',browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true};
 function gl(framebuffer:unknown=null){return {FRAMEBUFFER_BINDING:1,SAMPLES:2,isContextLost:()=>false,getParameter:(key:number)=>key===1?framebuffer:key===2?4:'Apple M1 Metal',getContextAttributes:()=>({alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true}),getExtension:()=>({UNMASKED_RENDERER_WEBGL:3})} as unknown as WebGL2RenderingContext;}
@@ -13,4 +14,13 @@ it('rechecks graphics state after the asynchronous client-hints result',async()=
 });
 it('fails closed on malformed client-hint entries without an unhandled rejection',async()=>{
  const hints={platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[null,{brand:'Google Chrome'}]})};expect(await matchesDetailRuntime(profile,gl(),hints as never,new AbortController().signal)).toBe(false);
+});
+
+
+it('admits the observed acquired-model context alpha channel and refuses mismatches',async()=>{
+ const context=gl();
+ context.getParameter=((key:number)=>key===1?null:key===2?4:acquiredModelRuntime.renderer) as typeof context.getParameter;
+ const hints={platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[{brand:'Google Chrome',version:acquiredModelRuntime.browserVersion}]})};
+ expect(await matchesDetailRuntime(acquiredModelRuntime,context,hints,new AbortController().signal)).toBe(true);
+ expect(await matchesDetailRuntime({...acquiredModelRuntime,alpha:false},context,hints,new AbortController().signal)).toBe(false);
 });
