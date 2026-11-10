@@ -12,6 +12,7 @@ import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
 import {COMPACT_MODEL_RECIPE,COMPACT_MODEL_RECIPE_SHA256,type CompactModelReceipt} from './oam-original-preparation.ts';
 import {createModelPreparationReceipt} from './model-preparation-intent.ts';
+import {createNativeModelAdoptionGrant,parseNativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 
 it('rejects stale draft and wrong owner before inspecting or mutating a job',async()=>{
  const draft=newDraft(),session={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session,owner={workspaceId:randomUUID()},jobAccess=vi.fn(),client={query:vi.fn(async(sql:string)=>({rows:[],rowCount:sql.startsWith('SELECT * FROM studio_requests')?0:null}))} as unknown as PoolClient;
@@ -82,6 +83,24 @@ it('reads both approved source artifacts only for the authenticated source owner
   source:{workspaceId,tenantId:session.tenantId,principalId:session.userId,artworkId,artworkRevision:1,artworkRevisionId:revisionId},
   receipt:job.model_preparation.result,original,display,
  });
+ const custody=await run(),now=Date.now();
+ const target={workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),artworkId:randomUUID(),
+  artworkRevision:4,exhibitionId:randomUUID(),placementId:randomUUID(),etag:etag(3,newDraft())};
+ const grant=createNativeModelAdoptionGrant(custody,{operationId:randomUUID(),target,expiresAt:now+600_000},now);
+ expect(parseNativeModelAdoptionGrant(grant,now)).toEqual(grant);
+ expect(grant).toMatchObject({target,receiptSha256:custody.receipt.sha256,
+  original:{sha256:digest(original),bytes:original.length},display:{sha256:digest(display),bytes:display.length}});
+ for(const invalid of [
+  {...grant,target:{...target,workspaceId}},
+  {...grant,target:{...target,etag:'unbound'}},
+  {...grant,source:{...grant.source,jobToken:'unexpected'}},
+  {...grant,expiresAt:now+900_001},
+  {...grant,expiresAt:now},
+  {...grant,original:{...grant.original,bytes:27}},
+  {...grant,display:{...grant.display,sha256:grant.original.sha256}},
+ ])expect(()=>parseNativeModelAdoptionGrant(invalid,now)).toThrow('MODEL_ADOPTION_GRANT_INVALID');
+ expect(()=>createNativeModelAdoptionGrant({...custody,source:{...custody.source,artworkId:randomUUID()}},
+  {operationId:randomUUID(),target,expiresAt:now+600_000},now)).toThrow('MODEL_ADOPTION_SOURCE_CHANGED');
  expect(read).toHaveBeenCalledWith('original',original.length);
  expect(read).toHaveBeenCalledWith('display',display.length);
  read.mockImplementationOnce(async()=>Buffer.alloc(display.length,3));
