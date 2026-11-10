@@ -10,6 +10,7 @@ vi.mock('./drafts/exhibition-validation.mjs',()=>({validateExhibition:()=>({vali
 vi.mock('./drafts/validator',()=>({validateDraft:()=>({valid:true})}));
 import {loadStaticPublication,staticDetailAttestation} from './static-publication-source';
 import {AssetScheduler} from './viewer/loading';
+import {fetchRegisteredMaterialTexture} from './floor-texture-renderer';
 const digest=(b:Uint8Array|string)=>createHash('sha256').update(b).digest('hex');
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corruptAsset?:boolean}={}){
@@ -120,7 +121,7 @@ describe('static publication content-addressed reads',()=>{
   expect(stalledBody?.locked).toBe(false);
   expect(scheduler.stats()).toEqual({active:0,queued:0,completed:1,failed:Number(mode==='deadline'),cancelled:Number(mode==='cancel')});
  });
- it('finishes a hash-verified binary transfer that keeps progressing beyond thirty seconds',async()=>{
+ it.each([false,true])('finishes a progressing forty-second binary through material composition=%s',async(material)=>{
   const sample=setup(),publication=await loadStaticPublication();
   const fixtureFetch=vi.mocked(fetch).getMockImplementation()!;
   vi.useFakeTimers();
@@ -137,9 +138,14 @@ describe('static publication content-addressed reads',()=>{
      },
     }));
    }));
-   const pending=publication.local!.fetcher(`/api/v1/publications/${sample.publicationId}/assets/${sample.assetId}`);
+   const url=`/api/v1/publications/${sample.publicationId}/assets/${sample.assetId}`;
+   const descriptor={path:'material-test/color.png',mime:'image/png' as const,bytes:22,sha256:digest('synthetic-public-asset'),width:1,height:1,colorSpace:'srgb' as const};
+   const pending=material
+    ?fetchRegisteredMaterialTexture(descriptor,[descriptor],new AbortController().signal,(_input,init,progress)=>publication.local!.assetFetcher!(url,init,progress!))
+    :publication.local!.fetcher(url);
    await vi.advanceTimersByTimeAsync(40000);
-   expect(await (await pending).text()).toBe('synthetic-public-asset');
+   const result=await pending;
+   expect(result instanceof Response?await result.text():new TextDecoder().decode(result)).toBe('synthetic-public-asset');
    expect(vi.getTimerCount()).toBe(0);
   }finally{vi.useRealTimers();}
  });

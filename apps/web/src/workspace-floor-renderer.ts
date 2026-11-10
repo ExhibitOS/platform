@@ -7,7 +7,7 @@ import type {PublicAsset,PublicResource} from './publication-client';
 import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.mjs';
 import {workspaceFloorMaterials} from './drafts/workspace-material-validation.mjs';
 import {materialMapPlan} from './material-texture-plan';
-import {createRegisteredMaterialTextureRenderer,type MaterialTextureFile,type MaterialTexturePack} from './floor-texture-renderer';
+import {createRegisteredMaterialTextureRenderer,type MaterialTextureFile,type MaterialTexturePack,type MaterialTextureFetcher} from './floor-texture-renderer';
 import {openWorkspaceMaterialBatch,type MaterialBatchRecord} from './workspace-material-batch.mjs';
 
 /** Only paths derived from validated IDs and hashes enter the local registry. */
@@ -53,7 +53,7 @@ export function createWorkspaceFloorRenderer(three:typeof Three,plan:ReturnType<
 }
 
 /** A public map is selected solely from the publication's checked inventory. */
-export function createPublicWorkspaceFloorRenderer(three:typeof Three,plan:ReturnType<typeof workspaceFloorPlan>,signal:AbortSignal,unavailable:()=>boolean,source:{publicationId:string;revisionSha256:string;assets:PublicAsset[];resources?:PublicResource[];materialMapBatch?:{url:string};fetcher:typeof fetch;check:()=>Promise<void>}){
+export function createPublicWorkspaceFloorRenderer(three:typeof Three,plan:ReturnType<typeof workspaceFloorPlan>,signal:AbortSignal,unavailable:()=>boolean,source:{publicationId:string;revisionSha256:string;assets:PublicAsset[];resources?:PublicResource[];materialMapBatch?:{url:string};fetcher:MaterialTextureFetcher;check:()=>Promise<void>}){
  let closed=false,valid=true,changed:(()=>void)|undefined,timer:ReturnType<typeof setInterval>|undefined,expiryTimer:ReturnType<typeof setTimeout>|undefined;
  const rights=()=>publicWorkspaceMaterialRights({materials:[...plan.materials.values()]});
  const check=async()=>{if(closed||!valid||!rights())throw Error('PUBLICATION_UNAVAILABLE');await source.check();if(closed||!valid||!rights())throw Error('PUBLICATION_UNAVAILABLE');};
@@ -71,9 +71,9 @@ export function createPublicWorkspaceFloorRenderer(three:typeof Three,plan:Retur
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];let size=0;try{for(;;){const next=await reader.read();if(next.done)break;size+=next.value.length;if(size>1024)throw Error('PUBLICATION_UNAVAILABLE');chunks.push(next.value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}
   const data=new Uint8Array(size);let offset=0;for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.length;}const result=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));if(!result||Object.keys(result).join(',')!=='revisionSha256'||result.revisionSha256!==source.revisionSha256||closed||!valid||!rights())throw Error('PUBLICATION_UNAVAILABLE');
  }catch(error){valid=false;batchAbort.abort();if(renderer.revoke(()=>true))changed?.();throw error;}};
- const fetcher:typeof fetch=async(input,init)=>{if(typeof input!=='string'||!paths.has(input))throw Error('WORKSPACE_MATERIAL_AUTHORITY');
+ const fetcher:MaterialTextureFetcher=async(input,init,progress)=>{if(typeof input!=='string'||!paths.has(input))throw Error('WORKSPACE_MATERIAL_AUTHORITY');
   if(batchURL){if(!batchPromise)batchPromise=(async()=>{const response=await source.fetcher(batchURL,{...init,credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,batchAbort.signal])});batch=await openWorkspaceMaterialBatch(response,records,source.revisionSha256);if(closed||!valid||batchAbort.signal.aborted){await batch.cancel();await releaseBatch();throw Error('PUBLICATION_UNAVAILABLE');}return batch;})();const bytes=await (await batchPromise).next(recordsByPath.get(input)!);if(closed||!valid||!rights())throw Error('PUBLICATION_UNAVAILABLE');return new Response(bytes as BodyInit,{headers:{'content-type':'image/png','x-exhibitos-publication-revision':source.revisionSha256}});}
-  await check();const response=await source.fetcher(paths.get(input)!,{...init,credentials:'omit',cache:'no-store',redirect:'error'});if(response.headers.get('x-exhibitos-publication-revision')!==source.revisionSha256){await response.body?.cancel().catch(()=>{});throw Error('WORKSPACE_MATERIAL_AUTHORITY');}try{await check();}catch(error){await response.body?.cancel().catch(()=>{});throw error;}return response;};
+  await check();const response=await source.fetcher(paths.get(input)!,{...init,credentials:'omit',cache:'no-store',redirect:'error'},progress);if(response.headers.get('x-exhibitos-publication-revision')!==source.revisionSha256){await response.body?.cancel().catch(()=>{});throw Error('WORKSPACE_MATERIAL_AUTHORITY');}try{await check();}catch(error){await response.body?.cancel().catch(()=>{});throw error;}return response;};
  const renderer=createRegisteredMaterialTextureRenderer<WorkspaceMaterialBinding>(three,plan,plan.registry,plan.packFor,signal,()=>unavailable()||closed||!valid,fetcher,()=>valid&&rights(),batchURL?batchFence:check);
  let checking=false;const refresh=()=>{if(closed)return;if(!rights()){valid=false;if(renderer.revoke(()=>true))changed?.();return;}if(checking)return;checking=true;void check().catch(()=>{valid=false;if(renderer.revoke(()=>true))changed?.();}).finally(()=>{checking=false;});};
  const expiry=[...plan.grants.values()].map(r=>r.expiresAt===undefined?Infinity:Date.parse(r.expiresAt)).filter(Number.isFinite);
