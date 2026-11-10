@@ -49,8 +49,8 @@ test('fixture picking highlights only the nearest visible compatible light and c
   occluder.visible=false;
   expect(preview.catalogDrop(request)).toEqual({kind:'light',lightId:light.id});
   expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(true);
-  const {point:_,...clear}=request;
-  expect(preview.catalogDrop({...clear,phase:'clear'})).toBeNull();
+  const {version,requestId,epoch,sequence,tenantId,principalId,targetKind}=request;
+  expect(preview.catalogDrop({version,requestId,epoch,sequence,tenantId,principalId,targetKind,phase:'clear'})).toBeNull();
   expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(false);
   fixtureMesh.visible=false;
   expect(preview.catalogDrop({...request,phase:'drop'})).toBeNull();
