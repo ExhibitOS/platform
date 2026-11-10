@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="ca792bc29c700927ff392bc28601d73d1d6c128cc74ba0446323e5be42b72905";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="125fb6a6bdd0eac92bd560ec65fd34adf1a9f17cb0804538bdde20c180b93e27";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -430,5 +430,34 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
     "https://collectionapi.metmuseum.org/public/collection/v1/objects/436535",
     "https://www.metmuseum.org/policies/image-resources"
   ]
+},
+{
+  "approvalId": "b2d9ab8d-8f4c-48a8-8d55-9f025be91cd5",
+  "institutionRecordId": "si-99ca3d6f-6d54-45a5-9b95-f8c245a662c2",
+  "officialObjectURL": "https://americanart.si.edu/artwork/old-arrow-maker-14629",
+  "officialFileURL": "https://3d-api.si.edu/content/document/3d_package:99ca3d6f-6d54-45a5-9b95-f8c245a662c2/resources/Old_Arrow_Maker-150k-4096_std.glb",
+  "rawSourceSha256": "b79822fc08c007120de51cbaebf1caf71bd7387ac27c43b5bf9326c93540b0b3",
+  "rightsEvidenceSha256": "3e05f2112683a0695ba8492854df3c630f2f19156a3f64aada8342a8abf9f254",
+  "canonicalAssetSha256": "b9957bf0931550477e636ea64619f755e1056b124fb5f730dd8b6035c99d275c",
+  "canonicalBytes": 1829056,
+  "recipeSha256": "a11cd154369496ee9af9cac73538d8f4cfc49df0043aeaae3af186c96162344e",
+  "rightsEvidenceURLs": [
+    "https://www.si.edu/object/3d/old-arrow-maker%3A99ca3d6f-6d54-45a5-9b95-f8c245a662c2",
+    "https://americanart.si.edu/artwork/old-arrow-maker-14629",
+    "https://3d-api.si.edu/api/v1.0/content/file/search?model_url=99ca3d6f-6d54-45a5-9b95-f8c245a662c2&file_type=glb&rows=8",
+    "https://creativecommons.org/publicdomain/zero/1.0/"
+  ],
+  "allowedPublicUses": {
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "Smithsonian 3D model media public-domain statement and exact high-resolution UUID package listing; source rights evidence retains the requirement to verify this selected file and its material dependencies before further public use. No endorsement, runtime admission or target commit implied."
+  },
+  "canonicalMime": "model/gltf-binary",
+  "canonicalRole": "model",
+  "artworkType": "sculpture",
+  "canonicalTriangles": 20000,
+  "canonicalMaxTextureSize": 512
 }
 ] as const;
