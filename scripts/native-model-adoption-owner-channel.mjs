@@ -13,13 +13,14 @@ const descriptor=value=>typeof value==='string'&&/^[1-9][0-9]{1,3}$/.test(value)
 const unavailable=()=>Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
 
 function otherDescriptors(environment){
+ const list=value=>typeof value==='string'?value.split(','):[];
  return [
   environment.EXHIBITOS_NATIVE_OWNER_FD,environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD,
   environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD,environment.EXHIBITOS_TEST_HAYES_SOURCE_FD,
   environment.EXHIBITOS_NATIVE_OEX_CONTROL_FD,environment.EXHIBITOS_OEX_FORMAT_FD,
   environment.EXHIBITOS_OEX_MATERIALIZER_FD,
-  ...(environment.EXHIBITOS_OEX_PREFLIGHT_FDS??'').split(','),
-  ...(environment.EXHIBITOS_OEX_PACKED_V2_FDS??'').split(','),
+  ...list(environment.EXHIBITOS_OEX_PREFLIGHT_FDS),
+  ...list(environment.EXHIBITOS_OEX_PACKED_V2_FDS),
  ].map(Number);
 }
 
@@ -32,9 +33,9 @@ export function closeUnusedAdoptionDescriptors(environment,{socketTaken=false,ro
  }
 }
 
-export function assertAdoptionPayload(payload,pin,isOrdinaryCatalog045){
- if(!pin){if(payload.hasPath(marker))throw unavailable();return;}
- if(!isOrdinaryCatalog045||payload.digest!==pin.runtimeManifestSha256||
+export function assertAdoptionPayload(payload,pin,isCatalog045,{upgrade=false}={}){
+ if(!pin&&!payload.hasPath(marker))return;
+ if(!isCatalog045||(!pin&&!upgrade)||(pin&&(upgrade||payload.digest!==pin.runtimeManifestSha256))||
     !payload.hasRegular(marker)||!payload.hasExact(marker,markerDigest,51))throw unavailable();
 }
 

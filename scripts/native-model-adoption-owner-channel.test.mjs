@@ -17,7 +17,8 @@ const adoptionOwnerChannel={version:1,runtimeGeneration:id,secret:'b'.repeat(64)
 const hayesOwnerChannel={version:1,runtimeGeneration:id,secret:'d'.repeat(64),nativeOwnerId:id,runtimeManifestSha256:adoptionOwnerChannel.runtimeManifestSha256};
 
 test('accepts the closed Manager adoption envelope in wire order',()=>{
- const {version,...pin}=adoptionOwnerChannel;
+ const {runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256,helper,rootDevice,rootInode}=adoptionOwnerChannel;
+ const pin={runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256,helper,rootDevice,rootInode};
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel,adoptionOwnerChannel}).adoptionOwnerChannel,pin);
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel,hayesOwnerChannel,adoptionOwnerChannel}).adoptionOwnerChannel,pin);
  for(const change of [{extra:1},{secret:ownerChannel.secret},{secret:hayesOwnerChannel.secret},{nativeOwnerId:id},
@@ -49,6 +50,9 @@ test('requires the adoption pin, exact marker and ordinary Catalog 045 together'
  assert.doesNotThrow(()=>assertAdoptionPayload(payload,adoptionOwnerChannel,true));
  assert.doesNotThrow(()=>assertAdoptionPayload({...payload,hasPath:()=>false},undefined,false));
  assert.throws(()=>assertAdoptionPayload(payload,undefined,true));
+ assert.doesNotThrow(()=>assertAdoptionPayload(payload,undefined,true,{upgrade:true}));
+ assert.throws(()=>assertAdoptionPayload(payload,adoptionOwnerChannel,true,{upgrade:true}));
+ assert.throws(()=>assertAdoptionPayload({...payload,hasExact:()=>false},undefined,true,{upgrade:true}));
  assert.throws(()=>assertAdoptionPayload(payload,adoptionOwnerChannel,false));
  for(const change of [{digest:'0'.repeat(64)},{hasRegular:()=>false},{hasExact:()=>false}]){
   assert.throws(()=>assertAdoptionPayload({...payload,...change},adoptionOwnerChannel,true),/NATIVE_MODEL_ADOPTION_UNAVAILABLE/);

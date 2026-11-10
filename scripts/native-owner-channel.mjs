@@ -38,9 +38,9 @@ export function unpackNativeOwnerInput(input){
    typeof adoption.helper!=='string'||!isAbsolute(adoption.helper)||adoption.helper.includes('\0')||
    !validIdentity(adoption.rootDevice)||!validIdentity(adoption.rootInode)||adoption.rootInode==='0'||
    (hasHayes&&(hayes.secret===adoption.secret||hayes.nativeOwnerId===adoption.nativeOwnerId||hayes.runtimeManifestSha256!==adoption.runtimeManifestSha256))))throw Error('NATIVE_OWNER_INPUT');
- const unpackDedicated=({version,...pin})=>pin;
+ const unpackDedicated=({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256})=>({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256});
  return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})},
-   ...(hasHayes?{hayesOwnerChannel:unpackDedicated(hayes)}:{}),...(hasAdoption?{adoptionOwnerChannel:unpackDedicated(adoption)}:{})};
+   ...(hasHayes?{hayesOwnerChannel:unpackDedicated(hayes)}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{})};
 }
 
 /** Receives the Manager hello on its inherited socket; this cannot authenticate

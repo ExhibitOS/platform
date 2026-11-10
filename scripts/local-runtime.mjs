@@ -322,7 +322,8 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});
       stage='WRITER_LEASE';payloadAcquisition=pinNativeOexPayloadManifest(fileURLToPath(new URL('../../manifest.json',import.meta.url))).then(value=>{pinnedPayload=value;return value;});await payloadAcquisition;if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       assertAdoptionPayload(pinnedPayload,privateAdoption,modelPreparationCapability&&
-        !catalog045PreReady&&!freshImageCapability&&!largeModelCapability&&!infoStandPreparationCapability&&!oexCleanupSelection);
+        !catalog045PreReady&&!freshImageCapability&&!largeModelCapability&&!infoStandPreparationCapability&&!oexCleanupSelection,
+        {upgrade:privateOwner.mode==='workspace-furnishing-044-to-045-upgrade-v1'});
       if(privateAdoption){
         await adoptionTask;
         if(!adoptionChannel?.isOpen()||ownerStopped)throw Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
