@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 declare const __EXHIBITOS_STAGING_DIAGNOSTICS__: boolean | undefined;
-export type DiagnosticEvent={atMs:number;assetId:string;artworkRevisionId:string|null;stage:string;errorCode:string|null};
+export type DiagnosticEvent={atMs:number;assetId:string;artworkRevisionId:string|null;stage:string;errorCode:string|null;reservation?:{existingBytes:number;requestedBytes:number;limitBytes:number}};
 export type DiagnosticSnapshot={
  version:1;capturedAt:string;
  lifecycle:'live'|'stopped'|'context-lost';

@@ -70,3 +70,13 @@ it('sanitizes selected stages and excludes unrelated revisions',()=>{
  ]},{publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}}));
  expect(result.snapshot.events).toEqual([{...event,errorCode:null}]);
 });
+
+it('projects only the three byte counts from a model decode refusal',()=>{
+ const reservation={existingBytes:40,requestedBytes:30,limitBytes:60,privateField:'omit'};
+ const event={atMs:1,assetId:first,artworkRevisionId,stage:'model-decode-reservation-refused',errorCode:'ASSET_TRANSITION_PEAK',reservation};
+ const events=[event,{...event,atMs:2,reservation:{...reservation,existingBytes:-1}},{...event,atMs:3,stage:'queued'}];
+ const result=JSON.parse(createDiagnosticReport({...snapshot,events},{publicationId,revisionSha256}));
+ expect(result.snapshot.events.map((value:{reservation?:unknown})=>value.reservation)).toEqual([
+  {existingBytes:40,requestedBytes:30,limitBytes:60},undefined,undefined,
+ ]);
+});

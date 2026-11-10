@@ -30,12 +30,20 @@ function projectEvents(snapshot: DiagnosticSnapshot, selectedRevision: string | 
     const assetId = token(event.assetId, uuid);
     const stage = token(event.stage, stageName);
     if (!assetId || !stage) return [];
+    const reservation = event.reservation;
+    const validReservation = stage === "model-decode-reservation-refused" && reservation &&
+      [reservation.existingBytes, reservation.requestedBytes, reservation.limitBytes].every(value => Number.isSafeInteger(value) && value >= 0);
     return [{
       atMs: number(event.atMs),
       assetId,
       artworkRevisionId: token(event.artworkRevisionId, uuid),
       stage,
       errorCode: token(event.errorCode, errorName),
+      ...(validReservation ? { reservation: {
+        existingBytes: reservation.existingBytes,
+        requestedBytes: reservation.requestedBytes,
+        limitBytes: reservation.limitBytes,
+      } } : {}),
     }];
   };
   const recent = snapshot.events.slice(-64).flatMap(sanitize);

@@ -1978,6 +1978,7 @@ export function GeometryPreview({
         // Keep only the verified header cost when expendable encoded bytes are
         // evicted. Losing the bytes must not restart an impossible warm fetch.
         const imageDecodeCeilings=new Map<string,number>();
+        const blockedModelDecodeBytes=new Map<string,number>();
         const diagnosticEvents=createDiagnosticEvents();
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
@@ -2112,13 +2113,14 @@ export function GeometryPreview({
             prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
           }
         };
-        const reserve=(key:string,bytes:number)=>{
+        const reserve=(key:string,bytes:number,probe=false)=>{
           const task=tasks.get(key),limit=requestLimits(task).transition;
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
+          if(probe){peak.assertFits(key,bytes,limit);return;}
           try{peak.reserve(key,bytes,limit);}catch(error){
             if(task?.detailPromotion&&task.detailBudget&&task.art.artworkType==='sculpture'&&task.art.revisionId===detailPinnedArtwork&&Number.isSafeInteger(bytes)&&bytes>0)
               detailBudgetWait={assetId:task.inventory.id,bytes,phase:'transition'};
@@ -2175,6 +2177,11 @@ export function GeometryPreview({
                 ready.object.userData.loadKey=key;
                 return {object:ready.object,key};
               }
+              // Retry the same verified model against live headroom before
+              // reading its body again. The probe can reclaim expendable data
+              // but does not record a reservation or raise the high-water mark.
+              const blockedBytes=!t.detailPromotion?blockedModelDecodeBytes.get(t.inventory.id):undefined;
+              if(blockedBytes!==undefined)reserve(key,blockedBytes,true);
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
@@ -2187,7 +2194,18 @@ export function GeometryPreview({
                 imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.detailBudget,undefined,t.detailTransfer?.loaded);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>{
+                const limits=requestLimits(t);
+                const required=assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:limits.resident},bytes,'cpu');
+                try{reserve(key,required);}catch(error){
+                  if(error instanceof Error&&error.message==='ASSET_TRANSITION_PEAK'&&t.art.artworkType==='sculpture'&&!t.detailPromotion){
+                    blockedModelDecodeBytes.set(t.inventory.id,required);
+                    if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:t.inventory.id,artworkRevisionId:t.art.revisionId,stage:'model-decode-reservation-refused',errorCode:error.message,reservation:{existingBytes:peak.total(key),requestedBytes:required,limitBytes:limits.transition}});
+                  }
+                  throw error;
+                }
+                if(!t.detailPromotion)blockedModelDecodeBytes.delete(t.inventory.id);
+              },value=>stage(t.inventory.id,value,undefined,key),t.detailBudget,undefined,t.detailTransfer?.loaded);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
