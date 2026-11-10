@@ -1417,6 +1417,7 @@ export function GeometryPreview({
                   }
                 },
                 workspaceBenchAvailability,
+                stoolVisible:publicSource&&hasWorkspaceFurnishings?id=>ownerFurnishings?.stoolVisible(id)===true:undefined,
                 canLookSeated:canUseBench,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
                   panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),

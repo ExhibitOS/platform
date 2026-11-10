@@ -6,7 +6,7 @@ import type { Exhibition } from '@exhibitos/spec';
 import type { InstallationMaterial } from './installation.js';
 import { PRESENTATION_NAMESPACE, presentationFor, validateStudioPresentation } from './index.js';
 import type { StudioCamera } from './index.js';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from './workspace-furnishing.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,isBuiltInGalleryStool,validateWorkspaceFurnishings,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
 export const BENCH_NAMESPACE = 'org.exhibitos.studio/benches';
 export const BENCH_LIMITS = Object.freeze({ benches: 32, materials: 32, boxes: 224, triangles: 2688, bytes: 32768 });
@@ -66,7 +66,7 @@ export function validateStudioBenches(candidate: unknown) {
       add('BENCH_SCHEMA', path, 'Expected a named bounded bench with UUID references'); return;
     }
     const d = b.dimensions, m = b.material;
-    if (!object(d) || !closed(d, ['width','depth','height']) || !finite(d.width,.6,3) || !finite(d.depth,.3,1) || !finite(d.height,.3,.65) || !object(m) || !closed(m,['preset','color','roughness','metalness']) || (m.preset!=='paint'&&m.preset!=='wood'&&m.preset!=='stone'&&m.preset!=='metal') || typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color) || !finite(m.roughness,0,1) || !finite(m.metalness,0,1)) {
+    if (!object(d) || !closed(d, ['width','depth','height']) || !finite(d.width,Object.hasOwn(b,'workspaceVisual')?.38:.6,3) || !finite(d.depth,.3,1) || !finite(d.height,.3,.65) || !object(m) || !closed(m,['preset','color','roughness','metalness']) || (m.preset!=='paint'&&m.preset!=='wood'&&m.preset!=='stone'&&m.preset!=='metal') || typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color) || !finite(m.roughness,0,1) || !finite(m.metalness,0,1)) {
       add('BENCH_SCHEMA', path, 'Invalid size or existing PBR material'); return;
     }
     if (seen.has(b.id.toLowerCase())||workspaceIds.has(b.id.toLowerCase())) add('BENCH_REFERENCE', path+'/id', 'Bench UUID must be unique');
@@ -80,7 +80,10 @@ export function validateStudioBenches(candidate: unknown) {
       const id=link.placementId.toLowerCase();
       const placement=workspace.placements.find(row=>equal(row.id,id));
       const item=placement&&workspace.furnishings.find(row=>equal(row.id,placement.furnishingId)&&row.version===placement.furnishingVersion);
-      if (attachedPlacements.has(id)||!placement||item?.kind!=='bench'||item.model.sha256!==link.modelSha256
+      const supportedSize = item?.kind==='bench'
+        ? d.width>=.6
+        : item!==undefined&&isBuiltInGalleryStool(item)&&d.width===.38&&d.depth===.38&&d.height===.45;
+      if (attachedPlacements.has(id)||!placement||!item||!supportedSize||item.model.sha256!==link.modelSha256
         ||!equal(placement.roomId,b.roomId)||placement.scale!==1||placement.yaw!==b.yaw||!placement.position.every((n,i)=>n===(b.position as [number,number,number])[i])) {
         add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Seat must match its unique workspace bench placement');return;
       }
