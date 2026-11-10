@@ -22,6 +22,11 @@ export interface WorkspaceInfoStandPreparationReceipt {
  runtimeManifestSHA256:string;
 }
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+/** The existing rights schema has no source-bound derivation grant for licensees.
+ * Validate the full rights record and the current use separately. */
+export function isDeclaredFurnishingPreparationOwner(rights:unknown):boolean {
+ return object(rights)&&rights.ownership==='owner';
+}
 const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).sort().join(',')===keys.slice().sort().join(',');
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
 /** Structural checks only; the server must separately validate rights, live

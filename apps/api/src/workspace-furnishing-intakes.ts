@@ -6,7 +6,7 @@ import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {INFO_STAND_PREPARATION_POLICY,artworkFrameModel,isWorkspaceFitReceipt,portalFinishModel,type WorkspaceFitReceipt,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor,type WorkspaceInfoStandPreparationReceipt} from '@exhibitos/studio-contract';
+import {INFO_STAND_PREPARATION_POLICY,isDeclaredFurnishingPreparationOwner,artworkFrameModel,isWorkspaceFitReceipt,portalFinishModel,type WorkspaceFitReceipt,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor,type WorkspaceInfoStandPreparationReceipt} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
@@ -138,8 +138,12 @@ export class WorkspaceFurnishingIntakes {
   await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
   if(value.preparationPolicy){
    if(value.preparationPolicy===FRAME_PREPARATION_POLICY&&!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
-   const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
-   if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,value.preparationPolicy===INFO_STAND_PREPARATION_POLICY?'INFO_STAND_PREPARATION_RIGHTS_DENIED':'FRAME_PREPARATION_RIGHTS_DENIED');
+   if(value.preparationPolicy===INFO_STAND_PREPARATION_POLICY){
+    if(!isDeclaredFurnishingPreparationOwner(value.rights))throw new ApiError(403,'INFO_STAND_PREPARATION_RIGHTS_DENIED');
+   }else{
+    const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
+    if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,'FRAME_PREPARATION_RIGHTS_DENIED');
+   }
   }
   if(value.kind==='portal-finish'&&!value.fitProfile&&!portalFinishModel(value.model.sha256,value.model.bytes))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
   if(!this.admittedDeclaration(value))throw new ApiError(400,'FURNISHING_DECLARATION');
@@ -287,6 +291,7 @@ export class WorkspaceFurnishingIntakes {
     const recipe=row.declaration.preparationPolicy,unsafeCode=infoStand?'INFO_STAND_PREPARATION_UNSAFE':'FRAME_PREPARATION_UNSAFE';
     let result:Buffer,renderable:typeof source;
     if(infoStand){
+     if(!isDeclaredFurnishingPreparationOwner(row.declaration.rights)||!allowedRights(row.declaration.rights,'display'))throw new ApiError(403,'INFO_STAND_PREPARATION_RIGHTS_DENIED');
      result=await prepareInfoStandInWorker(bytes,workerHooks);
      renderable={mime:source.mime,bytes:result.length,sha256:sha256(result)};
     }else{
@@ -322,6 +327,7 @@ export class WorkspaceFurnishingIntakes {
   if(!cleanup){await transact(async()=>{
    await this.owner.assertDatabase(c);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 FOR UPDATE',[this.owner.workspaceId,row.id,token]);
    if(result.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');const current=result.rows[0] as Row;this.checkClaim(current,token);if(current.phase==='cancelling'){cleanup=true;return;}if(current.phase!=='validating')throw Error('FURNISHING_WORKER_OWNERSHIP');
+   if(!error&&prepared&&current.declaration.preparationPolicy===INFO_STAND_PREPARATION_POLICY&&!allowedRights(current.declaration.rights,'display'))error=new ApiError(403,'INFO_STAND_PREPARATION_RIGHTS_DENIED');
    if(error){const code=error instanceof ApiError?error.code:'FURNISHING_VALIDATION_UNAVAILABLE',retryable=!(error instanceof ApiError)||error.code==='FURNISHING_VALIDATION_UNAVAILABLE';await c.query(`UPDATE workspace_furnishing_intakes SET phase='failed',error=$4,retryable=$5,worker_token=NULL${clearWriter},updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3`,[this.owner.workspaceId,row.id,token,{code},retryable]);return;}
    if(!this.admittedDeclaration(current.declaration)||canonical(current.declaration)!==canonical(row.declaration)||current.furnishing_id!==row.furnishing_id||current.furnishing_version!==row.furnishing_version||canonical(this.receipt(current))!==canonical(this.receipt(row))|| (!!current.declaration.preparationPolicy&&!retainedOriginal)!==!!prepared||!!current.declaration.fitProfile!==!!fit)throw Error('FURNISHING_WORKER_OWNERSHIP');
    const {requestId:_requestId,preparationPolicy:_policy,fitProfile:_fitProfile,...fields}=current.declaration;void _requestId;void _policy;void _fitProfile;
