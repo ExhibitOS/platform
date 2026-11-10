@@ -141,10 +141,18 @@ const DEFAULT_FURNISHINGS_RELEASES={
   '1.1.0':{commit:'90fb64d44b9c9fd91bb5c09045f92077484d1030',manifestSHA256:'b0173c3e8c5e0b85b66ca2e4a1f569fc1f5ca811d501b35cccd70739e5c6588f',bytes:4460},
   '1.2.0':{commit:'830dee95df738ab7805cae6a0ff80d1f2639a001',manifestSHA256:'db9427c19ecaaceb3029c49bd4700955fa9a0b2cb568b422d5238f589e44f4e1',bytes:7079},
   '1.3.0':{commit:'5f9e0290c8730034eff06f8d5763c977bd41c843',manifestSHA256:'f168169e9de18b79c78007de7e2a78d9ba2ec1b8d6bb492d5a69ba1ffef0dcd3',bytes:8787},
+  '1.4.0':{commit:'84882f581d7e1d568aea27d7409c8c5c31b44a13',manifestSHA256:'7073f8f6dfd7a1c44e8e2b7206b503a35fa1a59eb992d08191dde5f6c6e86e6e',bytes:9246},
 };
 const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
 const DEFAULT_WORKSPACE_ORIGINALS={'freestanding-info-stand':'info-stand','gallery-stool':'stool','upholstered-gallery-bench':'bench'};
 const DEFAULT_EXIT_ORIGINALS={'closed-exit-door':'barrier','exit-pictogram-sign':'info-stand'};
+const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0'];
+const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
+const DEFAULT_EXIT_SIGN_SOURCE={
+  path:'assets/furnishings/generated-20261109/exit-pictogram-sign/source.glb',
+  bytes:10676,sha256:'9f30718f94b0f0626878731513a0d398907ba87ab0b565445880edecbeda6ed9',
+};
+const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256);
 const DEFAULT_FRAME_ID='black-aluminum-frame';
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
@@ -168,8 +176,8 @@ async function readDefaultFurnishingsManifest(root){
   const manifest=JSON.parse(bytes.toString('utf8'));
   const hosts={...DEFAULT_FURNISHINGS_HOSTS,
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
-    ...(['1.2.0','1.3.0'].includes(version)?DEFAULT_WORKSPACE_ORIGINALS:{}),
-    ...(version==='1.3.0'?DEFAULT_EXIT_ORIGINALS:{}),
+    ...(DEFAULT_WORKSPACE_RELEASES.includes(version)?DEFAULT_WORKSPACE_ORIGINALS:{}),
+    ...(DEFAULT_EXIT_RELEASES.includes(version)?DEFAULT_EXIT_ORIGINALS:{}),
   };
   if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!==version||!Array.isArray(manifest.assets)||manifest.assets.length!==Object.keys(hosts).length)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const seen=new Set();
@@ -179,11 +187,22 @@ async function readDefaultFurnishingsManifest(root){
     seen.add(id);
     if(Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)){
       const path='assets/furnishings/generated-20261109/'+id;
-      if(item.catalogVersion!==1||item.hostKind!==DEFAULT_EXIT_ORIGINALS[id]||
+      const preparedSign=version==='1.4.0'&&id==='exit-pictogram-sign';
+      const provenance=item.provenance;
+      if(item.catalogVersion!==(preparedSign?2:1)||item.hostKind!==DEFAULT_EXIT_ORIGINALS[id]||
         item.model?.path!==path+'/model.glb'||item.model.mime!=='model/gltf-binary'||
-        item.rights?.licenseId!=='CC0-1.0'||item.rights.notice?.path!==path+'/LICENSE-NOTICE.txt'||
-        item.provenance?.sourceSha256!==item.model.sha256||item.provenance?.recipe!=='original-v1')
+        item.rights?.licenseId!=='CC0-1.0'||item.rights.notice?.path!==path+'/LICENSE-NOTICE.txt')
         fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+      if(preparedSign){
+        const source=provenance?.source;
+        if(provenance?.recipe!=='normalize-legacy-sign-texture-r1'||
+          provenance.sourceSha256!==DEFAULT_EXIT_SIGN_SOURCE.sha256||
+          source?.path!==DEFAULT_EXIT_SIGN_SOURCE.path||source.bytes!==DEFAULT_EXIT_SIGN_SOURCE.bytes||source.sha256!==DEFAULT_EXIT_SIGN_SOURCE.sha256||
+          item.model.sha256===source.sha256)
+          fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+      }else if(provenance?.sourceSha256!==item.model.sha256||provenance?.recipe!=='original-v1'){
+        fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+      }
       continue;
     }
     const workspaceOriginal=Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id);
@@ -211,8 +230,8 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
   const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  const includesExitOriginals=release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.3.0'].manifestSHA256;
-  const includesWorkspaceOriginals=includesExitOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.2.0'].manifestSHA256;
+  const includesExitOriginals=isDefaultRelease(release,DEFAULT_EXIT_RELEASES);
+  const includesWorkspaceOriginals=isDefaultRelease(release,DEFAULT_WORKSPACE_RELEASES);
   const bundled=includesWorkspaceOriginals?await readDefaultFurnishingsManifest(sourceRoot):undefined;
   if(bundled&&bundled.release.manifestSHA256!==release.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
@@ -229,10 +248,12 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
     if (entry.rights.licenseId !== 'CC0-1.0') fail('NATIVE_PACKAGE_FURNISHING_INVALID');
     const files = [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256]];
     // Seal the acquired source separately. The frame API resolves model.glb only.
+    const preparedSign=id==='exit-pictogram-sign'&&bundled?.manifest.bundleVersion==='1.4.0';
     if(id===DEFAULT_FRAME_ID)files.push([DEFAULT_FRAME_ROOT+'/source.glb',101768,entry.provenance.sourceSha256]);
+    if(preparedSign)files.push([DEFAULT_EXIT_SIGN_SOURCE.path,DEFAULT_EXIT_SIGN_SOURCE.bytes,DEFAULT_EXIT_SIGN_SOURCE.sha256]);
     for (const [path, bytes, sha256] of files) {
       if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${exitOriginal?'generated-20261109':'user-authored-20261027'}/${id}/`)
-          || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb') || path.includes('..') || path.includes('\\')
+          || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)) || path.includes('..') || path.includes('\\')
           || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
       seen.add(path);
       const input = join(sourceRoot, path), canonical = await checkedSource(input, 'file');
@@ -343,7 +364,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   });
   const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
   if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  if(['1.2.0','1.3.0'].some(version=>furnishingsRelease?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if(isDefaultRelease(furnishingsRelease,DEFAULT_WORKSPACE_RELEASES)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   // mkdir without recursive refuses an existing destination and preserves failures.
   await mkdir(destination, {mode:0o700});
   const root = await realpath(destination), platform = join(root, 'platform');
