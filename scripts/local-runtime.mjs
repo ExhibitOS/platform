@@ -15,7 +15,7 @@ import { FileBlobStore, migrate, migrateInTransaction, transaction } from "../pa
 import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
 import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
 import {closeNativeOwnerDescriptor,openNativeOwnerChannel,unpackNativeOwnerInput} from "./native-owner-channel.mjs";
-import {assertAdoptionPayload,closeUnusedAdoptionDescriptors,inspectAdoptionDescriptors,openAdoptionOwnerChannel} from './native-model-adoption-owner-channel.mjs';
+import {adoptionTargetOnly,assertAdoptionPayload,closeUnusedAdoptionDescriptors,inspectAdoptionDescriptors,openAdoptionOwnerChannel} from './native-model-adoption-owner-channel.mjs';
 import {openHayesOwnerChannel} from "./native-hayes-owner-channel.mjs";
 import {HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,hasHayesReleaseCapability,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,hasHayesDispositionCapability,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,hasHayesOriginalCapability,WORKSPACE_PORTAL_FINISH_CAPABILITY,hasWorkspacePortalFinishCapability,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,hasWorkspaceFramePreparationCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,hasWorkspaceFurnishingArtworkFrameModelsCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,hasWorkspaceFurnishingArtworkFrameCapability,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,hasWorkspaceFurnishingRoomVisualCapability,WORKSPACE_FURNISHING_STOOL_CAPABILITY,hasWorkspaceFurnishingStoolCapability,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,hasWorkspaceMaterialMultimapCapability,assertExactWorkspaceMaterialMultimapCatalog,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,hasWorkspaceMaterialPublicationCapability,assertExactWorkspaceMaterialPublicationCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,preflightNormalOexCatalog,assertExactWorkspacePublicationCatalog,assertWorkspaceImportOwnerMode,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,verifyWorkspaceMaterialMigrations,hasWorkspaceMaterialCapability,hasWorkspaceImportCapability,verifyWorkspaceImportMigrations,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,hasWorkspaceWallImportCapability,verifyWorkspaceWallImportMigration,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256} from "./native-oex-normal-catalog.mjs";
 import { Auth, bootstrap, config } from "../apps/api/dist/auth.js";
@@ -194,6 +194,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
+  let adoptionIsTargetOnly=false;
   let app, proxy, ownerChannel, hayesChannel, adoptionChannel, adoptionOperations, nativeHayesCaller, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, cleanupHandledFailure=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController(),hayesAbort=new AbortController(),adoptionAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
@@ -324,7 +325,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       stage='OWNER_CHANNEL';await ownerTask;if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});
       stage='WRITER_LEASE';payloadAcquisition=pinNativeOexPayloadManifest(fileURLToPath(new URL('../../manifest.json',import.meta.url))).then(value=>{pinnedPayload=value;return value;});await payloadAcquisition;if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
-      assertAdoptionPayload(pinnedPayload,privateAdoption,modelPreparationCapability&&
+      const adoptionCarriedCapability=assertAdoptionPayload(pinnedPayload,privateAdoption,modelPreparationCapability&&
         !catalog045PreReady&&!freshImageCapability&&!largeModelCapability&&!infoStandPreparationCapability&&!oexCleanupSelection,
         {upgrade:privateOwner.mode==='workspace-furnishing-044-to-045-upgrade-v1'});
       if(privateAdoption){
@@ -377,6 +378,10 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       const hayesPreReadyMarker='platform/scripts/'+CATALOG045_PRE_READY_HAYES_MARKER;
       if(catalog045HayesPreReady?!pinnedPayload.hasExact(hayesPreReadyMarker,createHash('sha256').update(CATALOG045_PRE_READY_HAYES_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG045_PRE_READY_HAYES_CAPABILITY)):pinnedPayload.hasPath(hayesPreReadyMarker))throw Error('NATIVE_OEX_CATALOG');
       ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission,{allowInterruptedReopen:freshImageCapability||largeModelRecoveryCapability||catalog045PreReady});
+      if(adoptionDescriptors){
+        assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
+        adoptionIsTargetOnly=adoptionTargetOnly(ordinaryAdmission.fields,adoptionCarriedCapability);
+      }
       if(Boolean(preReadyHayesCompletion)!==(catalog045HayesPreReady&&ordinaryAdmission.fields.admissionKind==='interrupted-reopen'))throw Error('FURNISHING_ADMISSION_INVALID');
       ordinaryStop=furnishingOrdinaryStopControl(ordinaryAdmission,ownerChannel,Buffer.from(privateOwner.secret,'hex'));
       supplementalMigrationDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
@@ -481,8 +486,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     if(adoptionDescriptors){
       const assertAdoptionLive=async()=>{
         if(!isOwnerAvailable()||!adoptionChannel?.isOpen()||adoptionAbort.signal.aborted||
-           !['fresh-empty','clean-reopen'].includes(ordinaryAdmission?.fields.admissionKind)||
-           ordinaryAdmission.fields.restoreProof||ordinaryAdmission.fields.carriedRestoreProof)
+           ordinaryAdmission.writer!==writerLease)
           throw Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
         assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
         await writerLease.assertLive();
@@ -497,7 +501,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
         channel:adoptionChannel,runtimeGeneration:privateAdoption.runtimeGeneration,owner:{...operatorOwner,...nativeOperator},
         auth:new Auth(pool),studio:new Studio(nativeOexWorkspace,true,workspaceMaterial,workspaceFurnishing),
         cms:new Cms(blobs),imports:importer,blobs,broker:adoptionDescriptors.broker,signal:adoptionAbort.signal,
-        assertLive:assertAdoptionLive,
+        assertLive:assertAdoptionLive,targetOnly:adoptionIsTargetOnly,
       });
       void adoptionOperations.catch(()=>{if(!stopping){terminalFailure=true;process.exitCode=1;void close().catch(()=>{});}});
     }

@@ -27,7 +27,7 @@ it('requires an exact generation, operation and grant digest on the private adop
  const status={version:1,kind:'adoption-status-target',operationId,runtimeGeneration,grantSha256:frame.grantSha256};
  expect(read(status)).toEqual({kind:status.kind,operationId,grantSha256:frame.grantSha256});
  const controller=new AbortController();
- const send=vi.fn(async(_bytes:Uint8Array)=>{controller.abort();});
+ const send=vi.fn<(bytes:Uint8Array)=>Promise<void>>(async()=>{controller.abort();});
  const close=vi.fn(async()=>{});
  const authenticate=vi.fn();
  await runNativeModelAdoptionOwner({
@@ -43,4 +43,21 @@ it('requires an exact generation, operation and grant digest on the private adop
  });
  expect(close).toHaveBeenCalledOnce();
 
+});
+
+it('refuses source staging on a carried target before authorization or broker access',async()=>{
+ const controller=new AbortController();
+ const operationId=randomUUID(),runtimeGeneration=randomUUID();
+ const stage={version:1,kind:'adoption-stage-source',operationId,runtimeGeneration,sourceArtworkId:randomUUID(),sourceArtworkRevision:1,target:{},expiresAt:Date.now()+10000};
+ const authenticate=vi.fn();
+ let response:unknown;
+ await runNativeModelAdoptionOwner({
+  runtimeGeneration,targetOnly:true,signal:controller.signal,owner:{} as never,
+  channel:{send:async bytes=>{response=JSON.parse(Buffer.from(bytes).toString());controller.abort();},
+   close:async()=>{},isOpen:()=>true,receive:async()=>Buffer.from(JSON.stringify(stage))},
+  auth:{requestForNativeWorkspaceMutation:authenticate} as never,
+  studio:{} as never,cms:{} as never,imports:{} as never,blobs:{} as never,broker:{} as never,assertLive:async()=>{},
+ });
+ expect(authenticate).not.toHaveBeenCalled();
+ expect(response).toMatchObject({kind:'adoption-refused',operationId});
 });

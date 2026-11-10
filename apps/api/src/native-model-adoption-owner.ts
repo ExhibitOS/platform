@@ -59,7 +59,7 @@ export function parseNativeModelAdoptionRequest(bytes:Buffer,runtimeGeneration:s
 export async function runNativeModelAdoptionOwner(input:{
  channel:Channel;runtimeGeneration:string;owner:{workspaceId:string;tenantId:string;principalId:string;sessionToken:string;csrfToken:string};
  auth:Auth;studio:Studio;cms:Cms;imports:Imports;blobs:BlobStore;
- broker:NativeAdoptionBroker;signal:AbortSignal;assertLive:()=>Promise<void>;
+ broker:NativeAdoptionBroker;signal:AbortSignal;assertLive:()=>Promise<void>;targetOnly?:boolean;
 }){
  const {channel,runtimeGeneration,owner,auth,studio,cms,imports,blobs,broker,signal}=input;
  let preview:{operationId:string;grantSha256:string;expiresAt:number}|undefined;
@@ -93,6 +93,7 @@ export async function runNativeModelAdoptionOwner(input:{
    try{
     await live();
     if(kind==='adoption-stage-source'){
+     if(input.targetOnly)throw refused();
      const grant=await transaction((c,s)=>stageNativeModelAdoptionSource(c,s,{artworkId:request.sourceArtworkId,artworkRevision:request.sourceArtworkRevision},
       {operationId,target:request.target,expiresAt:request.expiresAt},broker,cms,imports,blobs,signal));
      result={kind:'adoption-source-staged',payload:{grant}};

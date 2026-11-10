@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {closeSync,mkdtempSync,openSync,realpathSync,rmSync,statSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
 import {unpackNativeOwnerInput} from './native-owner-channel.mjs';
-import {ADOPTION_OWNER_FD,ADOPTION_ROOT_FD,assertAdoptionPayload,inspectAdoptionDescriptors} from './native-model-adoption-owner-channel.mjs';
+import {ADOPTION_OWNER_FD,ADOPTION_ROOT_FD,ADOPTION_MARKER,ADOPTION_CAPABILITY,ADOPTION_CARRIED_TARGET_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY,adoptionTargetOnly,assertAdoptionPayload,inspectAdoptionDescriptors} from './native-model-adoption-owner-channel.mjs';
 
 const id='11111111-1111-4111-8111-111111111111';
 const nativeOwnerId='22222222-2222-4222-8222-222222222222';
@@ -57,6 +58,30 @@ test('requires the adoption pin, exact marker and ordinary Catalog 045 together'
  for(const change of [{digest:'0'.repeat(64)},{hasRegular:()=>false},{hasExact:()=>false}]){
   assert.throws(()=>assertAdoptionPayload({...payload,...change},adoptionOwnerChannel,true),/NATIVE_MODEL_ADOPTION_UNAVAILABLE/);
  }
+});
+
+test('carried target requires the separate pinned capability and clean authenticated reopen',()=>{
+ const markers=new Map([
+  ['platform/scripts/'+ADOPTION_MARKER,ADOPTION_CAPABILITY],
+  ['platform/scripts/'+ADOPTION_CARRIED_TARGET_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY],
+ ]);
+ const payload={digest:adoptionOwnerChannel.runtimeManifestSha256,hasPath:path=>markers.has(path),
+  hasRegular:path=>markers.has(path),hasExact:(path,digest,bytes)=>markers.has(path)&&
+   Buffer.byteLength(markers.get(path))===bytes&&createHash('sha256').update(markers.get(path)).digest('hex')===digest};
+ assert.equal(assertAdoptionPayload(payload,adoptionOwnerChannel,true),true);
+ assert.throws(()=>assertAdoptionPayload(payload,undefined,true,{upgrade:true}));
+ assert.throws(()=>assertAdoptionPayload({...payload,digest:'d'.repeat(64)},adoptionOwnerChannel,true));
+ const clean={admissionKind:'clean-reopen',carriedRestoreProof:{}};
+ assert.equal(adoptionTargetOnly(clean,true),true);
+ assert.equal(adoptionTargetOnly({admissionKind:'clean-reopen'},true),false);
+ assert.equal(adoptionTargetOnly({admissionKind:'fresh-empty'},true),false);
+ assert.throws(()=>adoptionTargetOnly(clean,false));
+ for(const admissionKind of ['verified-restore','interrupted-reopen','fresh-empty'])assert.throws(()=>adoptionTargetOnly({...clean,admissionKind},true));
+ assert.throws(()=>adoptionTargetOnly({...clean,restoreProof:{}},true));
+ markers.set('platform/scripts/'+ADOPTION_CARRIED_TARGET_MARKER,'wrong');
+ assert.throws(()=>assertAdoptionPayload(payload,adoptionOwnerChannel,true));
+ markers.delete('platform/scripts/'+ADOPTION_CARRIED_TARGET_MARKER);
+ assert.equal(assertAdoptionPayload(payload,adoptionOwnerChannel,true),false);
 });
 
 function frame(value){

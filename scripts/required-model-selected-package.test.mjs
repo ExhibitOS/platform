@@ -32,7 +32,7 @@ test('selected045 rejects missing ordinary prerequisites and probe configuration
 
 test('adoption packaging requires an ordinary 045 profile and pins the Manager marker',async()=>{
  const ordinary={modelPreparationSelected:true,modelAdoptionSelected:true};
- for(const config of [{modelAdoptionSelected:true},{modelAdoptionSelected:'true'},
+ for(const config of [{modelAdoptionSelected:true},{modelAdoptionSelected:'true'},{modelAdoptionCarriedTargetSelected:true},{...ordinary,modelAdoptionCarriedTargetSelected:'true'},
   ...['catalog045PreReadyPreservation','catalog045PreReadyHayesPreservation','freshImageSelected','largeModelSelected','infoStandPreparationSelected'].map(key=>({...ordinary,[key]:true}))]){
   await assert.rejects(packageNativeRuntime('/unused',config),/NATIVE_PACKAGE_INPUT_INVALID/);
  }

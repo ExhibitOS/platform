@@ -8,7 +8,11 @@ export const ADOPTION_OWNER_FD='EXHIBITOS_NATIVE_MODEL_ADOPTION_FD';
 export const ADOPTION_ROOT_FD='EXHIBITOS_NATIVE_MODEL_ADOPTION_ROOT_FD';
 export const ADOPTION_MARKER='native-model-adoption-capability-v1.json';
 export const ADOPTION_CAPABILITY='{"version":1,"profile":"native-model-adoption-v1"}\n';
+export const ADOPTION_CARRIED_TARGET_MARKER='native-model-adoption-carried-target-capability-v1.json';
+export const ADOPTION_CARRIED_TARGET_CAPABILITY='{"version":1,"profile":"native-model-adoption-carried-target-v1"}\n';
 const marker='platform/scripts/'+ADOPTION_MARKER;
+const carriedMarker='platform/scripts/'+ADOPTION_CARRIED_TARGET_MARKER;
+const carriedDigest='064a5034b9146eacfebcdbbcde56a8cd8b8e7ba28b27e097113ec11c625f3281';
 const markerDigest='1cc2e6bc81fec1ef0aa6b6643dd177feff9480ad690d7b1b75e870b5072ca4a3';
 
 const descriptor=value=>typeof value==='string'&&/^[1-9][0-9]{1,3}$/.test(value)&&Number(value)<=1023;
@@ -36,9 +40,21 @@ export function closeUnusedAdoptionDescriptors(environment,{socketTaken=false,ro
 }
 
 export function assertAdoptionPayload(payload,pin,isCatalog045,{upgrade=false}={}){
- if(!pin&&!payload.hasPath(marker))return;
+ const carried=payload.hasPath(carriedMarker);
+ if(!pin&&!carried&&!payload.hasPath(marker))return false;
  if(!isCatalog045||(!pin&&!upgrade)||(pin&&(upgrade||payload.digest!==pin.runtimeManifestSha256))||
     !payload.hasRegular(marker)||!payload.hasExact(marker,markerDigest,Buffer.byteLength(ADOPTION_CAPABILITY)))throw unavailable();
+ if(carried&&(!pin||!payload.hasRegular(carriedMarker)||
+    !payload.hasExact(carriedMarker,carriedDigest,Buffer.byteLength(ADOPTION_CARRIED_TARGET_CAPABILITY))))throw unavailable();
+ return carried;
+}
+
+/** Classify the fields from the authenticated, issued ordinary admission. */
+export function adoptionTargetOnly(fields,allowCarriedTarget){
+ if(!fields||fields.restoreProof||!['fresh-empty','clean-reopen'].includes(fields.admissionKind))throw unavailable();
+ if(!fields.carriedRestoreProof)return false;
+ if(!allowCarriedTarget||fields.admissionKind!=='clean-reopen')throw unavailable();
+ return true;
 }
 
 // Validate the inherited pair before opening any channel. The caller owns both
