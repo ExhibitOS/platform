@@ -103,5 +103,5 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
   const handle=mountedStools.get(id.toLowerCase());
   return Boolean(handle?.object.visible&&handle.object.parent);
  };
- return {start,enforce,dispose,ledger,seatAvailability,publicBarrier,stoolVisible,walkingCollisions:()=>[...mountedCollision.values()],reservePreview:(draws:number,triangles:number)=>scope.reserve(draws,triangles),stats:()=>({loaded,failed})};
+ return {start,enforce,dispose,ledger,seatAvailability,publicBarrier,stoolVisible,seatVisuals:()=>new Map([...mountedSeats].filter(([,handle])=>handle.object.visible).map(([id,handle])=>[id,handle.object])),walkingCollisions:()=>[...mountedCollision.values()],reservePreview:(draws:number,triangles:number)=>scope.reserve(draws,triangles),stats:()=>({loaded,failed})};
 }

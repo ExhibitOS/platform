@@ -8,6 +8,7 @@ export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
 export function directionalNormalBias(width:number,height:number,radius:number){
   return Math.max(.01,Math.max(width,height)/512*(Math.sqrt(.9)*radius+Math.SQRT2));
 }
+const supportMaterialHooks=new WeakMap<THREE.Material,THREE.Material['onBeforeCompile']>();
 type Candidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D};
 export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number};
 
@@ -39,11 +40,12 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
   return true;
 }
 
-/** One static depth pass in one existing room. Camera movement never invalidates it.
+/** One depth pass in one existing room. Only an actual room change retargets it.
  * No point-light cube maps, new lights, authored material changes or full-scene pass. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
   candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void) {
   let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
+  let currentRoom:THREE.Object3D|undefined;
   const original={enabled:renderer.shadowMap.enabled,autoUpdate:renderer.shadowMap.autoUpdate,type:renderer.shadowMap.type};
   const flags=new Map<THREE.Mesh,{cast:boolean;receive:boolean}>();
   const hooks=new Map<THREE.Mesh,{before:THREE.Mesh['onBeforeShadow'];after:THREE.Mesh['onAfterShadow'];ownedBefore:THREE.Mesh['onBeforeShadow'];ownedAfter:THREE.Mesh['onAfterShadow']}>();
@@ -62,7 +64,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const installPlanarDepth=(mesh:THREE.Mesh)=>{
     const material=mesh.material;
     if(Array.isArray(material)||material.shadowSide!==null||material instanceof three.ShaderMaterial||
-      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
+      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&supportMaterialHooks.get(material)!==material.onBeforeCompile||
       mesh instanceof three.SkinnedMesh||mesh instanceof three.InstancedMesh||('isBatchedMesh'in mesh&&mesh.isBatchedMesh)||('isInstancedBufferGeometry'in mesh.geometry&&mesh.geometry.isInstancedBufferGeometry)||
       mesh.customDepthMaterial||mesh.customDistanceMaterial||
       mesh.onBeforeShadow!==three.Object3D.prototype.onBeforeShadow||mesh.onAfterShadow!==three.Object3D.prototype.onAfterShadow||
@@ -117,7 +119,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(disposed||!dirty)return;dirty=false;
     if(disabled){emit(disabled);return;}
     restoreFlags();if(selected)selected.light.castShadow=false;
-    const previous=selected;selected=candidates.find(candidate=>candidate.light.intensity>0&&fit(candidate));
+    const previous=selected;selected=candidates.find(candidate=>(!currentRoom||candidate.room===currentRoom)&&candidate.light.intensity>0&&fit(candidate));
     if(previous&&previous.light!==selected?.light)releaseMap(previous.light);
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
     const meshes:THREE.Mesh[]=[],receivers:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
@@ -146,5 +148,114 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
-  return {flush,afterRender,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+  const setRoom=(room:THREE.Object3D|undefined)=>{
+    if(disposed||disabled||room===currentRoom)return;
+    currentRoom=room;
+    dirty=true;
+  };
+  return {flush,afterRender,setRoom,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+}
+
+export type SupportContact = {
+  room:THREE.Group;receiver:THREE.Object3D;
+  position:readonly [number,number,number];rotation:readonly [number,number,number,number];
+  width:number;height:number;
+};
+const CONTACT_LIMIT=16,ROOM_CONTACT_LIMIT=8;
+/** Shallow receiver shading adds no geometry, depth target, texture or draw.
+ * Uniform byte counts are upload estimates; compiled program storage is unknown. */
+export function installSupportContactShadows(three:typeof THREE,contacts:readonly SupportContact[],
+  compact:boolean,report:(value:{activeContacts:number;activeTriangles:number;drawCalls:number;textureBytes:number;uniformBytes:number;materials:number;programBytes:null})=>void){
+  const byRoom=new Map<THREE.Group,SupportContact[]>();let admitted=0;
+  for(const row of contacts){
+    if(admitted>=CONTACT_LIMIT)break;
+    if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
+      Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||
+      ![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
+    const rows=byRoom.get(row.room)??[];if(rows.length>=ROOM_CONTACT_LIMIT)continue;
+    rows.push(row);byRoom.set(row.room,rows);admitted++;
+  }
+  const uniforms={
+    exhibitosContactMatrices:{value:Array.from({length:ROOM_CONTACT_LIMIT},()=>new three.Matrix4())},
+    exhibitosContactCount:{value:0},exhibitosContactOpacity:{value:compact?.18:.14},
+  };
+  type Hook={before:THREE.Material['onBeforeCompile'];key:THREE.Material['customProgramCacheKey'];owned:THREE.Material['onBeforeCompile'];ownedKey:THREE.Material['customProgramCacheKey'];hadMarker:boolean;marker:unknown};
+  const hooks=new Map<THREE.Material,Hook>();let active:THREE.Group|undefined,disposed=false;
+  const publish=()=>report({activeContacts:uniforms.exhibitosContactCount.value,activeTriangles:0,drawCalls:0,textureBytes:0,
+    uniformBytes:hooks.size?ROOM_CONTACT_LIMIT*16*4+8:0,materials:hooks.size,programBytes:null});
+  const restore=()=>{
+    uniforms.exhibitosContactCount.value=0;
+    for(const [material,h]of hooks){
+      if(material.onBeforeCompile===h.owned)material.onBeforeCompile=h.before;
+      if(material.customProgramCacheKey===h.ownedKey)material.customProgramCacheKey=h.key;
+      if(material.userData.exhibitosSupportContact===uniforms){
+        if(h.hadMarker)material.userData.exhibitosSupportContact=h.marker;else delete material.userData.exhibitosSupportContact;
+      }
+      supportMaterialHooks.delete(material);
+      // Clear the owned program's cached uniform references before optional
+      // readmission. Material values and externally owned textures stay intact.
+      material.needsUpdate=true;material.dispose();
+    }
+    hooks.clear();
+  };
+  const install=(material:THREE.Material)=>{
+    if(hooks.has(material)||hooks.size>=16||!(material instanceof three.MeshStandardMaterial)||
+      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
+      material.customProgramCacheKey!==three.Material.prototype.customProgramCacheKey)return;
+    const before=material.onBeforeCompile,key=material.customProgramCacheKey,baseKey=key.call(material);
+    const owned:THREE.Material['onBeforeCompile']=(shader,renderer)=>{
+      before.call(material,shader,renderer);
+      Object.assign(shader.uniforms,uniforms);
+      shader.vertexShader='varying vec3 vExhibitosContactWorld;\n'+shader.vertexShader.replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
+        vec4 contactWorld=vec4(transformed,1.0);
+        #ifdef USE_BATCHING
+          contactWorld=batchingMatrix*contactWorld;
+        #endif
+        #ifdef USE_INSTANCING
+          contactWorld=instanceMatrix*contactWorld;
+        #endif
+        vExhibitosContactWorld=(modelMatrix*contactWorld).xyz;`);
+      shader.fragmentShader=`varying vec3 vExhibitosContactWorld;
+        uniform mat4 exhibitosContactMatrices[8];
+        uniform int exhibitosContactCount;
+        uniform float exhibitosContactOpacity;
+      `+shader.fragmentShader.replace('#include <opaque_fragment>',`
+        float contactStrength=0.0;
+        vec3 contactNormal=inverseTransformDirection(normal,viewMatrix);
+        for(int contactIndex=0;contactIndex<8;contactIndex++){
+          if(contactIndex<exhibitosContactCount){
+            mat4 contactMatrix=exhibitosContactMatrices[contactIndex];
+            vec3 contactPoint=(contactMatrix*vec4(vExhibitosContactWorld,1.0)).xyz;
+            vec3 planeNormal=normalize(vec3(contactMatrix[0][2],contactMatrix[1][2],contactMatrix[2][2]));
+            if(abs(contactPoint.z)<0.008&&dot(contactNormal,planeNormal)>0.5){
+              vec2 contactUV=contactPoint.xy*2.0;
+              float support=max(0.0,1.0-dot(contactUV,contactUV));
+              contactStrength=max(contactStrength,support*support);
+            }
+          }
+        }
+        outgoingLight*=1.0-contactStrength*exhibitosContactOpacity;
+        #include <opaque_fragment>`);
+    };
+    const ownedKey=()=>baseKey+'|exhibitos-support-contact-v1';
+    hooks.set(material,{before,key,owned,ownedKey,hadMarker:Object.hasOwn(material.userData,'exhibitosSupportContact'),marker:material.userData.exhibitosSupportContact});
+    material.onBeforeCompile=owned;material.customProgramCacheKey=ownedKey;material.userData.exhibitosSupportContact=uniforms;
+    supportMaterialHooks.set(material,owned);material.needsUpdate=true;
+  };
+  const setRoom=(room:THREE.Group|undefined)=>{
+    if(disposed||room===active)return;restore();active=room;
+    const rows=room&&byRoom.get(room);
+    if(rows&&room){
+      room.updateWorldMatrix(true,false);
+      rows.forEach((row,index)=>{
+        const local=new three.Matrix4().compose(new three.Vector3().fromArray(row.position),new three.Quaternion().fromArray(row.rotation),new three.Vector3(row.width,row.height,1));
+        uniforms.exhibitosContactMatrices.value[index]!.multiplyMatrices(room.matrixWorld,local).invert();
+        row.receiver.traverseVisible(node=>{if(node instanceof three.Mesh)for(const m of Array.isArray(node.material)?node.material:[node.material])install(m);});
+      });
+      if(hooks.size)uniforms.exhibitosContactCount.value=rows.length;
+    }
+    publish();
+  };
+  const dispose=()=>{if(disposed)return;disposed=true;restore();active=undefined;publish();};
+  publish();return {setRoom,dispose};
 }
