@@ -15,5 +15,5 @@ test('the packaged furnishing admission and recovery modules import without the 
 
 test('packaged owner channel modules load without the source tree',async()=>{
  const output=await mkdtemp(join(tmpdir(),'native-owner-package-'));
- try{await copyNativeOwnerSupport(fileURLToPath(new URL('../',import.meta.url)),output);const normal=await import(pathToFileURL(join(output,'scripts/native-owner-channel.mjs')).href),hayes=await import(pathToFileURL(join(output,'scripts/native-hayes-owner-channel.mjs')).href);assert.equal(typeof normal.openNativeOwnerChannel,'function');assert.equal(typeof hayes.openHayesOwnerChannel,'function');}finally{await rm(output,{recursive:true,force:true});}
+ try{await copyNativeOwnerSupport(fileURLToPath(new URL('../',import.meta.url)),output);const normal=await import(pathToFileURL(join(output,'scripts/native-owner-channel.mjs')).href),hayes=await import(pathToFileURL(join(output,'scripts/native-hayes-owner-channel.mjs')).href);assert.equal(typeof normal.openNativeOwnerChannel,'function');assert.equal(typeof hayes.openHayesOwnerChannel,'function');const adoption=await import(pathToFileURL(join(output,'scripts/native-model-adoption-owner-channel.mjs')).href);assert.equal(typeof adoption.openAdoptionOwnerChannel,'function');}finally{await rm(output,{recursive:true,force:true});}
 });

@@ -334,7 +334,7 @@ async function copyPostgres(postgresRoot, root, selection) {
 }
 
 export async function copyNativeOwnerSupport(sourceRoot,platformRoot){
- for(const name of ['native-owner-channel.mjs','native-hayes-owner-channel.mjs','native-owner-frames.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
+ for(const name of ['native-owner-channel.mjs','native-hayes-owner-channel.mjs','native-owner-frames.mjs','native-model-adoption-owner-channel.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
 }
 export async function copyNativeFurnishingSupport(sourceRoot,platformRoot){
  for(const name of ['native-workspace-furnishing-lease.mjs','native-workspace-furnishing-fd.mjs','native-workspace-furnishing-admission.mjs','native-workspace-furnishing-ordinary-assertion.mjs','native-workspace-furnishing-recovery.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
