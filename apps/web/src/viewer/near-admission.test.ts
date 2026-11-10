@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {residentMinimumFits} from './resident-minimum-wait';
 import {detailResidentRetryReady} from './borrowed-detail-preview';
-import {stagingHayesDetailBudget,modelDecodeReserve,deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
+import {materialPlanningCapacity,stagingHayesDetailBudget,modelDecodeReserve,deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
 
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
@@ -193,4 +193,90 @@ test('known high-memory Compact leaves headroom after observed reservations whil
  expect(live.total()).toBe(residentAtAdmission+required);
  expect(candidate).toMatchObject({maxTriangles:20000,maxSceneTriangles:100000,maxTextureSize:512,maxPixelRatio:1,concurrency:2});
  for(const memory of [undefined,2,4,6,NaN,Infinity])expect(selectedDeviceBudget('compact',{deviceMemory:memory}).maxSceneTriangles).toBeUndefined();
+});
+
+test('no-hint minimum trial is opt-in and preserves known-memory and weaker-device policies',()=>{
+ for(const profile of ['auto','compact','desktop'] as const){
+  for(const deviceMemory of [2,4,6,8,16,NaN,Infinity]){
+   const input={deviceMemory,coarsePointer:true,finePointer:false};
+   expect(selectedDeviceBudget(profile,input,true)).toEqual(selectedDeviceBudget(profile,input));
+  }
+ }
+ const input={coarsePointer:true,finePointer:false};
+ expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('compact',input,true)).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
+ expect(selectedDeviceBudget('auto',input,true)).toEqual({...selectedDeviceBudget('auto',input),maxSceneTriangles:200000});
+ const ordinaryScene=94507-20000+100000;
+ expect(ordinaryScene).toBeGreaterThan(selectedDeviceBudget('auto',input).maxTriangles);
+ expect(ordinaryScene).toBeLessThan(selectedDeviceBudget('auto',input,true).maxSceneTriangles!);
+ expect(selectedDeviceBudget('desktop',input,true)).toEqual(selectedDeviceBudget('desktop',input));
+});
+test('desktop-like no-hint trial separates aggregate headroom from asset eligibility and live pressure',()=>{
+ const input={coarsePointer:false,finePointer:true};
+ for(const profile of ['auto','desktop'] as const){
+  const baseline=selectedDeviceBudget(profile,input),trial=selectedDeviceBudget(profile,input,true);
+  expect(trial).toEqual({...baseline,maxSceneTriangles:400000});
+  expect(trial.maxCacheBytes).toBe(320*1024*1024);expect(trial.maxTransitionBytes).toBe(416*1024*1024);
+  const aggregate=94493+2*150000;
+  expect(aggregate).toBeGreaterThan(baseline.maxSceneTriangles??baseline.maxTriangles);
+  expect(aggregate).toBeLessThan(trial.maxSceneTriangles!);
+  const ledger=new AssetPeakBudget(trial.maxTransitionBytes!,()=>trial.maxCacheBytes);
+  expect(()=>ledger.reserve('actual-pressure',97*1024*1024)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(ledger.reservedBytes()).toBe(0);
+ }
+ expect(selectedDeviceBudget('auto',{},true)).toEqual(selectedDeviceBudget('auto',{}));
+});
+
+test('resident headroom requires both bits and preserves all known or invalid hints',()=>{
+ for(const profile of ['auto','compact','desktop'] as const)for(const input of [{},{coarsePointer:true,finePointer:false},{coarsePointer:false,finePointer:true}]){
+  expect(selectedDeviceBudget(profile,input,false,true)).toEqual(selectedDeviceBudget(profile,input));
+  for(const deviceMemory of [-Infinity,-1,0,2,4,6,8,16,NaN,Infinity]){
+   expect(selectedDeviceBudget(profile,{...input,deviceMemory},true,true)).toEqual(selectedDeviceBudget(profile,{...input,deviceMemory}));
+  }
+ }
+});
+test('headroom changes only byte ceilings and freezes control material planning',()=>{
+ const mib=1024*1024;
+ for(const input of [{coarsePointer:true,finePointer:false},{coarsePointer:true,finePointer:true},{coarsePointer:false,finePointer:true}])for(const profile of ['auto','desktop'] as const){
+  const control=selectedDeviceBudget(profile,input,true),candidate=selectedDeviceBudget(profile,input,true,true);
+  const fineOnly=!input.coarsePointer;
+  expect(candidate).toEqual({...control,maxCacheBytes:(fineOnly?512:336)*mib,maxTransitionBytes:(fineOnly?640:448)*mib,materialPlanningBytes:control.maxCacheBytes});
+  const reservations=122338006,frame=mib;
+  expect(materialPlanningCapacity(candidate.maxCacheBytes-reservations,frame,candidate)).toBe(materialPlanningCapacity(control.maxCacheBytes-reservations,frame,control));
+  expect(selectedDeviceBudget('compact',input,true,true)).toEqual(selectedDeviceBudget('compact',input,true));
+ }
+ expect(selectedDeviceBudget('auto',{},true,true)).toEqual(selectedDeviceBudget('auto',{},true));
+});
+test('material planning ceiling validates its bounded optional capacity',()=>{
+ expect(materialPlanningCapacity(100,10)).toBe(90);
+ expect(materialPlanningCapacity(5,10,{maxCacheBytes:100})).toBe(0);
+ expect(materialPlanningCapacity(100,10,{maxCacheBytes:100,materialPlanningBytes:100})).toBe(90);
+ expect(materialPlanningCapacity(5,10,{maxCacheBytes:100,materialPlanningBytes:50})).toBe(0);
+ for(const materialPlanningBytes of [0,-1,NaN,Infinity,1.5,101,Number.MAX_SAFE_INTEGER+1])expect(()=>materialPlanningCapacity(100,10,{maxCacheBytes:100,materialPlanningBytes})).toThrow('MATERIAL_PLANNING_BUDGET');
+});
+test('measured ordinary model and retained cache fit headroom after worst observed holds while live pressure stays charged',()=>{
+ const input={coarsePointer:true,finePointer:false},control=selectedDeviceBudget('auto',input,true),candidate=selectedDeviceBudget('auto',input,true,true);
+ const reservations=122338006,retained=62122239+17874905,modelResident=7916928+117440512,completeReserve=205541760;
+ expect(modelResident).toBe(125357440);expect(retained+modelResident).toBe(205354584);
+ expect(control.maxCacheBytes-reservations).toBe(78988586);
+ const effective=candidate.maxCacheBytes-reservations;
+ expect(effective).toBe(229983530);expect(effective-retained-modelResident).toBe(24628946);
+ expect(residentMinimumFits(retained,modelResident,control.maxCacheBytes-reservations)).toBe(false);
+ expect(residentMinimumFits(retained,modelResident,effective)).toBe(true);
+ const transition=candidate.maxTransitionBytes!-reservations;expect(transition).toBe(347424042);
+ const live=new AssetPeakBudget(transition,()=>retained);
+ live.reserve('model-complete',completeReserve);expect(live.total()).toBe(retained+completeReserve);
+ expect(()=>live.reserve('pressure',transition-retained-completeReserve+1)).toThrow('ASSET_TRANSITION_PEAK');
+ expect(live.total()).toBe(retained+completeReserve);
+ expect(residentMinimumFits(effective,modelResident,effective)).toBe(false);
+});
+test('desktop two-model cost arithmetic remains synthetic and per-asset geometry is unchanged',()=>{
+ const input={coarsePointer:false,finePointer:true};
+ for(const profile of ['auto','desktop'] as const){
+  const control=selectedDeviceBudget(profile,input,true),candidate=selectedDeviceBudget(profile,input,true,true);
+  const effective=candidate.maxCacheBytes-155368150;
+  expect(effective).toBe(381502762);
+  expect(2*125357440).toBeLessThan(effective);
+  expect(candidate.maxSceneTriangles).toBe(400000);expect(candidate.maxTriangles).toBe(control.maxTriangles);
+ }
 });

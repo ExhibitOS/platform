@@ -22,7 +22,7 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
 import { AudioMenu } from "./viewer/AudioMenu";
-import { selectedDeviceBudget } from "./viewer/loading";
+import { selectedDeviceBudget,stagingNoHintMinimumTrialEnabled,stagingNoHintResidentHeadroomEnabled } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode,type HintPose } from "./ViewerInputGuide";
 import {VisitorMap} from './viewer/VisitorMap';
@@ -284,7 +284,7 @@ export function Viewer({
         pixelRatio:devicePixelRatio,
         coarsePointer:entryCoarsePointer.current,
         finePointer:entryFinePointer.current,
-      }),
+      },stagingNoHintMinimumTrialEnabled(),stagingNoHintResidentHeadroomEnabled()),
     [profile],
   );
   const source = useMemo(

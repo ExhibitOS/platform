@@ -2,7 +2,7 @@
 import type {PublicationAssetFetcher} from '../publication-client';
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
+export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -29,7 +29,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
- // Use the verified touch support floor when the browser supplies no hint.
+ // Preserve the existing touch allowance when the browser supplies no hint.
  // Pointer input selects the policy; it does not identify a device model.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
@@ -55,7 +55,7 @@ export function stagingHayesDetailBudget(input:{
  * development starting budget (192 MiB steady / 256 MiB transition); actual
  * allocations and coexistence still have to pass, not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
-export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
+function currentSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  // At 4 GiB, Auto already selects Compact geometry and texture limits.
  // Keep its bounded transition headroom when the visitor selects Compact directly.
  if(profile==='auto'||(profile==='compact'&&input.deviceMemory===4))return deviceBudget(input);
@@ -79,6 +79,34 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
   return selectedImageCapacity(budget,memory);
  }
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
+}
+declare const __EXHIBITOS_STAGING_NO_HINT_MINIMUM__: boolean | undefined;
+declare const __EXHIBITOS_STAGING_NO_HINT_HEADROOM__: boolean | undefined;
+export const stagingNoHintResidentHeadroomEnabled=()=>typeof __EXHIBITOS_STAGING_NO_HINT_HEADROOM__!=='undefined'&&__EXHIBITOS_STAGING_NO_HINT_HEADROOM__===true;
+export const stagingNoHintMinimumTrialEnabled=()=>typeof __EXHIBITOS_STAGING_NO_HINT_MINIMUM__!=='undefined'&&__EXHIBITOS_STAGING_NO_HINT_MINIMUM__===true;
+/** Opt-in staging envelope only. An omitted browser hint is not a device ID.
+ * Production and known-memory policies retain their independently qualified scope. */
+export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0],noHintMinimumTrial=false,residentHeadroom=false):DeviceBudget {
+ const current=currentSelectedDeviceBudget(profile,input);
+ if(!noHintMinimumTrial||input.deviceMemory!==undefined)return current;
+ if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000};
+ // The existing ordinary 100k tier must coexist with architecture and other works.
+ if(input.coarsePointer===true){
+  const control=profile==='auto'?{...current,maxSceneTriangles:200000}:current;
+  return residentHeadroom?{...control,maxCacheBytes:336*1024*1024,maxTransitionBytes:448*1024*1024,materialPlanningBytes:current.maxCacheBytes}:control;
+ }
+ // Desktop-like input retains its separate per-model/texture/memory limits.
+ // Two ordinary 150k works plus the observed 94,493-triangle gallery fit here;
+ // all decoded/resident/live-hold and per-asset admission remains mandatory.
+ if(input.coarsePointer===false&&input.finePointer===true)return {...current,maxSceneTriangles:400000,...(residentHeadroom?{maxCacheBytes:512*1024*1024,maxTransitionBytes:640*1024*1024,materialPlanningBytes:current.maxCacheBytes}:{})};
+ return current;
+}
+/** Keep decorative planning at its control capacity while charging actual holds
+ * against the full artwork budget. Absent ceilings preserve existing behavior. */
+export function materialPlanningCapacity(available:number,frameReserve:number,budget?:Pick<DeviceBudget,'maxCacheBytes'|'materialPlanningBytes'>):number {
+ const ceiling=budget?.materialPlanningBytes;
+ if(ceiling!==undefined&&(!Number.isSafeInteger(ceiling)||ceiling<=0||ceiling>budget!.maxCacheBytes))throw Error('MATERIAL_PLANNING_BUDGET');
+ return Math.max(0,available-frameReserve-(ceiling===undefined?0:budget!.maxCacheBytes-ceiling));
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget,preferCoarse=false):Artwork["assets"][number] {
