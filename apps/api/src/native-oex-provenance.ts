@@ -50,6 +50,31 @@ export interface NativeRestoredProvenance {
  readonly provenanceRowCount:number;readonly provenanceTableSha256:string;
  readonly assertLive:()=>Promise<void>;
 }
+export interface NativeCarriedRestoredProvenance {
+ readonly restoreId:string;readonly backupId:string;readonly authenticatedManifestSha256:string;
+ readonly observation:Readonly<{
+  version:1;sourceHandoffSha256:string;
+  priorRestoreProof:Readonly<Omit<NativeRestoredProvenance,'assertLive'>&{restoreId:string;backupId:string;authenticatedManifestSha256:string}>;
+  archiveSourceDatabaseSystemId:string;archiveSourceDatabaseOid:string;
+  targetDatabaseSystemId:string;targetDatabaseOid:string;
+  provenanceRowCount:number;provenanceTableSha256:string;
+ }>;
+ readonly assertLive:()=>Promise<void>;
+}
+function restoreRowAuthority(proof:NativeRestoredProvenance|NativeCarriedRestoredProvenance|undefined):NativeRestoredProvenance|undefined{
+ if(!proof||!('observation' in proof))return proof;
+ const observation=proof.observation,prior=observation?.priorRestoreProof;
+ if(!prior||observation.version!==1||!/^[a-f0-9]{64}$/.test(observation.sourceHandoffSha256)||
+    proof.restoreId===prior.restoreId||proof.backupId===prior.backupId||proof.authenticatedManifestSha256===prior.authenticatedManifestSha256||
+    observation.archiveSourceDatabaseSystemId!==prior.targetDatabaseSystemId||observation.archiveSourceDatabaseOid!==prior.targetDatabaseOid||
+    prior.sourceDatabaseSystemId===prior.targetDatabaseSystemId||prior.targetDatabaseSystemId===observation.targetDatabaseSystemId||
+    !/^[1-9][0-9]{0,19}$/.test(prior.targetDatabaseSystemId)||!/^[1-9][0-9]{0,9}$/.test(prior.targetDatabaseOid)||
+    prior.provenanceRowCount<1||prior.provenanceRowCount!==observation.provenanceRowCount||
+    prior.provenanceTableSha256!==observation.provenanceTableSha256)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
+ return Object.freeze({sourceDatabaseSystemId:prior.sourceDatabaseSystemId,sourceDatabaseOid:prior.sourceDatabaseOid,
+  targetDatabaseSystemId:observation.targetDatabaseSystemId,targetDatabaseOid:observation.targetDatabaseOid,
+  provenanceRowCount:observation.provenanceRowCount,provenanceTableSha256:observation.provenanceTableSha256,assertLive:proof.assertLive});
+}
 export function assertIssuedWorkspaceImport(context:NativeOexWorkspaceContext,owner:import('./publication-disk-budget.ts').DiskOwner){
  if(!issuedWorkspaceImports.has(context)||!context.assertOwner)throw new ApiError(403,'FORBIDDEN');
  context.assertOwner(owner);
@@ -58,7 +83,7 @@ export function assertIssuedWorkspaceImport(context:NativeOexWorkspaceContext,ow
 /** Issued by native bootstrap after validating FD0 workspace, catalog and
  * local owner; not an HTTP option. The frozen DB/store snapshot is rechecked
  * on every use. Prior claims are evidence only, not revived live authority. */
-export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string;restoredProvenance?:NativeRestoredProvenance;workspaceImport?:true;workspaceWallImport?:true;workspaceFurnishing?:true;workspaceFurnishingWriter?:true;workspaceFurnishingPublication?:true;workspaceMaterialPublication?:true;workspaceMaterialMultimap?:true;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspacePortalFinish?:true}):Promise<NativeOexWorkspaceContext>{
+export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string;restoredProvenance?:NativeRestoredProvenance|NativeCarriedRestoredProvenance;workspaceImport?:true;workspaceWallImport?:true;workspaceFurnishing?:true;workspaceFurnishingWriter?:true;workspaceFurnishingPublication?:true;workspaceMaterialPublication?:true;workspaceMaterialMultimap?:true;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspacePortalFinish?:true}):Promise<NativeOexWorkspaceContext>{
  const {workspaceId,tenantId,principalId,ownerUid,blobRoot}=input;if(input.workspaceImport!==undefined&&input.workspaceImport!==true)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');const wantsWorkspaceImport=input.workspaceImport===true,wantsWall=input.workspaceWallImport===true,wantsFurnishing=input.workspaceFurnishing===true,wantsWriter=input.workspaceFurnishingWriter===true,wantsPublication=input.workspaceFurnishingPublication===true,wantsMaterialPublication=input.workspaceMaterialPublication===true,wantsMultimap=input.workspaceMaterialMultimap===true,wantsStool=input.workspaceFurnishingStool===true,wantsRoomVisual=input.workspaceFurnishingRoomVisual===true,wantsFrame=input.workspaceFurnishingArtworkFrame===true,wantsFrameModels=input.workspaceFurnishingArtworkFrameModels===true,wantsFramePreparation=input.workspaceArtworkFramePreparation===true,wantsPortal=input.workspacePortalFinish===true,wantsInfoStand=input.workspaceInfoStandPreparation===true;if(input.workspaceInfoStandPreparation!==undefined&&(!wantsInfoStand||!wantsWriter||!wantsRoomVisual||!wantsFramePreparation))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspacePortalFinish!==undefined&&(!wantsPortal||!wantsFrameModels))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceArtworkFramePreparation!==undefined&&(!wantsFramePreparation||!wantsFrameModels))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceFurnishingArtworkFrameModels!==undefined&&(!wantsFrameModels||!wantsFrame))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceFurnishingArtworkFrame!==undefined&&(!wantsFrame||!wantsRoomVisual))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceFurnishingRoomVisual!==undefined&&(!wantsRoomVisual||!wantsStool))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceFurnishingStool!==undefined&&(!wantsStool||!wantsMultimap))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceMaterialMultimap!==undefined&&(!wantsMultimap||!wantsMaterialPublication))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceMaterialPublication!==undefined&&(!wantsMaterialPublication||!wantsPublication))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceFurnishingPublication!==undefined&&(!wantsPublication||!wantsWriter))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(input.workspaceWallImport!==undefined&&(!wantsWall||!wantsWorkspaceImport)||input.workspaceFurnishing!==undefined&&(!wantsFurnishing||!wantsWall)||input.workspaceFurnishingWriter!==undefined&&(!wantsWriter||!wantsFurnishing))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');for(const value of [workspaceId,tenantId,principalId])uuid(value);
  if(!Number.isSafeInteger(ownerUid)||ownerUid<=0||ownerUid!==process.getuid?.()||typeof blobRoot!=='string')throw new ApiError(403,'FORBIDDEN');
  const verifyWorkspace=async(client:PoolClient)=>{const rows=await client.query('SELECT 1 FROM local_workspaces WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND mac_uid=$4',[workspaceId,tenantId,principalId,ownerUid]);if(rows.rowCount!==1)throw new ApiError(403,'FORBIDDEN');};
@@ -74,7 +99,7 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  const assertImportCatalog=async(client:PoolClient)=>{await assertCatalog(client);const expected=wantsWall?[...expectedImport,{name:'035_workspace_material_wall_import.sql',sha256:'c347183b3e58805c46d1dde7ae6e2defc37762af52f585846357181b9635a544'}]:expectedImport;const rows=(await client.query('SELECT name,sha256 FROM schema_migrations WHERE name IN ($1,$2,$3) ORDER BY name',[...expectedImport.map(x=>x.name),'035_workspace_material_wall_import.sql'])).rows;if(!isDeepStrictEqual(rows,expected))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
  if(wantsWorkspaceImport&&!isDeepStrictEqual(initial,workspaceCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(wantsWorkspaceImport)await assertImportCatalog(c);
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
- const restored=input.restoredProvenance;
+ const restored=restoreRowAuthority(input.restoredProvenance);
  if(restored){
   if(!wantsWriter||typeof restored.assertLive!=='function'||restored.targetDatabaseSystemId!==owner.databaseSystemId||restored.targetDatabaseOid!==owner.databaseOid||restored.sourceDatabaseSystemId===restored.targetDatabaseSystemId||![restored.sourceDatabaseSystemId,restored.sourceDatabaseOid,restored.targetDatabaseSystemId,restored.targetDatabaseOid].every(x=>typeof x==='string'&&/^[1-9][0-9]{0,19}$/.test(x))||!Number.isSafeInteger(restored.provenanceRowCount)||restored.provenanceRowCount<0||!/^[a-f0-9]{64}$/.test(restored.provenanceTableSha256))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
   await restored.assertLive();
