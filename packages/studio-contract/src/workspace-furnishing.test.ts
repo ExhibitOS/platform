@@ -56,6 +56,18 @@ it('requires explicit capability for the exact frame preparation policy',()=>{
  expect(validWorkspaceFurnishingDeclaration({...request,kind:'pedestal'},{allowFramePreparation:true})).toBe(false);
 });
 
+it('requires its own capability for an info-stand source preparation request',()=>{
+ const preparationPolicy='normalize-legacy-sign-texture-r1';
+ const request={...base,kind:'info-stand',preparationPolicy};
+ const enabled={allowRoomVisual:true,allowInfoStandPreparation:true};
+ expect(validWorkspaceFurnishingDeclaration(request,enabled)).toBe(true);
+ expect(validWorkspaceFurnishingDeclaration(request,{allowRoomVisual:true,allowFramePreparation:true})).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration(request,{allowInfoStandPreparation:true})).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration({...request,kind:'barrier'},enabled)).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration({...request,fitProfile:'straight-ring-v1'},enabled)).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration({...base,kind:'info-stand'}, {allowRoomVisual:true})).toBe(true);
+});
+
 it('binds the fixed portal only to a compatible existing door',async()=>{
  const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts');
  const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,sha='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b',pose={position:[0,1.5,0],rotation:[0,0,0,1],scale:[1,1,1]};
