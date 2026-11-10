@@ -56,12 +56,60 @@ export const R23_REFERENCE=Object.freeze({
  assetSha256:WHEAT_REFERENCE.assetSha256,
  candidateId:'de6908dd-39e9-4dc4-ba85-7a206a39278a',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R24_REFERENCE=Object.freeze({
+ indexSha256:'204169b08b240cc9c4bbae9b14e190ae6c47adff58517182be12fd01b8a66e3f',
+ publicationSha256:'6b039f2e128badd5ae82e4657f56255a1e2e1a65ea9fc3b6d376d4b94a68851a',
+ publicationId:'645f98fd-edd8-4e83-b66e-e76cf6680c58',
+ revisionSha256:'dcb2a94f4539bd79ac37eae15c66cff9cc1f854808cc7c7306e593474156db3f',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+ candidateId:'4d8911f0-75b9-4f0a-909c-cbdc8de3c32e',
+});
+export const R26_REFERENCE=Object.freeze({
+ indexSha256:'f65395808f6bc8c75f7b687680e7e881b57ad1f1f75499bae2c81ebbc6bf4fd5',
+ publicationSha256:'ea678b4e7360da964c54beade26e00f90bbfc1183e0c534dbcf734a1d2b48a1c',
+ publicationId:'81395579-13fa-4875-a25f-83ea0fa0015a',
+ revisionSha256:'eb9c9e286a86092dec5b665da742a6bfad95c31445474630907cdcdafefcf7b1',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+ candidateId:'752f243b-c5c1-47e1-8124-1f54f7d04299',
+});
+export const R27_REFERENCE=Object.freeze({
+ indexSha256:'2d86b16e1e3a0a2afc266d04341edca688fba6679b1036792d6457728c9a4989',
+ publicationSha256:'0ac0efd992d8728a642941ac90b722daee16a6e3f01c8c202f1c96b20f867651',
+ publicationId:'ff67a8b5-1fbf-4860-bf19-9bcb229d7468',
+ revisionSha256:'387331410ee5516d0e7a3811534487ad8d28b293eaba330925dc19c47928cf49',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+ candidateId:'ee5a4365-509e-44f1-8495-30bc5f534eca',
+});
+export const R41_REFERENCE=Object.freeze({
+ indexSha256:'7930f6832341fa943b16820787febd84bc63138179583fe6d2a675cef84da189',
+ publicationSha256:'7cb41e36c27978ff33110236c7f4754d605e6f7fc112c84f1b093e5407c22588',
+ publicationId:'16029c47-7a21-4a8e-bb39-6821f7bca24d',
+ revisionSha256:'d00bfcfb4505e908260a153115a1051c5bdd2cd6438f9bb52c28ff331ecf26b8',
+ candidateId:'0cc51666-c6b6-4388-a0ab-6cb799defbf2',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+export const R44_REFERENCE=Object.freeze({
+ indexSha256:'866fd62a1ca3babb0f150e8895ce4255cd5c72b0059574f1de3033a8515fd880',
+ publicationSha256:'8d864e782fffdd088a066319b29cb364fc9a2fb52758185ee98e2730524b6f29',
+ publicationId:'b17be347-1a39-4b10-9a66-fa7f06c310fb',
+ revisionSha256:'5eb75fc9fcae3fbd6a322634772f25d6d4400c6cd9fdc9c31e2c902f74602e5f',
+ candidateId:'0c3964cb-a8b5-4ee2-afd1-d71cab99ccd7',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+export const R46_REFERENCE=Object.freeze({
+ indexSha256:'c3b6ba70e888a20416e40f34a99c328134c122e423b499f3682b0ea896cac17e',
+ publicationSha256:'474763f2b2f46b2877f6cd176fcd1351108c4220ba5423c85f08c8c6eb48a2c2',
+ publicationId:'e031b101-f8f7-4eb2-88ad-2f4cd900316c',
+ revisionSha256:'02420a0e67800e3d957734414f92d99b977c9534172cbd613a8c0ef30f50bd15',
+ candidateId:'721829fe-5efc-4024-9d41-293653b11f07',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -70,17 +118,21 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const charcoalFloor=reference===R23_REFERENCE;
+ const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE;
+ const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
+ const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor);
- if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==4||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
+ const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE);
+ if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||
     notices[0]?.sha256!=='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5'||
     !index.assets.some(asset=>asset.sha256==='364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b')))fail();
  if(upholsteredBench&&!index.assets.some(asset=>asset.sha256==='6924041a37702eb8233bf39da973f2235ff951f4b1f31ab564d4ad125542b3de'&&asset.bytes===203064&&asset.mime==='model/gltf-binary'))fail();
  if(charcoalFloor&&!index.assets.some(asset=>asset.sha256==='4684fcb53dbc376f563a7c8bba97d48f660968198401fad0bdff143a14a2f909'&&asset.bytes===2154063&&asset.mime==='image/png'))fail();
+ if(terrazzoFloor&&(!index.assets.some(asset=>asset.sha256==='afa5635491e8a7875fe3ca8dfdd6651dc197ab8e648492c98907ec7d07750f90'&&asset.mime==='image/png')||
+   !['e77d9970fecdbe384cb6b973ebafea4284a70912eed71ccf88496ec5875ed9b5','865d1556595dfad9278fdd92e2227a8a5decd9e5c34f3d8de2f584e1a012e536'].every(sha256=>index.resources.some(asset=>asset.sha256===sha256&&asset.mime==='image/png'))))fail();
  const entries=[index.publication,...index.assets,...index.resources,...notices,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
@@ -121,8 +173,8 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
  * verified native publication. No caller-supplied publication is accepted. */
 export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
- const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r23-v4-index.json'});
- if(source.reference!==R23_REFERENCE)fail();
+ const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r46-v4-index.json'});
+ if(source.reference!==R46_REFERENCE)fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();
