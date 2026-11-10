@@ -1,3 +1,4 @@
+import {FURNISHING_COLLISION_MESH_LIMITS,type MountedFurnishingCollision} from './furnishing-collision-mesh';
 import {surfacePanels as wallCollisionPanels,wallFinishesFor,architecturalSolids} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {furnishingWalkingCollisionLookup,artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchesFor,benchSolids,builtInStoolSolids,presentationFor} from "@exhibitos/studio-contract";
@@ -74,6 +75,7 @@ export interface NavigationController {
     standingSegmentClear: (fromEye:Vec3,toEye:Vec3) => boolean;
     seatedClear: (eye:Vec3, floor:Vec3, seatTop:number, benchId?:string, footprint?:readonly Vec3[]) => boolean;
     readonly navigationMesh: NavigationMesh;
+    setFurnishingCollisions: (sources:readonly MountedFurnishingCollision[]) => void;
     pathBetween: (fromEye: Vec3, toEye: Vec3) => Vec3[] | undefined;
 }
 let initialized: Promise<void> | undefined;
@@ -97,6 +99,7 @@ export async function createNavigationController(doc: Exhibition, options: {
     speed?: 0.7 | 1.3 | 1.6;
     reducedMotion?: boolean;
     stoolVisible?: (placementId:string)=>boolean;
+    furnishingCollisions?:readonly MountedFurnishingCollision[];
 }): Promise<NavigationController> {
     if (doc.rooms.length > 32 || doc.surfaces.length > 256 || doc.openings.length > 128 || doc.placements.length > 128 || !doc.rooms.length)
         throw Error("NAVIGATION_COMPLEXITY");
@@ -114,10 +117,12 @@ export async function createNavigationController(doc: Exhibition, options: {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const rooms = new Map(doc.rooms.map(r => [r.id.toLowerCase(), r]));
     let colliderCount = 0;
-    const stoolColliders=new Map<number,string>();
+    const stoolColliders=new Map<number,string>(),disabledBenchColliders=new Set<number>();
+    const meshColliders=new Map<string,{source:MountedFurnishingCollision;collider:RAPIER.Collider}>();
+    const meshVisibility=new Map<number,()=>boolean>();
     const activeCollider=(collider:{handle:number})=>{
         const stool=stoolColliders.get(collider.handle);
-        return stool===undefined||options.stoolVisible?.(stool)===true;
+        return !disabledBenchColliders.has(collider.handle)&&(stool===undefined||options.stoolVisible?.(stool)===true)&&(meshVisibility.get(collider.handle)?.()??true);
     };
     const activeSolid=(collider:{handle:number})=>kinds.get(collider.handle)==='solid'&&activeCollider(collider);
     const benchColliders=new Map<string,Set<number>>();
@@ -193,9 +198,7 @@ export async function createNavigationController(doc: Exhibition, options: {
         const linkedStoolIds=new Set(linkedStools.values());
         const unlinkedStoolSolids=stoolSolids.filter(solid=>!linkedStoolIds.has(solid.stoolPlacementId.toLowerCase()));
         const installation=resolveInstallations(doc).flatMap(record=>record.solids.filter(solid=>collisionEnabled(solid.component==='pedestal'?'plinth':'frame',record.placementId)));
-        const benches=benchSolids(doc).filter(solid=>solid.workspacePlacementId
-            ? collisionEnabled('workspace',solid.workspacePlacementId)
-            : collisionEnabled('bench',solid.benchId));
+        const benches=benchSolids(doc);
         for(const solid of [...installation,...benches,...unlinkedStoolSolids,...architecturalSolids(doc)]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
@@ -207,12 +210,41 @@ export async function createNavigationController(doc: Exhibition, options: {
             if('benchId' in solid&&typeof solid.benchId==='string'){
                 const key=solid.benchId.toLowerCase(),handles=benchColliders.get(key)??new Set<number>();
                 handles.add(collider.handle);benchColliders.set(key,handles);
+                const workspaceId='workspacePlacementId' in solid&&typeof solid.workspacePlacementId==='string'?solid.workspacePlacementId:undefined;
+                const enabled=workspaceId?collisionEnabled('workspace',workspaceId):collisionEnabled('bench',solid.benchId);
+                if(!enabled){disabledBenchColliders.add(collider.handle);continue;}
                 const stool=linkedStools.get(key);
                 if(stool){stoolColliders.set(collider.handle,stool);continue;}
             }
             const min=[0,1,2].map(i=>Math.min(...solid.vertices.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...solid.vertices.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,convexVertices:solid.vertices});
         }
+        function setFurnishingCollisions(sources:readonly MountedFurnishingCollision[]){
+            let triangles=0,changed=false;
+            const admitted=new Map<string,MountedFurnishingCollision>();
+            for(const source of sources){
+                const count=source.mesh.indices.length/3;
+                if(count<=0||!Number.isSafeInteger(count)||count>FURNISHING_COLLISION_MESH_LIMITS.trianglesPerPlacement||
+                    source.mesh.vertices.length>FURNISHING_COLLISION_MESH_LIMITS.verticesPerPlacement*3||
+                    triangles+count>FURNISHING_COLLISION_MESH_LIMITS.trianglesPerScene||admitted.has(source.id))continue;
+                admitted.set(source.id,source);triangles+=count;
+            }
+            for(const [id,{source,collider}] of meshColliders){
+                if(admitted.get(id)===source)continue;
+                meshColliders.delete(id);meshVisibility.delete(collider.handle);kinds.delete(collider.handle);
+                world.removeCollider(collider,false);colliderCount--;changed=true;
+            }
+            for(const [id,source] of admitted){
+                if(meshColliders.has(id)||colliderCount>=8192)continue;
+                try{
+                    const collider=world.createCollider(RAPIER.ColliderDesc.trimesh(source.mesh.vertices,source.mesh.indices,RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES));
+                    kinds.set(collider.handle,'solid');meshVisibility.set(collider.handle,source.active);
+                    meshColliders.set(id,{source,collider});colliderCount++;changed=true;
+                }catch{/* Unsupported model geometry cannot become an invisible wall. */}
+            }
+            if(changed)world.step();
+        }
+        setFurnishingCollisions(options.furnishingCollisions??[]);
         const half = NAVIGATION_PROFILE.bodyHeight / 2, radius = NAVIGATION_PROFILE.radius;
         character = world.createCollider(RAPIER.ColliderDesc.capsule(half - radius, radius).setTranslation(0, 10000, 0));
         const controller = world.createCharacterController(NAVIGATION_PROFILE.skin);
@@ -455,7 +487,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             return clearSegment([a[0],a[1]-settings.eyeHeight,a[2]],[b[0],b[1]-settings.eyeHeight,b[2]],false);
         };
         reset();
-        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, qualifiedStandingEye, standingSegmentClear, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
+        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), setFurnishingCollisions:sources=>{ensure();setFurnishingCollisions(sources);}, pathBetween, physicsVersion: RAPIER.version(), isWalkable, qualifiedStandingEye, standingSegmentClear, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
                 if (!disposed) {
                     disposed = true;
                     world.free();

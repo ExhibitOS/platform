@@ -17,6 +17,7 @@ export interface WalkingActions {
   orbitViewpoint?: (viewpointId:string,relativeYaw:number) => boolean;
   sit?: (benchId:string) => void;
   sitNearby?: (expectedBenchId: string) => boolean;
+  refreshFurnishingCollisions?:()=>void;
   refreshWorkspaceBench?: () => void;
   stand?: () => void;
   pause: (reason?: WalkingPauseReason) => void;

@@ -934,6 +934,7 @@ export function GeometryPreview({
       const workspaceBenchAvailability=(link:WorkspaceBenchVisual)=>ownerFurnishings?.seatAvailability(link)??'pending';
       const workspaceFurnishingsChanged=()=>{
         if(disposed||gpuLost)return;
+        walkingActions.current?.refreshFurnishingCollisions?.();
         if(workspaceBenches.length){
           walkingActions.current?.refreshWorkspaceBench?.();
           const readyIds=new Set<string>();
@@ -1417,6 +1418,7 @@ export function GeometryPreview({
                   }
                 },
                 workspaceBenchAvailability,
+                furnishingCollisions:()=>ownerFurnishings?.walkingCollisions()??[],
                 stoolVisible:publicSource&&hasWorkspaceFurnishings?id=>ownerFurnishings?.stoolVisible(id)===true:undefined,
                 canLookSeated:canUseBench,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
@@ -1466,6 +1468,7 @@ export function GeometryPreview({
                   canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
+              adapter.actions.refreshFurnishingCollisions?.();
               if (entranceReadiness && !hasAuthoredStart && !preserveCurrent && !teleportViewpointId) {
                 // Plan the entrance frame from the qualified floor pose rather than the overview.
                 adapter.actions.reset();
@@ -1545,7 +1548,7 @@ export function GeometryPreview({
               preparing=true;setEntranceWalking(true);setWalkPreparation('pending');setWalkLoading(true);view('start');controls.enabled=false;renderer.domElement.tabIndex=0;
               try{
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
-                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
+                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,furnishingCollisions:()=>ownerFurnishings?.walkingCollisions()??[],
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
                   onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
                   activateContextAction:activateExit,
@@ -1553,7 +1556,7 @@ export function GeometryPreview({
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
                 if(closed||disposed||signal.aborted){created.dispose();signal.throwIfAborted();throw Error('ENTRANCE_SCENE_STALE');}
-                adapter=created;walkingActions.current=created.actions;setWalkPreparation('ready');created.actions.start(focusEntry);
+                adapter=created;walkingActions.current=created.actions;created.actions.refreshFurnishingCollisions?.();setWalkPreparation('ready');created.actions.start(focusEntry);
               }catch(error){if(!closed&&!signal.aborted)setWalkPreparation('failed');throw error;}
               finally{preparing=false;if(!closed)setWalkLoading(false);}
             },

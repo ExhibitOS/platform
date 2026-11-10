@@ -90,6 +90,7 @@ test.each([false,true])('verified stool blocks walking and permits bypass with l
  try{
   for(let frame=0;frame<180;frame++)disabled.advance(1/60,{forward:1,right:0,paused:false});
   expect(disabled.state().eyePosition[2]).toBeLessThan(-1);
+  if(linked)expect(disabled.seatedClear([0,1.15,0],[0,0,0],.45,'10000000-0000-4000-8000-000000000023')).toBe(true);
  }finally{disabled.dispose();}
  if(linked)return;
  model.sha256='0'.repeat(64);
