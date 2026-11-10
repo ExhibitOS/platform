@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
-import {applyBenchCommand,INSTALLATION_NAMESPACE as N,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyBenchCommand,INSTALLATION_NAMESPACE as N,WORKSPACE_FURNISHING_NAMESPACE,type BenchCommand,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
 import {createGeometryState,applyGeometryCommand} from '../geometry/model';
 import {syntheticArtwork,newPlacement} from '../placement/model';
@@ -34,11 +34,31 @@ test.each([false,true])('verified stool blocks walking and permits bypass with l
   placements:[{id:'10000000-0000-4000-8000-000000000021',roomId:doc.rooms[0]!.id,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}};
  if(linked){
   const roomId=doc.rooms[0]!.id,viewpointId='10000000-0000-4000-8000-000000000022';
-  doc=applyBenchCommand(doc,{type:'add-bench',bench:{
+  const command:Extract<BenchCommand,{bench:unknown}>={type:'add-bench',bench:{
    id:'10000000-0000-4000-8000-000000000023',name:'Stool seat',roomId,position:[0,0,0],yaw:0,kind:'slab',
    dimensions:{width:.38,depth:.38,height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId,
    workspaceVisual:{placementId:'10000000-0000-4000-8000-000000000021',modelSha256:model.sha256},
-  },viewpoint:{id:viewpointId,name:'Seated view',roomId,position:[0,1.15,0],target:[0,1.4,-2],fov:50}});
+  },viewpoint:{id:viewpointId,name:'Seated view',roomId,position:[0,1.15,0],target:[0,1.4,-2],fov:50}};
+  const changedWorkspace=(change:(ws:WorkspaceFurnishings)=>void)=>{
+   const draft=structuredClone(doc);
+   change(draft.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings);
+   return draft;
+  };
+  const otherHash='0'.repeat(64), alteredHash=structuredClone(command);
+  alteredHash.bench.workspaceVisual!.modelSha256=otherHash;
+  expect(()=>applyBenchCommand(changedWorkspace(w=>{w.furnishings[0]!.model.sha256=otherHash;}),alteredHash)).toThrow();
+  expect(()=>applyBenchCommand(changedWorkspace(w=>{w.furnishings[0]!.model.bytes++;}),command)).toThrow();
+  expect(()=>applyBenchCommand(changedWorkspace(w=>{w.furnishings[0]!.kind='bench';}),command)).toThrow();
+  expect(()=>applyBenchCommand(changedWorkspace(w=>{w.placements[0]!.scale=1.1;}),command)).toThrow();
+  const wrongSize=structuredClone(command);wrongSize.bench.dimensions.depth=.4;
+  expect(()=>applyBenchCommand(doc,wrongSize)).toThrow();
+  const smallBench=structuredClone(command);delete smallBench.bench.workspaceVisual;
+  expect(()=>applyBenchCommand(doc,smallBench)).toThrow();
+  doc=applyBenchCommand(doc,command);
+  const duplicate=structuredClone(command);
+  duplicate.bench.id='10000000-0000-4000-8000-000000000024';
+  delete duplicate.viewpoint;
+  expect(()=>applyBenchCommand(doc,duplicate)).toThrow();
  }
  let visible=false;
  const camera=await createNavigationController(doc,{position:[0,1.65,2],stoolVisible:()=>visible});
