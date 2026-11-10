@@ -78,6 +78,21 @@ export function furnishingWalkingCollisionState(document:Exhibition):FurnishingW
  });
 }
 
+/** Null clears an authored choice. A boolean is retained even when it equals the current default. */
+export function applyFurnishingWalkingCollisionOverride(document:Exhibition,target:FurnishingWalkingCollisionTarget,enabled:boolean|null):Exhibition{
+ const id=key(target.kind,target.id),state=furnishingWalkingCollisionState(document).find(row=>key(row.kind,row.id)===id);
+ if(!state)throw Error('FURNISHING_WALKING_COLLISION_REFERENCE');
+ if(state.override===(enabled??undefined))return document;
+ const extensions:NonNullable<Exhibition['extensions']>={...document.extensions};
+ const settings=extensions[namespace] as unknown as FurnishingWalkingCollisionSettings|undefined;
+ const overrides=(settings?.overrides??[]).filter(row=>key(row.kind,row.id)!==id);
+ if(enabled!==null)overrides.push({kind:state.kind,id:state.id,enabled});
+ if(overrides.length>maxOverrides)throw Error('FURNISHING_WALKING_COLLISION_LIMIT');
+ if(overrides.length)extensions[namespace]={version:1,overrides} as unknown as NonNullable<Exhibition['extensions']>[string];
+ else delete extensions[namespace];
+ return {...document,extensions};
+}
+
 /** Resolve once per scene. Geometry consumers keep their own visibility and
  * admission checks even when the author requests collision. */
 export function furnishingWalkingCollisionLookup(document:Exhibition){
