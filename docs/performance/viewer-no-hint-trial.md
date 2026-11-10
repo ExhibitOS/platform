@@ -6,7 +6,7 @@ Enable only for a static staging build with both `EXHIBITOS_STAGING_DIAGNOSTICS=
 
 | Browser input / Viewer choice | Current resident / transition MiB | Trial resident / transition MiB | Current aggregate → trial triangles | Individual triangles / texture edge / DPR / heuristic concurrency |
 | --- | --- | --- | --- | --- |
-| Omitted memory, coarse input, Auto | 192 / 256 | unchanged | 100,000 implicit → unchanged | 100,000 / 2048 / 1.5 / 3 |
+| Omitted memory, coarse input, Auto | 192 / 256 | unchanged | 100,000 implicit → 200,000 | 100,000 / 2048 / 1.5 / 3 |
 | Omitted memory, explicit Compact, any pointer input | 32 / 32 | 128 / 160 | 20,000 implicit → 100,000 | 20,000 / 512 / 1 / 2 |
 | Omitted memory, fine-only input, Auto | 320 / 416 | unchanged | 200,000 → 400,000 | 150,000 / 2048 / 1.5 / 3 |
 | Omitted memory, fine-only input, explicit Desktop | 320 / 416 | unchanged | 250,000 implicit → 400,000 | 250,000 / 2048 / 1.5 / 3 |
@@ -21,6 +21,8 @@ At known 4 GiB, Auto/Compact remain 48/64 MiB with 20,000/512 limits; weaker kno
 Configured resident ceilings are not available artwork bytes or physical memory. `GeometryPreview` subtracts environment, shadow, plaques, thumbnails, retained materials, furnishing reserves, snapshot and transient material-load holds. Effective resident is `max(1, configured resident - reservations)`; effective transition is at least that resident limit and otherwise subtracts the same applicable holds from configured transition. Holds may release after actual material completion. Framebuffer limits are separate.
 
 The retained r67 known-memory Compact consumer demonstrated two concrete bounds: the old 20,000 scene aggregate retired all seven furnishings at 34,506 triangles, and an old effective resident limit of 41,092,394 bytes refused a 44,887,699-byte minimum workload. The separately qualified 128/160 MiB Compact branch kept seven furnishings at 94,493 scene triangles. Its actual effective resident/transition were 88,016,170/121,570,602 bytes after 46,201,558 scene reservations; settled modeled resident headroom was 28,539,188 bytes. These values motivate the omitted-hint candidate but do not measure a phone or guarantee equal reservations in another run.
+
+For touch Auto, the known r67 ordinary Hayes tier is 100,000 triangles/2048px, already within the per-asset policy. The retained Compact scene was 94,507 triangles; replacing the 20,000 Hayes tier with that ordinary tier models 174,507, which cannot fit the old 100,000 aggregate. The touch Auto trial raises only the aggregate to 200,000, leaving 192/256 MiB and per-asset quality unchanged. The actual swap and retention still require the affected browser consumer.
 
 The desktop candidate changes only aggregate geometry. The observed 94,493-triangle gallery plus two ordinary 150,000-triangle works totals 394,493, within 400,000. This is admission arithmetic, not an actual two-large-work draw result. Its resident/transition byte ceilings stay 320/416 MiB; actual effective values and supported simultaneous work must still be observed with an existing eligible fixture. A source that exceeds existing per-asset limits does not become eligible because the scene allowance grows.
 

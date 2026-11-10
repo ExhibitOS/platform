@@ -29,7 +29,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
- // Use the verified touch support floor when the browser supplies no hint.
+ // Preserve the existing touch allowance when the browser supplies no hint.
  // Pointer input selects the policy; it does not identify a device model.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
@@ -88,6 +88,8 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  const current=currentSelectedDeviceBudget(profile,input);
  if(!noHintMinimumTrial||input.deviceMemory!==undefined)return current;
  if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000};
+ // The existing ordinary 100k tier must coexist with architecture and other works.
+ if(profile==='auto'&&input.coarsePointer===true)return {...current,maxSceneTriangles:200000};
  // Desktop-like input retains its separate per-model/texture/memory limits.
  // Two ordinary 150k works plus the observed 94,493-triangle gallery fit here;
  // all decoded/resident/live-hold and per-asset admission remains mandatory.

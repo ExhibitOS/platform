@@ -205,7 +205,10 @@ test('no-hint minimum trial is opt-in and preserves known-memory and weaker-devi
  const input={coarsePointer:true,finePointer:false};
  expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
  expect(selectedDeviceBudget('compact',input,true)).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
- expect(selectedDeviceBudget('auto',input,true)).toEqual(selectedDeviceBudget('auto',input));
+ expect(selectedDeviceBudget('auto',input,true)).toEqual({...selectedDeviceBudget('auto',input),maxSceneTriangles:200000});
+ const ordinaryScene=94507-20000+100000;
+ expect(ordinaryScene).toBeGreaterThan(selectedDeviceBudget('auto',input).maxTriangles);
+ expect(ordinaryScene).toBeLessThan(selectedDeviceBudget('auto',input,true).maxSceneTriangles!);
  expect(selectedDeviceBudget('desktop',input,true)).toEqual(selectedDeviceBudget('desktop',input));
 });
 test('desktop-like no-hint trial separates aggregate headroom from asset eligibility and live pressure',()=>{
