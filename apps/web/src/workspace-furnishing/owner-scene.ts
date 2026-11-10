@@ -29,9 +29,13 @@ export function existingSceneCost(three:typeof Three,scene:Three.Object3D,ghost=
   draws+=passes*groups*instances;if(node instanceof three.Mesh)triangles+=Math.ceil(count/3)*passes*groups*instances;
  });if(!Number.isSafeInteger(draws)||!Number.isSafeInteger(triangles))throw Error('WORKSPACE_SCENE_BUDGET');return {draws,triangles};
 }
+export class FurnishingSceneCapacityError extends Error {
+ constructor(){super('WORKSPACE_SCENE_BUDGET');}
+}
+
 /** Call enforce before every render and dispose on teardown. Authority is
  * supplied by the owner source or an explicitly checked publication source. */
-export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:Three.WebGLRenderer;scene:Three.Object3D;rooms:Map<string,Three.Group>;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};tenantId:string;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;transitionBytes:number;resident:()=>number;changed:()=>void;fetcher?:typeof fetch;ledger?:AssetPeakBudget;modelSource?:(descriptor:WorkspaceFurnishingDescriptor)=>WorkspaceModelSource;publicAuthority?:{check:(signal:AbortSignal)=>Promise<void>;valid:()=>boolean};disposeSource?:()=>void}){
+export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:Three.WebGLRenderer;scene:Three.Object3D;rooms:Map<string,Three.Group>;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};tenantId:string;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;transitionBytes:number;nativeEditor?:true;resident:()=>number;changed:()=>void;fetcher?:typeof fetch;ledger?:AssetPeakBudget;modelSource?:(descriptor:WorkspaceFurnishingDescriptor)=>WorkspaceModelSource;publicAuthority?:{check:(signal:AbortSignal)=>Promise<void>;valid:()=>boolean};disposeSource?:()=>void}){
  for(const ledger of retiredLedgers){if(ledger.reservedBytes()>0)throw Error('WORKSPACE_SCENE_DRAINING');retiredLedgers.delete(ledger);}
  if(!validateWorkspaceFurnishings(options.candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
  const extension=options.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;if(!extension)throw Error('WORKSPACE_PLACEMENT_INVALID');
@@ -41,9 +45,14 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  const visualRows=[...extension.placements.map(p=>({...p,frameAttachment:undefined,openingAttachment:undefined})),...(extension.frameAttachments??[]).map(a=>({id:a.placementId,roomId:targets.find(p=>p.id===a.placementId)?.roomId??'',furnishingId:a.furnishingId,furnishingVersion:a.furnishingVersion,frameAttachment:a,openingAttachment:undefined})),...(extension.openingAttachments??[]).map(a=>{const opening=sceneDocument.openings.find(o=>o.id.toLowerCase()===a.openingId.toLowerCase()),wall=sceneDocument.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase());return {id:a.openingId,roomId:wall?.roomId??'',furnishingId:a.furnishingId,furnishingVersion:a.furnishingVersion,frameAttachment:undefined,openingAttachment:a};})];
  // A per-model geometry limit does not describe the aggregate of several
  // approved artworks, architecture and furnishings in the desktop gallery.
- const sceneTriangles=options.budget.maxSceneTriangles??options.budget.maxTriangles;
- const cost=existingSceneCost(options.three,options.scene),remainingDraws=256-cost.draws,remainingTriangles=sceneTriangles-cost.triangles;
- if(remainingDraws<1||remainingTriangles<1||!Number.isSafeInteger(options.transitionBytes)||options.transitionBytes<1)throw Error('WORKSPACE_SCENE_BUDGET');
+ // The authenticated desktop editor retains its artwork while mounting furnishings.
+ // The populated fixture measured 276 draws / 164,595 triangles before six furnishings.
+ const nativeEditor=options.nativeEditor===true&&!options.publicAuthority&&!options.modelSource;
+ const sceneDraws=nativeEditor?384:256;
+ const sceneTriangles=nativeEditor?200_000:(options.budget.maxSceneTriangles??options.budget.maxTriangles);
+ const cost=existingSceneCost(options.three,options.scene),remainingDraws=sceneDraws-cost.draws,remainingTriangles=sceneTriangles-cost.triangles;
+ if(!Number.isSafeInteger(options.transitionBytes)||options.transitionBytes<1)throw Error('WORKSPACE_SCENE_BUDGET');
+ if(remainingDraws<1||remainingTriangles<1)throw new FurnishingSceneCapacityError();
  const scope=new OwnerPreviewBudget(options.tenantId,options.fetcher??fetch,remainingDraws,remainingTriangles),ledger=options.ledger?new FurnishingPeakBudget(options.ledger):new AssetPeakBudget(options.transitionBytes,options.resident),controller=new AbortController(),parent=()=>controller.abort(options.signal.reason);options.signal.addEventListener('abort',parent,{once:true});if(options.signal.aborted)parent();
  type Mounted = Awaited<ReturnType<typeof mountOwnerWorkspacePlacement>>;
  const handles=new Set<Mounted>(),mountedSeats=new Map<string,Mounted>(),retiredSeats=new Set<string>();
