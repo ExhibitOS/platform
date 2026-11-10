@@ -41,3 +41,17 @@ it('binds the r9 Wheat original to its exact publication and existing measured l
  for(const change of [{staticIndexSha256:a},{sourceBindingSha256:a},{featureReportSha256:b},{candidateId:'other'},{maxSceneBytes:201326593},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
  expect(qualifiedDetailImageProfile(p.revisionSha256,'other')).toBeUndefined();
 });
+
+it('admits the r46 Wheat original only with the r46 publication attestation',()=>{
+ const revision='02420a0e67800e3d957734414f92d99b977c9534172cbd613a8c0ef30f50bd15';
+ const artworkRevisionId='157793b9-2f6c-41d4-8688-686b30554a58';
+ const r46=qualifiedDetailImageProfile(revision,artworkRevisionId)!;
+ const attestation:DetailProjectionBinding={
+  indexSha256:'c3b6ba70e888a20416e40f34a99c328134c122e423b499f3682b0ea896cac17e',
+  publicationSha256:'474763f2b2f46b2877f6cd176fcd1351108c4220ba5423c85f08c8c6eb48a2c2',
+  candidate:{...binding.candidate,artworkRevisionId},
+ };
+ expect(matchesMeasuredWheatImage(r46,attestation,gallery)).toBe(true);
+ expect(qualifiedDetailImageProfile(revision,'8f1c52ac-9dfe-4cd7-8e66-357357c5cdc0')).toBeUndefined();
+ expect(matchesMeasuredWheatImage(r46,{...attestation,indexSha256:'866fd62a1ca3babb0f150e8895ce4255cd5c72b0059574f1de3033a8515fd880'},gallery)).toBe(false);
+});
