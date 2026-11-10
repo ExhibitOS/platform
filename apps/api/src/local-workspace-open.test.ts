@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {describe,it,expect,vi} from 'vitest';
-import type {Pool} from 'pg';
-import {openLocalWorkspace} from './local-workspace.ts';
+import {Pool} from 'pg';
+import {fileURLToPath} from 'node:url';
+import {migrate} from '@exhibitos/storage';
+import {Auth,digest} from './auth.ts';
+import {runNativeModelAdoptionOwner} from './native-model-adoption-owner.ts';
+import {openLocalWorkspace,renewLocalWorkspace} from './local-workspace.ts';
 
 const mac=process.platform==='darwin'&&typeof process.getuid==='function'&&process.getuid()>0;
 describe.skipIf(!mac)('private local workspace opening',()=>{
@@ -41,4 +45,55 @@ describe.skipIf(!mac)('private local workspace opening',()=>{
   await openLocalWorkspace(pool,input,'native',async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');},{isolation:'read committed',furnishingExclusive:true,beforeCommit:()=>{}});
   const calls=query.mock.calls.map(call=>call[0]);expect(calls.findIndex(sql=>sql.includes('workspace_furnishing_intakes'))).toBeLessThan(calls.findIndex(sql=>sql.startsWith('INSERT INTO tenants')));expect(calls).toContain('COMMIT');
  });
+ it.skipIf(!process.env.EXHIBITOS_LOCAL_OPERATOR_TEST_DATABASE_URL)('keeps private operator auth through real GUI renewal but refuses disable and revocation',async()=>{
+  const pool=new Pool({connectionString:process.env.EXHIBITOS_LOCAL_OPERATOR_TEST_DATABASE_URL});
+  try{
+   const empty=await pool.query("SELECT to_regclass('public.local_workspaces') AS existing");
+   expect(empty.rows[0]?.existing).toBeNull();
+   const migrationPath=(directory:string)=>fileURLToPath(new URL('../../../database/'+directory+'/',import.meta.url));
+   await migrate(pool,migrationPath('migrations'));
+   await migrate(pool,migrationPath('native-oex-normal'),'027_oex_exhibition_provenance.sql');
+   await migrate(pool,migrationPath('native-workspace-furnishing'));
+   const options={isolation:'read committed',furnishingExclusive:true,issueNativeOperator:true,beforeCommit:()=>{}} as const;
+   const initial=await openLocalWorkspace(pool,input,'native',async()=>{},options);
+   expect(initial.nativeOperator).toBeDefined();
+   const operator=initial.nativeOperator!;
+   expect(operator.sessionToken).not.toBe(input.sessionToken);
+   const auth=new Auth(pool);
+   const request=(value:{sessionToken:string;csrfToken:string})=>auth.requestForNativeWorkspaceMutation(
+    value.sessionToken,input.tenantId,value.csrfToken,async(_c,s)=>s,
+   );
+   await expect(request(input)).resolves.toMatchObject({userId:input.principalId});
+   await expect(request(operator)).resolves.toMatchObject({userId:input.principalId,role:'admin'});
+   const renewed={...input,previousSessionToken:input.sessionToken,sessionToken:Buffer.alloc(32,3).toString('base64url'),csrfToken:Buffer.alloc(32,4).toString('base64url')};
+   await renewLocalWorkspace(pool,renewed,'native');
+   await expect(request(input)).rejects.toMatchObject({code:'AUTH_REQUIRED'});
+   await expect(request(renewed)).resolves.toMatchObject({userId:input.principalId});
+   await expect(request(operator)).resolves.toMatchObject({userId:input.principalId});
+   const runStatus=async()=>{
+    const controller=new AbortController(),operationId='10000000-0000-4000-8000-000000000004';
+    const runtimeGeneration='10000000-0000-4000-8000-000000000005',grantSha256='1'.repeat(64);
+    const receive=async()=>Buffer.from(JSON.stringify({version:1,kind:'adoption-status-target',operationId,runtimeGeneration,grantSha256}));
+    let reply:unknown;
+    const send=async(frame:Uint8Array)=>{reply=JSON.parse(Buffer.from(frame).toString());controller.abort();};
+    await runNativeModelAdoptionOwner({
+     runtimeGeneration,owner:{workspaceId:input.workspaceId,tenantId:input.tenantId,principalId:input.principalId,...operator},
+     auth,imports:{coarseOwner:async()=>({workspaceId:input.workspaceId})} as never,
+     cms:{} as never,studio:{} as never,broker:{} as never,blobs:{} as never,
+     channel:{receive,send,close:async()=>{},isOpen:()=>true},signal:controller.signal,assertLive:async()=>{},
+    });
+    return reply;
+   };
+   await expect(runStatus()).resolves.toMatchObject({kind:'adoption-target-status',outcome:'unresolved'});
+   await expect(request({...operator,csrfToken:renewed.csrfToken})).rejects.toMatchObject({code:'CSRF_REJECTED'});
+   await pool.query('UPDATE users SET disabled=true WHERE id=$1',[input.principalId]);
+   await expect(request(operator)).rejects.toMatchObject({code:'AUTH_REQUIRED'});
+   await pool.query('UPDATE users SET disabled=false WHERE id=$1',[input.principalId]);
+   await pool.query('UPDATE auth_sessions SET revoked=true WHERE token_hash=$1',[digest(operator.sessionToken)]);
+   await expect(request(operator)).rejects.toMatchObject({code:'AUTH_REQUIRED'});
+   await expect(runStatus()).resolves.toMatchObject({kind:'adoption-refused'});
+   await expect(request(renewed)).resolves.toMatchObject({userId:input.principalId});
+  }finally{await pool.end();}
+ },15000);
+
 });
