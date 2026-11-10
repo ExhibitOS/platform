@@ -25,6 +25,7 @@ import {produceArtworkThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
 import {installNativePlacementPreview} from './native-placement-renderer';
+import {NATIVE_CATALOG_DROP_CAPABILITY,checkedCatalogDropRequest,type CatalogDropReply} from './native-catalog-drop';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {NATIVE_LIGHT_INSPECTOR_CAPABILITY,checkedLightInspectorRequest,nativeLightInspectorCandidate,type LightInspectorRequest} from './native-light-inspector';
 import {NATIVE_BENCH_INSPECTOR_CAPABILITY,checkedBenchInspectorRequest,nativeBenchInspectorCandidate,type BenchInspectorRequest} from './native-bench-inspector';
@@ -51,6 +52,7 @@ declare global {interface Window {exhibitosViewport?:{
  benchInspector:(v:BenchInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{benchId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  lightInspector:(v:LightInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{lightId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  placement:(v:PlacementRequest)=>ReturnType<NativePlacement['request']>;
+ catalogDropTarget:(v:unknown)=>CatalogDropReply;
  sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ReturnType<typeof catalogBinding>&{artworkId:string;revision:number;pngBase64:string;width:number;height:number}>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
@@ -91,12 +93,13 @@ function beginCatalogRequest(request:CatalogBinding){
 }
 function post(frame:NativeViewportFrame,type:string,body:unknown){if(frame===current&&type==='candidate'){pendingEditorCommit={epoch:frame.epoch,sequence:frame.sequence,candidate:freezeCanonical(body)};activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_EDIT_CHANGED'));}if(frame===current&&type==='selection')activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_SELECTION_CHANGED'));window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
 let viewportChanged:(()=>void)|undefined;
-function cameraReset(reason:'hidden'|'unavailable'){if(nativeCameraMode==='object')return;nativeCameraMode='object';if(current)post(current,'camera-interaction-reset',{mode:'object',reason});viewportChanged?.();}
+function cameraReset(reason:'hidden'|'unavailable'){catalogDropRenderer?.preview.clearHighlight();if(nativeCameraMode==='object')return;nativeCameraMode='object';if(current)post(current,'camera-interaction-reset',{mode:'object',reason});viewportChanged?.();}
 let snapshotSource:{document:NativeViewportFrame['draft']['candidate'];capture:SceneSnapshotCapture;idle():boolean}|null=null;
 let snapshotBusy=false;
 let pendingEditorCommit:{epoch:string;sequence:number;candidate:string}|undefined;
 let activeSnapshotAbort:AbortController|undefined;
 let placementRendererReady=false;
+let catalogDropRenderer:{frameReady:Parameters<PlacementPreviewInstaller>[0]['frameReady'];preview:ReturnType<typeof installNativePlacementPreview>}|undefined;
 let lightPending=false;
 let benchPending=false;
 let plaquePending=false;
@@ -115,7 +118,7 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
 });
 const requireEntranceIdle=()=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
 const requireEditable=()=>{requireEntranceIdle();if(acceptPending||currentReadOnly||currentBoundedEditable)throw Error('VIEWPORT_BOUNDED_READ_ONLY');};
-const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChanged?.(),
+const placement=new NativePlacement({frame:()=>current,notify:()=>{catalogDropRenderer?.preview.clearHighlight();viewportChanged?.();},
  suspended:()=>acceptPending||currentReadOnly,
  authenticate:async(frame,signal)=>{
   const authority=authorityGeneration;
@@ -125,18 +128,19 @@ const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChange
  },target:(frame,body)=>post(frame,'placement-target',body),cancelled:(frame,body)=>post(frame,'placement-cancel',body),
 });
 const cameraUnavailable=()=>document.hidden||!cameraApply||entrancePreview.active||placement.active||lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending||viewingPlanPending||furnishingPending;
-const cameraGate=new NativeCameraInteractionGate({frame:()=>current,unavailable:cameraUnavailable,authenticate:catalogSession,apply:request=>{if(!cameraApply?.(request.mode,false,`${request.epoch}:${request.sequence}`))return false;nativeCameraMode=request.mode;return true;}});
-function invalidateNativeCamera(reason:'hidden'|'unavailable'){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true,undefined,reason);cameraReset(reason);}}
+const cameraGate=new NativeCameraInteractionGate({frame:()=>current,unavailable:cameraUnavailable,authenticate:catalogSession,apply:request=>{if(!cameraApply?.(request.mode,false,`${request.epoch}:${request.sequence}`))return false;catalogDropRenderer?.preview.clearHighlight();nativeCameraMode=request.mode;return true;}});
+function invalidateNativeCamera(reason:'hidden'|'unavailable'){catalogDropRenderer?.preview.clearHighlight();cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true,undefined,reason);cameraReset(reason);}}
 window.addEventListener('blur',()=>invalidateNativeCamera('unavailable'));
 window.addEventListener('pagehide',()=>invalidateNativeCamera('unavailable'));
 window.addEventListener('exhibitos-auth-changed',()=>invalidateNativeCamera('unavailable'));
 document.addEventListener?.('visibilitychange',()=>{if(document.hidden)invalidateNativeCamera('hidden');});
 const placementInstaller:PlacementPreviewInstaller=context=>{
  const preview=installNativePlacementPreview(placement,context);placementRendererReady=true;
- return {sync:preview.sync,dispose:()=>{placementRendererReady=false;preview.dispose();}};
+ const installed={frameReady:context.frameReady,preview};catalogDropRenderer=installed;
+ return {sync:preview.sync,dispose:()=>{if(catalogDropRenderer===installed){catalogDropRenderer=undefined;placementRendererReady=false;}preview.dispose();}};
 };
 window.addEventListener('pagehide',()=>placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.'));
-const invalidatePendingAccept=()=>{ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;currentReadOnly=true;currentBoundedEditable=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();};
+const invalidatePendingAccept=()=>{catalogDropRenderer?.preview.clearHighlight();ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;currentReadOnly=true;currentBoundedEditable=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();};
 window.addEventListener('pagehide',invalidatePendingAccept);
 window.addEventListener('exhibitos-auth-changed',invalidatePendingAccept);
 window.addEventListener('pagehide',()=>entrancePreview.invalidate());
@@ -145,6 +149,7 @@ window.exhibitosViewport={
  entrancePreview:value=>entrancePreview.request(value),
  entrancePreviewState:value=>entrancePreview.state(value),
  accept:async value=>{
+  catalogDropRenderer?.preview.clearHighlight();
   const generation=++acceptGeneration;acceptPending=true;if(currentBoundedEditable){currentBoundedEditable=false;currentReadOnly=true;}viewportChanged?.();
   try{let frame:NativeViewportFrame,needsAuthority=false,editingCapability:NativeBoundedEditingCapability|undefined;
   try{frame=checkedFrame(value,current);}catch{
@@ -178,10 +183,28 @@ window.exhibitosViewport={
   ownerAuthority=ownerAuthorityGate.accept(session);
   receive?.(frame,currentSession!,ownerAuthority);
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
-  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
+  const capabilities=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
+   frame.disabled||frame.presentation==='plan'?NATIVE_CAPABILITIES:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
+  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
  },
  setCameraInteraction:value=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');return cameraGate.request(value);},
+ catalogDropTarget:value=>{
+  const frame=current,request=checkedCatalogDropRequest(value,frame),renderer=catalogDropRenderer;
+  const {version,requestId,epoch,sequence}=request;
+  if(request.phase==='clear'){
+   renderer?.preview.clearHighlight();
+   return {version,requestId,epoch,sequence,hit:null};
+  }
+  requireEditable();
+  const artworkIntent=request.targetKind==='artwork'&&placement.snapshot()?.request.requestId===request.placementRequestId;
+  if(!renderer||!renderer.frameReady(`${request.epoch}:${request.sequence}`,frame!.cameraSequence,artworkIntent)||document.hidden||nativeCameraMode!=='object')
+   throw Error('CATALOG_DROP_UNAVAILABLE');
+  if(lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending||
+     request.targetKind!=='artwork'&&placement.active)
+   throw Error('VIEWPORT_INTENT_ACTIVE');
+  return {version,requestId,epoch,sequence,hit:renderer.preview.catalogDrop(request)};
+ },
  placement:value=>{requireEditable();if(value?.phase==='begin'&&architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
  furnishingVisualsV2:async value=>{
   requireEditable();
@@ -329,7 +352,7 @@ function Viewport(){
  // GeometryPreview owns an expensive renderer effect keyed by this function.
  // Camera/selection frames must not recreate the scene or overwrite the camera.
  const appearance=useMemo(()=>(id:string)=>{const m=document?materialFor(document,id):{color:'#ffffff',roughness:1,metalness:0};const hex=m.color.slice(1);return {baseColor:[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[document]);
- useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session,authority)=>setState({frame,session,authority});if(current&&currentSession)setState({frame:current,session:currentSession,authority:ownerAuthority});return()=>{ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;snapshotSource=null;pendingEditorCommit=undefined;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
+ useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable())invalidateNativeCamera('unavailable');setPlacementVersion(v=>v+1);};receive=(frame,session,authority)=>setState({frame,session,authority});if(current&&currentSession)setState({frame:current,session:currentSession,authority:ownerAuthority});return()=>{ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;snapshotSource=null;pendingEditorCommit=undefined;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
  useEffect(()=>{if(planPreview&&state&&!nativePlanPreviewCurrent(planPreview,state.frame))setPlanPreview(null);},[state,planPreview]);
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
  const {frame,session,authority}=state;

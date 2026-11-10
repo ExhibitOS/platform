@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {BoxGeometry,EdgesGeometry,Group,LineBasicMaterial,LineSegments,Mesh,Raycaster,Vector2,type Material,type Object3D} from 'three';
+import {BoxGeometry,BoxHelper,EdgesGeometry,Group,LineBasicMaterial,LineSegments,Mesh,Raycaster,Vector2,type Material,type Object3D} from 'three';
 import type {PlacementPreviewContext} from './geometry/placement-preview';
 import type {NativePlacement} from './native-placement';
 import type {NativePlacementIntent} from './native-placement';
+import type {CatalogDropHit,CatalogDropRequest} from './native-catalog-drop';
 
 /** One ghost on the existing scene. Primary clicks select a real, nearest mesh. */
 export function installNativePlacementPreview(placement:NativePlacement,context:PlacementPreviewContext){
- const {scene,model,camera,renderer,rooms,surfaces,render}=context,canvas=renderer.domElement;
+ const {scene,model,camera,renderer,rooms,surfaces,document,render}=context,canvas=renderer.domElement;
  const ghost=new Group();ghost.matrixAutoUpdate=false;scene.add(ghost);ghost.visible=false;
+ let outline:BoxHelper|undefined;
+ const clearHighlight=()=>{if(outline){outline.removeFromParent();outline.dispose();outline=undefined;render();}};
  let disposed=false,intent:NativePlacementIntent|null=null,abort:AbortController|null=null;
  let releaseAsset=()=>{},materials:Material[]=[],boundsRelease=()=>{};
  let down:{x:number;y:number;pointerId:number}|null=null;
@@ -43,28 +46,75 @@ export function installNativePlacementPreview(placement:NativePlacement,context:
   stop(event);down=event.isPrimary!==false&&!event.ctrlKey&&!event.metaKey&&!event.altKey?{x:event.clientX,y:event.clientY,pointerId:event.pointerId}:null;
  };
  const pointerUp=(event:PointerEvent)=>{if(placement.active&&event.button===0)stop(event);};
- const click=(event:MouseEvent)=>{
-  if(!placement.active||event.button!==0)return;
-  stop(event);const start=down;down=null;
-  if(!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5||placement.snapshot()?.committing)return;
-  const rect=canvas.getBoundingClientRect();if(rect.width<=0||rect.height<=0)return;
+ const pick=(point:{x:number;y:number})=>{
   model.updateWorldMatrix(true,true);camera.updateWorldMatrix(true,false);
-  const ray=new Raycaster();ray.setFromCamera(new Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),camera);
-  // Exclude dimension outlines, but never click through an occluding artwork.
-  const hit=ray.intersectObject(model,true).find(h=>h.object instanceof Mesh);
+  const ray=new Raycaster();ray.setFromCamera(new Vector2(point.x*2-1,1-point.y*2),camera);
+  const hit=ray.intersectObject(model,true).find(({object})=>{
+   if(!(object instanceof Mesh))return false;
+   const materials=Array.isArray(object.material)?object.material:[object.material];
+   if(!materials.some(material=>material.visible))return false;
+   for(let node:Object3D|null=object;node;node=node.parent)if(!node.visible||node.userData.sceneSnapshotOverlay)return false;
+   return true;
+  });
   let node:Object3D|null=hit?.object??null;
   while(node&&!node.userData.editorSelection)node=node.parent;
   const selection=node?.userData.editorSelection as {kind:string;id:string}|undefined;
+  return {hit,node,selection};
+ };
+ const choose=(point:{x:number;y:number})=>{
+  const {hit,selection}=pick(point);
   const surface=selection?.kind==='surface'?surfaces.get(selection.id.toLowerCase()):null;
   if(hit&&surface){const local=surface.worldToLocal(hit.point.clone());placement.choose(selection!.id,[local.x,local.y]);}
   else placement.choose(null,null);
   sync();
  };
+ const catalogDrop=(request:CatalogDropRequest):CatalogDropHit|null=>{
+  clearHighlight();
+  if(request.phase==='clear')return null;
+  if(request.targetKind==='artwork'){
+   const active=placement.snapshot();
+   if(active?.request.requestId!==request.placementRequestId||!active.artwork||active.committing)throw Error('PLACEMENT_INTENT_STALE');
+   choose(request.point);
+   return placement.snapshot()===active&&active.target?{kind:'artwork'}:null;
+  }
+  const {hit,node,selection}=pick(request.point);
+  if(!hit)return null;
+  let result:CatalogDropHit|null=null,object:Object3D=hit.object;
+  if(request.targetKind==='light'&&hit.object.userData.exhibitosLightFixture===true){
+   const light=document.lights.find(light=>light.type==='spot'&&light.id===hit.object.userData.lightId);
+   if(light){result={kind:'light',lightId:light.id};object=hit.object.parent??hit.object;}
+  }
+  if(request.targetKind==='frame'&&selection?.kind==='placement'){
+   const target=document.placements.find(row=>row.id===selection.id);
+   if(target&&document.artworks.some(art=>art.revisionId===target.artworkRevisionId&&art.artworkType==='image'&&art.schemaVersion==='1.0.0-draft.1')){
+    result={kind:'frame',placementId:target.id};object=node??hit.object;
+   }
+  }
+  if(request.targetKind==='floor'){
+   const floor=selection?.kind==='surface'?document.surfaces.find(row=>row.id===selection.id&&row.type==='floor'):undefined;
+   const roomId=floor?.roomId??(selection?.kind==='room'&&hit.object.userData.catalogImplicitFloor===true?selection.id:undefined);
+   const room=roomId&&rooms.get(roomId.toLowerCase());
+   if(roomId&&room){
+    const local=room.worldToLocal(hit.point.clone()),authored=document.rooms.find(row=>row.id===roomId);
+    if(authored&&[local.x,local.y,local.z].every(Number.isFinite)&&Math.abs(local.x)<=authored.dimensions.width/2+1e-6&&Math.abs(local.z)<=authored.dimensions.depth/2+1e-6&&local.y>=-1e-6&&local.y<=authored.dimensions.height+1e-6)
+     result={kind:'floor',roomId,position:[local.x,local.y,local.z]};
+   }
+  }
+  if(result&&request.phase==='hover'){outline=new BoxHelper(object,0x007f75);scene.add(outline);render();}
+  return result;
+ };
+ const click=(event:MouseEvent)=>{
+  if(!placement.active||event.button!==0)return;
+  stop(event);const start=down;down=null;
+  if(!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5||placement.snapshot()?.committing)return;
+  const rect=canvas.getBoundingClientRect();if(rect.width<=0||rect.height<=0)return;
+  choose({x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height});
+ };
  const clearPointer=()=>{down=null;};
  const key=(event:KeyboardEvent)=>{if(placement.active&&event.key==='Escape'){stop(event);clearPointer();placement.cancel('작품 배치를 취소했어요.');sync();}};
- const lost=()=>{placement.cancel('3D 화면 연결이 중단되어 배치를 취소했어요.');sync();};
+ const lost=()=>{clearHighlight();placement.cancel('3D 화면 연결이 중단되어 배치를 취소했어요.');sync();};
  canvas.addEventListener('pointerdown',pointerDown,true);canvas.addEventListener('pointerup',pointerUp,true);canvas.addEventListener('click',click,true);canvas.addEventListener('pointercancel',clearPointer);canvas.addEventListener('webglcontextlost',lost);
- window.addEventListener('blur',clearPointer);window.addEventListener('keydown',key,true);
+ window.addEventListener('blur',clearPointer);window.addEventListener('blur',clearHighlight);window.addEventListener('keydown',key,true);
  sync();
- return {sync,dispose(){if(disposed)return;disposed=true;clearPointer();placement.cancel('3D 미리보기가 바뀌어 배치를 취소했어요.');clearAsset();scene.remove(ghost);canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('pointerup',pointerUp,true);canvas.removeEventListener('click',click,true);canvas.removeEventListener('pointercancel',clearPointer);canvas.removeEventListener('webglcontextlost',lost);window.removeEventListener('blur',clearPointer);window.removeEventListener('keydown',key,true);}};
+ return {sync,catalogDrop,clearHighlight,dispose(){if(disposed)return;disposed=true;clearPointer();clearHighlight();placement.cancel('3D 미리보기가 바뀌어 배치를 취소했어요.');clearAsset();scene.remove(ghost);canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('pointerup',pointerUp,true);canvas.removeEventListener('click',click,true);canvas.removeEventListener('pointercancel',clearPointer);canvas.removeEventListener('webglcontextlost',lost);window.removeEventListener('blur',clearPointer);window.removeEventListener('blur',clearHighlight);window.removeEventListener('keydown',key,true);}};
 }
