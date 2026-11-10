@@ -25,7 +25,7 @@ const hints={platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[{
 
 afterEach(()=>vi.unstubAllGlobals());
 
-it.each(['qualified-wheat-v4-index.json','qualified-r19-v4-index.json','qualified-r20-v4-index.json','qualified-r21-v4-index.json','qualified-r22-v4-index.json','qualified-r23-v4-index.json','qualified-r24-v4-index.json','qualified-r26-v4-index.json'])(
+it.each(['qualified-wheat-v4-index.json','qualified-r19-v4-index.json','qualified-r20-v4-index.json','qualified-r21-v4-index.json','qualified-r22-v4-index.json','qualified-r23-v4-index.json','qualified-r24-v4-index.json','qualified-r26-v4-index.json','qualified-r27-v4-index.json'])(
  'admits the exact reference original through loader, cover, measured runtime and owned fetch for %s',async filename=>{
  const indexBytes=await readFile(new URL(filename,root));
  const index=JSON.parse(indexBytes.toString('utf8')) as {detailAssets:{path:string;sha256:string}[]};
