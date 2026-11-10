@@ -1170,11 +1170,8 @@ export function GeometryPreview({
       }};
       action.current = view;
       resize();
-      view(
-        viewerBudget && presentationFor(document).startCamera
-          ? "start"
-          : "isometric",
-      );
+      const hasAuthoredStart = !!presentationFor(document).startCamera;
+      view(viewerBudget && hasAuthoredStart ? "start" : "isometric");
       let privateCameraRestored=false;
       if(restoreQuality){camera.position.fromArray(restoreQuality.position);camera.quaternion.fromArray(restoreQuality.quaternion);controls.target.fromArray(restoreQuality.target);authoredFov=restoreQuality.fov;applyProjection();controls.update();render();}
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
@@ -1412,6 +1409,10 @@ export function GeometryPreview({
                   canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
+              if (entranceReadiness && !hasAuthoredStart && !preserveCurrent && !teleportViewpointId) {
+                // Plan the entrance frame from the qualified floor pose rather than the overview.
+                adapter.actions.reset();
+              }
               if(restoreQuality)qualityRebuildReady.current=true;
               entranceNavigationReady=true;
               setWalkPreparation('ready');
@@ -1466,7 +1467,7 @@ export function GeometryPreview({
           release: () => {},
         };
         walkingActions.current = pending;
-        if(restoreQuality||entranceReadiness)void initialize(undefined,true);
+        if (restoreQuality || entranceReadiness) void initialize(undefined, !!restoreQuality || hasAuthoredStart);
       }
       // A native preview borrows this exact scene/camera. It never changes the
       // renderer effect's document, budget, immersive or editing dependencies.
