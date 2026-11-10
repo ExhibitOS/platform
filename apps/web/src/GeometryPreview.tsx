@@ -1609,6 +1609,7 @@ export function GeometryPreview({
         assetBudgetBytes,
       );
       let cachedOriginalKey:string|undefined;
+      const cachedOriginalBytes=()=>cachedOriginalKey?byteCache.get(cachedOriginalKey)?.byteLength??0:0;
       const releaseCachedOriginal=()=>{
         if(cachedOriginalKey)byteCache.delete(cachedOriginalKey);
         cachedOriginalKey=undefined;
@@ -2485,6 +2486,7 @@ export function GeometryPreview({
               const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
+              if(deficit()>0)releaseCachedOriginal();
               for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
               // An owned selected promotion can use the same speculative
               // capacity as a wall promotion. Keep every displayed object.
@@ -2788,7 +2790,7 @@ export function GeometryPreview({
                 higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
             }catch{/* No optional derivative fits the current admission policy. */}
           }
-          const cache=byteCache.stats(),expendable=cachedOriginalKey?byteCache.get(cachedOriginalKey)?.byteLength??0:0;
+          const cache=byteCache.stats(),expendable=cachedOriginalBytes();
           const next=[...light,...higher].find(({inventory})=>!entranceOptionalAttempted.has(inventory.id)&&
             !byteCache.get(inventory.id)&&cache.bytes-expendable+inventory.bytes<=cache.maxBytes&&peak.total()-expendable+inventory.bytes*4<=transitionBudgetBytes);
           if(!next){prefetchOriginal(candidates,cover);return;}
@@ -3331,7 +3333,7 @@ export function GeometryPreview({
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startApproved();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
-                      ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
+                      ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total()-cachedOriginalBytes(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
                       retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
                   }}};
                   const attemptOriginal=()=>{
