@@ -12,7 +12,7 @@ import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
 import {COMPACT_MODEL_RECIPE,COMPACT_MODEL_RECIPE_SHA256,type CompactModelReceipt} from './oam-original-preparation.ts';
 import {createModelPreparationReceipt} from './model-preparation-intent.ts';
-import {createNativeModelAdoptionGrant,parseNativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
+import {createNativeModelAdoptionGrant,parseNativeModelAdoptionGrant,readNativeModelAdoptionBlob} from './native-model-adoption-grant.ts';
 
 it('rejects stale draft and wrong owner before inspecting or mutating a job',async()=>{
  const draft=newDraft(),session={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session,owner={workspaceId:randomUUID()},jobAccess=vi.fn(),client={query:vi.fn(async(sql:string)=>({rows:[],rowCount:sql.startsWith('SELECT * FROM studio_requests')?0:null}))} as unknown as PoolClient;
@@ -101,6 +101,14 @@ it('reads both approved source artifacts only for the authenticated source owner
  ])expect(()=>parseNativeModelAdoptionGrant(invalid,now)).toThrow('MODEL_ADOPTION_GRANT_INVALID');
  expect(()=>createNativeModelAdoptionGrant({...custody,source:{...custody.source,artworkId:randomUUID()}},
   {operationId:randomUUID(),target,expiresAt:now+600_000},now)).toThrow('MODEL_ADOPTION_SOURCE_CHANGED');
+ const signal=new AbortController().signal;
+ async function* chunks(...parts:Buffer[]){yield* parts;}
+ await expect(readNativeModelAdoptionBlob(grant,'original',chunks(original.subarray(0,12),original.subarray(12)),signal)).resolves.toEqual(original);
+ await expect(readNativeModelAdoptionBlob(grant,'display',chunks(display),signal)).resolves.toEqual(display);
+ for(const bytes of [display.subarray(1),Buffer.concat([display,Buffer.alloc(1)]),Buffer.alloc(display.length,3)])
+  await expect(readNativeModelAdoptionBlob(grant,'display',chunks(bytes),signal)).rejects.toThrow('MODEL_ADOPTION_STAGE_INTEGRITY');
+ await expect(readNativeModelAdoptionBlob(grant,'original',chunks(display),signal)).rejects.toThrow('MODEL_ADOPTION_STAGE_INTEGRITY');
+ await expect(readNativeModelAdoptionBlob(grant,'display',chunks(display),AbortSignal.abort())).rejects.toMatchObject({name:'AbortError'});
  expect(read).toHaveBeenCalledWith('original',original.length);
  expect(read).toHaveBeenCalledWith('display',display.length);
  read.mockImplementationOnce(async()=>Buffer.alloc(display.length,3));

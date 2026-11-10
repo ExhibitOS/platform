@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {createHash} from 'node:crypto';
 import {ApiError} from './api-error.ts';
 import type {readApprovedModelCustody} from './artwork-replacement.ts';
 import {COMPACT_MODEL_RECIPE} from './oam-original-preparation.ts';
@@ -67,4 +68,28 @@ export function createNativeModelAdoptionGrant(custody:Custody,input:{operationI
   original:{sha256:receipt.original.sha256,bytes:receipt.original.bytes},
   display:{sha256:receipt.display.sha256,bytes:receipt.display.bytes},
  },now);
+}
+
+/** Verify the stream actually read from the retained private stage. The native
+ * caller must also await a clean broker close before using the returned bytes. */
+export async function readNativeModelAdoptionBlob(grant:NativeModelAdoptionGrant,role:'original'|'display',stream:AsyncIterable<Uint8Array>,signal:AbortSignal){
+ signal.throwIfAborted();
+ const expected=grant[role];
+ if(!blob(expected))throw new ApiError(409,'MODEL_ADOPTION_GRANT_INVALID');
+ const bytes=Buffer.alloc(expected.bytes),hash=createHash('sha256');
+ let offset=0;
+ try{
+  for await(const part of stream){
+   signal.throwIfAborted();
+   if(!(part instanceof Uint8Array)||part.byteLength>bytes.length-offset)throw new ApiError(409,'MODEL_ADOPTION_STAGE_INTEGRITY');
+   bytes.set(part,offset);offset+=part.byteLength;
+   hash.update(bytes.subarray(offset-part.byteLength,offset));
+  }
+  signal.throwIfAborted();
+  if(offset!==bytes.length||hash.digest('hex')!==expected.sha256)throw new ApiError(409,'MODEL_ADOPTION_STAGE_INTEGRITY');
+  return bytes;
+ }catch(error){
+  bytes.fill(0);
+  throw error;
+ }
 }
