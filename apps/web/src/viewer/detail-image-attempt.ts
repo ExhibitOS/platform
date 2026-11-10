@@ -159,7 +159,16 @@ const r52Wheat:QualifiedDetailImage=Object.freeze({...r46Wheat,
  artworkRevisionId:'d7709511-4d09-4c4f-a08c-1c75888b3b0e',
  sourceBindingSha256:'f14745bc517812c3f0ce50084e6ab64a1d07f490fc20fad8117ed0060c9a02ab',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat]);
+// The r53 Arrival text update retains the measured Wheat original and its bounds.
+const r53Wheat:QualifiedDetailImage=Object.freeze({...r52Wheat,
+ staticIndexSha256:'79541417f1248a4c335c72cdaf9a84906f4558d261782cf0107266bb8f60ce2e',
+ publicationSha256:'cdef470d858b51723ae5598e4a648df04a4bdd5ef91f8eaa24fe2ed461ba6de3',
+ candidateId:'0e338503-daec-43a8-bdab-862a2a632180',
+ revisionSha256:'bb4a21f1fa4d5e8a0bc64885b08c06f2a72a346a5a43da86aa81a68583451322',
+ artworkRevisionId:'6b1cd4e6-2afc-4766-8776-fb553d3b90bd',
+ sourceBindingSha256:'52b6a986cd5996358a96a0c6cf3a1e7ad70e4afe05d4d3d411293535515367a8',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
