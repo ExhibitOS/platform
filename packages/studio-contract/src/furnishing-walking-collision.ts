@@ -44,7 +44,7 @@ export function furnishingWalkingCollisionTargets(document:Exhibition):Furnishin
   if(row.pedestal&&row.pedestal.kind!=='none')add('plinth',row.placementId,row.pedestal.position[1]<1.75);
   if(row.frame&&row.frame.kind!=='none')add('frame',row.placementId,false);
  }
- for(const light of document.lights)add('light',light.id,false);
+ for(const light of document.lights??[])add('light',light.id,false);
  for(const row of workspace?.frameAttachments??[])add('frame',row.placementId,false);
  for(const row of workspace?.openingAttachments??[])add('opening',row.openingId,false);
  for(const row of furnishingsFor(document)?.bindings??[])if(row.hostKind==='opening')add('opening',row.hostId,false);
@@ -76,6 +76,13 @@ export function furnishingWalkingCollisionState(document:Exhibition):FurnishingW
   const override=overrides.get(key(row.kind,row.id));
   return override===undefined?row:{...row,override};
  });
+}
+
+/** Resolve once per scene. Geometry consumers keep their own visibility and
+ * admission checks even when the author requests collision. */
+export function furnishingWalkingCollisionLookup(document:Exhibition){
+ const settings=new Map(furnishingWalkingCollisionState(document).map(row=>[key(row.kind,row.id),row.override??row.defaultEnabled]));
+ return (kind:FurnishingWalkingCollisionKind,id:string)=>settings.get(key(kind,id))===true;
 }
 
 /** Remap each target after its host has been projected. Missing hosts may not

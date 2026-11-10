@@ -1,6 +1,6 @@
 import {surfacePanels as wallCollisionPanels,wallFinishesFor,architecturalSolids} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchesFor,benchSolids,builtInStoolSolids,presentationFor} from "@exhibitos/studio-contract";
+import {furnishingWalkingCollisionLookup,artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchesFor,benchSolids,builtInStoolSolids,presentationFor} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -110,6 +110,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             throw Error("NAVIGATION_SETTINGS_INVALID");
     };
     checkSettings(settings);
+    const collisionEnabled=furnishingWalkingCollisionLookup(doc);
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const rooms = new Map(doc.rooms.map(r => [r.id.toLowerCase(), r]));
     let colliderCount = 0;
@@ -183,7 +184,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
         }
-        const stoolSolids=options.stoolVisible?builtInStoolSolids(doc):[];
+        const stoolSolids=options.stoolVisible?builtInStoolSolids(doc).filter(solid=>collisionEnabled('workspace',solid.stoolPlacementId)):[];
         const stoolIds=new Set(stoolSolids.map(solid=>solid.stoolPlacementId.toLowerCase()));
         const linkedStools=new Map(benchesFor(doc).flatMap(bench=>{
             const id=bench.workspaceVisual?.placementId.toLowerCase();
@@ -191,7 +192,11 @@ export async function createNavigationController(doc: Exhibition, options: {
         }));
         const linkedStoolIds=new Set(linkedStools.values());
         const unlinkedStoolSolids=stoolSolids.filter(solid=>!linkedStoolIds.has(solid.stoolPlacementId.toLowerCase()));
-        for(const solid of [...resolveInstallations(doc).flatMap(record=>record.solids),...benchSolids(doc),...unlinkedStoolSolids,...architecturalSolids(doc)]){
+        const installation=resolveInstallations(doc).flatMap(record=>record.solids.filter(solid=>collisionEnabled(solid.component==='pedestal'?'plinth':'frame',record.placementId)));
+        const benches=benchSolids(doc).filter(solid=>solid.workspacePlacementId
+            ? collisionEnabled('workspace',solid.workspacePlacementId)
+            : collisionEnabled('bench',solid.benchId));
+        for(const solid of [...installation,...benches,...unlinkedStoolSolids,...architecturalSolids(doc)]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
             const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');
