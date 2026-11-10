@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { distanceGain, footstepWave, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
 import type { NavigationState } from "./navigation.ts";
 import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {BUILTIN_STEP_BANKS} from './footstep-bank';
 const state=(x:number, extra:Partial<NavigationState>={}):NavigationState=>({eyePosition:[x,1.65,0],yaw:0,velocity:[1.3,0,0],grounded:true,steps:1,paused:false,blocked:false,recovered:false,...extra});
 test("distance attenuation is bounded, silence outside radius and invalid distances",()=>{assert.equal(distanceGain(0,3),1);assert.equal(distanceGain(1.5,3),0.25);assert.equal(distanceGain(3,3),0);assert.equal(distanceGain(4,3),0);assert.equal(distanceGain(NaN,3),0);assert.equal(distanceGain(1,0),0);});
@@ -740,4 +741,222 @@ test('private document changes preserve sound preferences and reject resource ch
  const changed=structuredClone(doc);changed.title='Private change';runtime.updatePrivateExhibition(changed);
  expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false,context:'not-created'});expect(fetcher).not.toHaveBeenCalled();
  const invalid=structuredClone(changed);invalid.mediaAssets.push({} as never);expect(()=>runtime.updatePrivateExhibition(invalid)).toThrow('AUDIO_PRIVATE_SOURCE_CHANGED');expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false});runtime.dispose();
+});
+
+test('room audio distinguishes selected-but-Off from None and retains visitor overrides on return',()=>{
+ const stored=new Map<string,string>();
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>stored.get(key)??null,setItem:(key:string,value:string)=>stored.set(key,value)});
+ const first='11111111-1111-4111-8111-111111111111',second='22222222-2222-4222-8222-222222222222',track='33333333-3333-4333-8333-333333333333';
+ const publication={publication:{id:first,revisionSha256:'a'.repeat(64)},assets:[],exhibition:{id:first,
+  rooms:[{id:first},{id:second}],surfaces:[],placements:[],audioZones:[],mediaAssets:[{id:track,mime:'audio/wav'}],
+  extensions:{'org.exhibitos.viewer/experience':{version:1,footsteps:[],voices:[],annotations:[],translations:[],
+   audioDefaults:{soundOn:true},rooms:[
+    {roomId:first,reverb:.12,footstepsOn:true,reverbOn:true,bgmOn:false,bgm:{assetId:track}},
+    {roomId:second,reverb:.08,footstepsOn:false,reverbOn:false,bgmOn:false,bgm:null},
+   ]}}}} as unknown as import('../publication-client').PublicPublication;
+ const runtime=new ExhibitionAudio(publication,()=>{});
+ try{
+  expect(runtime.snapshot()).toMatchObject({soundOn:true,context:'not-created',footstepsEnabled:true,reverbEnabled:true,bgmOn:false,bgmAvailable:true,bgmPlaying:false});
+  runtime.setBgmOn(true);
+  runtime.footstepsEnabled(false);
+  runtime.reverbEnabled(true);
+  runtime.volume(.2);
+  runtime.setSoundOn(false);
+  runtime.update(state(0,{roomId:second}));
+  expect(runtime.snapshot()).toMatchObject({soundOn:false,muted:true,volume:.2,footstepsEnabled:false,reverbEnabled:true,bgmOn:true,bgmAvailable:false});
+  const returned=new ExhibitionAudio(publication,()=>{});
+  try{
+   expect(returned.snapshot()).toMatchObject({soundOn:false,muted:true,volume:.2,footstepsEnabled:false,reverbEnabled:true,bgmOn:true,bgmAvailable:true});
+   expect(returned.snapshot().context).toBe('not-created');
+  }finally{returned.dispose();}
+ }finally{runtime.dispose();vi.unstubAllGlobals();}
+});
+
+test('entered and ready gates room loops, crossing crossfades, narration ducks, and hiding stops',async()=>{
+ const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222',voice='33333333-3333-4333-8333-333333333333';
+ const publication={publication:{id:a,revisionSha256:'a'.repeat(64)},assets:[],exhibition:{id:a,
+  rooms:[{id:a},{id:b}],surfaces:[],placements:[],audioZones:[],mediaAssets:[a,b,voice].map(id=>({id,mime:'audio/wav'})),
+  extensions:{'org.exhibitos.viewer/experience':{version:1,footsteps:[],annotations:[],translations:[],
+   voices:[{assetId:voice,placementId:a,locale:'ko',transcript:'Narration'}],audioDefaults:{soundOn:true},
+   rooms:[{roomId:a,reverb:.12,bgmOn:true,bgm:{assetId:a}},{roomId:b,reverb:.12,bgmOn:true,bgm:{assetId:b}}]}}}} as unknown as import('../publication-client').PublicPublication;
+ const parameter=()=>({value:0,setValueAtTime:vi.fn(),setTargetAtTime:vi.fn(),cancelScheduledValues:vi.fn(),linearRampToValueAtTime:vi.fn()});
+ const gains:ReturnType<typeof parameter>[]=[];
+ const sources:Array<{buffer:AudioBuffer|null;loop:boolean;connect:ReturnType<typeof vi.fn>;disconnect:ReturnType<typeof vi.fn>;start:ReturnType<typeof vi.fn>;stop:ReturnType<typeof vi.fn>}>= [];
+ const listener=new Proxy({}, {get:()=>parameter()});
+ const context={state:'running',currentTime:1,destination:{},listener,resume:vi.fn(async()=>{}),close:vi.fn(async()=>{}),
+  createGain:()=>{const gain=parameter();gains.push(gain);return {gain,connect:vi.fn(),disconnect:vi.fn()};},
+  createBufferSource:()=>{const source={buffer:null,loop:false,connect:vi.fn(node=>node),disconnect:vi.fn(),start:vi.fn(),stop:vi.fn()};sources.push(source);return source;}};
+ vi.stubGlobal('AudioContext',class{constructor(){return context;}});
+ const runtime=new ExhibitionAudio(publication,()=>{});
+ const internal=runtime as unknown as {checkAvailability:()=>Promise<void>;load:(id:string)=>Promise<AudioBuffer>};
+ internal.checkAvailability=async()=>{};
+ const bodies=new Map([a,b,voice].map(id=>[id,{duration:2} as AudioBuffer]));
+ const load=vi.fn(async(id:string)=>bodies.get(id)!);
+ internal.load=load;
+ try{
+  runtime.enterFromGesture();
+  await vi.waitFor(()=>expect(runtime.snapshot().enabled).toBe(true));
+  expect(context.resume).toHaveBeenCalledOnce();
+  expect(load).not.toHaveBeenCalled();
+  expect(sources).toHaveLength(0);
+  runtime.setGalleryReady(true);
+  await vi.waitFor(()=>expect(runtime.snapshot().bgmPlaying).toBe(true));
+  expect(sources[0]).toMatchObject({loop:true,buffer:bodies.get(a)});
+  expect(gains[2]?.linearRampToValueAtTime).toHaveBeenLastCalledWith(.12,1.45);
+  runtime.lifecycle(false,true);
+  await runtime.playVoice(voice);
+  expect(gains[1]?.setTargetAtTime).toHaveBeenLastCalledWith(.35,1,.03);
+  runtime.stopVoice();
+  expect(gains[1]?.setTargetAtTime).toHaveBeenLastCalledWith(1,1,.12);
+  runtime.update(state(0,{roomId:b}));
+  await vi.waitFor(()=>expect(sources.at(-1)).toMatchObject({loop:true,buffer:bodies.get(b)}));
+  expect(sources[0]?.stop).toHaveBeenLastCalledWith(1.45);
+  expect(gains[2]?.linearRampToValueAtTime).toHaveBeenLastCalledWith(0,1.45);
+  runtime.visibility(false);
+  expect(runtime.snapshot().bgmPlaying).toBe(false);
+ }finally{runtime.dispose();vi.unstubAllGlobals();}
+});
+
+test('large room loops fade and retire the prior decoded owner before admission without evicting narration',async()=>{
+ const {runtime}=voiceRuntime();
+ const previous={length:1988840,numberOfChannels:2} as AudioBuffer;
+ const voice={length:250000,numberOfChannels:1} as AudioBuffer;
+ const source={buffer:previous,stop:vi.fn(),disconnect:vi.fn(),onended:null} as unknown as AudioBufferSourceNode;
+ const narrator={buffer:voice,stop:vi.fn(),disconnect:vi.fn(),onended:null} as unknown as AudioBufferSourceNode;
+ const param={value:.12,cancelScheduledValues:vi.fn(),setValueAtTime:vi.fn(),linearRampToValueAtTime:vi.fn()};
+ const gain={gain:param,disconnect:vi.fn()} as unknown as GainNode;
+ let finish!:()=>void;
+ const ended=new Promise<void>(resolve=>{finish=resolve;});
+ const internal=runtime as unknown as {
+  context:AudioContext;
+  bgm?:{id:string;source:AudioBufferSourceNode;gain:GainNode;ended:Promise<void>};
+  fadingBgm?:unknown;
+  buffers:Map<string,AudioBuffer>;
+  track:(source:AudioBufferSourceNode,cleanup?:()=>void)=>void;
+  prepareBgmDecode:(bytes:number,current:()=>boolean)=>Promise<void>;
+ };
+ internal.context={currentTime:1,close:async()=>{}} as AudioContext;
+ internal.bgm={id:'previous',source,gain,ended};
+ internal.buffers.set('previous',previous);
+ internal.buffers.set('voice',voice);
+ internal.track(source,()=>{internal.fadingBgm=undefined;finish();});
+ internal.track(narrator);
+ try{
+  await internal.prepareBgmDecode(1024,()=>true);
+  expect(source.stop).not.toHaveBeenCalled();
+  let admitted=false;
+  const request=internal.prepareBgmDecode(15240960,()=>true).then(()=>{admitted=true;});
+  expect(admitted).toBe(false);
+  expect(source.stop).toHaveBeenLastCalledWith(1.45);
+  expect(param.linearRampToValueAtTime).toHaveBeenLastCalledWith(0,1.45);
+  expect(internal.buffers.get('previous')).toBe(previous);
+  source.onended?.(new Event('ended'));
+  await request;
+  expect(internal.buffers.has('previous')).toBe(false);
+  expect(internal.buffers.get('voice')).toBe(voice);
+  expect(narrator.stop).not.toHaveBeenCalled();
+ }finally{runtime.dispose();}
+});
+
+test.each(['voice', 'preload', 'preload without room playback', 'room reentry during the fade'])('shared room WAV respects the decoded budget when %s loads first', async mode => {
+ const {id, runtime} = voiceRuntime();
+ const bytes = wav(50);
+ const revision = 'a'.repeat(64);
+ const url = `/api/v1/publications/${id}/assets/${id}`;
+ const previous = {length: 1988840, numberOfChannels: 2} as AudioBuffer;
+ const incoming = {length: 2400000, numberOfChannels: 1, duration: 50, sampleRate: 48000} as AudioBuffer;
+ const source = {buffer: previous, stop: vi.fn(), disconnect: vi.fn(), onended: null} as unknown as AudioBufferSourceNode;
+ const gain = {gain: {value: .12, cancelScheduledValues: vi.fn(), setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn()}, disconnect: vi.fn()} as unknown as GainNode;
+ let markFetched!: () => void;
+ let resumeFetch!: () => void;
+ let markEnded!: () => void;
+ const fetched = new Promise<void>(resolve => {markFetched = resolve;});
+ const resume = new Promise<void>(resolve => {resumeFetch = resolve;});
+ const ended = new Promise<void>(resolve => {markEnded = resolve;});
+ const decode = vi.fn(async () => incoming);
+ const nextSource = {start: vi.fn(), stop: vi.fn(), connect: vi.fn(node => node), disconnect: vi.fn(), onended: null};
+ const nextGain = {...gain, connect: vi.fn()};
+ const audio = runtime as unknown as {
+  publication: import('../publication-client').PublicPublication;
+  state: {enabled: boolean; soundOn: boolean; bgmOn: boolean; muted: boolean};
+  entered: boolean;
+  galleryReady: boolean;
+  preferenceKey: string;
+  syncBgm: () => void;
+  selectedBgm: () => string | undefined;
+  context: AudioContext;
+  experience: {rooms: {roomId: string; bgm: {assetId: string}}[]};
+  buffers: Map<string, AudioBuffer>;
+  bgm?: {id: string; source: AudioBufferSourceNode; gain: GainNode; ended: Promise<void>};
+  fadingBgm?: unknown;
+  preloadTargets: () => string[];
+  load: (id: string, preload?: boolean, beforeDecode?: (bytes: number) => Promise<void>) => Promise<AudioBuffer>;
+  track: (source: AudioBufferSourceNode, cleanup: () => void) => void;
+  prepareBgmDecode: (bytes: number, current: () => boolean) => Promise<void>;
+ };
+ const fetcher = vi.fn(async () => {
+  markFetched();
+  await resume;
+  return new Response(bytes, {headers: {'content-type': 'audio/wav', 'x-exhibitos-publication-revision': revision}});
+ });
+ audio.publication.assets = [{assetId: id, mime: 'audio/wav', url}];
+ audio.publication.exhibition.mediaAssets = [{id, mime: 'audio/wav', bytes: bytes.byteLength, sha256: createHash('sha256').update(new Uint8Array(bytes)).digest('hex')}] as typeof audio.publication.exhibition.mediaAssets;
+ audio.publication.local = {check: async () => {}, fetcher};
+ audio.state.enabled = true;
+ audio.context = {state: 'running', currentTime: 1, sampleRate: 48000, decodeAudioData: decode, createGain: () => nextGain, createBufferSource: () => nextSource, close: async () => {}} as unknown as AudioContext;
+ audio.experience.rooms = [{roomId: id, bgm: {assetId: id}}];
+ audio.preloadTargets = () => [id];
+ audio.bgm = {id: 'previous', source, gain, ended};
+ audio.buffers.set('previous', previous);
+ audio.track(source, () => {audio.fadingBgm = undefined; markEnded();});
+ try {
+  if (mode === 'room reentry during the fade') {
+   let selected = id;
+   audio.selectedBgm = () => selected;
+   audio.preferenceKey = 'test-room-audio';
+   audio.entered = audio.galleryReady = audio.state.soundOn = audio.state.bgmOn = true;
+   audio.state.muted = false;
+   const load = vi.spyOn(audio, 'load');
+   audio.syncBgm();
+   await fetched;
+   resumeFetch();
+   await vi.waitFor(() => expect(source.stop).toHaveBeenCalledWith(1.45));
+   selected = '22222222-2222-4222-8222-222222222222';
+   audio.syncBgm();
+   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+   selected = id;
+   audio.syncBgm();
+   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+   expect(decode).not.toHaveBeenCalled();
+   source.onended?.(new Event('ended'));
+   await vi.waitFor(() => expect(nextSource.start).toHaveBeenCalledOnce());
+   expect(decode).toHaveBeenCalledOnce();
+   expect(fetcher).toHaveBeenCalledOnce();
+   expect(audio.bgm?.id).toBe(id);
+   return;
+  }
+  const pending = audio.load(id, mode !== 'voice');
+  await fetched;
+  if (mode === 'preload without room playback') {
+   resumeFetch();
+   await expect(pending).rejects.toThrow('AUDIO_CACHE_PRESSURE');
+   expect(source.stop).not.toHaveBeenCalled();
+   expect(decode).not.toHaveBeenCalled();
+  } else {
+   const prepare = vi.fn((size: number) => audio.prepareBgmDecode(size, () => true));
+   expect(audio.load(id, false, prepare)).toBe(pending);
+   resumeFetch();
+   await vi.waitFor(() => expect(source.stop).toHaveBeenCalledWith(1.45));
+   expect(decode).not.toHaveBeenCalled();
+   source.onended?.(new Event('ended'));
+   await expect(pending).resolves.toBe(incoming);
+   expect(prepare).toHaveBeenCalledWith(9600000);
+   expect(decode).toHaveBeenCalledOnce();
+   expect(audio.buffers.has('previous')).toBe(false);
+  }
+  expect(fetcher).toHaveBeenCalledOnce();
+ } finally {
+  resumeFetch();
+  runtime.dispose();
+ }
 });
