@@ -33,11 +33,15 @@ test.each(['slab','backed'] as const)('keeps a %s workspace bench bound to its s
   };
   candidate.extensions={...candidate.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:workspace as never};
   const attached=applyBenchCommand(candidate,{type:'set-bench',bench:{...bench,workspaceVisual:{placementId,modelSha256}}});
-  expect(ordinaryWorkspaceBenchSeatDelta(draft,{...draft,candidate:attached})).toBe(kind==='backed');
+  const attachedDraft=structuredClone(draft);
+  attachedDraft.candidate=attached;
+  expect(ordinaryWorkspaceBenchSeatDelta(draft,attachedDraft)).toBe(kind==='backed');
   if(kind==='backed'){
     expect(benchSolids(attached).map(x=>x.vertices)).toEqual(benchSolids(candidate).map(x=>x.vertices));
     const changedHost=applyBenchCommand(candidate,{type:'set-bench',bench:{...bench,name:'Changed seat',workspaceVisual:{placementId,modelSha256}}});
-    expect(ordinaryWorkspaceBenchSeatDelta(draft,{...draft,candidate:changedHost})).toBe(false);
+    const changedDraft=structuredClone(draft);
+    changedDraft.candidate=changedHost;
+    expect(ordinaryWorkspaceBenchSeatDelta(draft,changedDraft)).toBe(false);
   }
   const moved=structuredClone(attached);
   (moved.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings).placements[0]!.position[0]+=.1;
