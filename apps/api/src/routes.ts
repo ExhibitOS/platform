@@ -4,7 +4,7 @@ import {COMPACT_MODEL_LIMITS,LARGE_MODEL_RECIPE} from './oam-original-preparatio
 import type {CompactVariantInput} from './compact-model-variant.ts';
 import {MODEL_PREPARATION_SCHEMA,storedModelPreparation} from './model-preparation-intent.ts';
 import type {ModelPreparationExecution} from './model-preparation-import.ts';
-import {FURNISHING_WALKING_COLLISION_PROFILE,INFO_STAND_PREPARATION_PROFILE} from '@exhibitos/studio-contract';
+import {FURNISHING_WALKING_COLLISION_PROFILE,INFO_STAND_PREPARATION_PROFILE,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {PassThrough} from 'node:stream';
 import {once} from 'node:events';
@@ -234,6 +234,15 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(nativeFurnishingProposals)app.post(`${prefix}/studio/native-furnishing-walking-collision-evaluation`,{
   bodyLimit:1048576,schema:{body:object({draft:{type:'object'}})},
  },nativeMutation((c,s,req)=>studio.evaluateNativeFurnishingWalkingCollision(c,s,(req.body as Pick<StudioInput,'draft'>).draft)));
+ if(nativeFurnishingProposals)app.post(`${prefix}/studio/native-furnishing-walking-collision-proposal`,{
+  bodyLimit:1048576,schema:{body:object({
+   draft:{type:'object'},target:object({kind:{type:'string',enum:['workspace','bench','plinth','light','frame','opening','baseboard','sign']},id}),
+   enabled:{anyOf:[{type:'boolean'},{type:'null'}]},
+  })},
+ },nativeMutation((c,s,req)=>{
+  const {draft,target,enabled}=req.body as Pick<StudioInput,'draft'>&{target:FurnishingWalkingCollisionTarget;enabled:boolean|null};
+  return studio.proposeNativeFurnishingWalkingCollision(c,s,draft,target,enabled);
+ }));
  const studioBody=object({draft:{type:'object'},requestId:id});
  app.post(sp,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const result=await studio.create(c,s,req.body as StudioInput);reply.code(201).header('etag',result.etag);return result;}));
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));

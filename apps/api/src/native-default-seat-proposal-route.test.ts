@@ -80,6 +80,14 @@ test('native seat proposals require a session, CSRF and workspace ownership and 
   expect((await evaluate(ownerToken,csrf)).json()).toEqual({
    targets:[{kind:'workspace',id:placementId,defaultEnabled:true,override:true}],
   });
+  const propose=(enabled:boolean|null,id=placementId)=>app.inject({
+   method:'POST',url:`/api/v1/tenants/${tenantId}/studio/native-furnishing-walking-collision-proposal`,
+   payload:{draft:collisionDraft,target:{kind:'workspace',id},enabled},
+   headers:{...headers(ownerToken),'x-csrf-token':csrf},
+  });
+  expect((await propose(true)).json()).toEqual({changed:false,candidate:collisionDraft.candidate});
+  expect((await propose(null)).json()).toEqual({changed:true,candidate:draft.candidate});
+  expect((await propose(false,randomUUID())).json()).toMatchObject({code:'FURNISHING_WALKING_COLLISION_INVALID'});
   expect(payload).toEqual(before);
   expect(query.mock.calls.some(([sql])=>/\b(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
  }finally{await app.close();}

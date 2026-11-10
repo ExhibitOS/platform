@@ -1,4 +1,4 @@
-import {furnishingWalkingCollisionState,validateFurnishingWalkingCollision} from '@exhibitos/studio-contract';
+import {applyFurnishingWalkingCollisionOverride,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
@@ -228,6 +228,15 @@ export class Studio {
     const targets=furnishingWalkingCollisionState(draft.candidate);
     if(targets.length>1024)throw new ApiError(422,'FURNISHING_WALKING_COLLISION_LIMIT');
     return {targets};
+  }
+  async proposeNativeFurnishingWalkingCollision(c:PoolClient,s:Session,draft:Draft,target:FurnishingWalkingCollisionTarget,enabled:boolean|null) {
+    await this.evaluateNativeFurnishingWalkingCollision(c,s,draft);
+    try {
+      const candidate=applyFurnishingWalkingCollisionOverride(draft.candidate,target,enabled);
+      return {changed:candidate!==draft.candidate,candidate};
+    } catch {
+      throw new ApiError(422,'FURNISHING_WALKING_COLLISION_INVALID');
+    }
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
     if(!this.nativeOexWorkspace)throw new ApiError(404,'NOT_FOUND');
