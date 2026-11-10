@@ -112,35 +112,24 @@ it('hides the entire public scene at the earliest furnishing expiry',async()=>{
  expect(await runtime.start()).toEqual({loaded:2,failed:0});vi.setSystemTime(new Date('2030-01-01T00:00:01Z'));let visibleAtFrame=-1;guardedXrFrame(runtime.enforce,()=>{},()=>{},()=>{visibleAtFrame=room.children.length;})(0);expect(visibleAtFrame).toBe(0);runtime.dispose();
 });
 
-it('refuses or retires optional contacts at the admitted scene boundary before furnishings can be revoked',async()=>{
+it('receiver shading leaves the admitted scene capacity unchanged and keeps loaded furnishings',async()=>{
  const {installSupportContactShadows}=await import('../viewer/shadows');
- const {supportContactSceneFits}=await import('../viewer/support-contacts');
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9);
  const item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
  const extension={version:1 as const,furnishings:[item],placements:[{id:id(3),roomId:id(1),furnishingId:item.id,furnishingVersion:1 as const,position:[1,0,1] as [number,number,number],yaw:0,scale:1}]};
  const candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
- const room=new three.Group(),scene=new three.Scene(),budget=DEVICE_BUDGETS.desktop,triangleLimit=budget.maxSceneTriangles??budget.maxTriangles;
- scene.add(room);
- let contacts:ReturnType<typeof installSupportContactShadows>|undefined;
+ const room=new three.Group(),scene=new three.Scene();scene.add(room);
  const fetcher=async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary','x-exhibitos-publication-revision':'f'.repeat(64)}}),check=async()=>{};
- const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:new AbortController().signal,unavailable:()=>false,budget,transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},
+ const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:new AbortController().signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},
   modelSource:descriptor=>publicWorkspaceModelSource(publicationId,'f'.repeat(64),[{assetId:item.id,mime:item.model.mime,url:`/api/v1/publications/${publicationId}/assets/${item.id}`}],extension,descriptor,fetcher,check),publicAuthority:{check,valid:()=>true},
-  beforeSceneCapacityCheck:()=>{if(contacts&&!supportContactSceneFits(existingSceneCost(three,scene),triangleLimit,false)){contacts.dispose();contacts=undefined;}},
  });
  expect(await runtime.start()).toEqual({loaded:1,failed:0});
- const count=256-existingSceneCost(three,scene).draws,geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial();
- const filler=new three.InstancedMesh(geometry,material,count);scene.add(filler);
- expect(existingSceneCost(three,scene).draws).toBe(256);
- expect(supportContactSceneFits(existingSceneCost(three,scene),triangleLimit)).toBe(false);
+ const geometry=new three.BoxGeometry(),material=new three.MeshStandardMaterial(),receiver=new three.Mesh(geometry,material);room.add(receiver);
+ const filler=new three.InstancedMesh(geometry,material,256-existingSceneCost(three,scene).draws);scene.add(filler);
+ const before=existingSceneCost(three,scene);expect(before.draws).toBe(256);
+ const contacts=installSupportContactShadows(three,[{room,receiver,position:[0,.002,0],rotation:[0,0,0,1],width:.1,height:.1}],true,()=>{});contacts.setRoom(room);
+ expect(existingSceneCost(three,scene)).toEqual(before);
  runtime.enforce();expect(runtime.stats()).toEqual({loaded:1,failed:0});
- filler.count=count-8;
- expect(supportContactSceneFits(existingSceneCost(three,scene),triangleLimit)).toBe(true);
- contacts=installSupportContactShadows(three,[{room,desktop:true,position:[0,.002,0],rotation:[0,0,0,1],width:.1,height:.1}],true,()=>{});contacts.setRoom(room);
- filler.count=count;
- expect(existingSceneCost(three,scene).draws).toBe(257);
- runtime.enforce();
- expect(contacts).toBeUndefined();
- expect(existingSceneCost(three,scene).draws).toBe(256);
- expect(runtime.stats()).toEqual({loaded:1,failed:0});
+ contacts.dispose();expect(existingSceneCost(three,scene)).toEqual(before);
  runtime.dispose();scene.remove(filler);filler.dispose();geometry.dispose();material.dispose();
 });

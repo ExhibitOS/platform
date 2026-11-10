@@ -197,53 +197,55 @@ test('excess caster triangles and transparent shells omit shadows without droppi
 });
 test('one oversized caster does not disable other bounded room shadows or change visible geometry',()=>{const h=setup(),mesh=new three.InstancedMesh(new three.BoxGeometry(1,1,1),h.mesh.material,9000),identity=new three.Matrix4();for(let i=0;i<9000;i++)mesh.setMatrixAt(i,identity);mesh.computeBoundingBox();mesh.computeBoundingSphere();h.room.add(mesh);h.pass.flush();expect(h.reports.at(-1)?.mode).toBe('bounded');expect(h.reports.at(-1)?.omittedCasters).toBe(1);expect(h.reports.at(-1)!.triangles).toBeLessThanOrEqual(100000);expect(mesh.castShadow).toBe(false);expect(mesh.receiveShadow).toBe(true);expect(h.mesh.castShadow).toBe(true);expect(h.room.children).toContain(mesh);expect(mesh.count).toBe(9000);h.pass.dispose();mesh.dispose();mesh.geometry.dispose();});
 
-test('explicit support contacts share one bounded instance draw and never join the room depth pass',()=>{
+test('receiver contact shading adds no meshes, triangles, draws or textures and restores material ownership',()=>{
   const h=setup(),other=new three.Group(),third=new three.Group();
-  const contact=(room:three.Group,desktop=true):SupportContact=>({
-    room,desktop,position:[0,.01,0],rotation:[0,0,0,1],width:.2,height:.2,
-  });
-  const reports:unknown[]=[];
+  const otherMesh=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());other.add(otherMesh);
+  const contact=(room:three.Group,receiver:three.Object3D):SupportContact=>({room,receiver,position:[0,.002,0],rotation:[0,0,0,1],width:.2,height:.2});
+  const reports:unknown[]=[],before=h.mesh.material.onBeforeCompile,key=h.mesh.material.customProgramCacheKey;
+  const color=h.mesh.material.color.clone(),children=h.room.children.slice();let releases=0;
+  h.mesh.material.addEventListener('dispose',()=>releases++);
   const contacts=installSupportContactShadows(three,[
-    ...Array.from({length:10},()=>contact(h.room)),
-    ...Array.from({length:9},()=>contact(other)),
-    contact(third),
-  ],false,report=>reports.push(report));
+    ...Array.from({length:10},()=>contact(h.room,h.mesh)),
+    ...Array.from({length:9},()=>contact(other,otherMesh)),contact(third,otherMesh),
+  ],false,r=>reports.push(r));
   contacts.setRoom(h.room);
-  const mesh=h.room.children.find(child=>child.userData.exhibitosContactShadow) as three.InstancedMesh<three.PlaneGeometry,three.MeshBasicMaterial>;
-  expect(mesh.count).toBe(8);
-  expect(mesh.material.transparent).toBe(true);
-  expect(mesh.material.depthTest).toBe(true);
-  expect(mesh.material.depthWrite).toBe(false);
-  expect(reports.at(-1)).toEqual({activeQuads:8,activeTriangles:16,drawCalls:1,textureBytes:4096});
-  contacts.setRoom(h.room);
-  expect(reports).toHaveLength(2);
-  h.pass.flush();
-  expect(h.reports.at(-1)?.casters).toBe(1);
-  expect(mesh.castShadow||mesh.receiveShadow).toBe(false);
-  contacts.setRoom(other);
-  expect(mesh.parent).toBe(other);
-  expect(mesh.count).toBe(8);
-  contacts.setRoom(third);
-  expect(mesh.parent).toBeNull();
-  expect(reports.at(-1)).toEqual({activeQuads:0,activeTriangles:0,drawCalls:0,textureBytes:4096});
-  let releases=0;
-  mesh.material.alphaMap?.addEventListener('dispose',()=>releases++);
-  contacts.dispose();
-  contacts.dispose();
-  expect(releases).toBe(1);
-  h.pass.dispose();
+  expect(h.room.children).toEqual(children);
+  expect(h.mesh.material.color).toEqual(color);
+  expect(h.mesh.material.transparent).toBe(false);
+  expect(reports.at(-1)).toEqual({activeContacts:8,activeTriangles:0,drawCalls:0,textureBytes:0,uniformBytes:520,materials:1,programBytes:null});
+  const shader={uniforms:{},vertexShader:three.ShaderLib.standard.vertexShader,fragmentShader:three.ShaderLib.standard.fragmentShader};
+  h.mesh.material.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0],h.renderer);
+  expect(shader.vertexShader).toContain('vExhibitosContactWorld=(modelMatrix*contactWorld).xyz');
+  expect(shader.fragmentShader).toContain('contactStrength=max(contactStrength,support*support)');
+  expect(shader.fragmentShader).toContain('dot(contactNormal,planeNormal)>0.5');
+  expect(shader.uniforms).toHaveProperty('exhibitosContactCount.value',8);
+  contacts.setRoom(h.room);expect(releases).toBe(0);
+  contacts.setRoom(other);expect(releases).toBe(1);
+  expect(h.mesh.material.onBeforeCompile).toBe(before);expect(h.mesh.material.customProgramCacheKey).toBe(key);
+  expect(h.mesh.material.userData.exhibitosSupportContact).toBeUndefined();
+  contacts.setRoom(third);expect(reports.at(-1)).toMatchObject({activeContacts:0,materials:0});
+  contacts.dispose();contacts.dispose();expect(releases).toBe(1);h.pass.dispose();
 });
 
-test('Compact contacts accept explicit fallback hosts excluded by Desktop and reject invalid transforms',()=>{
-  const room=new three.Group();
-  const row:SupportContact={room,desktop:false,position:[0,.01,0],rotation:[0,0,0,1],width:.5,height:.4};
+test('both profiles shade the same physical receivers and decline unknown material hooks',()=>{
   for(const compact of [false,true]){
-    const reports:unknown[]=[];
-    const contacts=installSupportContactShadows(three,[row,{...row,desktop:true,width:Infinity}],compact,report=>reports.push(report));
-    contacts.setRoom(room);
-    expect(reports.at(-1)).toEqual(compact?{activeQuads:1,activeTriangles:2,drawCalls:1,textureBytes:4096}
-      :{activeQuads:0,activeTriangles:0,drawCalls:0,textureBytes:0});
-    contacts.dispose();
-    expect(room.children).toHaveLength(0);
+    const h=setup(),row:SupportContact={room:h.room,receiver:h.mesh,position:[0,.002,0],rotation:[0,0,0,1],width:.5,height:.4};
+    const reports:unknown[]=[],pass=installSupportContactShadows(three,[row,{...row,width:Infinity}],compact,r=>reports.push(r));
+    pass.setRoom(h.room);expect(reports.at(-1)).toMatchObject({activeContacts:1,drawCalls:0,textureBytes:0});
+    const uniforms=h.mesh.material.userData.exhibitosSupportContact;
+    expect(uniforms.exhibitosContactOpacity.value).toBe(compact?.18:.14);
+    pass.dispose();const custom=()=>{};h.mesh.material.onBeforeCompile=custom;
+    const declined=installSupportContactShadows(three,[row],compact,r=>reports.push(r));declined.setRoom(h.room);
+    expect(reports.at(-1)).toMatchObject({activeContacts:0,materials:0});
+    declined.dispose();expect(h.mesh.material.onBeforeCompile).toBe(custom);h.pass.dispose();
   }
+});
+
+test('known nondeforming receiver shading preserves the bounded planar shadow policy',()=>{
+  const h=setup();h.mesh.geometry.dispose();h.mesh.geometry=new three.PlaneGeometry(2,2);h.mesh.material.side=three.DoubleSide;
+  const pass=installSupportContactShadows(three,[{room:h.room,receiver:h.mesh,position:[0,0,.002],rotation:[0,0,0,1],width:.2,height:.2}],false,()=>{});
+  pass.setRoom(h.room);h.pass.flush();
+  expect(h.mesh.castShadow).toBe(true);
+  expect(h.mesh.onBeforeShadow).not.toBe(three.Object3D.prototype.onBeforeShadow);
+  pass.dispose();h.pass.dispose();
 });

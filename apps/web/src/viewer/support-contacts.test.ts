@@ -19,7 +19,7 @@ it('uses only visible geometry in the verified catalog legs',()=>{
     extensions:{[BENCH_NAMESPACE]:{version:1,benches:[{id:'bench',roomId:'room',position:[0,0,0],yaw:0}]}}
   } as unknown as Exhibition;
   const get=()=>supportContacts(three,document,new Map([['room',room]]),new Map([['floor',floor]]),
-    [[{x:0,y:0,width:4,height:4}]],new Map(),[],{hostId:'bench',model});
+    [[{x:0,y:0,width:4,height:4}]],new Map(),{hostId:'bench',model});
   expect(get()).toHaveLength(1);
   expect(get()[0]!.position[0]).toBeCloseTo(.4);
   node.visible=false;
@@ -52,7 +52,7 @@ it('uses actual mounted workspace feet, merges overlapping submeshes and never s
       workspaceVisual:{placementId:'workspace-seat',modelSha256:'a'.repeat(64)}}]},
   }} as unknown as Exhibition;
   const get=(models?:ReadonlyMap<string,three.Object3D>)=>supportContacts(three,document,new Map([['room',room]]),
-    new Map([['floor',floor]]),[[{x:0,y:0,width:4,height:4}]],new Map(),[],undefined,models);
+    new Map([['floor',floor]]),[[{x:0,y:0,width:4,height:4}]],new Map(),undefined,models);
   expect(get()).toEqual([]);
   const models=new Map([['workspace-seat',model]]),contacts=get(models);
   expect(contacts).toHaveLength(2);
