@@ -49,7 +49,7 @@ import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
-import {artworkThumbnailFor} from '@exhibitos/studio-contract';
+import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -2796,7 +2796,16 @@ export function GeometryPreview({
           const cache=byteCache.stats(),expendable=cachedOriginalBytes();
           const next=[...light,...higher].find(({inventory})=>!entranceOptionalAttempted.has(inventory.id)&&
             !byteCache.get(inventory.id)&&cache.bytes-expendable+inventory.bytes<=cache.maxBytes&&peak.total()-expendable+inventory.bytes*4<=transitionBudgetBytes);
-          if(!next){prefetchOriginal(candidates,cover);return;}
+          if(!next){
+            const coverId=cover?entranceFor(document).imageAssetId?.toLowerCase():undefined;
+            const coverArt=coverId?arts.find(art=>
+              art.assets.some(asset=>asset.id.toLowerCase()===coverId)&&
+              art.assets.some(asset=>entranceReadiness?.isSelectedCover(asset))):undefined;
+            const originalCandidates=coverArt&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
+              ?[...candidates,{art:coverArt}]:candidates;
+            prefetchOriginal(originalCandidates,cover);
+            return;
+          }
           if(cache.bytes+next.inventory.bytes>cache.maxBytes||peak.total()+next.inventory.bytes*4>transitionBudgetBytes)releaseCachedOriginal();
           const {art,inventory,compatibleOnEnter}=next;
           queueOptional(art,inventory,inventory.id,compatibleOnEnter,async(signal,key)=>{

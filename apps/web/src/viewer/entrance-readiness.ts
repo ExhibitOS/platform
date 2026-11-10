@@ -47,6 +47,7 @@ export function createEntranceReadiness(bootstrapBytes: number) {
       publish();
     },
     hasCoverSelection: () => cover !== undefined,
+    isSelectedCover: (asset: EntranceAsset) => !!cover && key(cover) === key(asset),
     retainCoverTransfer(asset: EntranceAsset, bytes: Promise<ArrayBuffer>) {
       coverTransfer = {identity: key(asset), bytes};
     },

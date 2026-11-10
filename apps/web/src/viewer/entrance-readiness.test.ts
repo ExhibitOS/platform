@@ -37,3 +37,14 @@ it('retains only the exact chosen cover body and handles a fallback without infl
   expect(entry.coverBytes(cover)).toBeUndefined();
   expect(entry.snapshot()).toEqual({receivedBytes:30,requiredBytes:50});
 });
+
+it('identifies the exact selected cover bytes separately from required scene assets',()=>{
+ const entry=createEntranceReadiness(0);
+ entry.setRequiredAssets([cover]);
+ expect(entry.isSelectedCover(cover)).toBe(false);
+ entry.setCover(cover);
+ expect(entry.isSelectedCover({...cover})).toBe(true);
+ expect(entry.isSelectedCover({...cover,bytes:cover.bytes+1})).toBe(false);
+ entry.setCover(null);
+ expect(entry.isSelectedCover(cover)).toBe(false);
+});
