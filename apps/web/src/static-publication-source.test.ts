@@ -112,13 +112,56 @@ describe('static publication content-addressed reads',()=>{
   const failure=mode==='deadline'?expect(first).rejects.toThrow('STATIC_TRANSFER_TIMEOUT'):expect(first).rejects.toMatchObject({name:'AbortError'});
   await vi.waitFor(()=>expect(stalledBody?.locked).toBe(true));
   expect(scheduler.stats()).toMatchObject({active:1,queued:1,completed:0});
-  expect(timeout).toHaveBeenCalledWith(30000);
+  expect(timeout).toHaveBeenCalledWith(300000);
   if(mode==='deadline')deadline.abort(new DOMException('Timed out','TimeoutError'));
   else scheduler.cancel('stalled');
   await failure;
   expect(await (await next).text()).toBe('synthetic-public-asset');
   expect(stalledBody?.locked).toBe(false);
   expect(scheduler.stats()).toEqual({active:0,queued:0,completed:1,failed:Number(mode==='deadline'),cancelled:Number(mode==='cancel')});
+ });
+ it('finishes a hash-verified binary transfer that keeps progressing beyond thirty seconds',async()=>{
+  const sample=setup(),publication=await loadStaticPublication();
+  const fixtureFetch=vi.mocked(fetch).getMockImplementation()!;
+  vi.useFakeTimers();
+  try{
+   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    if(String(input)!=='/'+sample.assetPath)return fixtureFetch(input,init);
+    const bytes=new TextEncoder().encode('synthetic-public-asset');
+    return new Response(new ReadableStream({
+     start(controller){
+      controller.enqueue(bytes.slice(0,7));
+      setTimeout(()=>controller.enqueue(bytes.slice(7,14)),20000);
+      setTimeout(()=>{controller.enqueue(bytes.slice(14));controller.close();},40000);
+      init?.signal?.addEventListener('abort',()=>controller.error(init.signal!.reason),{once:true});
+     },
+    }));
+   }));
+   const pending=publication.local!.fetcher(`/api/v1/publications/${sample.publicationId}/assets/${sample.assetId}`);
+   await vi.advanceTimersByTimeAsync(40000);
+   expect(await (await pending).text()).toBe('synthetic-public-asset');
+   expect(vi.getTimerCount()).toBe(0);
+  }finally{vi.useRealTimers();}
+ });
+ it('times out a binary body with no progress and releases its reader',async()=>{
+  const sample=setup(),publication=await loadStaticPublication();
+  vi.useFakeTimers();
+  let body:ReadableStream<Uint8Array>|undefined;
+  try{
+   vi.stubGlobal('fetch',vi.fn(async(_input:RequestInfo|URL,init?:RequestInit)=>{
+    body=new ReadableStream({start(controller){
+     controller.enqueue(Uint8Array.of(115));
+     init?.signal?.addEventListener('abort',()=>controller.error(init.signal!.reason),{once:true});
+    }});
+    return new Response(body);
+   }));
+   const pending=publication.local!.fetcher(`/api/v1/publications/${sample.publicationId}/assets/${sample.assetId}`);
+   const rejected=expect(pending).rejects.toThrow('STATIC_TRANSFER_TIMEOUT');
+   await vi.advanceTimersByTimeAsync(30000);
+   await rejected;
+   expect(body?.locked).toBe(false);
+   expect(vi.getTimerCount()).toBe(0);
+  }finally{vi.useRealTimers();}
  });
  it('uses no-store for legacy mismatched paths and still rejects corrupted bytes',async()=>{
   const pub=setup({badPublicationPath:true});await loadStaticPublication();expect(pub.requests[1]!.cache).toBe('no-store');
