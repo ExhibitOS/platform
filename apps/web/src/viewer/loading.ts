@@ -55,7 +55,7 @@ export function stagingHayesDetailBudget(input:{
  * development starting budget (192 MiB steady / 256 MiB transition); actual
  * allocations and coexistence still have to pass, not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
-export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
+function currentSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  // At 4 GiB, Auto already selects Compact geometry and texture limits.
  // Keep its bounded transition headroom when the visitor selects Compact directly.
  if(profile==='auto'||(profile==='compact'&&input.deviceMemory===4))return deviceBudget(input);
@@ -79,6 +79,20 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
   return selectedImageCapacity(budget,memory);
  }
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
+}
+declare const __EXHIBITOS_STAGING_NO_HINT_MINIMUM__: boolean | undefined;
+export const stagingNoHintMinimumTrialEnabled=()=>typeof __EXHIBITOS_STAGING_NO_HINT_MINIMUM__!=='undefined'&&__EXHIBITOS_STAGING_NO_HINT_MINIMUM__===true;
+/** Opt-in staging envelope only. An omitted browser hint is not a device ID.
+ * Production and known-memory policies retain their independently qualified scope. */
+export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0],noHintMinimumTrial=false):DeviceBudget {
+ const current=currentSelectedDeviceBudget(profile,input);
+ if(!noHintMinimumTrial||input.deviceMemory!==undefined)return current;
+ if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000};
+ // Desktop-like input retains its separate per-model/texture/memory limits.
+ // Two ordinary 150k works plus the observed 94,493-triangle gallery fit here;
+ // all decoded/resident/live-hold and per-asset admission remains mandatory.
+ if(input.coarsePointer===false&&input.finePointer===true)return {...current,maxSceneTriangles:400000};
+ return current;
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget,preferCoarse=false):Artwork["assets"][number] {

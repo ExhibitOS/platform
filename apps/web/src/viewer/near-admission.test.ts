@@ -194,3 +194,32 @@ test('known high-memory Compact leaves headroom after observed reservations whil
  expect(candidate).toMatchObject({maxTriangles:20000,maxSceneTriangles:100000,maxTextureSize:512,maxPixelRatio:1,concurrency:2});
  for(const memory of [undefined,2,4,6,NaN,Infinity])expect(selectedDeviceBudget('compact',{deviceMemory:memory}).maxSceneTriangles).toBeUndefined();
 });
+
+test('no-hint minimum trial is opt-in and preserves known-memory and weaker-device policies',()=>{
+ for(const profile of ['auto','compact','desktop'] as const){
+  for(const deviceMemory of [2,4,6,8,16,NaN,Infinity]){
+   const input={deviceMemory,coarsePointer:true,finePointer:false};
+   expect(selectedDeviceBudget(profile,input,true)).toEqual(selectedDeviceBudget(profile,input));
+  }
+ }
+ const input={coarsePointer:true,finePointer:false};
+ expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('compact',input,true)).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
+ expect(selectedDeviceBudget('auto',input,true)).toEqual(selectedDeviceBudget('auto',input));
+ expect(selectedDeviceBudget('desktop',input,true)).toEqual(selectedDeviceBudget('desktop',input));
+});
+test('desktop-like no-hint trial separates aggregate headroom from asset eligibility and live pressure',()=>{
+ const input={coarsePointer:false,finePointer:true};
+ for(const profile of ['auto','desktop'] as const){
+  const baseline=selectedDeviceBudget(profile,input),trial=selectedDeviceBudget(profile,input,true);
+  expect(trial).toEqual({...baseline,maxSceneTriangles:400000});
+  expect(trial.maxCacheBytes).toBe(320*1024*1024);expect(trial.maxTransitionBytes).toBe(416*1024*1024);
+  const aggregate=94493+2*150000;
+  expect(aggregate).toBeGreaterThan(baseline.maxSceneTriangles??baseline.maxTriangles);
+  expect(aggregate).toBeLessThan(trial.maxSceneTriangles!);
+  const ledger=new AssetPeakBudget(trial.maxTransitionBytes!,()=>trial.maxCacheBytes);
+  expect(()=>ledger.reserve('actual-pressure',97*1024*1024)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(ledger.reservedBytes()).toBe(0);
+ }
+ expect(selectedDeviceBudget('auto',{},true)).toEqual(selectedDeviceBudget('auto',{}));
+});
