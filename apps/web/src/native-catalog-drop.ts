@@ -19,7 +19,7 @@ const unit=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)&&val
 const exact=(value:Record<string,unknown>,fields:string[])=>Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
 
 export function checkedCatalogDropRequest(value:unknown,frame:NativeViewportFrame|undefined):CatalogDropRequest {
- if(!frame||frame.disabled||frame.presentation==='plan'||!record(value))throw Error('CATALOG_DROP_UNAVAILABLE');
+ if(!frame||!record(value)||value.phase!=='clear'&&(frame.disabled||frame.presentation==='plan'))throw Error('CATALOG_DROP_UNAVAILABLE');
  const {targetKind,phase,point}=value;
  const artwork=targetKind==='artwork';
  const fields=['version','requestId','epoch','sequence','tenantId','principalId','targetKind','phase'];

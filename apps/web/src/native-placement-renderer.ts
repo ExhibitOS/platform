@@ -112,9 +112,9 @@ export function installNativePlacementPreview(placement:NativePlacement,context:
  };
  const clearPointer=()=>{down=null;};
  const key=(event:KeyboardEvent)=>{if(placement.active&&event.key==='Escape'){stop(event);clearPointer();placement.cancel('작품 배치를 취소했어요.');sync();}};
- const lost=()=>{placement.cancel('3D 화면 연결이 중단되어 배치를 취소했어요.');sync();};
+ const lost=()=>{clearHighlight();placement.cancel('3D 화면 연결이 중단되어 배치를 취소했어요.');sync();};
  canvas.addEventListener('pointerdown',pointerDown,true);canvas.addEventListener('pointerup',pointerUp,true);canvas.addEventListener('click',click,true);canvas.addEventListener('pointercancel',clearPointer);canvas.addEventListener('webglcontextlost',lost);
- window.addEventListener('blur',clearPointer);window.addEventListener('keydown',key,true);
+ window.addEventListener('blur',clearPointer);window.addEventListener('blur',clearHighlight);window.addEventListener('keydown',key,true);
  sync();
- return {sync,catalogDrop,clearHighlight,dispose(){if(disposed)return;disposed=true;clearPointer();clearHighlight();placement.cancel('3D 미리보기가 바뀌어 배치를 취소했어요.');clearAsset();scene.remove(ghost);canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('pointerup',pointerUp,true);canvas.removeEventListener('click',click,true);canvas.removeEventListener('pointercancel',clearPointer);canvas.removeEventListener('webglcontextlost',lost);window.removeEventListener('blur',clearPointer);window.removeEventListener('keydown',key,true);}};
+ return {sync,catalogDrop,clearHighlight,dispose(){if(disposed)return;disposed=true;clearPointer();clearHighlight();placement.cancel('3D 미리보기가 바뀌어 배치를 취소했어요.');clearAsset();scene.remove(ghost);canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('pointerup',pointerUp,true);canvas.removeEventListener('click',click,true);canvas.removeEventListener('pointercancel',clearPointer);canvas.removeEventListener('webglcontextlost',lost);window.removeEventListener('blur',clearPointer);window.removeEventListener('blur',clearHighlight);window.removeEventListener('keydown',key,true);}};
 }

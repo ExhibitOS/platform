@@ -28,6 +28,7 @@ test('drop requests reject stale scope, invalid points and extra pose data',()=>
  expect(()=>checkedCatalogDropRequest(request,{...frame,presentation:'plan'})).toThrow();
  const {point,...binding}=request;
  expect(checkedCatalogDropRequest({...binding,phase:'clear'},frame)).toMatchObject({phase:'clear'});
+ expect(checkedCatalogDropRequest({...binding,phase:'clear'},{...frame,disabled:true})).toMatchObject({phase:'clear'});
  expect(()=>checkedCatalogDropRequest({...binding,phase:'clear',point},frame)).toThrow();
 });
 
@@ -51,6 +52,12 @@ test('fixture picking highlights only the nearest visible compatible light and c
   expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(true);
   const {version,requestId,epoch,sequence,tenantId,principalId,targetKind}=request;
   expect(preview.catalogDrop({version,requestId,epoch,sequence,tenantId,principalId,targetKind,phase:'clear'})).toBeNull();
+  expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(false);
+  expect(preview.catalogDrop(request)).toEqual({kind:'light',lightId:light.id});
+  window.dispatchEvent(new Event('blur'));
+  expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(false);
+  expect(preview.catalogDrop(request)).toEqual({kind:'light',lightId:light.id});
+  renderer.domElement.dispatchEvent(new Event('webglcontextlost'));
   expect(scene.children.some(node=>node.type==='BoxHelper')).toBe(false);
   fixtureMesh.visible=false;
   expect(preview.catalogDrop({...request,phase:'drop'})).toBeNull();
