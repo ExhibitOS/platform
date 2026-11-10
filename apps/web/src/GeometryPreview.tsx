@@ -2391,6 +2391,9 @@ export function GeometryPreview({
                   reduceSurfaceForCurrent(art.revisionId);
                 }else if(selectedPromotion&&Number.isSafeInteger(required)&&required>0){
                   detailResidentWait={assetId:inventory.id,bytes:required};
+                  // The coarse model remains mounted while optional surface
+                  // textures yield capacity within the current scene limit.
+                  if(art.artworkType==='sculpture')reduceSurfaceForCurrent(art.revisionId);
                 }else retryAfter.set(art.revisionId,performance.now()+5000);
                 update();return;
               }
