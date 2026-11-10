@@ -38,6 +38,7 @@ import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-bu
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
 import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
 import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
@@ -48,7 +49,7 @@ import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
-import {artworkThumbnailFor} from '@exhibitos/studio-contract';
+import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -1607,6 +1608,12 @@ export function GeometryPreview({
       const byteCache = new MemoryAssetCache<ArrayBuffer>(
         assetBudgetBytes,
       );
+      let cachedOriginalKey:string|undefined;
+      const cachedOriginalBytes=()=>cachedOriginalKey?byteCache.get(cachedOriginalKey)?.byteLength??0:0;
+      const releaseCachedOriginal=()=>{
+        if(cachedOriginalKey)byteCache.delete(cachedOriginalKey);
+        cachedOriginalKey=undefined;
+      };
       let cacheHits = 0;
       const decodedResources = new Map<
         InstanceType<typeof three.Object3D>,
@@ -1623,7 +1630,7 @@ export function GeometryPreview({
       };
       let publicDisplayStopped = false;
       const stopPublicDisplay=()=>{
-        publicDisplayStopped = true;setDetailRestoreStatus(null);
+        publicDisplayStopped = true;releaseCachedOriginal();setDetailRestoreStatus(null);
         sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
         mapThumbnailRefresh.current?.();
@@ -2003,6 +2010,7 @@ export function GeometryPreview({
         // Keep only the verified header cost when expendable encoded bytes are
         // evicted. Losing the bytes must not restart an impossible warm fetch.
         const imageDecodeCeilings=new Map<string,number>();
+        const blockedModelDecodeBytes=new Map<string,number>();
         const diagnosticEvents=createDiagnosticEvents();
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
@@ -2109,6 +2117,8 @@ export function GeometryPreview({
         };
         const reclaimOffroom=(target:string,deficit:()=>number)=>{
           if(deficit()<=0)return;
+          releaseCachedOriginal();
+          if(deficit()<=0)return;
           const candidates=[...objects.keys()].filter(id=>id!==target&&id!==currentArtwork&&id!==viewingCurrentArt&&id!==detailPinnedArtwork&&
             !mapPins.has(id)&&!viewingPins.has(id)&&!pending.has(id)&&observedVisible.get(id)===false&&observedEligible.get(id)===false);
           // Leave the old working set intact when this phase cannot fit even
@@ -2137,13 +2147,15 @@ export function GeometryPreview({
             prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
           }
         };
-        const reserve=(key:string,bytes:number)=>{
+        const reserve=(key:string,bytes:number,probe=false)=>{
           const task=tasks.get(key),limit=requestLimits(task).transition;
+          if(peak.total(key)+bytes>limit)releaseCachedOriginal();
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
+          if(probe){peak.assertFits(key,bytes,limit);return;}
           try{peak.reserve(key,bytes,limit);}catch(error){
             if(task?.detailPromotion&&task.detailBudget&&task.art.artworkType==='sculpture'&&task.art.revisionId===detailPinnedArtwork&&Number.isSafeInteger(bytes)&&bytes>0)
               detailBudgetWait={assetId:task.inventory.id,bytes,phase:'transition'};
@@ -2200,6 +2212,11 @@ export function GeometryPreview({
                 ready.object.userData.loadKey=key;
                 return {object:ready.object,key};
               }
+              // Retry the same verified model against live headroom before
+              // reading its body again. The probe can reclaim expendable data
+              // but does not record a reservation or raise the high-water mark.
+              const blockedBytes=!t.detailPromotion?blockedModelDecodeBytes.get(t.inventory.id):undefined;
+              if(blockedBytes!==undefined)reserve(key,blockedBytes,true);
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
@@ -2212,7 +2229,18 @@ export function GeometryPreview({
                 imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.detailBudget,undefined,t.detailTransfer?.loaded);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>{
+                const limits=requestLimits(t);
+                const required=assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:limits.resident},bytes,'cpu');
+                try{reserve(key,required);}catch(error){
+                  if(error instanceof Error&&error.message==='ASSET_TRANSITION_PEAK'&&t.art.artworkType==='sculpture'&&!t.detailPromotion){
+                    blockedModelDecodeBytes.set(t.inventory.id,required);
+                    if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:t.inventory.id,artworkRevisionId:t.art.revisionId,stage:'model-decode-reservation-refused',errorCode:error.message,reservation:{existingBytes:peak.total(key),requestedBytes:required,limitBytes:limits.transition}});
+                  }
+                  throw error;
+                }
+                if(!t.detailPromotion)blockedModelDecodeBytes.delete(t.inventory.id);
+              },value=>stage(t.inventory.id,value,undefined,key),t.detailBudget,undefined,t.detailTransfer?.loaded);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
@@ -2234,7 +2262,7 @@ export function GeometryPreview({
           },
           onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);discardResult(result);},
         });
-        type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;drain?:Promise<void>};
+        type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;coverCurrent?:()=>boolean;drain?:Promise<void>};
         let entranceOptional:OptionalArtwork|undefined;
         const cancelIncompatibleOptional=(assetId?:string)=>{
           if(entranceOptional&&entranceOptional.assetId!==assetId)scheduler.cancel(entranceOptional.key);
@@ -2293,7 +2321,9 @@ export function GeometryPreview({
           const selectedLimits=detailArt?requestLimits({detailPromotion:true,detailBudget:selectedBudget(detailArt)}):undefined;
           // A verified download-only preparation may settle without an object.
           // Its expendable encoded cache must also fit the current steady scope.
-          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=(selectedLimits?.resident??assetBudgetBytes))break;byteCache.delete(asset.id);}
+          const residentLimit=selectedLimits?.resident??assetBudgetBytes;
+          if(resident()>residentLimit)releaseCachedOriginal();
+          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=residentLimit)break;byteCache.delete(asset.id);}
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
@@ -2406,6 +2436,7 @@ export function GeometryPreview({
           const detailBudget=detailPromotion?selectedBudget(art,inventory):undefined;
           if(detailPromotion&&detailBudgetWait?.assetId===inventory.id){
             const {bytes,phase}=detailBudgetWait,limit=requestLimits({detailPromotion,detailBudget})[phase];
+            if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))releaseCachedOriginal();
             if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))return;
             detailBudgetWait=undefined;
           }
@@ -2473,6 +2504,7 @@ export function GeometryPreview({
               const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
+              if(deficit()>0)releaseCachedOriginal();
               for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
               // An owned selected promotion can use the same speculative
               // capacity as a wall promotion. Keep every displayed object.
@@ -2681,6 +2713,83 @@ export function GeometryPreview({
           }
         };
         const entranceOptionalAttempted=new Set<string>();
+        const queueOptional=(art:(typeof arts)[number],inventory:(typeof arts)[number]['assets'][number],
+            assetId:string,compatibleOnEnter:boolean,load:(signal:AbortSignal,key:string)=>Promise<void>,coverCurrent?:()=>boolean)=>{
+          entranceOptionalAttempted.add(assetId);
+          const key=`entrance-encoded/${assetId}/${sequence++}`;
+          const owned:OptionalArtwork={key,artId:art.revisionId,assetId,compatibleOnEnter,coverCurrent};
+          entranceOptional=owned;
+          tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
+            const settled=load(signal,key);
+            owned.drain=settled.then(()=>{},()=>{});
+            await settled;
+          }});
+          void scheduler.request(key,10000).catch(error=>{
+            if(error?.name==='AbortError')entranceOptionalAttempted.delete(assetId);
+          }).finally(async()=>{
+            await owned.drain;
+            tasks.delete(key);
+            if(entranceOptional?.key===key)entranceOptional=undefined;
+          });
+        };
+        const detailOwner=publicSource?.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
+        const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
+        const coverReady=()=>{try{return publicSource?.coverOriginalEligible?.()===true;}catch{return false;}};
+        const detailRuntimeHints=()=> (globalThis.navigator as Navigator&{userAgentData?:Parameters<typeof matchesDetailRuntime>[2]}).userAgentData;
+        const originalCacheKey=(candidateId:string)=>`detail-original/${candidateId}`;
+        let originalPrefetchUncertain=false;
+        const prefetchOriginal=(candidates:readonly {art:(typeof arts)[number];coverCurrent?:()=>boolean}[],cover:boolean)=>{
+          if(originalPrefetchUncertain||!detailOwner||!detailAccess||!isVerifiedStaticDetailAccess(detailOwner,detailAccess))return;
+          const context=renderer.getContext();
+          if(typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))return;
+          for(const {art,coverCurrent} of candidates){
+            const profile=qualifiedDetailImageProfile(publicSource?.revisionSha256,art.revisionId);
+            if(!profile||art.artworkType!=='image')continue;
+            const compatible=()=>coverCurrent?.()!==false&&!disposed&&!gpuLost&&!xrActive.current&&!publicDisplayStopped&&!suspendedRef.current&&
+              !renderer.domElement.ownerDocument.hidden&&renderer.getContext()===context&&
+              isVerifiedStaticDetailAccess(detailOwner,detailAccess)&&
+              matchesMeasuredWheatImage(profile,staticDetailAttestation(detailAccess,detailOwner,profile.candidateId),galleryBuffer());
+            if(!compatible())continue;
+            const cacheKey=originalCacheKey(profile.candidateId),cache=byteCache.stats(),bytes=profile.bytes;
+            // Cover uses the same spare encoded budget. Cover retirement and
+            // the measured detail viewport still gate the later decode.
+            const limit=Math.min(transitionBudgetBytes,profile.maxSceneBytes),reservation=4*bytes;
+            if(entranceOptionalAttempted.has(cacheKey)||byteCache.get(cacheKey)||cache.bytes+bytes>cache.maxBytes||
+               resident()+bytes>assetBudgetBytes||peak.total()+reservation>limit)continue;
+            const inventory=art.assets.find(asset=>asset.id===art.primaryAssetId);
+            if(!inventory)continue;
+            queueOptional(art,inventory,cacheKey,!cover,async(signal,key)=>{
+              if(!await matchesDetailRuntime(profile.runtime,context,detailRuntimeHints(),signal)||!compatible())return;
+              const hold=`${key}/transfer`;
+              peak.reserve(hold,reservation,limit);
+              const transferSignal=AbortSignal.any([signal,AbortSignal.timeout(12000)]);
+              try{
+                let body:Uint8Array;
+                try{body=await detailAccess.fetch(profile.candidateId,transferSignal);}
+                catch(error){
+                  if(!(error instanceof DetailAccessFailure&&error.retirement==='confirmed'))originalPrefetchUncertain=true;
+                  if(signal.aborted&&!originalPrefetchUncertain)entranceOptionalAttempted.delete(cacheKey);
+                  throw error;
+                }
+                if(transferSignal.aborted||!compatible()||body.byteLength!==bytes||!(body.buffer instanceof ArrayBuffer)||
+                   body.byteOffset!==0||body.buffer.byteLength!==bytes)return;
+                const current=byteCache.stats();
+                if(current.bytes+bytes>current.maxBytes||resident()+bytes>assetBudgetBytes||peak.total(hold)+bytes>limit)return;
+                releaseCachedOriginal();
+                if(byteCache.set(cacheKey,body.buffer,bytes)){
+                  cachedOriginalKey=cacheKey;
+                  if(diagnosticsEnabled())diagnosticEvents.record({
+                      atMs:performance.now(),assetId:profile.candidateId,artworkRevisionId:art.revisionId,
+                      stage:'optional-original-encoded',errorCode:null,
+                    });
+                }
+              }finally{
+                if(!originalPrefetchUncertain)peak.release(hold);
+              }
+            },coverCurrent);
+            return;
+          }
+        };
         const prefetchOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[],cover:boolean)=>{
           if(entranceOptional||renderer.domElement.ownerDocument.hidden||suspendedRef.current||
              scheduler.stats().active||scheduler.stats().queued)return;
@@ -2702,36 +2811,34 @@ export function GeometryPreview({
                 higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
             }catch{/* No optional derivative fits the current admission policy. */}
           }
-          const cache=byteCache.stats();
+          const cache=byteCache.stats(),expendable=cachedOriginalBytes();
           const next=[...light,...higher].find(({inventory})=>!entranceOptionalAttempted.has(inventory.id)&&
-            !byteCache.get(inventory.id)&&cache.bytes+inventory.bytes<=cache.maxBytes&&peak.total()+inventory.bytes*4<=transitionBudgetBytes);
-          if(!next)return;
+            !byteCache.get(inventory.id)&&cache.bytes-expendable+inventory.bytes<=cache.maxBytes&&peak.total()-expendable+inventory.bytes*4<=transitionBudgetBytes);
+          if(!next){
+            const coverId=cover?entranceFor(document).imageAssetId?.toLowerCase():undefined;
+            const coverArt=coverId?arts.find(art=>art.assets.some(asset=>asset.id.toLowerCase()===coverId)):undefined;
+            const coverAsset=coverArt?.assets.find(asset=>entranceReadiness?.isDisplayedCover(asset));
+            const originalCandidates=coverArt&&coverAsset&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
+              ?[...candidates,{art:coverArt,coverCurrent:()=>entranceModeRef.current==='cover'&&
+                entranceReadiness?.isDisplayedCover(coverAsset)===true}]:candidates;
+            prefetchOriginal(originalCandidates,cover);
+            return;
+          }
+          if(cache.bytes+next.inventory.bytes>cache.maxBytes||peak.total()+next.inventory.bytes*4>transitionBudgetBytes)releaseCachedOriginal();
           const {art,inventory,compatibleOnEnter}=next;
-          entranceOptionalAttempted.add(inventory.id);
-          const key=`entrance-encoded/${inventory.id}/${sequence++}`;
-          const owned:OptionalArtwork={key,artId:art.revisionId,assetId:inventory.id,compatibleOnEnter};
-          entranceOptional=owned;
-          tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
+          queueOptional(art,inventory,inventory.id,compatibleOnEnter,async(signal,key)=>{
             peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
             const body=readArtworkBytes(art,inventory,signal,undefined,false);
             entranceOptionalBodies.set(inventory.id,body);
-            const settled=body.finally(()=>{
+            try{await body;}
+            finally{
               if(entranceOptionalBodies.get(inventory.id)===body)entranceOptionalBodies.delete(inventory.id);
               peak.release(key);
-            });
-            owned.drain=settled.then(()=>{},()=>{});
-            await settled;
-          }});
-          void scheduler.request(key,10000).catch(error=>{
-            if(error?.name==='AbortError')entranceOptionalAttempted.delete(inventory.id);
-          }).finally(async()=>{
-            await owned.drain;
-            tasks.delete(key);
-            if(entranceOptional?.key===key)entranceOptional=undefined;
+            }
           });
         };
         const automaticDemand=()=>{
-          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current))cancelIncompatibleOptional();
+          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current||publicDisplayStopped||entranceOptional.coverCurrent?.()===false))cancelIncompatibleOptional();
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
@@ -2965,9 +3072,6 @@ export function GeometryPreview({
           const placement=document.placements.find(p=>p.id.toLowerCase()===input.placementId.toLowerCase());
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
-          const detailOwner=publicSource.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
-          const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
-          const coverReady=()=>{try{return publicSource.coverOriginalEligible?.()===true;}catch{return false;}};
           const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
           const selectedBinding=selectedProfile&&detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,selectedProfile.candidateId):undefined;
           let imageProfile=selectedProfile&&coverReady()&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
@@ -3012,6 +3116,7 @@ export function GeometryPreview({
           // Verified downloads can outlive a deferred full-image promotion.
           // Spend no extra residency on the borrowed view until unpinned bytes
           // have yielded to the already displayed object and annotations.
+          if(resident()+markerBytes>assetBudgetBytes)releaseCachedOriginal();
           for(const work of arts)for(const asset of work.assets){
             if(resident()+markerBytes<=assetBudgetBytes)break;
             byteCache.delete(asset.id);
@@ -3205,13 +3310,13 @@ export function GeometryPreview({
                 const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
                 const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startApproved();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
                 resumeLegacy=()=>{if(legacyPending)activateLegacy();};
-                const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
+                const hints=detailRuntimeHints();
                 void matchesDetailRuntime(profile.runtime,context,hints,signal).then(matches=>{
                   if(!stillCurrent()){activateLegacy();return;}if(!matches){activateLegacy();return;}
                   const generation=++originalDetailGeneration,attemptId=`viewer-detail-${generation}-${crypto.randomUUID()}`;
                   const current=()=>generation===originalDetailGeneration&&stillCurrent();
                   const retryDeadline=performance.now()+15000;
-                  const startOriginal=()=>{if(!current())return;try{
+                  const startOriginal=()=>{if(!current())return;if(originalPrefetchUncertain){activateLegacy();return;}try{
                     // The measured original has its own tighter scene ceiling.
                     // Reclaim only expendable encoded and unshown prepared assets.
                     const sceneLimit=Math.min(profile.maxSceneBytes,profile.transitionCapBytes-profile.reservationBytes);
@@ -3219,8 +3324,21 @@ export function GeometryPreview({
                     if(current()&&deficit()>0){
                       for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
                       evictPrepared(deficit);
+                      if(deficit()>0)releaseCachedOriginal();
                     }
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
+                      takePrefetchedBytes:()=>{
+                        const key=originalCacheKey(profile.candidateId);
+                        if(!current()||cachedOriginalKey!==key)return undefined;
+                        const cached=byteCache.get(key);
+                        releaseCachedOriginal();
+                        if(!cached)return undefined;
+                        if(diagnosticsEnabled())diagnosticEvents.record({
+                          atMs:performance.now(),assetId:profile.candidateId,artworkRevisionId:art.revisionId,
+                          stage:'optional-original-reused',errorCode:null,
+                        });
+                        return new Uint8Array(cached);
+                      },
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{
@@ -3248,7 +3366,7 @@ export function GeometryPreview({
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startApproved();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
-                      ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
+                      ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total()-cachedOriginalBytes(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
                       retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
                   }}};
                   const attemptOriginal=()=>{

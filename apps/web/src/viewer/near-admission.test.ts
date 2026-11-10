@@ -159,3 +159,17 @@ test('bounds the exact Hayes selected-detail staging trial with the original sce
  expect(retained+decoded).toBeGreaterThan(effectiveResident);
  expect(retained+decoded).toBeLessThan(residentLimit);
 });
+
+test('touch Auto admits the modeled Hayes 1024 retry without charging the probe to the ledger',()=>{
+ const stagedLimit=71367818,stagedDeductions=134217728-stagedLimit,decode1024=39303428;
+ const currentLimit=deviceBudget({coarsePointer:true}).maxTransitionBytes!-stagedDeductions;
+ const resident=61936394;
+ const observed:number[]=[];
+ const peak=new AssetPeakBudget(stagedLimit,()=>resident,total=>observed.push(total));
+ expect(()=>peak.assertFits('model',decode1024)).toThrow('ASSET_TRANSITION_PEAK');
+ peak.assertFits('model',decode1024,currentLimit);
+ expect(peak.total()).toBe(resident);
+ expect(observed).toEqual([]);
+ peak.reserve('model',decode1024,currentLimit);
+ expect(observed).toEqual([101239822]);
+});
