@@ -63,8 +63,9 @@ import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-pre
 import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
+import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
-import {benchesFor,experienceFor,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
+import {benchesFor,experienceFor,furnishingWalkingCollisionLookup,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
@@ -811,6 +812,27 @@ export function GeometryPreview({
         }
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
+      const collisionEnabled=furnishingWalkingCollisionLookup(document);
+      const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
+      const fixtureCollisions=new Map<string,MountedFurnishingCollision>();
+      for(const [id,[fixture]] of lightDetails.fixtures){
+        if(!fixture||!lightCollisionEnabled(id))continue;
+        const key='light:'+id,collision=mountedFurnishingCollision(three,key,fixture,scene,()=>disposed||gpuLost||abort.signal.aborted);
+        if(collision)fixtureCollisions.set(key,collision);
+      }
+      const plaqueCollisions:MountedFurnishingCollision[]=[];
+      for(const plaque of plaques.meshes){
+        const id=plaque.userData.plaqueId;
+        if(typeof id!=='string'||!collisionEnabled('sign',id))continue;
+        const collision=mountedFurnishingCollision(three,'sign:'+id.toLowerCase(),plaque,scene,()=>disposed||gpuLost||abort.signal.aborted);
+        if(collision)plaqueCollisions.push(collision);
+      }
+      let catalogFurnishingCollisions:ReadonlyMap<string,MountedFurnishingCollision>|undefined;
+      const furnishingCollisions=()=>{
+        const sources=new Map(fixtureCollisions);
+        for(const [id,collision] of catalogFurnishingCollisions??[])if(collision.active())sources.set(id,collision);
+        return [...ownerFurnishings?.walkingCollisions()??[],...sources.values(),...plaqueCollisions];
+      };
       if(lightDetails.records.length)renderer.domElement.dataset.lightDetails=JSON.stringify(lightDetails.records);
       model.updateMatrixWorld(true);
       const bounds = new three.Box3().setFromObject(model),
@@ -934,6 +956,7 @@ export function GeometryPreview({
       const workspaceBenchAvailability=(link:WorkspaceBenchVisual)=>ownerFurnishings?.seatAvailability(link)??'pending';
       const workspaceFurnishingsChanged=()=>{
         if(disposed||gpuLost)return;
+        walkingActions.current?.refreshFurnishingCollisions?.();
         if(workspaceBenches.length){
           walkingActions.current?.refreshWorkspaceBench?.();
           const readyIds=new Set<string>();
@@ -1005,7 +1028,7 @@ export function GeometryPreview({
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled});catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -1417,6 +1440,7 @@ export function GeometryPreview({
                   }
                 },
                 workspaceBenchAvailability,
+                furnishingCollisions,
                 stoolVisible:publicSource&&hasWorkspaceFurnishings?id=>ownerFurnishings?.stoolVisible(id)===true:undefined,
                 canLookSeated:canUseBench,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
@@ -1466,6 +1490,7 @@ export function GeometryPreview({
                   canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
+              adapter.actions.refreshFurnishingCollisions?.();
               if (entranceReadiness && !hasAuthoredStart && !preserveCurrent && !teleportViewpointId) {
                 // Plan the entrance frame from the qualified floor pose rather than the overview.
                 adapter.actions.reset();
@@ -1545,7 +1570,7 @@ export function GeometryPreview({
               preparing=true;setEntranceWalking(true);setWalkPreparation('pending');setWalkLoading(true);view('start');controls.enabled=false;renderer.domElement.tabIndex=0;
               try{
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
-                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
+                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,furnishingCollisions,
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
                   onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
                   activateContextAction:activateExit,
@@ -1553,7 +1578,7 @@ export function GeometryPreview({
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
                 if(closed||disposed||signal.aborted){created.dispose();signal.throwIfAborted();throw Error('ENTRANCE_SCENE_STALE');}
-                adapter=created;walkingActions.current=created.actions;setWalkPreparation('ready');created.actions.start(focusEntry);
+                adapter=created;walkingActions.current=created.actions;created.actions.refreshFurnishingCollisions?.();setWalkPreparation('ready');created.actions.start(focusEntry);
               }catch(error){if(!closed&&!signal.aborted)setWalkPreparation('failed');throw error;}
               finally{preparing=false;if(!closed)setWalkLoading(false);}
             },

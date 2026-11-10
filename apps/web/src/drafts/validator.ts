@@ -1,3 +1,4 @@
+import {validateFurnishingWalkingCollision} from '@exhibitos/studio-contract';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -45,6 +46,8 @@ export function validateDraft(document: unknown, archiveProfile?: 'bounded-file-
   if(!floors.valid)return floors;
   const installation=validateStudioInstallation((document as Draft).candidate);
   if(!installation.valid)return installation;
+  const walking=validateFurnishingWalkingCollision((document as Draft).candidate);
+  if(!walking.valid)return walking;
   const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>[...validateViewerLod(a).errors,...validateArtworkDisplayPolicy(a).errors].map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));
   return {valid:errors.length===0,errors};
 }

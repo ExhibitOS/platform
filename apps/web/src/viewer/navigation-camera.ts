@@ -1,3 +1,4 @@
+import type {MountedFurnishingCollision} from './furnishing-collision-mesh';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
@@ -32,6 +33,7 @@ export async function createWalkingCamera({
   onNearbyBench,
   workspaceBenchAvailability,
   stoolVisible,
+  furnishingCollisions,
   wasWalkingBeforeSeat,
   onViewpointFov,
 }: {
@@ -57,6 +59,7 @@ export async function createWalkingCamera({
   onSeat?: (benchId:string|null) => void;
   onNearbyBench?: (benchId: string | null) => void;
   stoolVisible?: (placementId:string)=>boolean;
+  furnishingCollisions?:()=>readonly MountedFurnishingCollision[];
   workspaceBenchAvailability?: (link:WorkspaceBenchVisual) => 'pending'|'ready'|'unavailable';
   wasWalkingBeforeSeat?: () => boolean;
   /** The embedding projection owner retains the authored FOV and applies its
@@ -72,6 +75,7 @@ export async function createWalkingCamera({
     position: defaultEntry ? undefined : (initialCamera ?? camera).position.toArray() as [number, number, number],
     yaw: angles.y,
     stoolVisible,
+    furnishingCollisions:furnishingCollisions?.(),
     ...settings,
   });
   if(signal?.aborted){controller.dispose();signal.throwIfAborted();}
@@ -321,6 +325,7 @@ export async function createWalkingCamera({
       actions.sit?.(expectedBenchId);
       return seated?.benchId === expectedBenchId;
     },
+    refreshFurnishingCollisions:()=>{if(!disposed)controller.setFurnishingCollisions(furnishingCollisions?.()??[]);},
     refreshWorkspaceBench: () => {
       if(disposed)return;
       if(seated?.workspaceVisual&&workspaceBenchAvailability?.(seated.workspaceVisual)==='unavailable')actions.stand?.();

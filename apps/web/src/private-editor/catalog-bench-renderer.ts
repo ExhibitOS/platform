@@ -5,6 +5,7 @@ import type {PublicAsset} from '../publication-client';
 import {furnishingsFor,resolveFurnishing,validateFurnishings} from '@exhibitos/studio-contract';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {BENCH_CATALOG,BENCH_CATALOG_PATH,BENCH_RESERVE_BYTES} from './catalog-bench';
+import {mountedFurnishingCollision,type MountedFurnishingCollision} from '../viewer/furnishing-collision-mesh';
 
 /** One verified private catalogue visual. The normal bench remains the collision/Sit host and fallback. */
 export function privateCatalogBench(document:Exhibition){
@@ -48,14 +49,15 @@ export function catalogOtherSources(document:Exhibition,source:{publicationId:st
   try{return [{binding,asset,resolved:resolveFurnishing(document,binding,asset),source:{url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256}}];}catch{return [];}
  });
 }
-export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void){
+export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,collisionPolicy?:{scene:Three.Scene;enabled:(kind:'light'|'opening',id:string)=>boolean}){
  let disposed=false,remaining=FURNISHING_RESERVE_BYTES,triangles=0;const loaded:Awaited<ReturnType<typeof loadCatalogModel>>[]=[],hidden:{object:Three.Object3D;visible:boolean}[]=[];
- const dispose=()=>{if(disposed)return;disposed=true;for(const h of hidden)h.object.visible=h.visible;for(const l of loaded)l.dispose();hidden.length=0;loaded.length=0;};
+ const collisions=new Map<string,MountedFurnishingCollision>();
+ const dispose=()=>{if(disposed)return;disposed=true;collisions.clear();for(const h of hidden)h.object.visible=h.visible;for(const l of loaded)l.dispose();hidden.length=0;loaded.length=0;};
  const start=async()=>{const results:{kind:string;id:string;status:string}[]=[];for(const item of items){
   if(disposed||signal.aborted||unavailable())break;
   const {binding,resolved}=item,room=rooms.get(resolved.roomId.toLowerCase()),fallback=binding.hostKind==='light'?fixtures.get(binding.hostId.toLowerCase()):binding.hostKind==='pedestal'?pedestals.get(binding.hostId.toLowerCase()):[];
   if(!room||(binding.hostKind==='pedestal'&&!fallback?.length)){results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});continue;}
-  let visual:Awaited<ReturnType<typeof loadCatalogModel>>|undefined;const previous=(fallback??[]).map(object=>({object,visible:object.visible}));
+  let visual:Awaited<ReturnType<typeof loadCatalogModel>>|undefined;const previous=(fallback??[]).map(object=>({object,visible:object.visible})),collisionId=binding.hostKind+':'+binding.hostId.toLowerCase();
   try{
    visual=await loadCatalogModel(three,resolved.source,item.source,signal,()=>disposed||unavailable(),Math.max(0,maxTriangles-triangles),remaining);
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
@@ -63,7 +65,11 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);
    visual.model.userData.editorSelection=binding.hostKind==='pedestal'?{kind:'placement',id:binding.hostId}:binding.hostKind==='opening'?{kind:'opening',id:binding.hostId}:undefined;
    parent.add(visual.model);target.add(parent);const disposeVisual=visual.dispose;visual.dispose=()=>{disposeVisual();parent.removeFromParent();};
+   if((binding.hostKind==='light'||binding.hostKind==='opening')&&collisionPolicy?.enabled(binding.hostKind,binding.hostId)){
+    const collision=mountedFurnishingCollision(three,collisionId,visual.model,collisionPolicy.scene,()=>disposed||signal.aborted||unavailable());
+    if(collision)collisions.set(collisionId,collision);
+   }
    for(const h of previous)h.object.visible=false;changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});
-  }catch{for(const h of previous)h.object.visible=h.visible;visual?.dispose();results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});}
- }return results;};return {start,dispose};
+  }catch{collisions.delete(collisionId);for(const h of previous)h.object.visible=h.visible;visual?.dispose();results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});}
+ }return results;};return {start,dispose,collisions};
 }
