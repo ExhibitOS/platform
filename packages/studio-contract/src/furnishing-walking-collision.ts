@@ -48,7 +48,7 @@ export function furnishingWalkingCollisionTargets(document:Exhibition):Furnishin
  for(const row of workspace?.frameAttachments??[])add('frame',row.placementId,false);
  for(const row of workspace?.openingAttachments??[])add('opening',row.openingId,false);
  for(const row of furnishingsFor(document)?.bindings??[])if(row.hostKind==='opening')add('opening',row.hostId,false);
- for(const row of wallFinishesFor(document))add('baseboard',row.surfaceId,false);
+ for(const row of wallFinishesFor(document))if(row.preset!=='plain')add('baseboard',row.surfaceId,false);
  for(const row of plaquesFor(document))add('sign',row.id,false);
  return [...targets.values()];
 }

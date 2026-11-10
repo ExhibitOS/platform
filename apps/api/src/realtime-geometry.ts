@@ -28,7 +28,7 @@ export function createPresenceGeometry(exhibition:Exhibition){
  const installation=[
   ...resolveInstallations(exhibition).flatMap(r=>r.solids.filter(s=>enabled(s.component==='pedestal'?'plinth':'frame',r.placementId))),
   ...benchSolids(exhibition).filter(s=>s.workspacePlacementId?enabled('workspace',s.workspacePlacementId):enabled('bench',s.benchId)),
-  ...architecturalSolids(exhibition),
+  ...architecturalSolids(exhibition,id=>enabled('baseboard',id)),
  ];
  const boxHit=(box:typeof boxes[number],a:V,b:V)=>artifactHullHit(box.corners,a,b,radius);
  const surfaces=[...exhibition.surfaces];

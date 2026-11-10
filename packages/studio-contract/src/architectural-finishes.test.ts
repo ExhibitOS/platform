@@ -12,6 +12,18 @@ test('pure prospective preview/cancel and explicit set/remove retain unknown fie
  const {d,settings}=fixture();d.extensions={...d.extensions,'example.org/private':{value:settings.surfaceId}};const before=structuredClone(d);expect(wallFinishesFor(d)).toEqual([]);const next=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:settings});const other={...settings,surfaceId:d.surfaces[1]!.id,preset:'plain' as const};const both=applyArchitecturalFinishCommand(next,{type:'set-wall-finish',wall:other}),edited=applyArchitecturalFinishCommand(both,{type:'set-wall-finish',wall:{...settings,depth:.1}});expect(wallFinishesFor(edited)[1]).toEqual(other);expect(d).toEqual(before);expect(next.extensions?.['example.org/private']).toEqual(before.extensions?.['example.org/private']);const removed=applyArchitecturalFinishCommand(next,{type:'remove-wall-finish',surfaceId:settings.surfaceId.toUpperCase()});expect(wallFinishesFor(removed)).toEqual([]);expect(d).toEqual(before);
  const mapped=remapArchitecturalFinishes({version:1,walls:[settings]},new Map([[settings.surfaceId.toLowerCase(),crypto.randomUUID()]]));expect(mapped.walls[0]!.surfaceId).not.toBe(settings.surfaceId);expect(mapped.walls[0]!.preset).toBe(settings.preset);
 });
+test('walking collision can omit only the baseboard while retaining wall and opening trim',()=>{
+ const {d,settings}=fixture();
+ const next=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:settings});
+ const all=architecturalSolids(next),withoutBaseboard=architecturalSolids(next,()=>false);
+ expect(withoutBaseboard.length).toBeLessThan(all.length);
+ expect(withoutBaseboard.filter(s=>s.kind==='structure').map(s=>s.vertices)).toEqual(all.filter(s=>s.kind==='structure').map(s=>s.vertices));
+ expect(withoutBaseboard.some(s=>s.kind==='finish')).toBe(true);
+ const retained=new Set(withoutBaseboard.map(s=>JSON.stringify(s.vertices)));
+ expect(all.filter(s=>!retained.has(JSON.stringify(s.vertices))).every(s=>
+  s.kind==='finish'&&s.vertices.every(p=>p[1]<=settings.baseboardHeight+1e-8)
+ )).toBe(true);
+});
 test('finish closed bounds reject tangential escape, nonwall/stale refs, invalid depth, duplicate and nonfinite data',()=>{
  const {d,settings}=fixture();for(const row of [{...settings,depth:NaN},{...settings,depth:.21},{...settings,preset:'asset',url:'https://example.org'},{...settings,surfaceId:crypto.randomUUID()},{...settings,trimWidth:.1}]){const bad=structuredClone(d);bad.extensions={...bad.extensions,[N]:{version:1,walls:[row]} as never};expect(validateArchitecturalFinishes(bad).valid).toBe(false);}
  const oversized=structuredClone(d);oversized.surfaces[0]!.dimensions.width=14;expect(()=>applyArchitecturalFinishCommand(oversized,{type:'set-wall-finish',wall:settings})).toThrow();

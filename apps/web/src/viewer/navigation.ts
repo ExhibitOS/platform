@@ -199,7 +199,7 @@ export async function createNavigationController(doc: Exhibition, options: {
         const unlinkedStoolSolids=stoolSolids.filter(solid=>!linkedStoolIds.has(solid.stoolPlacementId.toLowerCase()));
         const installation=resolveInstallations(doc).flatMap(record=>record.solids.filter(solid=>collisionEnabled(solid.component==='pedestal'?'plinth':'frame',record.placementId)));
         const benches=benchSolids(doc);
-        for(const solid of [...installation,...benches,...unlinkedStoolSolids,...architecturalSolids(doc)]){
+        for(const solid of [...installation,...benches,...unlinkedStoolSolids,...architecturalSolids(doc,id=>collisionEnabled('baseboard',id))]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
             const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');

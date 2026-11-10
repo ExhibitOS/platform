@@ -72,7 +72,16 @@ export function applyArchitecturalFinishCommand(document:Exhibition,command:Arch
 }
 const indices=[0,2,3,0,3,1,4,5,7,4,7,6,0,1,5,0,5,4,2,6,7,2,7,3,0,4,6,0,6,2,1,3,7,1,7,5];
 /** Same transformed vertices serve Rapier and authoritative presence; transforms apply exactly once. */
-export function architecturalSolids(document:Exhibition){
+export function architecturalSolids(document:Exhibition,includeBaseboard:(surfaceId:string)=>boolean=()=>true){
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
- return wallFinishesFor(document).flatMap(w=>{const surface=document.surfaces.find(s=>equal(s.id,w.surfaceId))!,room=document.rooms.find(r=>equal(r.id,surface.roomId))!;return architecturalWallBoxes(surface,document.openings,w).map(box=>{const vertices=boxVertices(box,surface.transform,room.transform);return {surfaceId:surface.id,roomId:room.id,kind:box.kind,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};});});
+ return wallFinishesFor(document).flatMap(w=>{
+  const surface=document.surfaces.find(s=>equal(s.id,w.surfaceId))!,room=document.rooms.find(r=>equal(r.id,surface.roomId))!;
+  const baseboardTop=-surface.dimensions.height/2+w.baseboardHeight;
+  return architecturalWallBoxes(surface,document.openings,w).filter(box=>
+   box.kind==='structure'||box.position[1]>=baseboardTop||includeBaseboard(surface.id)
+  ).map(box=>{
+   const vertices=boxVertices(box,surface.transform,room.transform);
+   return {surfaceId:surface.id,roomId:room.id,kind:box.kind,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};
+  });
+ });
 }
