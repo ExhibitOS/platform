@@ -1,4 +1,4 @@
-import {validateFurnishingWalkingCollision} from '@exhibitos/studio-contract';
+import {furnishingWalkingCollisionState,validateFurnishingWalkingCollision} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
@@ -218,6 +218,16 @@ export class Studio {
     await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
     return {additions:proposal.additions};
+  }
+  async evaluateNativeFurnishingWalkingCollision(c:PoolClient,s:Session,draft:Draft) {
+    if(!this.workspaceFurnishing)throw new ApiError(404,'NOT_FOUND');
+    await this.workspaceFurnishing.authorize(c,s);
+    checked({requestId:randomUUID(),draft});
+    await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
+    const targets=furnishingWalkingCollisionState(draft.candidate);
+    if(targets.length>1024)throw new ApiError(422,'FURNISHING_WALKING_COLLISION_LIMIT');
+    return {targets};
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
     if(!this.nativeOexWorkspace)throw new ApiError(404,'NOT_FOUND');
