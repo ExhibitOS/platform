@@ -180,7 +180,7 @@ export function GeometryPreview({
   onMapThumbnail,
   onExitRequest,
 }: {
-  onExitRequest?:(placementId:string)=>void;
+  onExitRequest?:(placementId:string,canNavigate:()=>boolean)=>void;
   mapThumbnailsEnabled?:boolean;
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   suppliedThumbnails?:Readonly<Record<string,string>>;
@@ -859,10 +859,10 @@ export function GeometryPreview({
       const exitRows=exitDoors.map(door=>({door,roomId:document.surfaces.find(surface=>
         surface.id.toLowerCase()===door.surfaceId.toLowerCase())?.roomId.toLowerCase()}));
       let exitNavigation:NavigationState|undefined,currentExitId:string|null=null;
+      const liveExit=(id:string)=>!disposed&&!gpuLost&&!xrActive.current&&viewingStyleRef.current==='free'&&!!ownerFurnishings?.publicBarrier(id);
       const requestExit=(id:string)=>{
-        if(disposed||gpuLost||xrActive.current||suspendedRef.current||viewingStyleRef.current!=='free'||
-          renderer.domElement.closest('[hidden],[inert]')||!exitRequest.current||!ownerFurnishings?.publicBarrier(id))return false;
-        exitRequest.current(id);
+        if(!liveExit(id)||suspendedRef.current||renderer.domElement.closest('[hidden],[inert]')||!exitRequest.current)return false;
+        exitRequest.current(id,()=>liveExit(id));
         return true;
       };
       exitAction.current=id=>id===currentExitId&&requestExit(id);

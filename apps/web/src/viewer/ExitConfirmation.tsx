@@ -2,9 +2,16 @@
 import {useEffect,useId,useRef,useState} from 'react';
 import {exitDestinationUrl,type ViewerExitDoor} from '@exhibitos/studio-contract';
 
-export function ExitConfirmation({door,onCancel,navigate}:{
+export function confirmExitDestination(url:string,canNavigate:()=>boolean,navigate:(url:string)=>void):boolean {
+  if(!canNavigate())return false;
+  navigate(url);
+  return true;
+}
+
+export function ExitConfirmation({door,onCancel,canNavigate,navigate}:{
   door: ViewerExitDoor;
   onCancel: () => void;
+  canNavigate: () => boolean;
   navigate: (url:string) => void;
 }) {
   const dialog=useRef<HTMLDialogElement>(null),cancel=useRef<HTMLButtonElement>(null);
@@ -40,7 +47,7 @@ export function ExitConfirmation({door,onCancel,navigate}:{
       <button ref={cancel} type="button" onClick={onCancel}>계속 관람</button>
       <button type="button" disabled={!selected} onClick={()=>{
         const destination=destinations.find(item=>item.url===selected);
-        if(destination)try{navigate(destination.url);}catch{setFailed(true);}
+        if(destination)try{if(!confirmExitDestination(destination.url,canNavigate,navigate))onCancel();}catch{setFailed(true);}
       }}>전시 나가기</button>
     </div>
   </dialog>;

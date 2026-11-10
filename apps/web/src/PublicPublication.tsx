@@ -174,19 +174,19 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const [exitDialog,setExitDialog]=useState<ViewerExitDoor|null>(null);
   const exitOpener=useRef<HTMLElement|null>(null);
-  const pendingExit=useRef<ViewerExitDoor|null>(null);
+  const pendingExit=useRef<{door:ViewerExitDoor;canNavigate:()=>boolean}|null>(null);
   const invalidateExit=useCallback(()=>{
     pendingExit.current=null;
     exitOpener.current=null;
     setExitDialog(null);
   },[]);
-  const requestExit=(placementId:string)=>{
+  const requestExit=(placementId:string,canNavigate:()=>boolean)=>{
     if(!value||modeRef.current!=='3d'||!stageReady||viewerUnavailable||selectedId||overview||pendingExit.current)return;
     const door=experienceFor(value.exhibition).exitDoors?.find(candidate=>candidate.placementId.toLowerCase()===placementId.toLowerCase());
     if(!door)return;
     const active=document.activeElement;
     exitOpener.current=active instanceof HTMLElement&&active!==document.body?active:null;
-    pendingExit.current=door;
+    pendingExit.current={door,canNavigate};
     setExitDialog(door);
   };
   const cancelExit=()=>{
@@ -410,9 +410,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             showDiagnosticExport
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();const opener=orderedDetailOpener.current;orderedDetailOpener.current=null;if(opener)requestAnimationFrame(()=>{if(opener.isConnected&&opener.getClientRects().length&&!document.hidden&&!publicationRoot.current?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]'))opener.focus({preventScroll:true});});}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
-          {mode==="3d"&&stageReady&&!viewerUnavailable&&exitDialog&&<ExitConfirmation key={exitDialog.placementId} door={exitDialog} onCancel={cancelExit} navigate={url=>{
-            if(pendingExit.current===exitDialog&&modeRef.current==="3d")window.location.assign(url);
-          }}/>}
+          {mode==="3d"&&stageReady&&!viewerUnavailable&&exitDialog&&<ExitConfirmation key={exitDialog.placementId} door={exitDialog} onCancel={cancelExit} canNavigate={()=>{
+            const pending=pendingExit.current;
+            return pending?.door===exitDialog&&modeRef.current==="3d"&&pending.canNavigate();
+          }} navigate={url=>window.location.assign(url)}/>}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>

@@ -106,7 +106,7 @@ export function Viewer({
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
   onPlaqueSelect?: (id:string)=>void;
-  onExitRequest?: (placementId:string)=>void;
+  onExitRequest?: (placementId:string,canNavigate:()=>boolean)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
   onAudioReady?: (api: AudioApi | null) => void;
