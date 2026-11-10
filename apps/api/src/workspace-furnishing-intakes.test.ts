@@ -269,7 +269,8 @@ it.each([true,false])('recovers the staged sign only under the same producing ma
  const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceInfoStandPreparation:true as const};
  const manifest='a'.repeat(64),withManifest=(digest:string,generation:string)=>({...f.writer,identity:{...f.writer.identity,runtimeGeneration:generation,payloadManifestSHA256:digest}});
  const service=new WorkspaceFurnishingIntakes(f.blobs,owner,withManifest(manifest,id(8)));
- const declaration={...f.declaration,kind:'info-stand',preparationPolicy:INFO_STAND_PREPARATION_POLICY};
+ const retainedRights={...rights,holder:'Independent author',licenseId:'LicenseRef-AuthorTerms',permissions:{...rights.permissions,export:false}};
+ const declaration={...f.declaration,kind:'info-stand',rights:retainedRights,preparationPolicy:INFO_STAND_PREPARATION_POLICY};
  const first=await service.create(f.client,f.session,declaration);
  await service.upload(f.client,f.session,first.intakeId,source);
  await service.complete(f.client,f.session,first.intakeId);
@@ -290,8 +291,10 @@ it.each([true,false])('recovers the staged sign only under the same producing ma
  expect(f.files.get(String(stage.source_key))).toEqual(source);
  if(sameManifest){
   expect(prepare).toHaveBeenCalledTimes(2);
-  expect(settled).toMatchObject({phase:'registered',preparation:{recipe:INFO_STAND_PREPARATION_POLICY,runtimeManifestSHA256:manifest,sourceModel:declaration.model,renderableModel:{sha256:sha256(rendered)}},furnishing:{model:{sha256:sha256(rendered)}}});
+  expect(settled).toMatchObject({phase:'registered',preparation:{recipe:INFO_STAND_PREPARATION_POLICY,runtimeManifestSHA256:manifest,sourceModel:declaration.model,renderableModel:{sha256:sha256(rendered)}},furnishing:{model:{sha256:sha256(rendered)},rights:retainedRights}});
   expect(f.files.get(String(stage.renderable_key))).toEqual(rendered);
+  await expect(resumed.model(f.client,f.session,settled.furnishing!.id,1,'display')).resolves.toMatchObject({bytes:rendered});
+  await expect(resumed.model(f.client,f.session,settled.furnishing!.id,1,'export')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
  }else{
   expect(prepare).toHaveBeenCalledTimes(1);
   expect(settled).toMatchObject({phase:'failed',retryable:false,error:{code:'INFO_STAND_PREPARATION_PRODUCER_MISMATCH'},furnishing:null});
@@ -314,4 +317,29 @@ it('keeps a compatible info-stand byte-identical with no preparation receipt',as
  expect(registered).not.toHaveProperty('preparation');
  expect(prepareInfoStandInWorker).not.toHaveBeenCalled();
  expect(f.getStage()).toBeUndefined();
+});
+
+it('does not infer preparation from a licensee display grant or an expired owner grant',async()=>{
+ const f=fixture(true,Buffer.alloc(64,4));
+ const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceInfoStandPreparation:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,{...f.writer,identity:{...f.writer.identity,payloadManifestSHA256:'a'.repeat(64)}});
+ const declaration={...f.declaration,kind:'info-stand',preparationPolicy:INFO_STAND_PREPARATION_POLICY};
+ const licensed={...rights,ownership:'authorized-licensee'};
+ await expect(service.create(f.client,f.session,{...declaration,rights:licensed})).rejects.toMatchObject({code:'INFO_STAND_PREPARATION_RIGHTS_DENIED'});
+ const expired={...rights,expiresAt:'2020-01-01T00:00:00Z'};
+ const intake=await service.create(f.client,f.session,{...declaration,rights:expired});
+ await service.upload(f.client,f.session,intake.intakeId,f.bytes);
+ await service.complete(f.client,f.session,intake.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ vi.mocked(prepareInfoStandInWorker).mockClear();
+ await service.work(f.pool);
+ expect(prepareInfoStandInWorker).not.toHaveBeenCalled();
+ expect(await service.read(f.client,f.session,intake.intakeId)).toMatchObject({phase:'failed',retryable:false,error:{code:'INFO_STAND_PREPARATION_RIGHTS_DENIED'}});
+ const ordinary=fixture(true,Buffer.alloc(64,5));
+ const standard=new WorkspaceFurnishingIntakes(ordinary.blobs,owner,ordinary.writer);
+ const received=await standard.create(ordinary.client,ordinary.session,{...ordinary.declaration,kind:'info-stand',rights:licensed});
+ await standard.upload(ordinary.client,ordinary.session,received.intakeId,ordinary.bytes);
+ await standard.complete(ordinary.client,ordinary.session,received.intakeId);
+ await standard.work(ordinary.pool);
+ expect(await standard.read(ordinary.client,ordinary.session,received.intakeId)).toMatchObject({phase:'registered',furnishing:{rights:licensed,model:ordinary.declaration.model}});
 });

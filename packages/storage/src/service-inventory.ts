@@ -275,7 +275,7 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
      (i.declaration->>'preparationPolicy' IS NOT DISTINCT FROM p.recipe AND
       ((p.recipe='omit-unused-invalid-tangent-r1' AND i.declaration->>'kind'='artwork-frame') OR
        (p.recipe='normalize-legacy-sign-texture-r1' AND i.declaration->>'kind'='info-stand' AND
-        i.declaration->'rights'->>'holder'='ExhibitOS' AND i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->>'licenseId'='CC0-1.0')) AND
+        i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->'permissions'->'display'='true'::jsonb)) AND
       i.received->>'key' IS NOT DISTINCT FROM p.source_key AND
       i.declaration->'model' IS NOT DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.source_bytes,'sha256',p.source_sha256) AND
       i.received->'bytes' IS NOT DISTINCT FROM to_jsonb(p.source_bytes) AND i.received->>'sha256' IS NOT DISTINCT FROM p.source_sha256)
@@ -295,8 +295,7 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
    LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=i.workspace_id AND v.tenant_id=i.tenant_id AND v.user_id=i.user_id AND v.id=i.furnishing_id AND v.version=i.furnishing_version
    WHERE i.phase='registered' AND i.declaration ? 'preparationPolicy' AND p.intake_id IS NULL AND (
     i.declaration->>'preparationPolicy'='normalize-legacy-sign-texture-r1' AND i.declaration->>'kind'='info-stand' AND
-    i.declaration->'rights'->>'holder'='ExhibitOS' AND i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->>'licenseId'='CC0-1.0' AND
-    v.object_key=i.received->>'key' AND v.descriptor=(i.declaration-'requestId'-'preparationPolicy')||jsonb_build_object('id',i.furnishing_id,'version',i.furnishing_version)
+    i.declaration->'rights'->>'ownership'='owner' AND v.object_key=i.received->>'key' AND v.descriptor=(i.declaration-'requestId'-'preparationPolicy')||jsonb_build_object('id',i.furnishing_id,'version',i.furnishing_version)
    ) IS NOT TRUE ${options.tenantId?'AND i.tenant_id=$1':''} LIMIT 1`,options.tenantId?[options.tenantId]:[]);
   if(mismatches.rowCount||missing.rowCount)report.issues.push({code:'FRAME_PREPARATION_BINDING_INVALID'});
  }
