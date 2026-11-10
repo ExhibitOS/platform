@@ -6,7 +6,9 @@ import {openAdoptionOwnerHandshake} from './native-hayes-owner-channel.mjs';
 
 export const ADOPTION_OWNER_FD='EXHIBITOS_NATIVE_MODEL_ADOPTION_FD';
 export const ADOPTION_ROOT_FD='EXHIBITOS_NATIVE_MODEL_ADOPTION_ROOT_FD';
-const marker='platform/scripts/native-model-adoption-capability-v1.json';
+export const ADOPTION_MARKER='native-model-adoption-capability-v1.json';
+export const ADOPTION_CAPABILITY='{"version":1,"profile":"native-model-adoption-v1"}\n';
+const marker='platform/scripts/'+ADOPTION_MARKER;
 const markerDigest='1cc2e6bc81fec1ef0aa6b6643dd177feff9480ad690d7b1b75e870b5072ca4a3';
 
 const descriptor=value=>typeof value==='string'&&/^[1-9][0-9]{1,3}$/.test(value)&&Number(value)<=1023;
@@ -36,7 +38,7 @@ export function closeUnusedAdoptionDescriptors(environment,{socketTaken=false,ro
 export function assertAdoptionPayload(payload,pin,isCatalog045,{upgrade=false}={}){
  if(!pin&&!payload.hasPath(marker))return;
  if(!isCatalog045||(!pin&&!upgrade)||(pin&&(upgrade||payload.digest!==pin.runtimeManifestSha256))||
-    !payload.hasRegular(marker)||!payload.hasExact(marker,markerDigest,51))throw unavailable();
+    !payload.hasRegular(marker)||!payload.hasExact(marker,markerDigest,Buffer.byteLength(ADOPTION_CAPABILITY)))throw unavailable();
 }
 
 // Validate the inherited pair before opening any channel. The caller owns both
