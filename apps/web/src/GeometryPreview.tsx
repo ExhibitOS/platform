@@ -2798,12 +2798,11 @@ export function GeometryPreview({
             !byteCache.get(inventory.id)&&cache.bytes-expendable+inventory.bytes<=cache.maxBytes&&peak.total()-expendable+inventory.bytes*4<=transitionBudgetBytes);
           if(!next){
             const coverId=cover?entranceFor(document).imageAssetId?.toLowerCase():undefined;
-            const coverArt=coverId?arts.find(art=>
-              art.assets.some(asset=>asset.id.toLowerCase()===coverId)&&
-              art.assets.some(asset=>entranceReadiness?.isDisplayedCover(asset))):undefined;
-            const originalCandidates=coverArt&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
+            const coverArt=coverId?arts.find(art=>art.assets.some(asset=>asset.id.toLowerCase()===coverId)):undefined;
+            const coverAsset=coverArt?.assets.find(asset=>entranceReadiness?.isDisplayedCover(asset));
+            const originalCandidates=coverArt&&coverAsset&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
               ?[...candidates,{art:coverArt,coverCurrent:()=>entranceModeRef.current==='cover'&&
-                coverArt.assets.some(asset=>entranceReadiness?.isDisplayedCover(asset))}]:candidates;
+                entranceReadiness?.isDisplayedCover(coverAsset)===true}]:candidates;
             prefetchOriginal(originalCandidates,cover);
             return;
           }
