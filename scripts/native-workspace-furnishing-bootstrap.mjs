@@ -35,7 +35,7 @@ export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,wri
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
 
-export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,allowLargeModelInterrupted=false,freshImageDirectory,infoStandPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
+export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,allowLargeModelInterrupted=false,catalog045PreReady=false,freshImageDirectory,infoStandPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
  const selected=['workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'];
  const upgrade=mode==='workspace-furnishing-039-to-040-upgrade-v1',upgrade44=mode==='workspace-furnishing-040-to-044-upgrade-v1',upgrade45=mode==='workspace-furnishing-044-to-045-upgrade-v1';
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1',...selected].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
@@ -51,7 +51,9 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(upgrade&&(!ordinaryAdmission||!writer||!writerDirectory||!publicationDirectory||!materialPublicationDirectory||!materialMultimapDirectory||!Number.isSafeInteger(ownerUid)||ownerUid<0))throw Error('FURNISHING_ADMISSION_INVALID');
  if(selected.includes(mode)&&(!publicationDirectory||!writer||!ordinaryAdmission)||mode==='workspace-furnishing-039-selected-import-v7'&&(!materialPublicationDirectory||materialMultimapDirectory)||mode==='workspace-furnishing-040-selected-import-v7'&&(!materialPublicationDirectory||!materialMultimapDirectory)||mode==='workspace-furnishing-038-selected-import-v7'&&(materialPublicationDirectory||materialMultimapDirectory))throw Error('FURNISHING_ADMISSION_INVALID');
  if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if((ordinaryAdmission.fields.admissionKind==='catalog-upgrade-039-to-040')!==upgrade||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-040-to-044')!==upgrade44||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-044-to-045')!==upgrade45||ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1',...selected].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
- if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(catalog045PreReady&&(!modelPreparationDirectory||largeModelDirectory||freshImageDirectory||infoStandPreparationDirectory||mode!=='workspace-furnishing-036-reopen-v1'||!['clean-reopen','interrupted-reopen'].includes(ordinaryAdmission?.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
+ const preservePreReady=catalog045PreReady&&ordinaryAdmission?.fields.admissionKind==='interrupted-reopen';
+ if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!preservePreReady&&!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory||materialPublicationDirectory&&!publicationDirectory||materialMultimapDirectory&&!materialPublicationDirectory)throw Error('NATIVE_OEX_CATALOG');
  const writerOptions={...(infoStandPreparationDirectory?{infoStandPreparationDirectory}:{}),...(writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{}),...(publicationDirectory?{workspaceFurnishingPublicationDirectory:publicationDirectory}:{}),...(materialPublicationDirectory?{workspaceMaterialPublicationDirectory:materialPublicationDirectory}:{}),...(materialMultimapDirectory?{workspaceMaterialMultimapDirectory:materialMultimapDirectory}:{}),...(framePreparationDirectory?{workspaceFramePreparationDirectory:framePreparationDirectory}:{}),...(hayesOriginalDirectory?{hayesOriginalDirectory}:{}),...(hayesDispositionDirectory?{hayesDispositionDirectory}:{}),...(hayesReleaseDirectory?{hayesReleaseDirectory}:{}),...(modelPreparationDirectory?{modelPreparationDirectory}:{}),...(freshImageDirectory?{freshImageDirectory}:{}),...(largeModelDirectory?{largeModelDirectory}:{})};
@@ -100,6 +102,18 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
    await assertExactModelPreparationCatalog(c);
    if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen()||!hayesChannel.isOpen())throw Error('NATIVE_OEX_CATALOG');
   }else if(rows.length!==((freshImageDirectory||largeModelDirectory||infoStandPreparationDirectory)?46:modelPreparationDirectory?45:hayesReleaseDirectory?44:hayesDispositionDirectory?43:hayesOriginalDirectory?42:framePreparationDirectory?41:materialMultimapDirectory?40:materialPublicationDirectory?39:publicationDirectory?38:writerDirectory?37:36)||largeModelDirectory&&rows[45]?.name!==LARGE_MODEL_MIGRATION||freshImageDirectory&&rows[45]?.name!==FRESH_IMAGE_MIGRATION||!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
+  if(preservePreReady){
+   // This route preserves a stopped generation. Active or pending work is
+   // outside its authority, including any cleanup that startup could resume.
+   const idle=await c.query(`SELECT NOT EXISTS (
+     SELECT 1 FROM public.workspace_furnishing_intakes WHERE worker_token IS NOT NULL OR phase IN ('uploading','validating','cancelling')
+     UNION ALL SELECT 1 FROM public.workspace_material_intakes WHERE worker_token IS NOT NULL OR phase IN ('uploading','validating','cancelling')
+     UNION ALL SELECT 1 FROM public.import_jobs WHERE state IN ('uploading','queued','processing') OR lease_id IS NOT NULL OR lease_until IS NOT NULL
+       OR cardinality(png_worker_tokens)>0 OR model_preparation ? 'claim'
+     UNION ALL SELECT 1 FROM public.oex_import_jobs WHERE state IN ('uploading','queued','processing') OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending
+   ) AS idle`);
+   if(idle.rows[0]?.idle!==true)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+  }
   if(writer)await writer.assertLive();
   // A committed first boot includes its owner in the same transaction. Never
   // create one when reopening or recovering an already occupied catalog.
