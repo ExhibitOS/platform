@@ -141,7 +141,16 @@ const r44Wheat:QualifiedDetailImage=Object.freeze({...r41Wheat,
  artworkRevisionId:'8f1c52ac-9dfe-4cd7-8e66-357357c5cdc0',
  sourceBindingSha256:'a101518bc38bf668302d4078aca9ae06b548568ef720c85024054708a3c90f88',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat]);
+// The r46 exit-door publication retains the measured Wheat original and its bounds.
+const r46Wheat:QualifiedDetailImage=Object.freeze({...r44Wheat,
+ staticIndexSha256:'c3b6ba70e888a20416e40f34a99c328134c122e423b499f3682b0ea896cac17e',
+ publicationSha256:'474763f2b2f46b2877f6cd176fcd1351108c4220ba5423c85f08c8c6eb48a2c2',
+ candidateId:'721829fe-5efc-4024-9d41-293653b11f07',
+ revisionSha256:'02420a0e67800e3d957734414f92d99b977c9534172cbd613a8c0ef30f50bd15',
+ artworkRevisionId:'157793b9-2f6c-41d4-8688-686b30554a58',
+ sourceBindingSha256:'11580deb7affa3a3f90843abe6c354f34f9ce5dbd4a85e7f7244e7c443806e3d',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
