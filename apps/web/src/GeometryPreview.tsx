@@ -2800,7 +2800,7 @@ export function GeometryPreview({
             const coverId=cover?entranceFor(document).imageAssetId?.toLowerCase():undefined;
             const coverArt=coverId?arts.find(art=>
               art.assets.some(asset=>asset.id.toLowerCase()===coverId)&&
-              art.assets.some(asset=>entranceReadiness?.isSelectedCover(asset))):undefined;
+              art.assets.some(asset=>entranceReadiness?.isDisplayedCover(asset))):undefined;
             const originalCandidates=coverArt&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
               ?[...candidates,{art:coverArt}]:candidates;
             prefetchOriginal(originalCandidates,cover);
