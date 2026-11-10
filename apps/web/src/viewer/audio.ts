@@ -203,14 +203,14 @@ export class ExhibitionAudio implements AudioApi {
     while (id && this.failedStepPreloads.has(id)) { this.stepSession.failed(key,id); id=this.stepSession.select(key,ids,Math.random); }
     return { key, id, legacy: resolved.kind==='publication' && ids.length===1 && entry?.assetId!==undefined && entry.assetId===id && !entry.bank };
   }
-  constructor(private publication: PublicPublication, private changed: (state: AudioState) => void) {
+  constructor(private publication: PublicPublication, private changed: (state: AudioState) => void, {publicVisitor = false} = {}) {
     this.experience = experienceFor(publication.exhibition);
     this.curation = curationFor(publication.exhibition);
-    if(this.experience.audioDefaults||this.experience.rooms.some(room=>
+    if(publicVisitor||this.experience.audioDefaults||this.experience.rooms.some(room=>
       room.footstepsOn!==undefined||room.reverbOn!==undefined||room.bgmOn!==undefined||room.bgm!==undefined)){
       this.preferenceKey='exhibitos.audio.v1/'+publication.exhibition.id.toLowerCase();
       this.preferences=readAudioPreferences(this.preferenceKey);
-      this.state.soundOn=this.preferences.soundOn??this.experience.audioDefaults?.soundOn??false;
+      this.state.soundOn=this.preferences.soundOn??this.experience.audioDefaults?.soundOn??publicVisitor;
       this.state.muted=!this.state.soundOn;
       this.state.volume=this.preferences.volume??this.state.volume;
       this.state.bgmPlaying=false;

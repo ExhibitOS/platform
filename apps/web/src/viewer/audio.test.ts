@@ -777,7 +777,7 @@ test('entered and ready gates room loops, crossing crossfades, narration ducks, 
  const publication={publication:{id:a,revisionSha256:'a'.repeat(64)},assets:[],exhibition:{id:a,
   rooms:[{id:a},{id:b}],surfaces:[],placements:[],audioZones:[],mediaAssets:[a,b,voice].map(id=>({id,mime:'audio/wav'})),
   extensions:{'org.exhibitos.viewer/experience':{version:1,footsteps:[],annotations:[],translations:[],
-   voices:[{assetId:voice,placementId:a,locale:'ko',transcript:'Narration'}],audioDefaults:{soundOn:true},
+   voices:[{assetId:voice,placementId:a,locale:'ko',transcript:'Narration'}],
    rooms:[{roomId:a,reverb:.12,bgmOn:true,bgm:{assetId:a}},{roomId:b,reverb:.12,bgmOn:true,bgm:{assetId:b}}]}}}} as unknown as import('../publication-client').PublicPublication;
  const parameter=()=>({value:0,setValueAtTime:vi.fn(),setTargetAtTime:vi.fn(),cancelScheduledValues:vi.fn(),linearRampToValueAtTime:vi.fn()});
  const gains:ReturnType<typeof parameter>[]=[];
@@ -787,7 +787,7 @@ test('entered and ready gates room loops, crossing crossfades, narration ducks, 
   createGain:()=>{const gain=parameter();gains.push(gain);return {gain,connect:vi.fn(),disconnect:vi.fn()};},
   createBufferSource:()=>{const source={buffer:null,loop:false,connect:vi.fn(node=>node),disconnect:vi.fn(),start:vi.fn(),stop:vi.fn()};sources.push(source);return source;}};
  vi.stubGlobal('AudioContext',class{constructor(){return context;}});
- const runtime=new ExhibitionAudio(publication,()=>{});
+ const runtime=new ExhibitionAudio(publication,()=>{},{publicVisitor:true});
  const internal=runtime as unknown as {checkAvailability:()=>Promise<void>;load:(id:string)=>Promise<AudioBuffer>};
  internal.checkAvailability=async()=>{};
  const bodies=new Map([a,b,voice].map(id=>[id,{duration:2} as AudioBuffer]));
@@ -959,4 +959,36 @@ test.each(['voice', 'preload', 'preload without room playback', 'room reentry du
   resumeFetch();
   runtime.dispose();
  }
+});
+
+test('public master defaults On without a gesture and respects authored Off and persisted visitor mute', async () => {
+ const {newDraft}=await import('../drafts/example');
+ const doc=newDraft().candidate;
+ const publication: import('../publication-client').PublicPublication={publication:{id:doc.id,revisionSha256:'a'.repeat(64),publishedAt:'2026-11-10T00:00:00Z',status:'published'},exhibition:doc,assets:[]};
+ const stored=new Map<string,string>();
+ const createContext=vi.fn();
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>stored.get(key)??null,setItem:(key:string,value:string)=>stored.set(key,value)});
+ vi.stubGlobal('AudioContext',class {constructor(){createContext();}});
+ const open=(value=publication)=>new ExhibitionAudio(value,()=>{},{publicVisitor:true});
+ const first=open();
+ try {
+  expect(first.snapshot()).toMatchObject({soundOn:true,muted:false,context:'not-created',footstepsEnabled:false,reverbEnabled:false});
+  first.setGalleryReady(true);
+  expect(createContext).not.toHaveBeenCalled();
+  first.setSoundOn(false);
+  const returned=open();
+  try {
+   returned.enterFromGesture();
+   expect(returned.snapshot()).toMatchObject({soundOn:false,muted:true,context:'not-created'});
+   expect(createContext).not.toHaveBeenCalled();
+  } finally {returned.dispose();}
+  stored.clear();
+  const experience={version:1,footsteps:[],voices:[],annotations:[],rooms:[],translations:[],audioDefaults:{soundOn:false}};
+  const authoredOff=open({...publication,exhibition:{...doc,extensions:{...doc.extensions,'org.exhibitos.viewer/experience':experience}}});
+  try {
+   authoredOff.enterFromGesture();
+   expect(authoredOff.snapshot()).toMatchObject({soundOn:false,muted:true,context:'not-created'});
+   expect(createContext).not.toHaveBeenCalled();
+  } finally {authoredOff.dispose();}
+ } finally {first.dispose();vi.unstubAllGlobals();}
 });

@@ -222,7 +222,7 @@ export function Viewer({
   audioReady.current = onAudioReady;
   const movement = useRef(false);
   useEffect(() => {
-    const runtime = new ExhibitionAudio(publication, setAudioState);
+    const runtime = new ExhibitionAudio(publication, setAudioState, {publicVisitor:true});
     audio.current = runtime;
     setAudioState(runtime.snapshot());
     audioReady.current?.(runtime);
