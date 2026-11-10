@@ -12,9 +12,29 @@ import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,workspaceFitGeometr
 import {artworkFrameFit,artworkFrameModel,portalFinishModel} from '@exhibitos/studio-contract';
 import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
 
+/** Validate the loaded original in model coordinates, before applying the room pose. */
+function backedBenchFits(three:typeof Three,model:Three.Object3D,bounds:Three.Box3,seat:StudioBench['dimensions']){
+ const tolerance=.02, halfWidth=seat.width/2, halfDepth=seat.depth/2;
+ // The authored collider supplies the allowed width, depth and back height.
+ if(bounds.isEmpty()||Math.abs(bounds.min.x+halfWidth)>tolerance||Math.abs(bounds.max.x-halfWidth)>tolerance||
+    bounds.min.z < -halfDepth-tolerance||bounds.max.z > halfDepth+tolerance||
+    Math.abs(bounds.min.y)>tolerance||bounds.max.y<seat.height+.10||bounds.max.y>seat.height+.40+tolerance)return false;
+ const down=new three.Vector3(0,-1,0);
+ const ray=new three.Raycaster(new three.Vector3(),down,0,bounds.max.y+1);
+ const surfaceAt=(x:number,z:number)=>{
+  ray.ray.origin.set(x,bounds.max.y+.05,z);
+  return ray.intersectObject(model,true)[0]?.point.y;
+ };
+ // Sample the seat at its authored center and at two front points clear of the rear rail.
+ const seatHeightAt=(x:number,z:number)=>Math.abs((surfaceAt(x,z)??Infinity)-seat.height)<=tolerance;
+ const rearHeight=surfaceAt(0,.4*seat.depth);
+ return seatHeightAt(0,0)&&seatHeightAt(-seat.width/4,-seat.depth/6)&&seatHeightAt(seat.width/4,-seat.depth/6)
+  &&rearHeight!==undefined&&Math.abs(rearHeight-bounds.max.y)<=tolerance;
+}
+
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
-export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean;seatDimensions?:StudioBench["dimensions"]}){
+export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean;seatDimensions?:StudioBench["dimensions"] & {kind?:StudioBench["kind"]}}){
  const {candidate,three,room,signal}=options;
  if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
  const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),attachment=options.frameAttachment,openingAttachment=options.openingAttachment,descriptor=extension?.furnishings.find(f=>f.id===(openingAttachment?.furnishingId??attachment?.furnishingId??placement?.furnishingId)&&f.version===(openingAttachment?.furnishingVersion??attachment?.furnishingVersion??placement?.furnishingVersion));
@@ -37,9 +57,14 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   if(seatDimensions){
    const bounds=new three.Box3().setFromObject(loaded.object,true);
    const halfWidth=seatDimensions.width/2,halfDepth=seatDimensions.depth/2,tolerance=.02;
-   seatFootprintMatches=!bounds.isEmpty()&&Math.abs(bounds.min.x+halfWidth)<=tolerance&&Math.abs(bounds.max.x-halfWidth)<=tolerance
-    &&Math.abs(bounds.min.z+halfDepth)<=tolerance&&Math.abs(bounds.max.z-halfDepth)<=tolerance
-    &&Math.abs(bounds.min.y)<=tolerance&&Math.abs(bounds.max.y-seatDimensions.height)<=tolerance;
+   if(seatDimensions.kind==='backed'){
+    seatFootprintMatches=backedBenchFits(three,loaded.object,bounds,seatDimensions);
+    if(!seatFootprintMatches)throw Error('WORKSPACE_BACKED_BENCH_FIT');
+   }else{
+    seatFootprintMatches=!bounds.isEmpty()&&Math.abs(bounds.min.x+halfWidth)<=tolerance&&Math.abs(bounds.max.x-halfWidth)<=tolerance
+     &&Math.abs(bounds.min.z+halfDepth)<=tolerance&&Math.abs(bounds.max.z-halfDepth)<=tolerance
+     &&Math.abs(bounds.min.y)<=tolerance&&Math.abs(bounds.max.y-seatDimensions.height)<=tolerance;
+   }
   }
   controller.signal.throwIfAborted();release=options.scope.reserve(loaded.draws,loaded.triangles);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');

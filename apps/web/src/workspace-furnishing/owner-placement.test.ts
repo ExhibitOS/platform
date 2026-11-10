@@ -45,3 +45,29 @@ it('mounts both measured continuous portal sizes at the wall-local door bottom',
   mounted.dispose();
  }
 });
+
+it('mounts an in-envelope backed bench and rejects a taller back or raised seat',async()=>{
+ for(const [seatY,backTop,valid] of [[.45,.82,true],[.45,.92,false],[.51,.82,false]] as const){
+  const f=setup(),geometry=new three.BoxGeometry(1,1,1),material=new three.MeshBasicMaterial();
+  const box=(dimensions:[number,number,number],position:[number,number,number])=>{
+   const mesh=new three.Mesh(geometry,material);
+   mesh.scale.set(...dimensions);mesh.position.set(...position);f.object.add(mesh);
+  };
+  box([1.5,.06,.56],[0,seatY-.03,0]);
+  box([1.4,.15,.05],[0,backTop-.075,.28]);
+  box([.06,.39,.06],[-.55,.195,-.20]);
+  box([.06,.39,.06],[.55,.195,.20]);
+  try{
+   const mount=mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45}});
+   if(valid){
+    const placement=await mount;
+    expect(placement.seatFootprintMatches).toBe(true);
+    expect(f.room.children).toEqual([f.object]);
+    placement.dispose();
+   }else{
+    await expect(mount).rejects.toThrow('WORKSPACE_BACKED_BENCH_FIT');
+    expect(f.room.children).toHaveLength(0);
+   }
+  }finally{geometry.dispose();material.dispose();}
+ }
+});

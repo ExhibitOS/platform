@@ -15,6 +15,28 @@ test('restored proof is authenticated and bound to admission, ack, stop and drai
 });
 const key=Buffer.alloc(32,7),kind='furnishing-ordinary-admission',ack='furnishing-ordinary-admission-ack';
 const fields={runtimeGeneration:'10000000-0000-4000-8000-000000000001',leaseTranscriptSHA256:'a'.repeat(64),admissionKind:'fresh-empty',activeBindingSHA256:'b'.repeat(64)};
+test('carried provenance authenticates both hops across the v4 owner exchange',()=>{
+ const priorRestoreProof={restoreId:'11111111-1111-4111-8111-111111111111',backupId:'22222222-2222-4222-8222-222222222222',
+  authenticatedManifestSha256:'c'.repeat(64),sourceDatabaseSystemId:'12',sourceDatabaseOid:'34',targetDatabaseSystemId:'56',
+  targetDatabaseOid:'78',provenanceRowCount:1,provenanceTableSha256:'d'.repeat(64)};
+ const observation={version:1,sourceHandoffSha256:'e'.repeat(64),priorRestoreProof,archiveSourceDatabaseSystemId:'56',
+  archiveSourceDatabaseOid:'78',targetDatabaseSystemId:'90',targetDatabaseOid:'91',provenanceRowCount:1,provenanceTableSha256:'d'.repeat(64)};
+ const carriedRestoreProof={restoreId:'33333333-3333-4333-8333-333333333333',backupId:'44444444-4444-4444-8444-444444444444',
+  authenticatedManifestSha256:'f'.repeat(64),observation};
+ const carried={...fields,admissionKind:'clean-reopen',carriedRestoreProof};
+ for(const step of [kind,ack,'furnishing-ordinary-stop','furnishing-ordinary-drained']){
+  const frame=encodeFurnishingOrdinaryAssertion(step,carried,key);
+  assert.equal(JSON.parse(frame).version,4);
+  assert.deepEqual(verifyFurnishingOrdinaryAssertion(frame,step,carried,key),carried);
+  const tampered=JSON.parse(frame);tampered.carriedRestoreProof.observation.sourceHandoffSha256='0'.repeat(64);
+  assert.throws(()=>authenticateFurnishingOrdinaryAssertion(Buffer.from(JSON.stringify(tampered)),step,key),/FURNISHING_ADMISSION_INVALID/);
+ }
+ for(const invalid of [{...carried,admissionKind:'fresh-empty'},{...carried,restoreProof:priorRestoreProof},
+  {...carried,previousRuntimeGeneration:priorRestoreProof.restoreId},
+  {...carried,carriedRestoreProof:{...carriedRestoreProof,observation:{...observation,archiveSourceDatabaseOid:'79'}}},
+  {...carried,carriedRestoreProof:{...carriedRestoreProof,observation:{...observation,targetDatabaseSystemId:'12'}}}])
+  assert.throws(()=>encodeFurnishingOrdinaryAssertion(kind,invalid,key),/FURNISHING_ADMISSION_INVALID/);
+});
 test('authenticates each canonical admission kind and separates acknowledgement domain',()=>{
  for(const admissionKind of ['fresh-empty','clean-reopen','verified-restore']){const value={...fields,admissionKind},frame=encodeFurnishingOrdinaryAssertion(kind,value,key);assert.deepEqual(authenticateFurnishingOrdinaryAssertion(frame,kind,key),value);assert.throws(()=>authenticateFurnishingOrdinaryAssertion(frame,ack,key));assert.deepEqual(authenticateFurnishingOrdinaryAssertion(encodeFurnishingOrdinaryAssertion(ack,value,key),ack,key),value);}
 });

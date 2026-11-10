@@ -3,9 +3,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {nativeBackupBudget,nativeRestoreIdentifier,nativeRestoreExtensions,nativeRestorePreflight,nativeBackupErrorCode} from './native-service-backup.mjs';
 import {postgresRuntimeSelection} from './package-native-runtime.mjs';
-import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {chmod,mkdtemp,writeFile,readFile,realpath,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {main as serviceBackup} from './service-backup.mjs';
+test('carried proof is opt-in for restored inventory only and requires a private canonical file',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'exhibitos-carried-proof-'));
+  try {
+    const proof=join(await realpath(dir),'proof.json');
+    const flags=['--manifest-file',join(dir,'unused-manifest.json'),'--manifest-sha256','a'.repeat(64),'--quiesced'];
+    const restored=['check-restored-inventory',...flags,'--snapshot-system-identifier','456'];
+    const optIn=['--carried-restore-proof-file',proof];
+    await assert.rejects(serviceBackup(['check-source-inventory',...flags,...optIn],{}),/BACKUP_USAGE/);
+    await assert.rejects(serviceBackup([...restored,...optIn,...optIn],{}),/BACKUP_USAGE/);
+    await assert.rejects(serviceBackup([...restored,'--carried-restore-proof-file','relative.json'],{}),/BACKUP_USAGE/);
+    await writeFile(proof,'{}');
+    await chmod(proof,0o644);
+    await assert.rejects(serviceBackup([...restored,...optIn],{DATABASE_URL:'postgresql://unused'}),/BACKUP_FILE_MODE/);
+    await chmod(proof,0o600);
+    await writeFile(proof,'x'.repeat(4097));
+    await assert.rejects(serviceBackup([...restored,...optIn],{DATABASE_URL:'postgresql://unused'}),/BACKUP_FILE_MODE/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
 test('native maintenance exposes only exact safe codes, never underlying exception details',()=>{
   for(const code of ['BACKUP_RESOURCE_BUDGET','BACKUP_PG_EXIT_FAILED','BACKUP_MIGRATION_CATALOG','NATIVE_POSTGRES_EXTENSION_UNSUPPORTED'])assert.equal(nativeBackupErrorCode(Error(code)),code);
   for(const value of [undefined,null,'BACKUP_PG_EXIT_FAILED',Error('postgresql://user:secret@host/db'),Error('BACKUP_PG_EXIT_FAILED\nprivate SQL'),Error('/private/key.bin'),Error('BACKUP_UNRECOGNIZED')])assert.equal(nativeBackupErrorCode(value),'NATIVE_BACKUP_FAILED');

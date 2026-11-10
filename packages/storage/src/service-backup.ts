@@ -218,25 +218,63 @@ export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:Bl
  * backup in a trusted update plan; a caller-supplied hash is not backup authentication.
  * No SQL/blob/configuration writes, dump, restore or update authorization occurs here. */
 type InventoryObservationOptions={pool:Pool;snapshot:Snapshot;manifestBytes:Uint8Array;expectedManifestSha256:string};
+interface PriorRestoreProof {
+ restoreId:string;backupId:string;authenticatedManifestSha256:string;
+ sourceDatabaseSystemId:string;sourceDatabaseOid:string;targetDatabaseSystemId:string;targetDatabaseOid:string;
+ provenanceRowCount:number;provenanceTableSha256:string;
+}
+interface CarriedRestoreInput {
+ version:1;sourceHandoffSha256:string;archiveBackupId:string;archiveManifestSha256:string;priorRestoreProof:PriorRestoreProof;
+}
+const provenanceTable='native_oex_exhibition_provenance';
+const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(v);
+const decimal=(v:unknown,max:bigint)=>typeof v==='string'&&/^[1-9][0-9]{0,19}$/.test(v)&&BigInt(v)<=max;
+function exactFields(value:unknown,fields:string[]):value is Record<string,unknown>{
+ return !!value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
+}
+/** The native caller authenticates the prior activation and its source handoff.
+ * This observer compares that input to the authenticated archive and live inventory. */
+function checkedCarriedRestore(value:unknown,manifest:BackupManifest,digest:string,candidateSystemIdentifier:string){
+ const fail=()=>{throw Error('CARRIED_RESTORE_PROOF_INVALID');};
+ if(!exactFields(value,['version','sourceHandoffSha256','archiveBackupId','archiveManifestSha256','priorRestoreProof'])||
+  value.version!==1||!hex(value.sourceHandoffSha256)||!uuid(value.archiveBackupId)||
+  value.archiveBackupId!==manifest.id||value.archiveManifestSha256!==digest)return fail();
+ const prior=value.priorRestoreProof;
+ if(!exactFields(prior,['restoreId','backupId','authenticatedManifestSha256','sourceDatabaseSystemId','sourceDatabaseOid',
+  'targetDatabaseSystemId','targetDatabaseOid','provenanceRowCount','provenanceTableSha256'])||
+  !uuid(prior.restoreId)||!uuid(prior.backupId)||prior.backupId===manifest.id||
+  !hex(prior.authenticatedManifestSha256)||prior.authenticatedManifestSha256===digest||
+  !decimal(prior.sourceDatabaseSystemId,18446744073709551615n)||!decimal(prior.targetDatabaseSystemId,18446744073709551615n)||
+  !decimal(prior.sourceDatabaseOid,4294967295n)||!decimal(prior.targetDatabaseOid,4294967295n)||
+  prior.sourceDatabaseSystemId===prior.targetDatabaseSystemId||prior.sourceDatabaseSystemId===candidateSystemIdentifier||
+  prior.targetDatabaseSystemId!==manifest.sourceIdentity.systemIdentifier||prior.targetDatabaseOid!==manifest.sourceIdentity.databaseOid||
+  typeof prior.provenanceRowCount!=='number'||!Number.isSafeInteger(prior.provenanceRowCount)||prior.provenanceRowCount<1||
+  !hex(prior.provenanceTableSha256))return fail();
+ const tables=manifest.inventory.tables.filter(t=>t.name===provenanceTable),table=tables[0];
+ if(tables.length!==1||table?.rowCount!==prior.provenanceRowCount||table.sha256!==prior.provenanceTableSha256)return fail();
+ return structuredClone(value) as unknown as CarriedRestoreInput;
+}
 export async function verifySourceInventory(options:InventoryObservationOptions){
  return observeInventory(options);
 }
 /** Restored candidate only: bind the isolated physical copy's observed identifier,
  * require a different cluster from the authenticated original, then compare the
  * complete logical inventory twice. This does not grant activation or preflight. */
-export async function verifyRestoredInventory(options:InventoryObservationOptions&{snapshotSystemIdentifier:string}){
+export async function verifyRestoredInventory(options:InventoryObservationOptions&{snapshotSystemIdentifier:string;carriedRestoreProof?:unknown}){
  const id=options.snapshotSystemIdentifier;
  if(!/^[1-9][0-9]{0,19}$/.test(id)||BigInt(id)>18446744073709551615n)throw Error('CANDIDATE_DATABASE_ID_INVALID');
- return observeInventory(options,id);
+ return observeInventory(options,id,options.carriedRestoreProof);
 }
-async function observeInventory(options:InventoryObservationOptions,candidateSystemIdentifier?:string){
+async function observeInventory(options:InventoryObservationOptions,candidateSystemIdentifier?:string,carriedRestoreProof?:unknown){
  const expectedManifestSha256=options.expectedManifestSha256;
  if(!hex(expectedManifestSha256)||options.manifestBytes.length<1||options.manifestBytes.length>16*1024*1024||sha(options.manifestBytes)!==expectedManifestSha256)throw Error('SOURCE_MANIFEST_MISMATCH');
  const manifest=JSON.parse(Buffer.from(options.manifestBytes).toString('utf8')) as BackupManifest;validateManifest(manifest);
  if(candidateSystemIdentifier===manifest.sourceIdentity.systemIdentifier)throw Error('CANDIDATE_ORIGINAL_DATABASE');
+ const carried=candidateSystemIdentifier!==undefined&&carriedRestoreProof!==undefined?
+  checkedCarriedRestore(carriedRestoreProof,manifest,expectedManifestSha256,candidateSystemIdentifier):undefined;
  const expected=comparable(manifest.inventory),c=await options.pool.connect();let locked=false,transaction=false;
  let restoredIdentity:BackupManifest['sourceIdentity']|undefined,firstHopProvenance=false;
- const provenance=manifest.inventory.tables.find(t=>t.name==='native_oex_exhibition_provenance');
+ const provenance=manifest.inventory.tables.find(t=>t.name===provenanceTable);
  const observe=async()=>{
   // Fail busy instead of waiting; obtain the fence before either DB snapshot.
   locked=(await c.query('SELECT pg_try_advisory_lock(82002) AS locked')).rows[0]?.locked===true;
@@ -251,18 +289,28 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
     if(inventoryCanonical(current)!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
    }else {
     if(current.systemIdentifier!==candidateSystemIdentifier||current.database!==manifest.sourceIdentity.database||restoredIdentity&&inventoryCanonical(current)!==inventoryCanonical(restoredIdentity))throw Error('CANDIDATE_DATABASE_MISMATCH');
+    if(carried&&!decimal(current.databaseOid,4294967295n))throw Error('CANDIDATE_DATABASE_MISMATCH');
     restoredIdentity=current;
    }
    const actual=await options.snapshot(c,retainedMigrations(manifest.inventory));validateInventory(actual);
    if(comparable(actual)!==expected)throw Error('SOURCE_INVENTORY_MISMATCH');
    if(candidateSystemIdentifier!==undefined&&provenance){
-    const check=await c.query('SELECT count(*)::text AS total, count(*) FILTER (WHERE source_database_system_id=$1 AND source_database_oid=$2)::text AS source_count FROM public.native_oex_exhibition_provenance',[manifest.sourceIdentity.systemIdentifier,manifest.sourceIdentity.databaseOid]);
+    const check=await c.query('SELECT count(*)::text AS total, count(*) FILTER (WHERE source_database_system_id=$1 AND source_database_oid=$2)::text AS source_count FROM public.native_oex_exhibition_provenance',
+     carried?[carried.priorRestoreProof.sourceDatabaseSystemId,carried.priorRestoreProof.sourceDatabaseOid]:
+      [manifest.sourceIdentity.systemIdentifier,manifest.sourceIdentity.databaseOid]);
     const row=check.rows[0];const eligible=typeof row?.total==='string'&&typeof row.source_count==='string'&&row.total===String(provenance.rowCount)&&row.source_count===row.total;
-    firstHopProvenance=pass===0?eligible:firstHopProvenance&&eligible;
+    if(carried&&!eligible)throw Error('CARRIED_RESTORE_PROVENANCE_MISMATCH');
+    if(!carried)firstHopProvenance=pass===0?eligible:firstHopProvenance&&eligible;
    }
    await c.query('ROLLBACK');transaction=false;
   }
-  return {operation:candidateSystemIdentifier===undefined?'source-inventory-matched':'restored-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),...(restoredIdentity&&provenance&&firstHopProvenance?{restoredProvenanceInventory:{sourceDatabaseSystemId:manifest.sourceIdentity.systemIdentifier,sourceDatabaseOid:manifest.sourceIdentity.databaseOid,targetDatabaseSystemId:restoredIdentity.systemIdentifier,targetDatabaseOid:restoredIdentity.databaseOid,provenanceRowCount:provenance.rowCount,provenanceTableSha256:provenance.sha256}}:{}),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+  const carriedInventory=carried&&restoredIdentity&&provenance?{
+   version:1 as const,sourceHandoffSha256:carried.sourceHandoffSha256,priorRestoreProof:carried.priorRestoreProof,
+   archiveSourceDatabaseSystemId:manifest.sourceIdentity.systemIdentifier,archiveSourceDatabaseOid:manifest.sourceIdentity.databaseOid,
+   targetDatabaseSystemId:restoredIdentity.systemIdentifier,targetDatabaseOid:restoredIdentity.databaseOid,
+   provenanceRowCount:provenance.rowCount,provenanceTableSha256:provenance.sha256,
+  }:undefined;
+  return {operation:candidateSystemIdentifier===undefined?'source-inventory-matched':'restored-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),...(restoredIdentity&&provenance&&firstHopProvenance?{restoredProvenanceInventory:{sourceDatabaseSystemId:manifest.sourceIdentity.systemIdentifier,sourceDatabaseOid:manifest.sourceIdentity.databaseOid,targetDatabaseSystemId:restoredIdentity.systemIdentifier,targetDatabaseOid:restoredIdentity.databaseOid,provenanceRowCount:provenance.rowCount,provenanceTableSha256:provenance.sha256}}:{}),...(carriedInventory?{carriedRestoreProvenanceInventory:carriedInventory}:{}),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
  };
  let observation:Awaited<ReturnType<typeof observe>>,broken=false;
  try{observation=await observe();}finally{

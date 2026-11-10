@@ -69,6 +69,52 @@ test('restored provenance observation pins authenticated table and both physical
  f.client.query=async sql=>sql.includes('AS source_count')?{rows:[{total:'1',source_count:'0'}]}:query(sql);
  expect((await verifyRestoredInventory({...f.options,manifestBytes,expectedManifestSha256:hash(manifestBytes)})).restoredProvenanceInventory).toBeUndefined();
 });
+function carriedFixture(){
+ const f=candidateFixture(),manifest=JSON.parse(f.manifestBytes.toString());
+ const table={name:'native_oex_exhibition_provenance',rowCount:1,sha256:hash('original provenance')};
+ f.inventory.tables.push(table);manifest.inventory=f.inventory;
+ const manifestBytes=Buffer.from(JSON.stringify(manifest)),archiveManifestSha256=hash(manifestBytes);
+ const priorRestoreProof={restoreId:'11111111-1111-4111-8111-111111111111',backupId:'22222222-2222-4222-8222-222222222222',
+  authenticatedManifestSha256:hash('prior manifest'),sourceDatabaseSystemId:'12',sourceDatabaseOid:'34',targetDatabaseSystemId:'123',
+  targetDatabaseOid:'456',provenanceRowCount:table.rowCount,provenanceTableSha256:table.sha256};
+ const carriedRestoreProof={version:1,sourceHandoffSha256:hash('native handoff'),archiveBackupId:manifest.id,archiveManifestSha256,priorRestoreProof};
+ return {...f,carriedRestoreProof,options:{...f.options,manifestBytes,expectedManifestSha256:archiveManifestSha256,carriedRestoreProof}};
+}
+test('opted-in restore reports a distinct carried observation after checking original rows in both snapshots',async()=>{
+ const f=carriedFixture(),query=f.client.query,bindings:unknown[]=[];
+ f.client.query=async (sql,args?:unknown[])=>{
+  if(!sql.includes('AS source_count'))return query(sql);
+  bindings.push(args);
+  return {rows:[{total:'1',source_count:args?.[0]==='12'&&args[1]==='34'?'1':'0'}]};
+ };
+ const proof=f.carriedRestoreProof,result=await verifyRestoredInventory(f.options);
+ expect(bindings).toEqual([['12','34'],['12','34']]);
+ expect(result.restoredProvenanceInventory).toBeUndefined();
+ expect(result.carriedRestoreProvenanceInventory).toEqual({version:1,sourceHandoffSha256:proof.sourceHandoffSha256,
+  priorRestoreProof:proof.priorRestoreProof,archiveSourceDatabaseSystemId:'123',archiveSourceDatabaseOid:'456',
+  targetDatabaseSystemId:'789',targetDatabaseOid:'999',provenanceRowCount:1,
+  provenanceTableSha256:proof.priorRestoreProof.provenanceTableSha256});
+ const ordinary=await verifyRestoredInventory({...f.options,carriedRestoreProof:undefined});
+ expect(ordinary.restoredProvenanceInventory).toBeUndefined();
+ expect(ordinary.carriedRestoreProvenanceInventory).toBeUndefined();
+});
+test('carried proof rejects foreign archives, lineage, table evidence and extra fields before connecting',async()=>{
+ const f=carriedFixture(),p=f.carriedRestoreProof,prior=p.priorRestoreProof;
+ for(const invalid of [null,{...p,sourceHandoffSha256:'invalid'},{...p,archiveBackupId:prior.backupId},
+  {...p,archiveManifestSha256:hash('foreign')},{...p,priorRestoreProof:{...prior,targetDatabaseOid:'457'}},
+  {...p,priorRestoreProof:{...prior,sourceDatabaseSystemId:'789'}},
+  {...p,priorRestoreProof:{...prior,provenanceTableSha256:hash('foreign table')}},
+  {...p,priorRestoreProof:{...prior,provenanceRowCount:0}},{...p,unexpected:true}]){
+  await expect(verifyRestoredInventory({...f.options,carriedRestoreProof:invalid})).rejects.toThrow('CARRIED_RESTORE_PROOF_INVALID');
+ }
+ expect(f.queries).toEqual([]);
+});
+test('carried proof refuses a changed second snapshot and releases the fence',async()=>{
+ const f=carriedFixture(),query=f.client.query;let pass=0;
+ f.client.query=async sql=>sql.includes('AS source_count')?{rows:[{total:'1',source_count:++pass===1?'1':'0'}]}:query(sql);
+ await expect(verifyRestoredInventory(f.options)).rejects.toThrow('CARRIED_RESTORE_PROVENANCE_MISMATCH');
+ expect(pass).toBe(2);expect(f.queries.at(-1)).toContain('pg_advisory_unlock');expect(f.released()).toBe(false);
+});
 test('restored candidate database oid must stay fixed across both observations',async()=>{
  const f=candidateFixture(),query=f.client.query;let pass=0;
  f.client.query=async sql=>sql.includes('pg_control_system')?{rows:[{system:'789',oid:++pass===1?'999':'998',database:'synthetic'}]}:query(sql);

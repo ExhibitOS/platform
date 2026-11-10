@@ -14,6 +14,20 @@ main.publication-shell .bench-return{background:var(--publication-paper);color:v
 main.publication-shell .bench-return:focus-visible{outline-offset:-4px}
 .geometry-immersive[data-input-mode=touch]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}
 @media (pointer:coarse){.geometry-immersive[data-input-mode=auto]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}}
+@media (max-width:480px), (max-height:480px) and (max-width:950px) {
+  .publication-shell .geometry-immersive[data-input-mode=touch] .bench-return[data-bench-seated=true] {
+    inset-inline-start:auto;
+    inset-inline-end:max(1rem,env(safe-area-inset-right),env(safe-area-inset-left));
+    transform:none;
+  }
+  @media (pointer:coarse) {
+    .publication-shell .geometry-immersive[data-input-mode=auto] .bench-return[data-bench-seated=true] {
+      inset-inline-start:auto;
+      inset-inline-end:max(1rem,env(safe-area-inset-right),env(safe-area-inset-left));
+      transform:none;
+    }
+  }
+}
 main.publication-shell>button,main.publication-shell section[aria-label="3D 관람 오류"]>button{background:var(--publication-action);color:var(--publication-paper);border-color:var(--publication-action)}
 main.publication-shell>button:focus-visible,main.publication-shell section[aria-label="3D 관람 오류"]>button:focus-visible{outline-color:var(--publication-ink)}
 main.publication-shell button:disabled{opacity:1;color:var(--publication-muted);cursor:not-allowed}

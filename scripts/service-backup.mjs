@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {constants} from 'node:fs';
 import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
-import {resolve,dirname,relative} from 'node:path';
+import {resolve,dirname,relative,isAbsolute} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
 import {freezeCanonical} from '@exhibitos/studio-contract';
@@ -23,13 +23,13 @@ async function privateFile(path,max){
 // Docker Desktop shared mounts reported this type while masking mode and link counts.
 // Refuse this observed Linux backend; Manager still needs independent host guards.
 export function configurationFilesystemSupported(platform,type){return platform!=='linux'||type!==0x65735546n;}
-async function privateConfigurationFile(path){
+async function privateConfigurationFile(path,max=1048576){
  const target=resolve(path);if(await realpath(target)!==target)fail('BACKUP_FILE_PATH');
  if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type))fail('SOURCE_CONFIGURATION_FILESYSTEM_UNVERIFIED');
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{
   const before=await file.stat({bigint:true});
-  if(!before.isFile()||before.nlink!==1n||(before.mode&0o7777n)!==0o600n||before.size<1n||before.size>1048576n||typeof process.getuid==='function'&&before.uid!==BigInt(process.getuid()))fail('BACKUP_FILE_MODE');
+  if(!before.isFile()||before.nlink!==1n||(before.mode&0o7777n)!==0o600n||before.size<1n||before.size>BigInt(max)||typeof process.getuid==='function'&&before.uid!==BigInt(process.getuid()))fail('BACKUP_FILE_MODE');
   const bytes=await file.readFile(),after=await file.stat({bigint:true}),current=await lstat(target,{bigint:true});
   if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type)||await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
   return bytes;
@@ -124,8 +124,8 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 
 function parse(argv){
  const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command))fail('BACKUP_USAGE');
- for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&flags['--snapshot-system-identifier'])fail('BACKUP_USAGE');return {command,flags};
+ for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier','--carried-restore-proof-file'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
+ if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&(flags['--snapshot-system-identifier']||flags['--carried-restore-proof-file']))fail('BACKUP_USAGE');return {command,flags};
 }
 async function storeFor(environment,allowUninitialized=false){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -214,11 +214,14 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  }
  if(command==='check-source-inventory'||command==='check-restored-inventory'){
   const required=command==='check-restored-inventory'?'--manifest-file,--manifest-sha256,--quiesced,--snapshot-system-identifier':'--manifest-file,--manifest-sha256,--quiesced';
-  if(Object.keys(flags).sort().join(',')!==required||!flags['--quiesced'])fail('BACKUP_USAGE');
+  const proofPath=flags['--carried-restore-proof-file'];
+  if(Object.keys(flags).sort().join(',')!==(proofPath?'--carried-restore-proof-file,'+required:required)||!flags['--quiesced']||
+    proofPath&&(!isAbsolute(proofPath)||resolve(proofPath)!==proofPath))fail('BACKUP_USAGE');
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
+  const carriedRestoreProof=proofPath?JSON.parse((await privateConfigurationFile(proofPath,4096)).toString('utf8')):undefined;
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptionsForDatabase(c,fileURLToPath(new URL('../database/migrations/',import.meta.url)),fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptionsForDatabase(c,fileURLToPath(new URL('../database/migrations/',import.meta.url)),fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier'],carriedRestoreProof}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}

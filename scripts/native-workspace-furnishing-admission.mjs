@@ -37,9 +37,16 @@ export async function acceptFurnishingOrdinaryAdmission({writer,channel,secret})
   if((fields.admissionKind==='catalog-upgrade-039-to-040')!==(writer.identity.mode==='workspace-furnishing-039-to-040-upgrade-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
   if((fields.admissionKind==='catalog-upgrade-040-to-044')!==(writer.identity.mode==='workspace-furnishing-040-to-044-upgrade-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
   if((fields.admissionKind==='catalog-upgrade-044-to-045')!==(writer.identity.mode==='workspace-furnishing-044-to-045-upgrade-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
-  if(fields.admissionKind==='interrupted-reopen'&&writer.identity.mode!=='workspace-furnishing-036-reopen-v1')throw Error('FURNISHING_ADMISSION_INVALID');
+  if((fields.admissionKind==='interrupted-reopen'||fields.carriedRestoreProof)&&writer.identity.mode!=='workspace-furnishing-036-reopen-v1')throw Error('FURNISHING_ADMISSION_INVALID');
   if(fields.runtimeGeneration!==writer.identity.runtimeGeneration||fields.leaseTranscriptSHA256!==writer.leaseTranscriptSHA256||(fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'].includes(writer.identity.mode)))throw Error('FURNISHING_ADMISSION_INVALID');
-  await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission-ack',fields,key));await writer.assertLive();if(fields.restoreProof)Object.freeze(fields.restoreProof);const admission=Object.freeze({fields:Object.freeze(fields),writer});ordinaryIssued.add(admission);return admission;
+  await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission-ack',fields,key));await writer.assertLive();
+  if(fields.restoreProof)Object.freeze(fields.restoreProof);
+  if(fields.carriedRestoreProof){
+   Object.freeze(fields.carriedRestoreProof.observation.priorRestoreProof);
+   Object.freeze(fields.carriedRestoreProof.observation);
+   Object.freeze(fields.carriedRestoreProof);
+  }
+  const admission=Object.freeze({fields:Object.freeze(fields),writer});ordinaryIssued.add(admission);return admission;
  }catch(error){void channel.close().catch(()=>{});throw error;}finally{key.fill(0);}
 }
 

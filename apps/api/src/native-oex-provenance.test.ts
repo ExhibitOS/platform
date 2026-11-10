@@ -119,6 +119,19 @@ it('issues the v6 import context only for the exact workspace and 033/034 ledger
  await expect(restored.assertRecord(restoredClient,{...record,sourceDatabaseSystemId:'13'})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  await expect(restored.assertRecord(restoredClient,{...record,principalId:id(10)})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  await restored.assertRecord(restoredClient,{...record,sourceDatabaseSystemId:'42',sourceDatabaseOid:'16384'});
+ const carriedProvenance={restoreId:id(11),backupId:id(12),authenticatedManifestSha256:'e'.repeat(64),assertLive:live,
+  observation:{version:1 as const,sourceHandoffSha256:'f'.repeat(64),
+   priorRestoreProof:{restoreId:id(13),backupId:id(14),authenticatedManifestSha256:'1'.repeat(64),
+    sourceDatabaseSystemId:'12',sourceDatabaseOid:'34',targetDatabaseSystemId:'23',targetDatabaseOid:'45',
+    provenanceRowCount:1,provenanceTableSha256},
+   archiveSourceDatabaseSystemId:'23',archiveSourceDatabaseOid:'45',targetDatabaseSystemId:'42',targetDatabaseOid:'16384',
+   provenanceRowCount:1,provenanceTableSha256}};
+ const carrying={...args,workspaceWallImport:true as const,workspaceFurnishing:true as const,workspaceFurnishingWriter:true as const};
+ const carried=await bindNativeOexWorkspace(c,{...carrying,restoredProvenance:carriedProvenance});
+ await carried.assertRecord(restoredClient,record);
+ await expect(carried.assertRecord(restoredClient,{...record,sourceDatabaseSystemId:'23',sourceDatabaseOid:'45'})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
+ await expect(bindNativeOexWorkspace(c,{...carrying,restoredProvenance:{...carriedProvenance,
+  observation:{...carriedProvenance.observation,archiveSourceDatabaseOid:'46'}}})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  await expect(bindNativeOexWorkspace(c,{...args,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true,restoredProvenance:{...restoredProvenance,targetDatabaseOid:'999'}})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  const writerScoped=await bindNativeOexWorkspace(c,{...args,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true});expect(writerScoped.workspaceFurnishingWriter).toBe(true);await writerScoped.assertDatabase(c);await expect(writerScoped.assertRecord(restoredClient,record)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});writer=[];await expect(writerScoped.assertDatabase(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});await expect(bindNativeOexWorkspace(c,{...args,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  const scoped=await bindNativeOexWorkspace(c,{...args,workspaceWallImport:true,workspaceFurnishing:true});expect(scoped.workspaceFurnishing).toBe(true);await scoped.assertDatabase(c);furnishing=[{...furnishing[0]!,sha256:'0'.repeat(64)}];await expect(scoped.assertDatabase(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});await expect(bindNativeOexWorkspace(c,{...args,workspaceWallImport:true,workspaceFurnishing:true})).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});

@@ -120,12 +120,36 @@ export const R53_REFERENCE=Object.freeze({
  candidateId:'0e338503-daec-43a8-bdab-862a2a632180',
  assetSha256:WHEAT_REFERENCE.assetSha256,
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R57_REFERENCE=Object.freeze({
+ indexSha256:'9ee1a6f7a93288870f130ed2daa0b873bb445fc20192adfd53a1ba1c768141f1',
+ publicationSha256:'e99ce99bb99af338430c1f530494a6abac3891d5fae2dd61c5363b7818cd1a6e',
+ publicationId:'59b23142-03bd-4d89-9d9b-795dc352557b',
+ revisionSha256:'a680f167663d42f850e363bab6b2675745c01f8ca527752a281ce2df5d56cc2f',
+ candidateId:'f1782724-50f7-4948-b8c2-e4db2bc16c93',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+export const R61_REFERENCE=Object.freeze({
+ indexSha256:'f1da47677f16089aa2d330b1e817a059f2d05f6e853e2f4875dfb34bcb75ecbc',
+ publicationSha256:'f5938db6d5ac55f3dc2b440e8188ca267247c31938ac73ee0bebbbefe0ea694c',
+ publicationId:'e16e9f49-be31-4540-a34d-f1365d388a4a',
+ revisionSha256:'6635e00acf0abd2b6ef1655fba447cdd0957847686ba179d20cfc1c5575a7306',
+ candidateId:'5aabeb35-5cbb-464e-9fe7-a9af20190cdf',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+export const R62_REFERENCE=Object.freeze({
+ indexSha256:'af0e0722d11ea0549bce2223a6462e69541e3ffb78e8981b26d2ad5f8d8b7f76',
+ publicationSha256:'41a63e132e5593d7ba570720f7a6e04970e2f0a3d62fff9631911e60b4d539d1',
+ publicationId:'8e4295ec-91b0-43af-94f3-a54a53a2b654',
+ revisionSha256:'21310c147a8b9ac0c10ea38c55dbb645750baa454abc11a5434d135c80d666d5',
+ candidateId:'c0abf52d-d187-4d1a-86c8-e2c512b3905b',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53|r57|r61|r62)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -134,12 +158,12 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE;
+ const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE;
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE);
+ const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE)+Number(reference===R61_REFERENCE||reference===R62_REFERENCE);
  if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||
@@ -149,6 +173,7 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
  if(charcoalFloor&&!index.assets.some(asset=>asset.sha256==='4684fcb53dbc376f563a7c8bba97d48f660968198401fad0bdff143a14a2f909'&&asset.bytes===2154063&&asset.mime==='image/png'))fail();
  if(terrazzoFloor&&(!index.assets.some(asset=>asset.sha256==='afa5635491e8a7875fe3ca8dfdd6651dc197ab8e648492c98907ec7d07750f90'&&asset.mime==='image/png')||
    !['e77d9970fecdbe384cb6b973ebafea4284a70912eed71ccf88496ec5875ed9b5','865d1556595dfad9278fdd92e2227a8a5decd9e5c34f3d8de2f584e1a012e536'].every(sha256=>index.resources.some(asset=>asset.sha256===sha256&&asset.mime==='image/png'))))fail();
+ if((reference===R61_REFERENCE||reference===R62_REFERENCE)&&!index.assets.some(asset=>asset.sha256==='4e26824b897af85e781c102cf7f01e404e4266b4d5299088c2b29940facaccba'&&asset.bytes===112044&&asset.mime==='model/gltf-binary'))fail();
  const entries=[index.publication,...index.assets,...index.resources,...notices,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
@@ -189,8 +214,8 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
  * verified native publication. No caller-supplied publication is accepted. */
 export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
- const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r53-v4-index.json'});
- if(source.reference!==R53_REFERENCE)fail();
+ const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r62-v4-index.json'});
+ if(source.reference!==R62_REFERENCE)fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();

@@ -142,11 +142,16 @@ const DEFAULT_FURNISHINGS_RELEASES={
   '1.2.0':{commit:'830dee95df738ab7805cae6a0ff80d1f2639a001',manifestSHA256:'db9427c19ecaaceb3029c49bd4700955fa9a0b2cb568b422d5238f589e44f4e1',bytes:7079},
   '1.3.0':{commit:'5f9e0290c8730034eff06f8d5763c977bd41c843',manifestSHA256:'f168169e9de18b79c78007de7e2a78d9ba2ec1b8d6bb492d5a69ba1ffef0dcd3',bytes:8787},
   '1.4.0':{commit:'84882f581d7e1d568aea27d7409c8c5c31b44a13',manifestSHA256:'7073f8f6dfd7a1c44e8e2b7206b503a35fa1a59eb992d08191dde5f6c6e86e6e',bytes:9246},
+  '1.5.0':{commit:'9209dca9cf60088508eafbf51c113ff8d307212f',manifestSHA256:'c62c8e910e7f2920e989b2d1d76d37ab959d04c2c443dc5631d4478ed5056b0f',bytes:10119},
 };
 const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
 const DEFAULT_WORKSPACE_ORIGINALS={'freestanding-info-stand':'info-stand','gallery-stool':'stool','upholstered-gallery-bench':'bench'};
 const DEFAULT_EXIT_ORIGINALS={'closed-exit-door':'barrier','exit-pictogram-sign':'info-stand'};
-const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0'];
+const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0','1.5.0'];
+const DEFAULT_SCULPTURE_BENCH_ID='sculpture-gallery-bench';
+const defaultFurnishingDirectory=id=>id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
+  Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)?'generated-20261109':'user-authored-20261027';
+const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0';
 const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
 const DEFAULT_EXIT_SIGN_SOURCE={
   path:'assets/furnishings/generated-20261109/exit-pictogram-sign/source.glb',
@@ -178,6 +183,7 @@ async function readDefaultFurnishingsManifest(root){
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
     ...(DEFAULT_WORKSPACE_RELEASES.includes(version)?DEFAULT_WORKSPACE_ORIGINALS:{}),
     ...(DEFAULT_EXIT_RELEASES.includes(version)?DEFAULT_EXIT_ORIGINALS:{}),
+    ...(version==='1.5.0'?{[DEFAULT_SCULPTURE_BENCH_ID]:'bench'}:{}),
   };
   if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!==version||!Array.isArray(manifest.assets)||manifest.assets.length!==Object.keys(hosts).length)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const seen=new Set();
@@ -185,11 +191,11 @@ async function readDefaultFurnishingsManifest(root){
     const id=item.catalogId;
     if(!Object.hasOwn(hosts,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     seen.add(id);
-    if(Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)){
-      const path='assets/furnishings/generated-20261109/'+id;
-      const preparedSign=version==='1.4.0'&&id==='exit-pictogram-sign';
+    if(Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID){
+      const path='assets/furnishings/'+defaultFurnishingDirectory(id)+'/'+id;
+      const preparedSign=hasPreparedExitSign(version)&&id==='exit-pictogram-sign';
       const provenance=item.provenance;
-      if(item.catalogVersion!==(preparedSign?2:1)||item.hostKind!==DEFAULT_EXIT_ORIGINALS[id]||
+      if(item.catalogVersion!==(preparedSign?2:1)||item.hostKind!==hosts[id]||
         item.model?.path!==path+'/model.glb'||item.model.mime!=='model/gltf-binary'||
         item.rights?.licenseId!=='CC0-1.0'||item.rights.notice?.path!==path+'/LICENSE-NOTICE.txt')
         fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
@@ -237,10 +243,11 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
   if(includesExitOriginals)ids.push(...Object.keys(DEFAULT_EXIT_ORIGINALS));
+  if(bundled?.manifest.bundleVersion==='1.5.0')ids.push(DEFAULT_SCULPTURE_BENCH_ID);
   const seen = new Set();
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
-    const workspaceOriginal=bundled&&(exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id))?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
+    const workspaceOriginal=bundled&&(exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
     const entry = workspaceOriginal?{...workspaceOriginal.model,rights:{
       licenseId:workspaceOriginal.rights.licenseId,
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
@@ -248,11 +255,11 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
     if (entry.rights.licenseId !== 'CC0-1.0') fail('NATIVE_PACKAGE_FURNISHING_INVALID');
     const files = [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256]];
     // Seal the acquired source separately. The frame API resolves model.glb only.
-    const preparedSign=id==='exit-pictogram-sign'&&bundled?.manifest.bundleVersion==='1.4.0';
+    const preparedSign=id==='exit-pictogram-sign'&&hasPreparedExitSign(bundled?.manifest.bundleVersion);
     if(id===DEFAULT_FRAME_ID)files.push([DEFAULT_FRAME_ROOT+'/source.glb',101768,entry.provenance.sourceSha256]);
     if(preparedSign)files.push([DEFAULT_EXIT_SIGN_SOURCE.path,DEFAULT_EXIT_SIGN_SOURCE.bytes,DEFAULT_EXIT_SIGN_SOURCE.sha256]);
     for (const [path, bytes, sha256] of files) {
-      if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${exitOriginal?'generated-20261109':'user-authored-20261027'}/${id}/`)
+      if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`)
           || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)) || path.includes('..') || path.includes('\\')
           || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
       seen.add(path);

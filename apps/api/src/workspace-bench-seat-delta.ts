@@ -10,7 +10,11 @@ export function ordinaryWorkspaceBenchSeatDelta(before:Draft,after:Draft):boolea
   const changed=benchesFor(after.candidate).filter(bench=>!isDeepStrictEqual(existing.find(item=>item.id===bench.id),bench));
   if(changed.length!==1||!changed[0]?.workspaceVisual)return false;
   const bench=changed[0],prior=existing.find(item=>item.id===bench.id);
-  if(prior&&!prior.workspaceVisual)return false;
+  if(bench.kind==='backed'||prior?.kind==='backed'){
+   // Only the first visual link is a scoped edit for an existing backed bench.
+   const {workspaceVisual,...host}=bench;
+   if(!workspaceVisual||prior?.kind!=='backed'||prior.workspaceVisual||!isDeepStrictEqual(prior,host))return false;
+  }else if(prior&&!prior.workspaceVisual)return false;
   const hadViewpoint=presentationFor(before.candidate).viewpoints.some(view=>view.id===bench.viewpointId);
   const viewpoint=hadViewpoint?undefined:presentationFor(after.candidate).viewpoints.find(view=>view.id===bench.viewpointId);
   const candidate=applyBenchCommand(before.candidate,{type:prior?'set-bench':'add-bench',bench,...(viewpoint?{viewpoint}:{})});

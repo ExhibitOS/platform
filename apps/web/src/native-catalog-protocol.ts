@@ -4,6 +4,25 @@ const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const NATIVE_CATALOG_CAPABILITIES=['artwork-thumbnail-v1','find-selection-v1'] as const;
 export interface CatalogBinding {version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string}
 export interface ThumbnailRequest extends CatalogBinding {artworkId:string;expectedRevision:number}
+export const FURNISHING_THUMBNAIL_CAPABILITY='furnishing-registration-thumbnail-v1';
+export const FURNISHING_THUMBNAIL_RECIPE='furnishing-glb-card-256-v1';
+export const FURNISHING_THUMBNAIL_TOOL='exhibitos-three-0.186.1-thumbnail-v1';
+export interface FurnishingThumbnailRequest extends CatalogBinding {
+ furnishingId:string;furnishingVersion:1;modelSha256:string;modelBytes:number;
+ recipeId:typeof FURNISHING_THUMBNAIL_RECIPE;toolId:typeof FURNISHING_THUMBNAIL_TOOL;
+}
+export function checkedFurnishingThumbnailRequest(value:unknown,frame:NativeViewportFrame|undefined):FurnishingThumbnailRequest {
+ if(!frame||frame.disabled||!value||typeof value!=='object'||Array.isArray(value))throw Error('CATALOG_REQUEST_INVALID');
+ const request=value as FurnishingThumbnailRequest;
+ if(Object.keys(request).sort().join(',')!=='epoch,furnishingId,furnishingVersion,modelBytes,modelSha256,principalId,recipeId,requestId,sequence,tenantId,toolId,version'||
+  request.version!==1||request.epoch!==frame.epoch||request.sequence!==frame.sequence||request.tenantId!==frame.tenantId||
+  request.principalId!==frame.principalId||typeof request.requestId!=='string'||!uuid.test(request.requestId))throw Error('CATALOG_REQUEST_STALE');
+ if(typeof request.furnishingId!=='string'||!uuid.test(request.furnishingId)||request.furnishingVersion!==1||
+  typeof request.modelSha256!=='string'||!/^[a-f0-9]{64}$/.test(request.modelSha256)||!Number.isSafeInteger(request.modelBytes)||
+  request.modelBytes<28||request.modelBytes>32*1024*1024||request.recipeId!==FURNISHING_THUMBNAIL_RECIPE||
+  request.toolId!==FURNISHING_THUMBNAIL_TOOL)throw Error('CATALOG_REQUEST_INVALID');
+ return structuredClone(request);
+}
 export interface FindRequest extends CatalogBinding {selection:{kind:'placement';id:string}}
 export function checkedCatalogRequest(value:unknown,frame:NativeViewportFrame|undefined,kind:'thumbnail'):ThumbnailRequest;
 export function checkedCatalogRequest(value:unknown,frame:NativeViewportFrame|undefined,kind:'find'):FindRequest;
