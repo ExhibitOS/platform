@@ -143,6 +143,7 @@ export class ExhibitionAudio implements AudioApi {
   private abort = new AbortController();
   private buffers = new Map<string, AudioBuffer>();
   private pending = new Map<string, Promise<AudioBuffer>>();
+  private pendingDecodePreparation = new Map<string, (bytes: number) => Promise<void>>();
   private explicitLoads = new Set<string>();
   private steps = new Map<FloorSound, AudioBuffer>();
   private playing = new Set<AudioBufferSourceNode>();
@@ -637,6 +638,7 @@ export class ExhibitionAudio implements AudioApi {
   private load(id: string, preload = false, beforeDecode?:(bytes:number)=>Promise<void>): Promise<AudioBuffer> {
     if(!preload)this.explicitLoads.add(id);
     const cached = this.buffers.get(id); if (cached) {this.explicitLoads.delete(id);return Promise.resolve(cached);}
+    if (beforeDecode) this.pendingDecodePreparation.set(id, beforeDecode);
     const pending = this.pending.get(id); if (pending) return pending;
     const promise = this.loadQueue.catch(()=>{}).then(async () => {
       if (!this.state.enabled || !this.context || this.disposed) throw Error("AUDIO_NOT_ENABLED");
@@ -663,13 +665,27 @@ export class ExhibitionAudio implements AudioApi {
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const pcm=verifyPcmWav(bytes);
       if(!curationDurationValid(this.publication.exhibition,id,pcm.duration))throw Error("AUDIO_TRANSCRIPT_DURATION_MISMATCH");
-      if(beforeDecode)await beforeDecode(Math.ceil(pcm.duration*this.context.sampleRate)*pcm.channels*4);
+      const prepareDecode = this.pendingDecodePreparation.get(id);
+      if (prepareDecode || this.experience.rooms.some(room => room.bgm?.assetId.toLowerCase() === id.toLowerCase())) {
+        const decodedBytes = Math.ceil(pcm.duration * this.context.sampleRate) * pcm.channels * 4;
+        if (prepareDecode) {
+          try {
+            await prepareDecode(decodedBytes);
+          } catch (error) {
+            if (beforeDecode || !(error instanceof Error) || error.message !== 'AUDIO_CANCELLED') throw error;
+            this.admitDecodedBytes(decodedBytes);
+          }
+        } else {
+          // A shared asset can reach decoding before room playback joins the load.
+          this.admitDecodedBytes(decodedBytes);
+        }
+      }
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       this.admitDecodedBytes(buffer.length*buffer.numberOfChannels*4);
       this.buffers.set(id, buffer); this.emit(); return buffer;
-    }).finally(()=>{this.pending.delete(id);this.explicitLoads.delete(id);});
+    }).finally(()=>{this.pending.delete(id);this.pendingDecodePreparation.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
     this.pending.set(id,promise); return promise;
   }

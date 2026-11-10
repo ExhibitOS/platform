@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { distanceGain, footstepWave, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
 import type { NavigationState } from "./navigation.ts";
 import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {BUILTIN_STEP_BANKS} from './footstep-bank';
 const state=(x:number, extra:Partial<NavigationState>={}):NavigationState=>({eyePosition:[x,1.65,0],yaw:0,velocity:[1.3,0,0],grounded:true,steps:1,paused:false,blocked:false,recovered:false,...extra});
 test("distance attenuation is bounded, silence outside radius and invalid distances",()=>{assert.equal(distanceGain(0,3),1);assert.equal(distanceGain(1.5,3),0.25);assert.equal(distanceGain(3,3),0);assert.equal(distanceGain(4,3),0);assert.equal(distanceGain(NaN,3),0);assert.equal(distanceGain(1,0),0);});
@@ -855,4 +856,75 @@ test('large room loops fade and retire the prior decoded owner before admission 
   expect(internal.buffers.get('voice')).toBe(voice);
   expect(narrator.stop).not.toHaveBeenCalled();
  }finally{runtime.dispose();}
+});
+
+test.each(['voice', 'preload', 'preload without room playback'])('shared room WAV respects the decoded budget when %s loads first', async mode => {
+ const {id, runtime} = voiceRuntime();
+ const bytes = wav(50);
+ const revision = 'a'.repeat(64);
+ const url = `/api/v1/publications/${id}/assets/${id}`;
+ const previous = {length: 1988840, numberOfChannels: 2} as AudioBuffer;
+ const incoming = {length: 2400000, numberOfChannels: 1, duration: 50, sampleRate: 48000} as AudioBuffer;
+ const source = {buffer: previous, stop: vi.fn(), disconnect: vi.fn(), onended: null} as unknown as AudioBufferSourceNode;
+ const gain = {gain: {value: .12, cancelScheduledValues: vi.fn(), setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn()}, disconnect: vi.fn()} as unknown as GainNode;
+ let markFetched!: () => void;
+ let resumeFetch!: () => void;
+ let markEnded!: () => void;
+ const fetched = new Promise<void>(resolve => {markFetched = resolve;});
+ const resume = new Promise<void>(resolve => {resumeFetch = resolve;});
+ const ended = new Promise<void>(resolve => {markEnded = resolve;});
+ const decode = vi.fn(async () => incoming);
+ const audio = runtime as unknown as {
+  publication: import('../publication-client').PublicPublication;
+  state: {enabled: boolean};
+  context: AudioContext;
+  experience: {rooms: {roomId: string; bgm: {assetId: string}}[]};
+  buffers: Map<string, AudioBuffer>;
+  bgm?: {id: string; source: AudioBufferSourceNode; gain: GainNode; ended: Promise<void>};
+  fadingBgm?: unknown;
+  preloadTargets: () => string[];
+  load: (id: string, preload?: boolean, beforeDecode?: (bytes: number) => Promise<void>) => Promise<AudioBuffer>;
+  track: (source: AudioBufferSourceNode, cleanup: () => void) => void;
+  prepareBgmDecode: (bytes: number, current: () => boolean) => Promise<void>;
+ };
+ const fetcher = vi.fn(async () => {
+  markFetched();
+  await resume;
+  return new Response(bytes, {headers: {'content-type': 'audio/wav', 'x-exhibitos-publication-revision': revision}});
+ });
+ audio.publication.assets = [{assetId: id, mime: 'audio/wav', url}];
+ audio.publication.exhibition.mediaAssets = [{id, mime: 'audio/wav', bytes: bytes.byteLength, sha256: createHash('sha256').update(new Uint8Array(bytes)).digest('hex')}] as typeof audio.publication.exhibition.mediaAssets;
+ audio.publication.local = {check: async () => {}, fetcher};
+ audio.state.enabled = true;
+ audio.context = {currentTime: 1, sampleRate: 48000, decodeAudioData: decode, close: async () => {}} as unknown as AudioContext;
+ audio.experience.rooms = [{roomId: id, bgm: {assetId: id}}];
+ audio.preloadTargets = () => [id];
+ audio.bgm = {id: 'previous', source, gain, ended};
+ audio.buffers.set('previous', previous);
+ audio.track(source, () => {audio.fadingBgm = undefined; markEnded();});
+ try {
+  const pending = audio.load(id, mode !== 'voice');
+  await fetched;
+  if (mode === 'preload without room playback') {
+   resumeFetch();
+   await expect(pending).rejects.toThrow('AUDIO_CACHE_PRESSURE');
+   expect(source.stop).not.toHaveBeenCalled();
+   expect(decode).not.toHaveBeenCalled();
+  } else {
+   const prepare = vi.fn((size: number) => audio.prepareBgmDecode(size, () => true));
+   expect(audio.load(id, false, prepare)).toBe(pending);
+   resumeFetch();
+   await vi.waitFor(() => expect(source.stop).toHaveBeenCalledWith(1.45));
+   expect(decode).not.toHaveBeenCalled();
+   source.onended?.(new Event('ended'));
+   await expect(pending).resolves.toBe(incoming);
+   expect(prepare).toHaveBeenCalledWith(9600000);
+   expect(decode).toHaveBeenCalledOnce();
+   expect(audio.buffers.has('previous')).toBe(false);
+  }
+  expect(fetcher).toHaveBeenCalledOnce();
+ } finally {
+  resumeFetch();
+  runtime.dispose();
+ }
 });
