@@ -55,3 +55,17 @@ it('admits the r46 Wheat original only with the r46 publication attestation',()=
  expect(qualifiedDetailImageProfile(revision,'8f1c52ac-9dfe-4cd7-8e66-357357c5cdc0')).toBeUndefined();
  expect(matchesMeasuredWheatImage(r46,{...attestation,indexSha256:'866fd62a1ca3babb0f150e8895ce4255cd5c72b0059574f1de3033a8515fd880'},gallery)).toBe(false);
 });
+
+it('admits the r52 Wheat original only with the r52 publication attestation',()=>{
+ const revision='abdf3ca07a33d9ad2a9c63a46b640ac2f6b9cac763ba3f19ed57d73c57a25292';
+ const artworkRevisionId='d7709511-4d09-4c4f-a08c-1c75888b3b0e';
+ const r52=qualifiedDetailImageProfile(revision,artworkRevisionId)!;
+ const attestation:DetailProjectionBinding={
+  indexSha256:'eae9524c7d1c1232012b9c3a6d1612288485fa51260a369597802e1c7f3c0b8a',
+  publicationSha256:'8685c98477ec9bda7316e98469726734cfe67f7f54a5431c2cea24ce26e34cfc',
+  candidate:{...binding.candidate,artworkRevisionId},
+ };
+ expect(matchesMeasuredWheatImage(r52,attestation,gallery)).toBe(true);
+ expect(qualifiedDetailImageProfile(revision,'157793b9-2f6c-41d4-8688-686b30554a58')).toBeUndefined();
+ expect(matchesMeasuredWheatImage(r52,{...attestation,publicationSha256:'474763f2b2f46b2877f6cd176fcd1351108c4220ba5423c85f08c8c6eb48a2c2'},gallery)).toBe(false);
+});
