@@ -858,7 +858,7 @@ test('large room loops fade and retire the prior decoded owner before admission 
  }finally{runtime.dispose();}
 });
 
-test.each(['voice', 'preload', 'preload without room playback'])('shared room WAV respects the decoded budget when %s loads first', async mode => {
+test.each(['voice', 'preload', 'preload without room playback', 'room reentry during the fade'])('shared room WAV respects the decoded budget when %s loads first', async mode => {
  const {id, runtime} = voiceRuntime();
  const bytes = wav(50);
  const revision = 'a'.repeat(64);
@@ -874,9 +874,16 @@ test.each(['voice', 'preload', 'preload without room playback'])('shared room WA
  const resume = new Promise<void>(resolve => {resumeFetch = resolve;});
  const ended = new Promise<void>(resolve => {markEnded = resolve;});
  const decode = vi.fn(async () => incoming);
+ const nextSource = {start: vi.fn(), stop: vi.fn(), connect: vi.fn(node => node), disconnect: vi.fn(), onended: null};
+ const nextGain = {...gain, connect: vi.fn()};
  const audio = runtime as unknown as {
   publication: import('../publication-client').PublicPublication;
-  state: {enabled: boolean};
+  state: {enabled: boolean; soundOn: boolean; bgmOn: boolean; muted: boolean};
+  entered: boolean;
+  galleryReady: boolean;
+  preferenceKey: string;
+  syncBgm: () => void;
+  selectedBgm: () => string | undefined;
   context: AudioContext;
   experience: {rooms: {roomId: string; bgm: {assetId: string}}[]};
   buffers: Map<string, AudioBuffer>;
@@ -896,13 +903,38 @@ test.each(['voice', 'preload', 'preload without room playback'])('shared room WA
  audio.publication.exhibition.mediaAssets = [{id, mime: 'audio/wav', bytes: bytes.byteLength, sha256: createHash('sha256').update(new Uint8Array(bytes)).digest('hex')}] as typeof audio.publication.exhibition.mediaAssets;
  audio.publication.local = {check: async () => {}, fetcher};
  audio.state.enabled = true;
- audio.context = {currentTime: 1, sampleRate: 48000, decodeAudioData: decode, close: async () => {}} as unknown as AudioContext;
+ audio.context = {state: 'running', currentTime: 1, sampleRate: 48000, decodeAudioData: decode, createGain: () => nextGain, createBufferSource: () => nextSource, close: async () => {}} as unknown as AudioContext;
  audio.experience.rooms = [{roomId: id, bgm: {assetId: id}}];
  audio.preloadTargets = () => [id];
  audio.bgm = {id: 'previous', source, gain, ended};
  audio.buffers.set('previous', previous);
  audio.track(source, () => {audio.fadingBgm = undefined; markEnded();});
  try {
+  if (mode === 'room reentry during the fade') {
+   let selected = id;
+   audio.selectedBgm = () => selected;
+   audio.preferenceKey = 'test-room-audio';
+   audio.entered = audio.galleryReady = audio.state.soundOn = audio.state.bgmOn = true;
+   audio.state.muted = false;
+   const load = vi.spyOn(audio, 'load');
+   audio.syncBgm();
+   await fetched;
+   resumeFetch();
+   await vi.waitFor(() => expect(source.stop).toHaveBeenCalledWith(1.45));
+   selected = '22222222-2222-4222-8222-222222222222';
+   audio.syncBgm();
+   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+   selected = id;
+   audio.syncBgm();
+   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+   expect(decode).not.toHaveBeenCalled();
+   source.onended?.(new Event('ended'));
+   await vi.waitFor(() => expect(nextSource.start).toHaveBeenCalledOnce());
+   expect(decode).toHaveBeenCalledOnce();
+   expect(fetcher).toHaveBeenCalledOnce();
+   expect(audio.bgm?.id).toBe(id);
+   return;
+  }
   const pending = audio.load(id, mode !== 'voice');
   await fetched;
   if (mode === 'preload without room playback') {

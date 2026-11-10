@@ -313,11 +313,12 @@ export class ExhibitionAudio implements AudioApi {
     const generation=++this.bgmGeneration;
     if(!id){this.fadeBgm();return;}
     if(id===this.bgm?.id)return;
-    const current=()=>generation===this.bgmGeneration&&!this.disposed&&this.entered&&this.galleryReady&&this.visible&&!this.state.muted;
+    const wanted=()=>this.wantedBgm===id&&!this.disposed&&this.entered&&this.galleryReady&&this.visible&&!this.state.muted;
+    const current=()=>generation===this.bgmGeneration&&wanted();
     void (async()=>{
       await this.checkAvailability();
       if(!current())return;
-      const buffer=await this.load(id,false,bytes=>this.prepareBgmDecode(bytes,current));
+      const buffer=await this.load(id,false,bytes=>this.prepareBgmDecode(bytes,wanted));
       if(!current())return;
       const source=this.context!.createBufferSource(),gain=this.context!.createGain();
       source.buffer=buffer;
