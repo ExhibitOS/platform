@@ -5,6 +5,7 @@ export interface Session {
   csrfToken: string;
   expiresAt: string;
   nativePublicationProfile?: 'bounded-local-v1';
+  workspaceFurnishingProfile?: 'workspace-furnishing-intake-v1';
 }
 export interface Rights {
   holder: string;
