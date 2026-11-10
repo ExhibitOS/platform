@@ -2244,7 +2244,7 @@ export function GeometryPreview({
           },
           onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);discardResult(result);},
         });
-        type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;drain?:Promise<void>};
+        type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;coverCurrent?:()=>boolean;drain?:Promise<void>};
         let entranceOptional:OptionalArtwork|undefined;
         const cancelIncompatibleOptional=(assetId?:string)=>{
           if(entranceOptional&&entranceOptional.assetId!==assetId)scheduler.cancel(entranceOptional.key);
@@ -2696,10 +2696,10 @@ export function GeometryPreview({
         };
         const entranceOptionalAttempted=new Set<string>();
         const queueOptional=(art:(typeof arts)[number],inventory:(typeof arts)[number]['assets'][number],
-            assetId:string,compatibleOnEnter:boolean,load:(signal:AbortSignal,key:string)=>Promise<void>)=>{
+            assetId:string,compatibleOnEnter:boolean,load:(signal:AbortSignal,key:string)=>Promise<void>,coverCurrent?:()=>boolean)=>{
           entranceOptionalAttempted.add(assetId);
           const key=`entrance-encoded/${assetId}/${sequence++}`;
-          const owned:OptionalArtwork={key,artId:art.revisionId,assetId,compatibleOnEnter};
+          const owned:OptionalArtwork={key,artId:art.revisionId,assetId,compatibleOnEnter,coverCurrent};
           entranceOptional=owned;
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
             const settled=load(signal,key);
@@ -2720,14 +2720,14 @@ export function GeometryPreview({
         const detailRuntimeHints=()=> (globalThis.navigator as Navigator&{userAgentData?:Parameters<typeof matchesDetailRuntime>[2]}).userAgentData;
         const originalCacheKey=(candidateId:string)=>`detail-original/${candidateId}`;
         let originalPrefetchUncertain=false;
-        const prefetchOriginal=(candidates:readonly {art:(typeof arts)[number]}[],cover:boolean)=>{
+        const prefetchOriginal=(candidates:readonly {art:(typeof arts)[number];coverCurrent?:()=>boolean}[],cover:boolean)=>{
           if(originalPrefetchUncertain||!detailOwner||!detailAccess||!isVerifiedStaticDetailAccess(detailOwner,detailAccess))return;
           const context=renderer.getContext();
           if(typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))return;
-          for(const {art} of candidates){
+          for(const {art,coverCurrent} of candidates){
             const profile=qualifiedDetailImageProfile(publicSource?.revisionSha256,art.revisionId);
             if(!profile||art.artworkType!=='image')continue;
-            const compatible=()=>!disposed&&!gpuLost&&!xrActive.current&&!publicDisplayStopped&&!suspendedRef.current&&
+            const compatible=()=>coverCurrent?.()!==false&&!disposed&&!gpuLost&&!xrActive.current&&!publicDisplayStopped&&!suspendedRef.current&&
               !renderer.domElement.ownerDocument.hidden&&renderer.getContext()===context&&
               isVerifiedStaticDetailAccess(detailOwner,detailAccess)&&
               matchesMeasuredWheatImage(profile,staticDetailAttestation(detailAccess,detailOwner,profile.candidateId),galleryBuffer());
@@ -2768,7 +2768,7 @@ export function GeometryPreview({
               }finally{
                 if(!originalPrefetchUncertain)peak.release(hold);
               }
-            });
+            },coverCurrent);
             return;
           }
         };
@@ -2802,7 +2802,8 @@ export function GeometryPreview({
               art.assets.some(asset=>asset.id.toLowerCase()===coverId)&&
               art.assets.some(asset=>entranceReadiness?.isDisplayedCover(asset))):undefined;
             const originalCandidates=coverArt&&!candidates.some(({art})=>art.revisionId===coverArt.revisionId)
-              ?[...candidates,{art:coverArt}]:candidates;
+              ?[...candidates,{art:coverArt,coverCurrent:()=>entranceModeRef.current==='cover'&&
+                coverArt.assets.some(asset=>entranceReadiness?.isDisplayedCover(asset))}]:candidates;
             prefetchOriginal(originalCandidates,cover);
             return;
           }
@@ -2820,7 +2821,7 @@ export function GeometryPreview({
           });
         };
         const automaticDemand=()=>{
-          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current||publicDisplayStopped))cancelIncompatibleOptional();
+          if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current||publicDisplayStopped||entranceOptional.coverCurrent?.()===false))cancelIncompatibleOptional();
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
