@@ -1,3 +1,4 @@
+import {FURNISHING_WALKING_COLLISION_NAMESPACE,remapFurnishingWalkingCollision,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionSettings} from '@exhibitos/studio-contract';
 import {importedArtworkMetadata,approvedDimensionsMatch} from './imported-artwork-metadata.ts';
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {furnishingResourcePair} from './furnishings.ts';
@@ -143,6 +144,8 @@ export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,
 /** Only typed UUID fields and material surface keys are rewritten. UUID-shaped human prose is untouched. */
 export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings){
  if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(!validateFurnishingWalkingCollision(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ const walking=e.extensions?.[FURNISHING_WALKING_COLLISION_NAMESPACE] as unknown as FurnishingWalkingCollisionSettings|undefined;
  const furniture=furnishingsFor(e);
  const ids=new Map<string,string>();
  const collect=(v:unknown)=>{if(Array.isArray(v))for(const x of v)collect(x);else if(object(v))for(const[k,x]of Object.entries(v)){if((k==='id'||k==='revisionId')&&typeof x==='string'){uuid(x);if(!ids.has(x.toLowerCase()))ids.set(x.toLowerCase(),randomUUID());}else if(k!=='extensions')collect(x);}};
@@ -169,7 +172,7 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  const lightDetails=source.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
  const attachments=source.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
- if(source.extensions){delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(source.extensions){delete source.extensions[FURNISHING_WALKING_COLLISION_NAMESPACE];delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  if(portableFurnishings)delete source.extensions?.[WORKSPACE_FURNISHING_NAMESPACE];
  const exhibition=visit(source)as Exhibition;
  if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -215,8 +218,12 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
    ...(frameAttachments?{frameAttachments:frameAttachments.map(item=>({...item,placementId:localId(item.placementId),furnishingId:localId(item.furnishingId),artworkRevisionId:localId(item.artworkRevisionId),assetId:scoped.get(item.artworkRevisionId.toLowerCase())?.get(item.assetId.toLowerCase())}))}:{}),
    ...(openingAttachments?{openingAttachments:openingAttachments.map(item=>({...item,openingId:localId(item.openingId),furnishingId:localId(item.furnishingId)}))}:{}),
   } as unknown as NonNullable<Exhibition['extensions']>[string]};
-  checkOexProfile(exhibition,false,undefined,false,true);
  }
+ if(walking){
+  exhibition.extensions={...exhibition.extensions,[FURNISHING_WALKING_COLLISION_NAMESPACE]:remapFurnishingWalkingCollision(walking,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
+  if(!validateFurnishingWalkingCollision(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ }
+ if(portableFurnishings)checkOexProfile(exhibition,false,undefined,false,true);
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
 export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[];footstepResources:FootstepResource[]}>{

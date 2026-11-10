@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type {Exhibition} from '@exhibitos/spec';
+import {wallFinishesFor} from './architectural-finishes.js';
+import {benchesFor} from './benches.js';
+import {experienceFor} from './experience.js';
+import {furnishingsFor} from './furnishings.js';
+import {INSTALLATION_NAMESPACE,type StudioInstallation} from './installation.js';
+import {plaquesFor} from './plaques.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './workspace-furnishing.js';
+
+export const FURNISHING_WALKING_COLLISION_NAMESPACE='org.exhibitos.studio/furnishing-walking-collision';
+export const FURNISHING_WALKING_COLLISION_PROFILE='furnishing-walking-collision-v1';
+export type FurnishingWalkingCollisionKind='workspace'|'bench'|'plinth'|'light'|'frame'|'opening'|'baseboard'|'sign';
+export interface FurnishingWalkingCollisionTarget {kind:FurnishingWalkingCollisionKind;id:string}
+export interface FurnishingWalkingCollisionOverride extends FurnishingWalkingCollisionTarget {enabled:boolean}
+export interface FurnishingWalkingCollisionSettings {version:1;overrides:FurnishingWalkingCollisionOverride[]}
+export interface FurnishingWalkingCollisionState extends FurnishingWalkingCollisionTarget {defaultEnabled:boolean;override?:boolean}
+const maxOverrides=1024;
+const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+const keys=(value:Record<string,unknown>,...fields:string[])=>Object.keys(value).length===fields.length&&fields.every(field=>Object.hasOwn(value,field));
+const key=(kind:unknown,id:string)=>kind+':'+id.toLowerCase();
+const namespace=FURNISHING_WALKING_COLLISION_NAMESPACE;
+
+/** Targets belong to a physical furnishing, never to a catalogue entry.
+ * A linked seat uses the same target as its workspace visual. */
+export function furnishingWalkingCollisionTargets(document:Exhibition):FurnishingWalkingCollisionState[]{
+ const targets=new Map<string,FurnishingWalkingCollisionState>();
+ const add=(kind:FurnishingWalkingCollisionKind,id:string,defaultEnabled:boolean)=>{
+  targets.set(key(kind,id),{kind,id,defaultEnabled});
+ };
+ const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+ const exits=new Set((experienceFor(document).exitDoors??[]).map(row=>row.placementId.toLowerCase()));
+ for(const row of workspace?.placements??[]){
+  const source=workspace?.furnishings.find(item=>item.id===row.furnishingId&&item.version===row.furnishingVersion);
+  if(!source)continue;
+  const on=!exits.has(row.id.toLowerCase())&&row.position[1]<1.75&&
+   (source.kind==='bench'||source.kind==='stool'||source.kind==='pedestal'||source.kind==='barrier'||
+    source.kind==='partition'||source.kind==='display-case'||source.kind==='info-stand');
+  add('workspace',row.id,on);
+ }
+ for(const bench of benchesFor(document))if(!bench.workspaceVisual)add('bench',bench.id,bench.position[1]<1.75);
+ const installation=document.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
+ for(const row of installation?.placements??[]){
+  if(row.pedestal&&row.pedestal.kind!=='none')add('plinth',row.placementId,row.pedestal.position[1]<1.75);
+  if(row.frame&&row.frame.kind!=='none')add('frame',row.placementId,false);
+ }
+ for(const light of document.lights)add('light',light.id,false);
+ for(const row of workspace?.frameAttachments??[])add('frame',row.placementId,false);
+ for(const row of workspace?.openingAttachments??[])add('opening',row.openingId,false);
+ for(const row of furnishingsFor(document)?.bindings??[])if(row.hostKind==='opening')add('opening',row.hostId,false);
+ for(const row of wallFinishesFor(document))add('baseboard',row.surfaceId,false);
+ for(const row of plaquesFor(document))add('sign',row.id,false);
+ return [...targets.values()];
+}
+
+export function validateFurnishingWalkingCollision(document:Exhibition){
+ const fail=()=>({valid:false,errors:[{code:'FURNISHING_WALKING_COLLISION_INVALID',path:'/extensions/org.exhibitos.studio~1furnishing-walking-collision',message:'Walking Collision settings must refer to distinct existing furnishings.'}]});
+ const extensions=document.extensions;
+ if(!extensions||!Object.hasOwn(extensions,namespace))return {valid:true,errors:[]};
+ const value=extensions[namespace];
+ if(!object(value)||!keys(value,'version','overrides')||value.version!==1||!Array.isArray(value.overrides)||value.overrides.length>maxOverrides)return fail();
+ try{
+  const valid=new Set(furnishingWalkingCollisionTargets(document).map(row=>key(row.kind,row.id)));
+  for(const row of value.overrides){
+   if(!object(row)||!keys(row,'kind','id','enabled')||typeof row.kind!=='string'||typeof row.id!=='string'||typeof row.enabled!=='boolean'||!valid.delete(key(row.kind,row.id)))return fail();
+  }
+ }catch{return fail();}
+ return {valid:true,errors:[]};
+}
+
+export function furnishingWalkingCollisionState(document:Exhibition):FurnishingWalkingCollisionState[]{
+ if(!validateFurnishingWalkingCollision(document).valid)throw Error('FURNISHING_WALKING_COLLISION_INVALID');
+ const settings=document.extensions?.[namespace] as unknown as FurnishingWalkingCollisionSettings|undefined;
+ const overrides=new Map(settings?.overrides.map(row=>[key(row.kind,row.id),row.enabled]));
+ return furnishingWalkingCollisionTargets(document).map(row=>{
+  const override=overrides.get(key(row.kind,row.id));
+  return override===undefined?row:{...row,override};
+ });
+}
+
+/** Remap each target after its host has been projected. Missing hosts may not
+ * silently lose an explicit author choice. */
+export function remapFurnishingWalkingCollision(settings:FurnishingWalkingCollisionSettings,ids:ReadonlyMap<string,string>):FurnishingWalkingCollisionSettings{
+ return {version:1,overrides:settings.overrides.map(row=>{
+  const id=ids.get(row.id.toLowerCase());
+  if(!id)throw Error('FURNISHING_WALKING_COLLISION_REFERENCE');
+  return {...row,id};
+ })};
+}
