@@ -1890,7 +1890,7 @@ export function GeometryPreview({
           let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
           if(acquiredBacking){
             await acquiredBacking.drain();acquiredBacking.retire();
-            if(!clean||!acquiredBacking.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN');
+            if(!clean||!acquiredBacking.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN',{cause:error});
           }
           if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
           throw error;
@@ -3421,7 +3421,7 @@ export function GeometryPreview({
                 const key=`acquired-model/${++sequence}`;
                 const current=()=>alive&&!originalSignal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope;
                 let loaded:InstanceType<typeof three.Object3D>|undefined,displayedCandidate:string|undefined;
-                let modelWork:Promise<void>,recheckWork:Promise<void>|undefined,uncertain=false;
+                let recheckWork:Promise<void>|undefined,uncertain=false;
                 const rememberUncertainty=(error:unknown)=>{
                   uncertain ||= error instanceof DetailAccessFailure&&error.retirement==='uncertain'||
                     error instanceof Error&&error.message==='DETAIL_MODEL_DRAIN_UNCERTAIN';
@@ -3453,7 +3453,7 @@ export function GeometryPreview({
                   recheckWork=recheck;
                   try{await recheck;}finally{if(recheckWork===recheck)recheckWork=undefined;}
                 };
-                modelWork=(async()=>{
+                const modelWork=(async()=>{
                   const matches=await matchesDetailRuntime(acquiredModelRuntime,context,detailRuntimeHints(),originalSignal);
                   if(!matches||!current())return;
                   const candidates=await access.candidatesFor(art.revisionId,originalSignal);
