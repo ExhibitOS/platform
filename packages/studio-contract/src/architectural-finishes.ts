@@ -13,12 +13,12 @@ const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{
 const equal=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const finite=(v:unknown,min:number,max:number):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 /** XY never enters the original opening. No sill/threshold, or independent door geometry. */
-export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],openings:Exhibition['openings'],settings:WallFinish):ArchitecturalBox[]{
+export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],openings:Exhibition['openings'],settings:WallFinish,includeBaseboard=true):ArchitecturalBox[]{
  const panels=surfacePanels(surface,openings),boxes:ArchitecturalBox[]=panels.map(p=>({position:[p.x,p.y,0],dimensions:{width:p.width,height:p.height,depth:settings.depth},kind:'structure'}));
  if(settings.preset==='plain')return boxes;
  const w=surface.dimensions.width,h=surface.dimensions.height,t=settings.trimWidth,bands:{l:number;r:number;b:number;t:number}[]=[];
  // Junctions lie on the same existing solid wall, never on the walkable floor.
- bands.push({l:-w/2,r:w/2,b:-h/2,t:-h/2+settings.baseboardHeight});
+ if(includeBaseboard)bands.push({l:-w/2,r:w/2,b:-h/2,t:-h/2+settings.baseboardHeight});
  if(settings.ceilingBand)bands.push({l:-w/2,r:w/2,b:h/2-t,t:h/2});
  for(const o of openings.filter(o=>equal(o.surfaceId,surface.id))){const l=o.offset[0]-o.dimensions.width/2,r=o.offset[0]+o.dimensions.width/2,b=o.offset[1]-o.dimensions.height/2,top=o.offset[1]+o.dimensions.height/2;
   bands.push({l:l-t,r:l,b,t:top+t},{l:r,r:r+t,b,t:top+t},{l,r,b:top,t:top+t});
@@ -76,10 +76,7 @@ export function architecturalSolids(document:Exhibition,includeBaseboard:(surfac
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
  return wallFinishesFor(document).flatMap(w=>{
   const surface=document.surfaces.find(s=>equal(s.id,w.surfaceId))!,room=document.rooms.find(r=>equal(r.id,surface.roomId))!;
-  const baseboardTop=-surface.dimensions.height/2+w.baseboardHeight;
-  return architecturalWallBoxes(surface,document.openings,w).filter(box=>
-   box.kind==='structure'||box.position[1]>=baseboardTop||includeBaseboard(surface.id)
-  ).map(box=>{
+  return architecturalWallBoxes(surface,document.openings,w,includeBaseboard(surface.id)).map(box=>{
    const vertices=boxVertices(box,surface.transform,room.transform);
    return {surfaceId:surface.id,roomId:room.id,kind:box.kind,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};
   });
