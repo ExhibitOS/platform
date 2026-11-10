@@ -2,7 +2,7 @@
 import {afterEach,expect,test,vi} from 'vitest';
 import * as three from 'three';
 import {AssetPeakBudget} from './loading';
-import {borrowedDetailPreview,createFlatDetailRetry} from './borrowed-detail-preview';
+import {borrowedDetailPreview,createFlatDetailRetry,detailResidentRetryReady} from './borrowed-detail-preview';
 
 afterEach(()=>vi.unstubAllGlobals());
 function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean,anchors=true){
@@ -63,12 +63,32 @@ test('deferred flat detail retries once when budget frees, without duplicate or 
  for(const stop of ['close','abort','replace'] as const){const ended=deferred();ended.tick();if(stop==='close')ended.close();else if(stop==='abort')ended.abort.abort();else ended.replace();ended.free();ended.time(500);ended.tick();expect(ended.read().attempts,stop).toBe(1);}
 });
 
+test('a selected resident refusal waits until the candidate can fit with speculative reclaim',()=>{
+ let resident=92,prepared=4,requests=0;
+ const request=()=>{if(detailResidentRetryReady(16,resident,100,prepared))requests++;};
+ for(let i=0;i<30;i++)request();
+ expect(requests).toBe(0);
+ prepared=7;request();expect(requests).toBe(0);
+ prepared=8;request();expect(requests).toBe(1);
+ prepared=0;resident=84;request();expect(requests).toBe(2);
+});
+
 test('suppresses every direct borrowed draw after the owner guard becomes invalid',()=>{
  let allowed=true;const f=fixture(false,()=>allowed),session=f.create(),before=f.read().renders;allowed=false;session.update({yaw:20,pitch:0,zoom:1});session.render();expect(f.read().renders).toBe(before);session.dispose();expect(f.read().released).toBe(1);
 });
 
 test('a failed baseline redraw can block later direct renders instead of redrawing the rolled-back image',()=>{
  let blocked=false;const f=fixture(false,()=>!blocked,true),session=f.create();session.replaceImage(f.object);f.setRenderFails(true);try{session.replaceImage(f.object);}catch{blocked=true;}f.setRenderFails(false);const count=f.read().renders;session.update({yaw:0,pitch:0,zoom:1});session.render();expect(f.read().renders).toBe(count);session.dispose();expect(f.read().released).toBe(1);
+});
+
+test('keeps the painted image and interaction when a candidate draw is suppressed',()=>{
+ let allowed=true;const f=fixture(false,()=>allowed,true),scope=f.create();
+ scope.update({yaw:0,pitch:0,zoom:1.25,panX:12,panY:7});
+ const committed=f.canvas.dataset.detailState;
+ allowed=false;expect(()=>scope.replaceImage(f.object)).toThrow('DETAIL_DRAW_UNCONFIRMED');
+ expect(f.canvas.dataset.detailState).toBe(committed);
+ allowed=true;expect(scope.render()).toBe(true);expect(f.canvas.dataset.detailState).toBe(committed);
+ scope.dispose();
 });
 
 test('retains hidden canvas presentation during blocked scope return without freeing gallery resources',()=>{
@@ -91,7 +111,7 @@ test('commits a borrowed sculpture swap only after drawing, without taking eithe
 
 test('rejects unqualified anchors and restores the prior model on draw failure or a suppressed draw',()=>{
  const anchored=fixture(),anchoredScope=anchored.create();expect(()=>anchoredScope.replaceModel(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()))).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');anchoredScope.dispose();
- const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create(),next=new three.Mesh(new three.BoxGeometry(4,1,1),new three.MeshStandardMaterial());f.setRenderFails(true);expect(()=>scope.replaceModel(next)).toThrow('GPU_UNAVAILABLE');expect(f.canvas.dataset.pixelMarker).toBe(next.geometry.uuid);expect(f.canvas.style.visibility).toBe('hidden');f.setRenderFails(false);expect(scope.render()).toBe(false);const meshes:three.Mesh[]=[];f.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)meshes.push(node);});expect(meshes.some(node=>node.geometry===f.geometry)).toBe(true);expect(meshes.some(node=>node.geometry===next.geometry)).toBe(false);const resizes=f.read().resizes;scope.dispose();expect(f.canvas.style.visibility).toBe('hidden');expect(f.read().resizes).toBe(resizes);
+ const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create(),next=new three.Mesh(new three.BoxGeometry(4,1,1),new three.MeshStandardMaterial());f.setRenderFails(true);expect(()=>scope.replaceModel(next)).toThrow('GPU_UNAVAILABLE');expect(f.canvas.dataset.pixelMarker).toBe(f.geometry.uuid);expect(f.canvas.style.visibility).toBe('hidden');f.setRenderFails(false);expect(scope.render()).toBe(false);const meshes:three.Mesh[]=[];f.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)meshes.push(node);});expect(meshes.some(node=>node.geometry===f.geometry)).toBe(true);expect(meshes.some(node=>node.geometry===next.geometry)).toBe(false);const resizes=f.read().resizes;scope.dispose();expect(f.canvas.style.visibility).toBe('hidden');expect(f.read().resizes).toBe(resizes);
  let accepted=true;const g=fixture(false,()=>accepted,false,undefined,undefined,false),other=g.create();accepted=false;expect(()=>other.replaceModel(next)).toThrow('DETAIL_DRAW_UNCONFIRMED');accepted=true;expect(other.render()).toBe(true);const retained:three.Mesh[]=[];g.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)retained.push(node);});expect(retained.some(node=>node.geometry===g.geometry)).toBe(true);other.dispose();
 });
 

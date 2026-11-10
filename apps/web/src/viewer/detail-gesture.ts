@@ -2,8 +2,12 @@
 export interface DetailView { yaw: number; pitch: number; zoom: number; panX?:number; panY?:number }
 export const INITIAL_DETAIL_VIEW: DetailView = { yaw: 0, pitch: 0, zoom: 1 };
 export function detailView(view: DetailView): DetailView {
-  return { yaw: ((view.yaw + 180) % 360 + 360) % 360 - 180,
-    pitch: Math.max(-90, Math.min(90, view.pitch)), zoom: Math.max(.5, Math.min(3, view.zoom)) };
+  const next:DetailView={yaw:((view.yaw+180)%360+360)%360-180,
+    pitch:Math.max(-90,Math.min(90,view.pitch)),zoom:Math.max(.5,Math.min(3,view.zoom))};
+  const pan=(value:number)=>Math.max(-240,Math.min(240,value));
+  if(view.panX!==undefined&&Number.isFinite(view.panX))next.panX=pan(view.panX);
+  if(view.panY!==undefined&&Number.isFinite(view.panY))next.panY=pan(view.panY);
+  return next;
 }
 interface Point { x: number; y: number }
 /** Incremental deltas keep pointer-count transitions anchored to the current view. */
@@ -18,7 +22,9 @@ export class DetailGesture {
     if (other) {
       const before = Math.hypot(previous.x - other.x, previous.y - other.y);
       const after = Math.hypot(point.x - other.x, point.y - other.y);
-      return before > 2 && after > 2 ? detailView({ ...view, zoom: view.zoom * after / before }) : view;
+      if(before<=2||after<=2||point.x===previous.x&&point.y===previous.y)return view;
+      return detailView({...view,zoom:view.zoom*after/before,
+        panX:(view.panX??0)+(point.x-previous.x)/2,panY:(view.panY??0)+(point.y-previous.y)/2});
     }
     return detailView({ ...view, yaw: view.yaw + (point.x - previous.x) * .5,
       pitch: view.pitch + (point.y - previous.y) * .5 });
