@@ -2462,6 +2462,8 @@ export function GeometryPreview({
                   reduceSurfaceForCurrent(art.revisionId);
                 }else if(selectedPromotion&&Number.isSafeInteger(required)&&required>0){
                   detailBudgetWait={assetId:inventory.id,bytes:required,phase:'resident'};
+                  // Keep the coarse model mounted while optional surfaces yield capacity.
+                  if(art.artworkType==='sculpture')reduceSurfaceForCurrent(art.revisionId);
                 }else setArtworkRetry(art.revisionId,performance.now()+5000,inventory.id,'retry-origin-resident-deferred');
                 update();return;
               }
