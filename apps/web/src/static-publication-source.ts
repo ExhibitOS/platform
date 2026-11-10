@@ -19,20 +19,28 @@ async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=f
  if(!/^data\/[a-f0-9]{64}\.(json|bin)$/.test(path)&&path!=="static-publication-index.json")throw Error("STATIC_PATH");
  // Only exact content-addressed paths are read with the normal HTTP cache.
  // The mutable index always bypasses it; each response is still hashed below.
- const deadline=AbortSignal.timeout(30000);
- const transferSignal=signal?AbortSignal.any([signal,deadline]):deadline;
+ const binary=path.endsWith('.bin');
+ const deadline=AbortSignal.timeout(binary?300000:30000);
+ const idle=new AbortController();
+ let idleTimer:ReturnType<typeof setTimeout>|undefined;
+ const resetIdle=()=>{
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>idle.abort(new DOMException('Static transfer stalled','TimeoutError')),30000);
+ };
+ if(binary)resetIdle();
+ const transferSignal=AbortSignal.any([deadline,...(binary?[idle.signal]:[]),...(signal?[signal]:[])]);
  try {
   transferSignal.throwIfAborted();
   const response=await fetch(base+"/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:transferSignal,redirect:"error"});
   if(!response.ok||!response.body)throw Error("STATIC_RESPONSE");
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
-  try{for(;;){const {done,value}=await reader.read();transferSignal.throwIfAborted();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);progress?.(length);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
+  try{for(;;){const {done,value}=await reader.read();transferSignal.throwIfAborted();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);if(binary&&value.byteLength)resetIdle();progress?.(length);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
   const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
  } catch(error) {
   signal?.throwIfAborted();
-  if(deadline.aborted&&transferSignal.reason===deadline.reason)throw Error('STATIC_TRANSFER_TIMEOUT',{cause:error});
+  if(deadline.aborted&&transferSignal.reason===deadline.reason||idle.signal.aborted&&transferSignal.reason===idle.signal.reason)throw Error('STATIC_TRANSFER_TIMEOUT',{cause:error});
   throw error;
- }
+ }finally{clearTimeout(idleTimer);}
 }
 // Detail capabilities own the complete response, including cancellation. A
 // failed cancel remains an error rather than evidence that the reader drained.

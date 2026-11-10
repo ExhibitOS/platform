@@ -91,7 +91,7 @@ it('public material uses the declared asset and removes its texture at expiry',a
  value.materials[0]!.rights.expiresAt='2090-01-01T00:00:00Z';value.materials[0]!.maps.color.bytes=bytes.length;value.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
  const revision='b'.repeat(64),publication='44444444-4444-4444-8444-444444444444',url=`/api/v1/publications/${publication}/assets/${id}`,fetcher=vi.fn(async()=>new Response(bytes,{headers:{'content-type':'image/png','x-exhibitos-publication-revision':revision}})),check=vi.fn(async()=>{}),closed=vi.fn();
  vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:closed}));const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url}],fetcher,check});
- try{renderer.add(material,plan.targets.get(surface)!);await renderer.start(()=>{});expect(material.map).not.toBeNull();expect(fetcher).toHaveBeenCalledWith(url,expect.objectContaining({credentials:'omit'}));vi.setSystemTime(new Date('2090-01-01T00:00:00Z'));renderer.enforce();expect(material.map).toBeNull();expect(closed).toHaveBeenCalledOnce();}finally{renderer.dispose();material.dispose();}
+ try{renderer.add(material,plan.targets.get(surface)!);await renderer.start(()=>{});expect(material.map).not.toBeNull();expect(fetcher).toHaveBeenCalledWith(url,expect.objectContaining({credentials:'omit'}),expect.any(Function));vi.setSystemTime(new Date('2090-01-01T00:00:00Z'));renderer.enforce();expect(material.map).toBeNull();expect(closed).toHaveBeenCalledOnce();}finally{renderer.dispose();material.dispose();}
 });
 
 it('does not show a decoded public map when the publication is withdrawn during decode',async()=>{
@@ -117,7 +117,7 @@ it('loads public normal and roughness only from exact scoped resource declaratio
  const resources=[maps.normal,maps.roughness].map(m=>({sha256:m.sha256,bytes:m.bytes,mime:m.mime,url:`/api/v1/publications/${publication}/resources/${m.sha256}`}));
  const fetcher=vi.fn(async(url:string)=>{const role=url===assetUrl?'color':url.endsWith(maps.normal.sha256)?'normal':'roughness';return new Response(new Uint8Array(payloads[role]),{headers:{'content-type':'image/png','x-exhibitos-publication-revision':revision}});});vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:vi.fn()}));
  const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),check=vi.fn(async()=>{}),source={publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url:assetUrl}],resources,fetcher:fetcher as unknown as typeof fetch,check};
- const renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,source);try{renderer.add(material,plan.targets.get(surface)!);expect(await renderer.start(()=>{})).toEqual({[id+':1']:'ready'});expect(material.normalMap).not.toBeNull();expect(material.roughnessMap).not.toBeNull();for(const r of resources)expect(fetcher).toHaveBeenCalledWith(r.url,expect.anything());}finally{renderer.dispose();material.dispose();}
+ const renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,source);try{renderer.add(material,plan.targets.get(surface)!);expect(await renderer.start(()=>{})).toEqual({[id+':1']:'ready'});expect(material.normalMap).not.toBeNull();expect(material.roughnessMap).not.toBeNull();for(const r of resources)expect(fetcher).toHaveBeenCalledWith(r.url,expect.anything(),expect.any(Function));}finally{renderer.dispose();material.dispose();}
  expect(()=>createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{...source,resources:resources.slice(0,1)})).toThrow('WORKSPACE_MATERIAL_AUTHORITY');
 });
 
@@ -131,4 +131,29 @@ it('loads all public material roles from one checked batch',async()=>{
  const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url:assetUrl}],resources,materialMapBatch:{url:batchUrl},fetcher:fetcher as unknown as typeof fetch,check});
  try{renderer.add(material,plan.targets.get(surface)!);expect(await renderer.start(()=>{})).toEqual({[id+':1']:'ready'});expect(material.map).not.toBeNull();expect(material.normalMap).not.toBeNull();expect(material.roughnessMap).not.toBeNull();expect(fetcher).toHaveBeenCalledTimes(3);expect(fetcher).toHaveBeenCalledWith(batchUrl,expect.anything());expect(fetcher).toHaveBeenCalledWith(`${batchUrl}/${token}/fence`,expect.anything());expect(check).toHaveBeenCalled();}finally{renderer.dispose();material.dispose();}
  denied=true;const refusedMaterial=new three.MeshStandardMaterial(),refused=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url:assetUrl}],resources,materialMapBatch:{url:batchUrl},fetcher:fetcher as unknown as typeof fetch,check});try{refused.add(refusedMaterial,plan.targets.get(surface)!);await expect(refused.start(()=>{})).rejects.toThrow('PUBLICATION_UNAVAILABLE');expect(refusedMaterial.map).toBeNull();expect(refusedMaterial.normalMap).toBeNull();expect(refusedMaterial.roughnessMap).toBeNull();}finally{refused.dispose();refusedMaterial.dispose();}
+});
+
+
+it('forwards verified static progress through the public material wrapper before its response resolves',async()=>{
+ vi.useFakeTimers();
+ const doc=scene(),bytes=Uint8Array.of(1,2,3);
+ const extension=doc.extensions!['org.exhibitos.studio/workspace-materials'] as unknown as {materials:Array<{maps:{color:{bytes:number;sha256:string}}}>};
+ extension.materials[0]!.maps.color.bytes=bytes.length;
+ extension.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
+ const revision='b'.repeat(64),publication='44444444-4444-4444-8444-444444444444',url=`/api/v1/publications/${publication}/assets/${id}`;
+ const fetcher=vi.fn((_input:RequestInfo|URL,init?:RequestInit,progress?:(bytes:number)=>void)=>new Promise<Response>((resolve,reject)=>{
+  setTimeout(()=>progress?.(1),20000);
+  setTimeout(()=>{progress?.(3);resolve(new Response(bytes,{headers:{'content-type':'image/png','x-exhibitos-publication-revision':revision}}));},40000);
+  init?.signal?.addEventListener('abort',()=>reject(init.signal!.reason),{once:true});
+ }));
+ vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:vi.fn()}));
+ const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial();
+ const renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url}],fetcher,check:async()=>{}});
+ try{
+  renderer.add(material,plan.targets.get(surface)!);
+  const pending=renderer.start(()=>{});
+  await vi.advanceTimersByTimeAsync(40000);
+  expect(await pending).toEqual({[id+':1']:'ready'});
+  expect(material.map).not.toBeNull();
+ }finally{renderer.dispose();material.dispose();}
 });

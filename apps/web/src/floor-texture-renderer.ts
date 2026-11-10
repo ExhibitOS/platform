@@ -5,6 +5,7 @@ import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTex
 import {MemoryAssetCache,textureResidentBytes} from './viewer/loading';
 import {materialResizeDimensions} from './material-texture-plan';
 
+export type MaterialTextureFetcher=(input:Parameters<typeof fetch>[0],init?:RequestInit,progress?:(receivedBytes:number)=>void)=>Promise<Response>;
 export interface MaterialTextureFile extends Pick<FloorTextureFile,'path'|'mime'|'bytes'|'sha256'|'colorSpace'> {readonly width:number;readonly height:number}
 export interface MaterialTexturePack {readonly id:string;readonly maps:Readonly<Partial<Record<FloorMapRole,MaterialTextureFile>>>}
 interface TextureBinding {normalScale?:number;aoStrength?:number}
@@ -31,19 +32,31 @@ export async function fetchFloorTexture(file:FloorTextureFile,signal:AbortSignal
 
 /** The registry is compiled product data, never an exhibition-provided path.
  * Floor and wall materials share the same bounded, verified byte reader. */
-export async function fetchRegisteredMaterialTexture(file:MaterialTextureFile,registry:readonly MaterialTextureFile[],signal:AbortSignal,fetcher:typeof fetch=fetch){
+export async function fetchRegisteredMaterialTexture(file:MaterialTextureFile,registry:readonly MaterialTextureFile[],signal:AbortSignal,fetcher:MaterialTextureFetcher=fetch){
  if(!registry.includes(file)||!/^(?:[a-zA-Z0-9_-]+\/)+[a-zA-Z0-9_-]+\.png$/.test(file.path))throw Error('FLOOR_TEXTURE_DESCRIPTOR');
- const boundedSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]);
- const response=await fetcher('/'+file.path,{signal:boundedSignal,credentials:'omit',redirect:'error',cache:'force-cache'});
+ const deadline=AbortSignal.timeout(300000),idle=new AbortController();
+ let idleTimer:ReturnType<typeof setTimeout>|undefined;
+ const resetIdle=()=>{
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>idle.abort(new DOMException('Material transfer stalled','TimeoutError')),30000);
+ };
+ resetIdle();
+ const boundedSignal=AbortSignal.any([signal,deadline,idle.signal]);
+ try{
+ let receivedBytes=0;
+ const response=await fetcher('/'+file.path,{signal:boundedSignal,credentials:'omit',redirect:'error',cache:'force-cache'},received=>{
+  if(Number.isSafeInteger(received)&&received>receivedBytes&&received<=file.bytes){receivedBytes=received;resetIdle();}
+ });
  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!==file.mime){await response.body?.cancel().catch(()=>{});throw Error('FLOOR_TEXTURE_RESPONSE');}
  const length=response.headers.get('content-length');if(length!==null&&Number(length)!==file.bytes){await response.body.cancel().catch(()=>{});throw Error('FLOOR_TEXTURE_SIZE');}
  const bytes=new Uint8Array(file.bytes),reader=response.body.getReader();let offset=0;
  const abort=()=>{void reader.cancel().catch(()=>{});};boundedSignal.addEventListener('abort',abort,{once:true});
- try{for(;;){boundedSignal.throwIfAborted();const {done,value}=await reader.read();if(done)break;if(offset+value.length>bytes.length)throw Error('FLOOR_TEXTURE_SIZE');bytes.set(value,offset);offset+=value.length;}}
+ try{for(;;){boundedSignal.throwIfAborted();const {done,value}=await reader.read();if(done)break;if(offset+value.length>bytes.length)throw Error('FLOOR_TEXTURE_SIZE');bytes.set(value,offset);offset+=value.length;if(value.byteLength)resetIdle();}}
  catch(error){await reader.cancel().catch(()=>{});throw error;}finally{boundedSignal.removeEventListener('abort',abort);reader.releaseLock();}
  boundedSignal.throwIfAborted();if(offset!==bytes.length)throw Error('FLOOR_TEXTURE_SIZE');
  const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
  boundedSignal.throwIfAborted();if(hash!==file.sha256)throw Error('FLOOR_TEXTURE_INTEGRITY');return bytes;
+ }finally{clearTimeout(idleTimer);}
 }
 
 /** Bake meters/rotation into each geometry, so texture objects can be shared
@@ -61,7 +74,7 @@ export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<ty
  return createRegisteredMaterialTextureRenderer(three,{packs:plan.packs,blocked:plan.blocked,residentBytes:plan.residentBytes,sizeFor:()=>plan.maxSize},FLOOR_TEXTURE_FILES,floorTexturePack,signal,unavailable,floorFetcher);
 }
 
-export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch,allowed:(binding:B)=>boolean=()=>true,beforePublish?:()=>Promise<void>){
+export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:MaterialTextureFetcher,allowed:(binding:B)=>boolean=()=>true,beforePublish?:()=>Promise<void>){
  type Target={material:Three.MeshStandardMaterial;binding:B;pack:MaterialTexturePack};
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
  let readyMaps=new Map<MaterialTexturePack,Partial<Record<FloorMapRole,TextureValue>>>(),settled=false,reductionAttempted=false;
