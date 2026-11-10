@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {BENCH_NAMESPACE as N,PRESENTATION_NAMESPACE as P,applyBenchCommand,benchesFor,validateStudioBenches,presentationFor,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {BENCH_NAMESPACE as N,PRESENTATION_NAMESPACE as P,applyBenchCommand,benchSolids,benchesFor,validateStudioBenches,presentationFor,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {validateDraft} from '../../web/src/drafts/validator.ts';
 import {checkOexProfile,remapOex} from './oex.ts';
 import {projectPublication} from './publication.ts';
-function fixture(){
+import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
+function fixture(kind:'slab'|'backed'='slab'){
   const draft=newDraft(),d=draft.candidate,roomId=d.rooms[0]!.id,id=crypto.randomUUID(),viewpointId=crypto.randomUUID();
-  draft.candidate=applyBenchCommand(d,{type:'add-bench',bench:{id,name:id,roomId,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:1.5,depth:.6,height:.45},material:{preset:'paint',color:'#FFFFFF',roughness:0,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId,position:[0,1.15,0],target:[0,1,-2],fov:50}});
+  draft.candidate=applyBenchCommand(d,{type:'add-bench',bench:{id,name:id,roomId,position:[0,0,0],yaw:0,kind,dimensions:{width:1.5,depth:.6,height:.45},material:{preset:'paint',color:'#FFFFFF',roughness:0,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId,position:[0,1.15,0],target:[0,1,-2],fov:50}});
   return draft;
 }
 test('draft/OEX admit exact namespace and reject dangling camera without dropping source metadata',()=>{
@@ -22,8 +23,8 @@ test('OEX and public projections remap bench/room/viewpoint consistently while r
   expect(d).toEqual(before);expect(Object.hasOwn(d.extensions!,N)).toBe(true);
 });
 
-test('keeps an authored workspace bench seat bound to its single visual through portable OEX',()=>{
-  const draft=fixture(),candidate=draft.candidate,bench=benchesFor(candidate)[0]!;
+test.each(['slab','backed'] as const)('keeps a %s workspace bench bound to its single visual through portable OEX',kind=>{
+  const draft=fixture(kind),candidate=draft.candidate,bench=benchesFor(candidate)[0]!;
   const furnishingId=crypto.randomUUID(),placementId=crypto.randomUUID(),modelSha256='a'.repeat(64);
   const workspace:WorkspaceFurnishings={
     version:1,
@@ -32,6 +33,12 @@ test('keeps an authored workspace bench seat bound to its single visual through 
   };
   candidate.extensions={...candidate.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:workspace as never};
   const attached=applyBenchCommand(candidate,{type:'set-bench',bench:{...bench,workspaceVisual:{placementId,modelSha256}}});
+  expect(ordinaryWorkspaceBenchSeatDelta(draft,{...draft,candidate:attached})).toBe(kind==='backed');
+  if(kind==='backed'){
+    expect(benchSolids(attached).map(x=>x.vertices)).toEqual(benchSolids(candidate).map(x=>x.vertices));
+    const changedHost=applyBenchCommand(candidate,{type:'set-bench',bench:{...bench,name:'Changed seat',workspaceVisual:{placementId,modelSha256}}});
+    expect(ordinaryWorkspaceBenchSeatDelta(draft,{...draft,candidate:changedHost})).toBe(false);
+  }
   const moved=structuredClone(attached);
   (moved.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings).placements[0]!.position[0]+=.1;
   expect(validateStudioBenches(moved).valid).toBe(false);

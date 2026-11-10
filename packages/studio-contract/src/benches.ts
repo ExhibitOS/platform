@@ -77,14 +77,14 @@ export function validateStudioBenches(candidate: unknown) {
     if (Object.hasOwn(b,'workspaceVisual')) {
       const link=b.workspaceVisual;
       if (!validWorkspace||!workspace||!object(link)||!closed(link,['placementId','modelSha256'])||!uuid(link.placementId)
-        ||typeof link.modelSha256!=='string'||! /^[a-f0-9]{64}$/.test(link.modelSha256)||b.kind!=='slab') {
+        ||typeof link.modelSha256!=='string'||! /^[a-f0-9]{64}$/.test(link.modelSha256)) {
         add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Expected one registered bench visual and exact model digest');return;
       }
       const id=link.placementId.toLowerCase();
       const placement=workspace.placements.find(row=>equal(row.id,id));
       const item=placement&&workspace.furnishings.find(row=>equal(row.id,placement.furnishingId)&&row.version===placement.furnishingVersion);
       const defaults=item&&workspaceDefaultSeat(item);
-      const defaultSize=!!placement&&!!defaults&&near(d.width,defaults.dimensions.width*placement.scale)
+      const defaultSize=b.kind==='slab'&&!!placement&&!!defaults&&near(d.width,defaults.dimensions.width*placement.scale)
         &&near(d.depth,defaults.dimensions.depth*placement.scale)&&near(d.height,defaults.dimensions.height*placement.scale);
       const customSize=item?.kind==='bench'&&placement?.scale===1&&ordinarySize;
       if (attachedPlacements.has(id)||!placement||!item||(!defaultSize&&!customSize)||item.model.sha256!==link.modelSha256
