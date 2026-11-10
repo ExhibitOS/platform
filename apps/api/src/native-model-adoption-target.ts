@@ -16,6 +16,7 @@ import {readNativeAdoptionBrokerBlob,type NativeAdoptionBroker} from './native-m
 import {modelReceiptDigest} from './model-preparation-intent.ts';
 import {nativeModelAdoptionRightsPolicyDigest,parseNativeModelAdoptionGrant,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 import {allowedRights} from './rights.ts';
+import {modelAdoptionDisplayPolicy} from './model-adoption-display-policy.ts';
 import {etag,insertStudioReceipt,type Draft,type Studio,type StudioResponse} from './studio.ts';
 
 /** Revalidate the target in the transaction that will consume the grant.
@@ -46,6 +47,7 @@ export async function lockNativeModelAdoptionTarget(
     !isDeepStrictEqual(candidate.artworks.find(item=>item.id===target.artworkId),prior)||
     placements.length!==1||placements[0]!.id!==target.placementId||placements[0]!.assetId!==prior.primaryAssetId)
   throw new ApiError(409,'MODEL_ADOPTION_TARGET_CHANGED');
+ modelAdoptionDisplayPolicy(prior,grant.original,grant.display);
  return {grant,artwork,prior,candidate};
 }
 
@@ -122,9 +124,11 @@ export async function commitNativeModelAdoptionTarget(input:{
   next.revision=revision;next.revisionId=randomUUID();next.createdAt=now.toISOString();
   next.primaryAssetId=displayId;
   const primary={id:displayId,path:`assets/${displayId}/model.glb`,role:'model' as const,mime:'model/gltf-binary' as const,...grant.display};
-  if(prior.assets.some(asset=>asset.role!=='model')||next.extensions?.[DISPLAY_POLICY_NAMESPACE]!==undefined)
+  if(prior.assets.some(asset=>asset.role!=='model'))
    throw new ApiError(409,'MODEL_ADOPTION_TARGET_CHANGED');
   next.assets=[primary];
+  const displayPolicy=modelAdoptionDisplayPolicy(prior,grant.original,grant.display);
+  if(displayPolicy)next.extensions={...next.extensions,[DISPLAY_POLICY_NAMESPACE]:{...displayPolicy}} as typeof next.extensions;
   next.extensions={...next.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:target.artworkId,revision}};
   delete next.extensions[LOD_NAMESPACE];
   if(metadata.displayReference){
@@ -153,7 +157,7 @@ export async function commitNativeModelAdoptionTarget(input:{
   }
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,randomUUID(),originalId,{
    version:1,kind:'native-model-adoption',operationId:grant.operationId,grantSha256,receiptSha256:grant.receiptSha256,
-   sourceRightsSha256:grant.rightsSha256,sourceCreditLine:grant.sourceCreditLine,targetRightsSha256:modelReceiptDigest(prior.rights),rightsPolicySha256:grant.rightsPolicySha256,originalId,displayId,
+   priorDisplayPolicy:prior.extensions?.[DISPLAY_POLICY_NAMESPACE]??null,sourceRightsSha256:grant.rightsSha256,sourceCreditLine:grant.sourceCreditLine,targetRightsSha256:modelReceiptDigest(prior.rights),rightsPolicySha256:grant.rightsPolicySha256,originalId,displayId,
   }]);
   const updated=await c.query('UPDATE artworks SET revision=$3,approved_revision=$3,approved_asset_id=$4,updated_at=$5,metadata=$6 WHERE tenant_id=$1 AND id=$2 AND revision=$7 AND approved_revision=$7 RETURNING id',
    [s.tenantId,target.artworkId,revision,displayId,now,metadata,target.artworkRevision]);

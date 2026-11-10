@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import type {Artwork} from '@exhibitos/spec';
 import type {PoolClient} from 'pg';
 import {expect,it,vi} from 'vitest';
+import {DISPLAY_POLICY_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {syntheticArtwork} from '../../web/src/placement/model.ts';
 import type {BlobStore} from '@exhibitos/storage';
@@ -19,11 +20,22 @@ import {commitNativeModelAdoptionTarget,lockNativeModelAdoptionTarget} from './n
 import {etag,type Studio} from './studio.ts';
 import {replaceArtworkReferences} from './artwork-snapshot-replacement.ts';
 
-it('binds adoption to the exact current owner, rights and placement without requiring a preexisting original hash',async()=>{
+const approvals=vi.hoisted(()=>[] as Record<string,unknown>[]);
+vi.mock('./approved-demo-display-files.ts',()=>({APPROVED_DEMO_DISPLAY_FILES:approvals}));
+
+it.each([false,true])('binds adoption to the exact current owner, rights and placement without requiring a preexisting original hash (protected=%s)',async(protectedPolicy)=>{
  const s={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session;
  const rights={holder:'Synthetic Institution',ownership:'owner' as const,licenseId:'CC0-1.0',
   permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic credit'};
  const prior={...syntheticArtwork('sculpture'),rights};
+ approvals.length=0;
+ const oldPolicy={version:1,profile:'approved-open-access-demo-v1',approvalId:'11111111-1111-4111-8111-111111111111',sourceAssetSha256:prior.assets[0]!.sha256,rightsEvidenceSha256:'d'.repeat(64)};
+ const selected={institutionRecordId:'synthetic-work',canonicalMime:'model/gltf-binary',canonicalRole:'model',artworkType:'sculpture',canonicalTriangles:2,canonicalMaxTextureSize:512,allowedPublicUses:{staticAssets:true,OEXIncludingAsset:true}};
+ const successor={...selected,approvalId:'22222222-2222-4222-8222-222222222222',canonicalAssetSha256:'c'.repeat(64),canonicalBytes:32,rawSourceSha256:'b'.repeat(64),rightsEvidenceSha256:'e'.repeat(64)};
+ if(protectedPolicy){
+  prior.extensions={...prior.extensions,[DISPLAY_POLICY_NAMESPACE]:oldPolicy};
+  approvals.push({...selected,approvalId:oldPolicy.approvalId,canonicalAssetSha256:prior.assets[0]!.sha256,canonicalBytes:prior.assets[0]!.bytes,rightsEvidenceSha256:oldPolicy.rightsEvidenceSha256},successor);
+ }
  const draft=newDraft(),placementId=randomUUID(),workspaceId=randomUUID();
  const placement={id:placementId,artworkRevisionId:prior.revisionId,assetId:prior.primaryAssetId};
  Object.assign(draft.candidate,{artworks:[prior],placements:[placement]});
@@ -85,6 +97,11 @@ it('binds adoption to the exact current owner, rights and placement without requ
  const original=publicTexturedGLB({png:publicTexturePNG(64,64)}),display=publicTexturedGLB();
  const identity=(bytes:Buffer)=>({bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});
  const accepted={...grant,original:identity(original),display:identity(display)};
+ if(protectedPolicy){
+  await expect(run(accepted)).rejects.toThrow('MODEL_ADOPTION_TARGET_CHANGED');
+  Object.assign(successor,{canonicalAssetSha256:accepted.display.sha256,canonicalBytes:accepted.display.bytes,rawSourceSha256:accepted.original.sha256});
+ }
+ await expect(run(accepted)).resolves.toMatchObject({grant:accepted});
  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-adoption-target-'))),handle=await open(root,'r');
  try{
   const helper=join(root,'broker.cjs'),stat=await handle.stat({bigint:true});
@@ -116,6 +133,12 @@ process.stdout.write(Buffer.from(encoded,'base64'));
   expect(approved).toMatchObject({id:prior.id,revision:prior.revision+1,rights,transform:prior.transform,assets:[accepted.display]});
   expect(result.draft.candidate.placements[0]).toMatchObject({id:placementId,artworkRevisionId:approved!.revisionId,assetId:approved!.primaryAssetId});
   expect([...saved.values()]).toEqual([display,original]);
+  if(protectedPolicy){
+   expect(approved!.extensions![DISPLAY_POLICY_NAMESPACE]).toMatchObject({approvalId:successor.approvalId,sourceAssetSha256:accepted.display.sha256,rightsEvidenceSha256:successor.rightsEvidenceSha256});
+   expect(prior.extensions![DISPLAY_POLICY_NAMESPACE]).toEqual(oldPolicy);
+  }
+  const custody=commitQuery.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO asset_derivatives'))![1][3] as {priorDisplayPolicy:unknown};
+  expect(custody.priorDisplayPolicy).toEqual(protectedPolicy?oldPolicy:null);
  }finally{await handle.close();await rm(root,{recursive:true,force:true});}
 
 });
