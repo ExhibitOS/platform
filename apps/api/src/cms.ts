@@ -213,8 +213,8 @@ export class Cms {
   async detail(c: PoolClient, s: Session, id: string, archived = false) {
     const a = await this.ownArtwork(c, s, id, archived);
     const assets = await c.query(
-      "SELECT id,mime,state,sha256,bytes FROM assets WHERE tenant_id=$1 AND artwork_id=$2 AND deleted_at IS NULL ORDER BY id LIMIT 100",
-      [s.tenantId, id],
+      "SELECT id,mime,state,sha256,bytes FROM assets WHERE tenant_id=$1 AND artwork_id=$2 AND deleted_at IS NULL ORDER BY (id=$3) DESC,id LIMIT 100",
+      [s.tenantId, id, a.approved_asset_id],
     );
     return {
       id: a.id,
