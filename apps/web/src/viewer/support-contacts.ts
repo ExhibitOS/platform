@@ -5,23 +5,18 @@ import {artifactCorners,benchBoxes,benchesFor,installationFor,installationPlane}
 import type {SupportContact} from './shadows';
 
 type Rectangle = {x:number;y:number;width:number;height:number};
-type RoomLights = readonly {room:Three.Group;light:Three.DirectionalLight|Three.SpotLight}[];
 type Receiver = {group:Three.Group;rectangles:readonly Rectangle[]};
 
-// 8 KiB CPU/GPU mask copies, 1 KiB paired instance buffers, plus geometry.
+// Bounded contact descriptors and matrix/uniform state; compiled-program
+// storage is driver-owned and is not represented by this byte estimate.
 const SUPPORT_CONTACT_BYTES=12*1024;
-/** Existing public scene policy counts each instance conservatively as a draw.
- * Reserve the worst active-room batch, although its measured GPU draw is one. */
-export function supportContactSceneFits(cost:{draws:number;triangles:number},triangleLimit:number,additional=true){
-  return cost.draws+(additional?8:0)<=256&&cost.triangles+(additional?16:0)<=triangleLimit;
-}
 export function supportContactFits(used:number,limit:number){
   return used<=limit-SUPPORT_CONTACT_BYTES;
 }
 
 export function supportContacts(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,
   surfaces:ReadonlyMap<string,Three.Group>,rectangles:readonly (readonly Rectangle[])[],
-  pedestals:ReadonlyMap<string,readonly Three.Object3D[]>,lights:RoomLights,
+  pedestals:ReadonlyMap<string,readonly Three.Object3D[]>,
   catalogBench?:{hostId:string;model:Three.Object3D},workspaceBenches?:ReadonlyMap<string,Three.Object3D>) {
   const contacts:SupportContact[]=[];
   const up=new three.Vector3(0,1,0),axisX=new three.Vector3(1,0,0);
@@ -41,16 +36,6 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     return receiver.rectangles.some(rect=>corners.every(c=>Math.abs(c.z)<.008&&
       Math.abs(c.x-rect.x)<rect.width/2-.002&&Math.abs(c.y-rect.y)<rect.height/2-.002));
   }
-  function outsideProjectedShadow(room:Three.Group,position:Three.Vector3){
-    const target=room.localToWorld(position.clone());
-    return !lights.some(({room:owner,light})=>{
-      if(owner!==room||light.intensity<=0)return false;
-      if(!(light instanceof three.SpotLight))return true;
-      const origin=light.getWorldPosition(new three.Vector3());
-      const aim=light.target.getWorldPosition(new three.Vector3()).sub(origin).normalize();
-      return aim.dot(target.clone().sub(origin).normalize())>=Math.cos(light.angle);
-    });
-  }
   function visibleLegBounds(leg:Three.Object3D,room:Three.Group) {
     for(let ancestor:Three.Object3D|null=leg;ancestor;ancestor=ancestor.parent)if(!ancestor.visible)return;
     const result=new three.Box3();
@@ -64,8 +49,8 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     });
     return result.isEmpty()?undefined:result;
   }
-  const add=(room:Three.Group,position:Three.Vector3,rotation:Three.Quaternion,width:number,height:number,desktop:boolean)=>{
-    contacts.push({room,position:position.toArray(),rotation:rotation.toArray(),width,height,desktop});
+  const add=(room:Three.Group,position:Three.Vector3,rotation:Three.Quaternion,width:number,height:number,receiver:Three.Object3D)=>{
+    contacts.push({room,receiver,position:position.toArray(),rotation:rotation.toArray(),width,height});
   };
 
   for(const bench of benchesFor(document)){
@@ -76,8 +61,8 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     const rotation=yaw.clone().multiply(floorRotation);
     const addFoot=(center:Three.Vector3,width:number,depth:number,plane:Three.Quaternion)=>{
       center.y+=.002;
-      if(floor.some(surface=>contains(surface,room,center,plane,width,depth)))
-        add(room,center,plane,width,depth,outsideProjectedShadow(room,center));
+      const surface=floor.find(surface=>contains(surface,room,center,plane,width,depth));
+      if(surface)add(room,center,plane,width,depth,surface.group);
     };
     if(bench.workspaceVisual){
       // Replaced functional hosts do not describe the visible model's feet.
@@ -140,7 +125,7 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
           const position=new three.Vector3((x+right)/2,0,(z+far)/2).applyQuaternion(yaw).add(center);
           position.y=top+.002;
           // A shallow support cue can complement the existing projected shadow.
-          add(room,position,yaw.multiply(floorRotation),right-x,far-z,true);
+          add(room,position,yaw.multiply(floorRotation),right-x,far-z,pedestals.get(placement.id.toLowerCase())!.find(mesh=>mesh.visible)!);
         }
       }
     }
@@ -158,11 +143,11 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       const border=frame.gap+frame.matWidth+frame.borderWidth;
       const position=point([(a.x+b.x)/2,a.y-border-.012,.002]).applyQuaternion(rotation).add(wall.group.position);
       const width=Math.abs(b.x-a.x)+2*border+.04,height=.075;
-      return contains(wall,room,position,rotation,width,height)?[{position,rotation,width,height}]:[];
+      return contains(wall,room,position,rotation,width,height)?[{position,rotation,width,height,receiver:wall.group}]:[];
     });
     if(projection.length===1){
-      const {position,rotation,width,height}=projection[0]!;
-      add(room,position,rotation,width,height,outsideProjectedShadow(room,position));
+      const {position,rotation,width,height,receiver}=projection[0]!;
+      add(room,position,rotation,width,height,receiver);
     }
   }
   return contacts;

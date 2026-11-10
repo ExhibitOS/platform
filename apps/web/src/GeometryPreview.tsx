@@ -51,7 +51,7 @@ import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
-import {supportContactFits,supportContactSceneFits,supportContacts} from './viewer/support-contacts';
+import {supportContactFits,supportContacts} from './viewer/support-contacts';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -908,7 +908,6 @@ export function GeometryPreview({
       let shadowRoom:InstanceType<typeof three.Group>|undefined;
       let contactShadows:ReturnType<typeof installSupportContactShadows>|undefined;
       let refreshContactReceivers=()=>{};
-      let retireContactForScene=()=>{};
       let contactFurnishingsSettled=!hasWorkspaceFurnishings;
       const publishNavigationState=(state:NavigationState)=>{
         if(publicSource&&state.grounded&&state.roomId){
@@ -2089,12 +2088,6 @@ export function GeometryPreview({
             releaseContact();renderer.domElement.dataset.supportContactShadows='budget';
           }
         };
-        const contactTriangleLimit=viewerBudget.maxSceneTriangles??viewerBudget.maxTriangles;
-        retireContactForScene=()=>{
-          if(contactShadows&&!supportContactSceneFits(existingSceneCost(three,scene),contactTriangleLimit,false)){
-            releaseContact();renderer.domElement.dataset.supportContactShadows='scene-budget';
-          }
-        };
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident,contactEligible||diagnosticsEnabled()?total=>{
           diagnosticPeak=Math.max(diagnosticPeak,total);retireContactForBudget(total);
         }:undefined);
@@ -2104,7 +2097,7 @@ export function GeometryPreview({
           refreshContactReceivers=()=>{
             if(!ready||disposed||gpuLost)return;
             releaseContact();
-            contactReceivers=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,shadowCandidates,contactBench,ownerFurnishings?.seatVisuals());
+            contactReceivers=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,contactBench,ownerFurnishings?.seatVisuals());
           };
           void Promise.allSettled(catalogSettled).then(()=>{ready=true;refreshContactReceivers();})
             .catch(()=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';});
@@ -3566,7 +3559,6 @@ export function GeometryPreview({
           retireContactForBudget(used);
           if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
           if(!supportContactFits(used,limit)){renderer.domElement.dataset.supportContactShadows='budget';return;}
-          if(!supportContactSceneFits(existingSceneCost(three,scene),contactTriangleLimit)){renderer.domElement.dataset.supportContactShadows='scene-budget';return;}
           try{
             contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);});
             contactShadows.setRoom(shadowRoom);render();
@@ -3624,7 +3616,7 @@ export function GeometryPreview({
             const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,abort.signal,AbortSignal.timeout(10000)])});
             if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();signal.throwIfAborted();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');
           };
-          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed:workspaceFurnishingsChanged,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},disposeSource:()=>workspaceCache.dispose(),beforeSceneCapacityCheck:()=>retireContactForScene()});
+          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed:workspaceFurnishingsChanged,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},disposeSource:()=>workspaceCache.dispose()});
           const result=await ownerFurnishings.start();contactFurnishingsSettled=true;if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setPublicMessage('일부 비품을 불러오지 못했어요.');workspaceFurnishingsChanged();}
         }
         return;
