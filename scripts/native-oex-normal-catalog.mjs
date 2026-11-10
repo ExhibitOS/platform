@@ -72,6 +72,10 @@ export const HAYES_RELEASE_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-n
 export const LARGE_MODEL_MIGRATION='046_large_model_preparation.sql';
 export const LARGE_MODEL_SHA256='88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4';
 export const LARGE_MODEL_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-large-model-preparation',catalog:46,parentCatalog:45,migration:LARGE_MODEL_MIGRATION,migrationSHA256:LARGE_MODEL_SHA256,profileId:'embedded-model-compact-large-20k-512-v2'});
+export const CATALOG045_PRE_READY_MARKER='native-catalog-045-pre-ready-preservation-capability-v1.json';
+export const CATALOG045_PRE_READY_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-catalog-045-pre-ready-preservation',catalog:45,admissionKind:'interrupted-reopen',wireVersion:3});
+export const CATALOG045_PRE_READY_HAYES_MARKER='native-catalog-045-pre-ready-hayes-preservation-capability-v1.json';
+export const CATALOG045_PRE_READY_HAYES_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-catalog-045-pre-ready-hayes-preservation',catalog:45,admissionKind:'interrupted-reopen',wireVersion:3});
 export const LARGE_MODEL_RECOVERY_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-large-model-recovery',catalog:46,migrationSHA256:LARGE_MODEL_SHA256,admissionKind:'interrupted-reopen',protocol:3});
 export const FRESH_IMAGE_MIGRATION='047_fresh_image_preparation.sql';
 export const FRESH_IMAGE_SHA256='682a7bf2f07a3b43cb8c398758c37568723c85abc372be1f374a59a29f474bf7';
@@ -120,6 +124,13 @@ export async function verifyFreshImageMigration(path){const before=await directo
 export async function hasFreshImageCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(FRESH_IMAGE_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
 export async function verifyLargeModelMigration(path){const before=await directory(path),names=(await readdir(path)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(JSON.stringify(names)!==JSON.stringify([LARGE_MODEL_MIGRATION]))throw Error('NATIVE_OEX_CATALOG');const bytes=await regular(join(path,LARGE_MODEL_MIGRATION));if(sha(bytes)!==LARGE_MODEL_SHA256||!same(before,await directory(path)))throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');}
 export async function hasLargeModelCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(LARGE_MODEL_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
+export async function hasCatalog045PreReadyCapability(path,{hayes=false}={}){
+ try{
+  const bytes=await regular(path);
+  if(!bytes.equals(Buffer.from(hayes?CATALOG045_PRE_READY_HAYES_CAPABILITY:CATALOG045_PRE_READY_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');
+  return true;
+ }catch(error){if(error?.code==='ENOENT')return false;throw error;}
+}
 export async function hasLargeModelRecoveryCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(LARGE_MODEL_RECOVERY_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
 export async function hasHayesDispositionCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(HAYES_DISPOSITION_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
 export async function hasHayesOriginalCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(HAYES_ORIGINAL_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}

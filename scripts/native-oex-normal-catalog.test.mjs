@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,copyFile,rm,symlink} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {createHash} from 'node:crypto';import {fileURLToPath} from 'node:url';
-import {recognizeNormalOexCatalog,preflightNormalOexCatalog,verifyNormalOexFloorMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_IMPORT_CAPABILITY,hasWorkspaceImportCapability,verifyWorkspaceImportMigrations} from './native-oex-normal-catalog.mjs';
+import {CATALOG045_PRE_READY_CAPABILITY,hasCatalog045PreReadyCapability,recognizeNormalOexCatalog,preflightNormalOexCatalog,verifyNormalOexFloorMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_IMPORT_CAPABILITY,hasWorkspaceImportCapability,verifyWorkspaceImportMigrations} from './native-oex-normal-catalog.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 async function fixture(){const root=await mkdtemp(join(tmpdir(),'native-catalog-')),base=join(root,'base'),extra=join(root,'extra');await mkdir(base);await mkdir(extra);const rows=[];for(let i=1;i<=25;i++){const name=String(i).padStart(3,'0')+'_fixture.sql',data='SELECT '+i+';';await writeFile(join(base,name),data);rows.push({name,sha256:sha(data)});}await copyFile(fileURLToPath(new URL('../database/native-oex-normal/026_oex_file_profile.sql',import.meta.url)),join(extra,NORMAL_OEX_MIGRATION));rows.push({name:NORMAL_OEX_MIGRATION,sha256:NORMAL_OEX_SHA256});return{root,base,extra,rows,pool:{query:async()=>({rows})}};}
 test('recognizes only the complete pinned normal catalog, without modifying it',async()=>{const f=await fixture();try{assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);f.rows.pop();assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),undefined);}finally{await rm(f.root,{recursive:true,force:true});}});
@@ -144,4 +144,19 @@ test('ordinary frame models marker is exact and chains to the legacy frame capab
  const {WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,hasWorkspaceFurnishingArtworkFrameModelsCapability}=await import('./native-oex-normal-catalog.mjs');
  const root=await mkdtemp(join(tmpdir(),'frame-models-marker-')),path=join(root,'marker.json');
  try{assert.equal(await hasWorkspaceFurnishingArtworkFrameModelsCapability(path),false);await writeFile(path,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY);assert.equal(await hasWorkspaceFurnishingArtworkFrameModelsCapability(path),true);const marker=JSON.parse(WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY);assert.equal(marker.parentCapabilitySHA256,sha(WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY));assert.equal(marker.extensionVersion,5);assert.equal(marker.exportFormat,'1.0.0-draft.17');await writeFile(path,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY+' ');await assert.rejects(hasWorkspaceFurnishingArtworkFrameModelsCapability(path),/NATIVE_OEX_CATALOG/);}finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('recognizes only the sealed Catalog 045 pre-ready preservation marker',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'native-pre-ready-marker-')),marker=join(root,'marker'),source=join(root,'source');
+ try{
+  assert.equal(await hasCatalog045PreReadyCapability(marker),false);
+  await writeFile(marker,CATALOG045_PRE_READY_CAPABILITY);
+  assert.equal(await hasCatalog045PreReadyCapability(marker),true);
+  await writeFile(marker,CATALOG045_PRE_READY_CAPABILITY+'\n');
+  await assert.rejects(hasCatalog045PreReadyCapability(marker),/NATIVE_OEX_CATALOG/);
+  await rm(marker);
+  await writeFile(source,CATALOG045_PRE_READY_CAPABILITY);
+  await symlink(source,marker);
+  await assert.rejects(hasCatalog045PreReadyCapability(marker),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(root,{recursive:true,force:true});}
 });

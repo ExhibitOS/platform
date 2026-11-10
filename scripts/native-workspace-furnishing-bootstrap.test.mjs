@@ -17,3 +17,12 @@ test('ordinary bootstrap refuses an unissued admission before database access',a
 test('041 is not automatically applied by 039-to-040 upgrade or selected import',async()=>{
  for(const mode of ['workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-selected-import-v7']){const c=client(true,'schema_migrations');await assert.rejects(prepareWorkspaceFurnishingCatalog(c,{...paths,mode,channel,materialMultimapDirectory:'/unused',framePreparationDirectory:'/unused'}),/FURNISHING_ADMISSION_INVALID/);assert.equal(c.calls.length,0);}
 });
+
+test('Catalog 045 preservation cannot initialize, accept a forged assertion or fall back to a legacy catalog',async()=>{
+ const options={...paths,channel,catalog045PreReady:true};
+ for(const change of [{mode:init,modelPreparationDirectory:'/unused'},{mode:reopen,modelPreparationDirectory:'/unused',ordinaryAdmission:{fields:{admissionKind:'interrupted-reopen'}}},{mode:reopen}]){
+  const c=client(false);
+  await assert.rejects(prepareWorkspaceFurnishingCatalog(c,{...options,...change}),/FURNISHING_ADMISSION_INVALID/);
+  assert.deepEqual(c.calls,[]);
+ }
+});
