@@ -820,11 +820,18 @@ export function GeometryPreview({
         const key='light:'+id,collision=mountedFurnishingCollision(three,key,fixture,scene,()=>disposed||gpuLost||abort.signal.aborted);
         if(collision)fixtureCollisions.set(key,collision);
       }
-      let catalogLightCollisions:ReadonlyMap<string,MountedFurnishingCollision>|undefined;
+      const plaqueCollisions:MountedFurnishingCollision[]=[];
+      for(const plaque of plaques.meshes){
+        const id=plaque.userData.plaqueId;
+        if(typeof id!=='string'||!collisionEnabled('sign',id))continue;
+        const collision=mountedFurnishingCollision(three,'sign:'+id.toLowerCase(),plaque,scene,()=>disposed||gpuLost||abort.signal.aborted);
+        if(collision)plaqueCollisions.push(collision);
+      }
+      let catalogFurnishingCollisions:ReadonlyMap<string,MountedFurnishingCollision>|undefined;
       const furnishingCollisions=()=>{
         const sources=new Map(fixtureCollisions);
-        for(const [id,collision] of catalogLightCollisions??[])if(collision.active())sources.set(id,collision);
-        return [...ownerFurnishings?.walkingCollisions()??[],...sources.values()];
+        for(const [id,collision] of catalogFurnishingCollisions??[])if(collision.active())sources.set(id,collision);
+        return [...ownerFurnishings?.walkingCollisions()??[],...sources.values(),...plaqueCollisions];
       };
       if(lightDetails.records.length)renderer.domElement.dataset.lightDetails=JSON.stringify(lightDetails.records);
       model.updateMatrixWorld(true);
@@ -1021,7 +1028,7 @@ export function GeometryPreview({
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},{scene,enabled:lightCollisionEnabled});catalogLightCollisions=catalog.lightCollisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled});catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
