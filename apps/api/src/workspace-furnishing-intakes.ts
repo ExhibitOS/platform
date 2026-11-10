@@ -6,20 +6,22 @@ import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {artworkFrameModel,isWorkspaceFitReceipt,portalFinishModel,type WorkspaceFitReceipt,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import {INFO_STAND_PREPARATION_POLICY,artworkFrameModel,isWorkspaceFitReceipt,portalFinishModel,type WorkspaceFitReceipt,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor,type WorkspaceInfoStandPreparationReceipt} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation.ts';
-import {prepareFrameInWorker} from './frame-preparation-process.ts';
+import {prepareFrameInWorker,prepareInfoStandInWorker} from './frame-preparation-process.ts';
+import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrame} from './installed-artwork-frame.ts';
 import {WorkspaceFrameLineage} from './workspace-frame-lineage.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
-type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspacePortalFinish?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
-type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
+type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspacePortalFinish?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
+type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;payloadManifestSHA256?:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
 type Receipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:WorkspaceFurnishingDeclaration;phase:string;received:Receipt|null;error:unknown;retryable:boolean;furnishing_id:string;furnishing_version:number;worker_token?:string|null;worker_generation?:string|null;worker_root_device?:string|null;worker_root_inode?:string|null;worker_lock_device?:string|null;worker_lock_inode?:string|null};
+const hashString=(value:unknown):value is string=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 function verifiedPreparationPair(model:WorkspaceFurnishingDeclaration['model']){
  const pair=framePreparationPair(model);if(!pair)return undefined;
@@ -44,11 +46,12 @@ export class WorkspaceFurnishingIntakes {
  supportsArtworkFrame(){return this.owner.workspaceFurnishingArtworkFrame===true&&this.supportsRoomVisual();}
  supportsArtworkFrameModels(){return this.owner.workspaceFurnishingArtworkFrameModels===true&&this.supportsArtworkFrame();}
  supportsFramePreparation(){return this.owner.workspaceArtworkFramePreparation===true&&this.supportsArtworkFrameModels();}
+ supportsInfoStandPreparation(){return this.owner.workspaceInfoStandPreparation===true&&this.supportsRoomVisual()&&hashString(this.writer?.identity.payloadManifestSHA256);}
  frameLineage(){return this.supportsFramePreparation()&&this.writer?new WorkspaceFrameLineage(this.blobs,this.owner,this.writer):undefined;}
  supportsReusableFit(){return !!this.writer&&this.supportsArtworkFrameModels();}
  supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
-  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})&&validRights(value.rights)&&
+  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})&&validRights(value.rights)&&
    (!!value.fitProfile||value.kind!=='portal-finish'||!!portalFinishModel(value.model.sha256,value.model.bytes))&&
    (!!value.fitProfile||value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
@@ -93,14 +96,33 @@ export class WorkspaceFurnishingIntakes {
   const receipt=row.received,model=row.declaration.model,key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${model.sha256}`;
   if(!receipt||receipt.key!==key||receipt.bytes!==model.bytes||receipt.sha256!==model.sha256)throw new ApiError(409,'UPLOAD_INCOMPLETE');return receipt;
  }
+ private preparedModel(row:Row,stage:Record<string,unknown>|undefined){
+  if(row.declaration.preparationPolicy===FRAME_PREPARATION_POLICY)return verifiedPreparationPair(row.declaration.model)?.renderable;
+  const source=row.declaration.model,bytes=Number(stage?.renderable_bytes),digest=stage?.renderable_sha256;
+  if(row.declaration.preparationPolicy!==INFO_STAND_PREPARATION_POLICY||row.declaration.kind!=='info-stand'||
+     !hashString(stage?.producing_manifest_sha256)||!hashString(digest)||digest===source.sha256||
+     source.bytes>MAX_INFO_STAND_SOURCE_BYTES||!Number.isSafeInteger(bytes)||bytes<28||bytes>=source.bytes)return undefined;
+  return {mime:'model/gltf-binary' as const,bytes,sha256:digest};
+ }
  private async view(c:PoolClient,row:Row){
   const {requestId:_requestId,preparationPolicy,fitProfile,...fields}=row.declaration;void _requestId;
-  let preparation:undefined|{sourceModel:typeof fields.model;recipe:typeof FRAME_PREPARATION_POLICY;renderableModel:typeof fields.model};
+  let preparation:undefined|WorkspaceInfoStandPreparationReceipt|{sourceModel:typeof fields.model;recipe:typeof FRAME_PREPARATION_POLICY;renderableModel:typeof fields.model};
   if(preparationPolicy&&row.phase==='registered'){
-   const pair=verifiedPreparationPair(fields.model),result=await c.query("SELECT p.*,v.descriptor AS stored_descriptor,v.object_key AS stored_key FROM workspace_frame_preparations p LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=p.workspace_id AND v.tenant_id=p.tenant_id AND v.user_id=p.user_id AND v.id=p.furnishing_id AND v.version=p.furnishing_version WHERE p.workspace_id=$1 AND p.intake_id=$2 AND p.state='registered'",[this.owner.workspaceId,row.id]);
-   const p=result.rows[0];if(!pair||result.rowCount!==1||p.tenant_id!==this.owner.tenantId||p.user_id!==this.owner.principalId||p.furnishing_id!==row.furnishing_id||p.furnishing_version!==row.furnishing_version||p.recipe!==FRAME_PREPARATION_POLICY||p.source_key!==this.receipt(row).key||p.source_sha256!==pair.source.sha256||Number(p.source_bytes)!==pair.source.bytes||p.renderable_sha256!==pair.renderable.sha256||Number(p.renderable_bytes)!==pair.renderable.bytes||p.renderable_key!==`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${pair.renderable.sha256}`)throw new ApiError(409,'ASSET_INTEGRITY');
-   if(p.stored_key!==p.renderable_key||!isDeepStrictEqual(p.stored_descriptor,{id:row.furnishing_id,version:row.furnishing_version,...fields,model:pair.renderable}))throw new ApiError(409,'ASSET_INTEGRITY');
-   preparation={sourceModel:pair.source,recipe:FRAME_PREPARATION_POLICY,renderableModel:pair.renderable};
+   const result=await c.query("SELECT p.*,v.descriptor AS stored_descriptor,v.object_key AS stored_key FROM workspace_frame_preparations p LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=p.workspace_id AND v.tenant_id=p.tenant_id AND v.user_id=p.user_id AND v.id=p.furnishing_id AND v.version=p.furnishing_version WHERE p.workspace_id=$1 AND p.intake_id=$2 AND p.state='registered'",[this.owner.workspaceId,row.id]);
+   if(result.rowCount===0&&preparationPolicy===INFO_STAND_PREPARATION_POLICY){
+    const registered=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,row.furnishing_id,row.furnishing_version]);
+    const original=registered.rows[0];
+    if(registered.rowCount!==1||original.object_key!==this.receipt(row).key||
+       !isDeepStrictEqual(original.descriptor,{id:row.furnishing_id,version:row.furnishing_version,...fields}))throw new ApiError(409,'ASSET_INTEGRITY');
+   }else{
+    const p=result.rows[0],renderableModel=this.preparedModel(row,p);
+    if(!renderableModel||result.rowCount!==1||p.tenant_id!==this.owner.tenantId||p.user_id!==this.owner.principalId||p.furnishing_id!==row.furnishing_id||p.furnishing_version!==row.furnishing_version||p.recipe!==preparationPolicy||p.source_key!==this.receipt(row).key||p.source_sha256!==fields.model.sha256||Number(p.source_bytes)!==fields.model.bytes||p.renderable_sha256!==renderableModel.sha256||Number(p.renderable_bytes)!==renderableModel.bytes||p.renderable_key!==`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${renderableModel.sha256}`)throw new ApiError(409,'ASSET_INTEGRITY');
+    if(p.stored_key!==p.renderable_key||!isDeepStrictEqual(p.stored_descriptor,{id:row.furnishing_id,version:row.furnishing_version,...fields,model:renderableModel}))throw new ApiError(409,'ASSET_INTEGRITY');
+    const models={sourceModel:fields.model,renderableModel};
+    preparation=preparationPolicy===INFO_STAND_PREPARATION_POLICY
+     ?{...models,recipe:preparationPolicy,runtimeManifestSHA256:p.producing_manifest_sha256}
+     :{...models,recipe:preparationPolicy};
+   }
   }
   let fit:WorkspaceFitReceipt|undefined;
   if(fitProfile&&row.phase==='registered'){
@@ -113,11 +135,11 @@ export class WorkspaceFurnishingIntakes {
   return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,...(preparationPolicy?{preparationPolicy}:{}),...(fitProfile?{fitProfile}:{}),...(preparation?{preparation}:{}),furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields,model:preparation?.renderableModel??fields.model,...(fit?{fit}:{})}:null};
  }
  async create(c:PoolClient,s:Session,value:unknown){
-  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
+  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
   if(value.preparationPolicy){
-   if(!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
+   if(value.preparationPolicy===FRAME_PREPARATION_POLICY&&!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
    const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
-   if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,'FRAME_PREPARATION_RIGHTS_DENIED');
+   if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,value.preparationPolicy===INFO_STAND_PREPARATION_POLICY?'INFO_STAND_PREPARATION_RIGHTS_DENIED':'FRAME_PREPARATION_RIGHTS_DENIED');
   }
   if(value.kind==='portal-finish'&&!value.fitProfile&&!portalFinishModel(value.model.sha256,value.model.bytes))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
   if(!this.admittedDeclaration(value))throw new ApiError(400,'FURNISHING_DECLARATION');
@@ -239,28 +261,55 @@ export class WorkspaceFurnishingIntakes {
   const transact=async<T>(fn:()=>Promise<T>)=>{await c.query('BEGIN');try{const value=await fn();await this.writer?.assertLive();await c.query('COMMIT');return value;}catch(error){await c.query('ROLLBACK');throw error;}};const token=randomUUID(),writer=this.writer,clearWriter=writer?',worker_generation=NULL,worker_root_device=NULL,worker_root_inode=NULL,worker_lock_device=NULL,worker_lock_inode=NULL':'';
   const row=await transact(async()=>{await this.owner.assertDatabase(c);const result=await c.query("SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND phase IN ('validating','cancelling') AND worker_token IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId]);if(!result.rowCount)return undefined;const value=result.rows[0] as Row;if(writer){const w=writer.identity;await c.query('UPDATE workspace_furnishing_intakes SET worker_token=$3,worker_generation=$4,worker_root_device=$5,worker_root_inode=$6,worker_lock_device=$7,worker_lock_inode=$8,updated_at=now() WHERE workspace_id=$1 AND id=$2',[this.owner.workspaceId,value.id,token,w.runtimeGeneration,w.rootDevice,w.rootInode,w.lockDevice,w.lockInode]);}else await c.query('UPDATE workspace_furnishing_intakes SET worker_token=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2',[this.owner.workspaceId,value.id,token]);return value;});if(!row)return false;await hooks?.afterClaim?.();
   let fit:WorkspaceFitReceipt|undefined;
-  let error:unknown,cleanup=row.phase==='cancelling',prepared:{key:string;model:typeof row.declaration.model}|undefined;
+  let retainedOriginal=false,error:unknown,cleanup=row.phase==='cancelling',prepared:{key:string;model:typeof row.declaration.model}|undefined;
   if(!cleanup)try{
    const receipt=this.receipt(row),bytes=Buffer.from(await this.blobs.get(receipt.key));await this.writer?.assertLive();
-   if(row.declaration.preparationPolicy){
-    const pair=verifiedPreparationPair(row.declaration.model);if(!pair||!this.supportsFramePreparation())throw new ApiError(422,'FRAME_PREPARATION_UNSAFE');
-    const result=await prepareFrameInWorker(bytes,{...hooks,...(writer?{writerFd:writer.writerFd}:{})});
-    try{await validateWorkspaceFurnishingGlb(pair.renderable,result,{...hooks,...(writer?{writerFd:writer.writerFd}:{})});}catch(e){if(e instanceof ApiError&&e.code==='FORMAT_REJECTED')throw new ApiError(422,'FRAME_PREPARATION_UNSAFE');throw e;}
-    const key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${pair.renderable.sha256}`;
+   const infoStand=row.declaration.preparationPolicy===INFO_STAND_PREPARATION_POLICY;
+   const workerHooks={...hooks,...(writer?{writerFd:writer.writerFd}:{})},source=row.declaration.model;
+   if(infoStand){
+    if(!this.supportsInfoStandPreparation()||!this.admittedDeclaration(row.declaration))throw new ApiError(422,'INFO_STAND_PREPARATION_UNSAFE');
+    if(bytes.length!==source.bytes||sha256(bytes)!==source.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');
+    const staged=await transact(async()=>{
+     await this.owner.assertDatabase(c);
+     const existing=await c.query('SELECT recipe,producing_manifest_sha256 FROM workspace_frame_preparations WHERE workspace_id=$1 AND intake_id=$2 FOR UPDATE',[this.owner.workspaceId,row.id]);
+     if(existing.rowCount===0)return false;
+     if(existing.rowCount!==1||existing.rows[0].recipe!==INFO_STAND_PREPARATION_POLICY||
+        existing.rows[0].producing_manifest_sha256!==writer?.identity.payloadManifestSHA256)throw new ApiError(409,'INFO_STAND_PREPARATION_PRODUCER_MISMATCH');
+     return true;
+    });
+    try{
+     await validateWorkspaceFurnishingGlb(source,bytes,workerHooks);
+     if(staged)throw new ApiError(409,'INFO_STAND_PREPARATION_PRODUCER_MISMATCH');
+     retainedOriginal=true;
+    }catch(e){if(!(e instanceof ApiError)||e.code!=='FORMAT_REJECTED')throw e;}
+   }
+   if(row.declaration.preparationPolicy&&!retainedOriginal){
+    const recipe=row.declaration.preparationPolicy,unsafeCode=infoStand?'INFO_STAND_PREPARATION_UNSAFE':'FRAME_PREPARATION_UNSAFE';
+    let result:Buffer,renderable:typeof source;
+    if(infoStand){
+     result=await prepareInfoStandInWorker(bytes,workerHooks);
+     renderable={mime:source.mime,bytes:result.length,sha256:sha256(result)};
+    }else{
+     const pair=verifiedPreparationPair(source);
+     if(!pair||!this.supportsFramePreparation())throw new ApiError(422,unsafeCode);
+     result=await prepareFrameInWorker(bytes,workerHooks);renderable=pair.renderable;
+    }
+    try{await validateWorkspaceFurnishingGlb(renderable,result,workerHooks);}catch(e){if(e instanceof ApiError&&e.code==='FORMAT_REJECTED')throw new ApiError(422,unsafeCode);throw e;}
+    const key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${renderable.sha256}`;
     await transact(async()=>{
      await this.owner.assertDatabase(c);const current=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 FOR UPDATE',[this.owner.workspaceId,row.id,token]);
      if(current.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');this.checkClaim(current.rows[0] as Row,token);
      if(current.rows[0].phase!=='validating'||canonical(current.rows[0].declaration)!==canonical(row.declaration)||canonical(this.receipt(current.rows[0] as Row))!==canonical(receipt))throw Error('FURNISHING_WORKER_OWNERSHIP');
-     await c.query(`INSERT INTO workspace_frame_preparations(workspace_id,tenant_id,user_id,intake_id,furnishing_id,furnishing_version,source_key,source_bytes,source_sha256,renderable_key,renderable_bytes,renderable_sha256,recipe,state)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'staged') ON CONFLICT(workspace_id,intake_id) DO NOTHING`,[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,row.id,row.furnishing_id,row.furnishing_version,receipt.key,pair.source.bytes,pair.source.sha256,key,pair.renderable.bytes,pair.renderable.sha256,FRAME_PREPARATION_POLICY]);
+     await c.query(`INSERT INTO workspace_frame_preparations(workspace_id,tenant_id,user_id,intake_id,furnishing_id,furnishing_version,source_key,source_bytes,source_sha256,renderable_key,renderable_bytes,renderable_sha256,recipe,state${infoStand?',producing_manifest_sha256':''})
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'staged'${infoStand?',$14':''}) ON CONFLICT(workspace_id,intake_id) DO NOTHING`,[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,row.id,row.furnishing_id,row.furnishing_version,receipt.key,source.bytes,source.sha256,key,renderable.bytes,renderable.sha256,recipe,...(infoStand?[writer!.identity.payloadManifestSHA256]:[])]);
      const existing=await c.query('SELECT * FROM workspace_frame_preparations WHERE workspace_id=$1 AND intake_id=$2 FOR UPDATE',[this.owner.workspaceId,row.id]);const stage=existing.rows[0];
-     if(existing.rowCount!==1||stage.state!=='staged'||stage.tenant_id!==this.owner.tenantId||stage.user_id!==this.owner.principalId||stage.furnishing_id!==row.furnishing_id||stage.furnishing_version!==row.furnishing_version||stage.source_key!==receipt.key||stage.source_sha256!==pair.source.sha256||Number(stage.source_bytes)!==pair.source.bytes||stage.renderable_key!==key||stage.renderable_sha256!==pair.renderable.sha256||Number(stage.renderable_bytes)!==pair.renderable.bytes||stage.recipe!==FRAME_PREPARATION_POLICY)throw Error('FURNISHING_WORKER_OWNERSHIP');
+     if(existing.rowCount!==1||stage.state!=='staged'||stage.tenant_id!==this.owner.tenantId||stage.user_id!==this.owner.principalId||stage.furnishing_id!==row.furnishing_id||stage.furnishing_version!==row.furnishing_version||stage.source_key!==receipt.key||stage.source_sha256!==source.sha256||Number(stage.source_bytes)!==source.bytes||stage.renderable_key!==key||stage.renderable_sha256!==renderable.sha256||Number(stage.renderable_bytes)!==renderable.bytes||stage.recipe!==recipe||(infoStand&&stage.producing_manifest_sha256!==writer?.identity.payloadManifestSHA256))throw Error('FURNISHING_WORKER_OWNERSHIP');
     });
     await this.writer?.assertLive();if(!this.blobs.putDurable)throw new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE');await this.blobs.putDurable(key,result);
-    const stored=Buffer.from(await this.blobs.get(key));if(stored.length!==pair.renderable.bytes||sha256(stored)!==pair.renderable.sha256)throw new ApiError(422,'FRAME_PREPARATION_UNSAFE');
-    prepared={key,model:pair.renderable};
-   }else{
-    const workerHooks={...hooks,...(writer?{writerFd:writer.writerFd}:{})},model=row.declaration.model;
+    const stored=Buffer.from(await this.blobs.get(key));if(stored.length!==renderable.bytes||sha256(stored)!==renderable.sha256)throw new ApiError(422,unsafeCode);
+    prepared={key,model:renderable};
+   }else if(!retainedOriginal){
+    const model=row.declaration.model;
     if(row.declaration.fitProfile){
      if(!this.admittedDeclaration(row.declaration))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');
      const geometry=await validateWorkspaceFurnishingGlb(model,bytes,workerHooks,row.declaration.fitProfile);
@@ -274,7 +323,7 @@ export class WorkspaceFurnishingIntakes {
    await this.owner.assertDatabase(c);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 FOR UPDATE',[this.owner.workspaceId,row.id,token]);
    if(result.rowCount!==1)throw Error('FURNISHING_WORKER_OWNERSHIP');const current=result.rows[0] as Row;this.checkClaim(current,token);if(current.phase==='cancelling'){cleanup=true;return;}if(current.phase!=='validating')throw Error('FURNISHING_WORKER_OWNERSHIP');
    if(error){const code=error instanceof ApiError?error.code:'FURNISHING_VALIDATION_UNAVAILABLE',retryable=!(error instanceof ApiError)||error.code==='FURNISHING_VALIDATION_UNAVAILABLE';await c.query(`UPDATE workspace_furnishing_intakes SET phase='failed',error=$4,retryable=$5,worker_token=NULL${clearWriter},updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3`,[this.owner.workspaceId,row.id,token,{code},retryable]);return;}
-   if(!this.admittedDeclaration(current.declaration)||canonical(current.declaration)!==canonical(row.declaration)||current.furnishing_id!==row.furnishing_id||current.furnishing_version!==row.furnishing_version||canonical(this.receipt(current))!==canonical(this.receipt(row))||!!current.declaration.preparationPolicy!==!!prepared||!!current.declaration.fitProfile!==!!fit)throw Error('FURNISHING_WORKER_OWNERSHIP');
+   if(!this.admittedDeclaration(current.declaration)||canonical(current.declaration)!==canonical(row.declaration)||current.furnishing_id!==row.furnishing_id||current.furnishing_version!==row.furnishing_version||canonical(this.receipt(current))!==canonical(this.receipt(row))|| (!!current.declaration.preparationPolicy&&!retainedOriginal)!==!!prepared||!!current.declaration.fitProfile!==!!fit)throw Error('FURNISHING_WORKER_OWNERSHIP');
    const {requestId:_requestId,preparationPolicy:_policy,fitProfile:_fitProfile,...fields}=current.declaration;void _requestId;void _policy;void _fitProfile;
    const descriptor={id:current.furnishing_id,version:current.furnishing_version,...fields,model:prepared?.model??fields.model,...(fit?{fit}:{})};
    await c.query('INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId,current.furnishing_id,current.furnishing_version,descriptor,prepared?.key??this.receipt(current).key]);
@@ -288,8 +337,8 @@ export class WorkspaceFurnishingIntakes {
     if(!row.declaration.preparationPolicy)return undefined;
     const staged=await c.query('SELECT * FROM workspace_frame_preparations WHERE workspace_id=$1 AND intake_id=$2 FOR UPDATE',[this.owner.workspaceId,row.id]);
     if(staged.rowCount===0)return undefined;
-    const p=staged.rows[0],pair=verifiedPreparationPair(row.declaration.model);
-    if(staged.rowCount!==1||!pair||p.state!=='staged'||p.tenant_id!==this.owner.tenantId||p.user_id!==this.owner.principalId||p.renderable_key!==`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${pair.renderable.sha256}`)throw Error('FURNISHING_WORKER_OWNERSHIP');return p;
+    const p=staged.rows[0],renderable=this.preparedModel(row,p),source=row.declaration.model;
+    if(staged.rowCount!==1||!renderable||p.state!=='staged'||p.tenant_id!==this.owner.tenantId||p.user_id!==this.owner.principalId||p.recipe!==row.declaration.preparationPolicy||p.furnishing_id!==row.furnishing_id||p.furnishing_version!==row.furnishing_version||p.source_key!==this.receipt(row).key||p.source_sha256!==source.sha256||Number(p.source_bytes)!==source.bytes||p.renderable_key!==`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${renderable.sha256}`)throw Error('FURNISHING_WORKER_OWNERSHIP');return p;
    });
    let failed=false;const key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${row.declaration.model.sha256}`;
    for(const target of [stage?.renderable_key,key].filter((value):value is string=>typeof value==='string')){
