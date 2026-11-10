@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, symlink, statfs, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink, statfs, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -92,4 +92,26 @@ it('requires the exact separate writer-generation schema and matching ledger',as
 
 it('readiness includes the separately selected exact 038 furnishing publication migration',async()=>{
  const {config,pool,rows}=await fixture(),publication=join(config.migrationDirectory,'..','furnishing-publication'),name='038_workspace_furnishing_publication.sql',sql='SELECT 38;';await mkdir(publication);await writeFile(join(publication,name),sql);rows.push({name,sha256:createHash('sha256').update(sql).digest('hex')});const options={...config,workspaceFurnishingPublicationMigrationDirectory:publication};expect((await readiness(pool,options)).ready).toBe(true);expect((await readiness(pool,config)).ready).toBe(false);await writeFile(join(publication,name),'changed');expect((await readiness(pool,options)).ready).toBe(false);
+});
+
+it('requires the pinned 048 migration and matching ledger only when enabled', async () => {
+  const {config, pool, rows} = await fixture();
+  const name = '048_workspace_info_stand_preparation.sql';
+  const migrations = join(config.migrationDirectory, '..', 'info-stand');
+  const path = join(migrations, name);
+  const sql = await readFile(new URL(`../../../database/native-workspace-info-stand-preparation/${name}`, import.meta.url));
+  const options = {...config, infoStandPreparationMigrationDirectory: migrations};
+  await mkdir(migrations);
+  await writeFile(path, sql);
+  expect((await readiness(pool, config)).ready).toBe(true);
+  expect((await readiness(pool, options)).ready).toBe(false);
+  rows.push({name, sha256: createHash('sha256').update(sql).digest('hex')});
+  expect((await readiness(pool, options)).ready).toBe(true);
+  expect((await readiness(pool, config)).ready).toBe(false);
+
+  await writeFile(path, 'SELECT 48;');
+  rows[1]!.sha256 = createHash('sha256').update('SELECT 48;').digest('hex');
+  expect((await readiness(pool, options)).ready).toBe(false);
+  await rm(path);
+  expect((await readiness(pool, options)).ready).toBe(false);
 });

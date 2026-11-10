@@ -5,6 +5,8 @@ import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
+import {INFO_STAND_PREPARATION_POLICY} from '@exhibitos/studio-contract';
+import {prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrame} from './installed-artwork-frame.ts';
@@ -12,13 +14,15 @@ vi.mock('./installed-artwork-frame.ts',async importOriginal=>({
  ...await importOriginal<typeof import('./installed-artwork-frame.ts')>(),
  readInstalledFrame:vi.fn(),
 }));
+vi.mock('./frame-preparation-process.ts',async original=>({...await original<typeof import('./frame-preparation-process.ts')>(),prepareInfoStandInWorker:vi.fn()}));
 vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.fn(async()=>{})}));
 vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const rights={holder:'ExhibitOS',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:true,export:true,commercial:true}};
 function fixture(withWriter=false,bytes=Buffer.from('synthetic bounded GLB')){
- let row:Record<string,unknown>|undefined,version:Record<string,unknown>|undefined;const files=new Map<string,Buffer>(),declaration={requestId:id(4),kind:'pedestal',name:'Synthetic',rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:bytes.length,sha256:sha256(bytes)}};
- const blobs={put:vi.fn(async(key:string,data:Buffer)=>{files.set(key,Buffer.from(data));}),get:vi.fn(async(key:string)=>{const data=files.get(key);if(!data)throw Error('missing');return data;}),remove:vi.fn(async(key:string)=>{files.delete(key);})} as unknown as BlobStore;
+ let row:Record<string,unknown>|undefined,version:Record<string,unknown>|undefined,stage:Record<string,unknown>|undefined;const files=new Map<string,Buffer>(),declaration={requestId:id(4),kind:'pedestal',name:'Synthetic',rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:bytes.length,sha256:sha256(bytes)}};
+ const put=async(key:string,data:Buffer)=>{files.set(key,Buffer.from(data));};
+ const blobs={put:vi.fn(put),putDurable:vi.fn(put),get:vi.fn(async(key:string)=>{const data=files.get(key);if(!data)throw Error('missing');return data;}),remove:vi.fn(async(key:string)=>{files.delete(key);})} as unknown as BlobStore;
  const query=vi.fn(async(sql:string,args:unknown[]=[])=>{
   if(sql.includes('pg_advisory_unlock_shared'))return {rows:[{unlocked:true}],rowCount:1};
   if(sql.startsWith('SELECT count('))return {rows:[{n:0}],rowCount:1};
@@ -30,15 +34,22 @@ function fixture(withWriter=false,bytes=Buffer.from('synthetic bounded GLB')){
   if(sql.startsWith('UPDATE workspace_furnishing_intakes SET worker_token=$3,worker_generation=$4')){Object.assign(row!,{worker_token:args[2],worker_generation:args[3],worker_root_device:args[4],worker_root_inode:args[5],worker_lock_device:args[6],worker_lock_inode:args[7]});return {rows:[],rowCount:1};}
   if(sql.startsWith('UPDATE workspace_furnishing_intakes SET received=')){row!.received=args[2];return {rows:[row],rowCount:1};}
   if(sql.includes("SET phase='validating'")){row!.phase='validating';return {rows:[row],rowCount:1};}
-  if(sql.includes("SET phase='failed'")){row!.phase='failed';row!.error=args[3];row!.retryable=args[4];return {rows:[row],rowCount:1};}
+  if(sql.includes("SET phase='failed'")){row!.worker_token=null;row!.phase='failed';row!.error=args[3];row!.retryable=args[4];return {rows:[row],rowCount:1};}
   if(sql.includes("SET phase='cancelling'")){row!.phase='cancelling';return {rows:[row],rowCount:1};}
   if(sql.includes("SET phase='registered'")){row!.phase='registered';row!.worker_token=null;return {rows:[row],rowCount:1};}
+  if(sql.startsWith('INSERT INTO workspace_frame_preparations')){
+   stage??=Object.fromEntries(['workspace_id','tenant_id','user_id','intake_id','furnishing_id','furnishing_version','source_key','source_bytes','source_sha256','renderable_key','renderable_bytes','renderable_sha256','recipe','producing_manifest_sha256'].map((key,index)=>[key,args[index]]));
+   stage.state='staged';return {rows:[],rowCount:1};
+  }
+  if(sql.startsWith('UPDATE workspace_frame_preparations')){stage!.state='registered';return {rows:[stage],rowCount:1};}
+  if(sql.startsWith('SELECT p.*'))return {rows:stage?.state==='registered'?[{...stage,stored_descriptor:version?.descriptor,stored_key:version?.object_key}]:[],rowCount:stage?.state==='registered'?1:0};
+  if(sql.includes('FROM workspace_frame_preparations'))return {rows:stage?[stage]:[],rowCount:stage?1:0};
   if(sql.startsWith('INSERT INTO workspace_furnishing_versions')){version={descriptor:args[5],object_key:args[6]};return {rows:[],rowCount:1};}
   if(sql.startsWith('SELECT descriptor,object_key FROM workspace_furnishing_versions'))return {rows:version?[version]:[],rowCount:version?1:0};
   return {rows:[],rowCount:1};
  });
  const client={query,release:vi.fn()} as unknown as PoolClient,pool={connect:async()=>client} as unknown as Pool,owner={workspaceId:id(1),tenantId:id(2),principalId:id(3),assertDatabase:vi.fn(async()=>{})},session={id:id(5),tenantId:id(2),userId:id(3),role:'artist'} as Session,writer={writerFd:12,identity:{workspaceId:id(1),tenantId:id(2),principalId:id(3),runtimeGeneration:id(8),rootDevice:'7',rootInode:'9007199254740993',lockDevice:'7',lockInode:'9007199254740997'},assertLive:vi.fn(async()=>{})},service=new WorkspaceFurnishingIntakes(blobs,owner,withWriter?writer:undefined);
- return {bytes,declaration,blobs,query,client,pool,owner,session,service,writer,getRow:()=>row};
+ return {bytes,declaration,blobs,query,client,pool,owner,session,service,writer,getRow:()=>row,getStage:()=>stage,files};
 }
 it('retains one owner-scoped intake across replay and registers original model after worker completion',async()=>{
  const f=fixture(),first=await f.service.create(f.client,f.session,f.declaration),again=await f.service.create(f.client,f.session,structuredClone(f.declaration));expect(again).toEqual(first);expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_intakes'))).toHaveLength(1);
@@ -251,4 +262,84 @@ it('exposes an installed frame through the existing owner paths with no intake r
   expect(await f.service.list(f.client,f.session)).toEqual({items:[],nextCursor:null});
   expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockReset();}
+});
+
+it.each([true,false])('recovers the staged sign only under the same producing manifest (%s)',async sameManifest=>{
+ const source=Buffer.alloc(64,1),rendered=Buffer.alloc(48,2),f=fixture(true,source);
+ const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceInfoStandPreparation:true as const};
+ const manifest='a'.repeat(64),withManifest=(digest:string,generation:string)=>({...f.writer,identity:{...f.writer.identity,runtimeGeneration:generation,payloadManifestSHA256:digest}});
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,withManifest(manifest,id(8)));
+ const retainedRights={...rights,holder:'Independent author',licenseId:'LicenseRef-AuthorTerms',permissions:{...rights.permissions,export:false}};
+ const declaration={...f.declaration,kind:'info-stand',rights:retainedRights,preparationPolicy:INFO_STAND_PREPARATION_POLICY};
+ const first=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,first.intakeId,source);
+ await service.complete(f.client,f.session,first.intakeId);
+ const prepare=vi.mocked(prepareInfoStandInWorker);prepare.mockClear().mockResolvedValue(rendered);
+ const validate=vi.mocked(validateWorkspaceFurnishingGlb);
+ validate.mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ vi.mocked(f.blobs.putDurable!).mockRejectedValueOnce(Error('interrupted before durable output'));
+ await service.work(f.pool);
+ const stage=f.getStage()!;
+ expect(stage).toMatchObject({state:'staged',producing_manifest_sha256:manifest,renderable_sha256:sha256(rendered)});
+ expect(f.files.has(String(stage.renderable_key))).toBe(false);
+ expect(await service.read(f.client,f.session,first.intakeId)).toMatchObject({phase:'failed',retryable:true});
+ const resumed=new WorkspaceFurnishingIntakes(f.blobs,owner,withManifest(sameManifest?manifest:'b'.repeat(64),id(10)));
+ await resumed.retry(f.client,f.session,first.intakeId);
+ if(sameManifest)validate.mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ await resumed.work(f.pool);
+ const settled=await resumed.read(f.client,f.session,first.intakeId);
+ expect(f.files.get(String(stage.source_key))).toEqual(source);
+ if(sameManifest){
+  expect(prepare).toHaveBeenCalledTimes(2);
+  expect(settled).toMatchObject({phase:'registered',preparation:{recipe:INFO_STAND_PREPARATION_POLICY,runtimeManifestSHA256:manifest,sourceModel:declaration.model,renderableModel:{sha256:sha256(rendered)}},furnishing:{model:{sha256:sha256(rendered)},rights:retainedRights}});
+  expect(f.files.get(String(stage.renderable_key))).toEqual(rendered);
+  await expect(resumed.model(f.client,f.session,settled.furnishing!.id,1,'display')).resolves.toMatchObject({bytes:rendered});
+  await expect(resumed.model(f.client,f.session,settled.furnishing!.id,1,'export')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+ }else{
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(settled).toMatchObject({phase:'failed',retryable:false,error:{code:'INFO_STAND_PREPARATION_PRODUCER_MISMATCH'},furnishing:null});
+  expect(f.getStage()).toMatchObject({state:'staged',producing_manifest_sha256:manifest});
+  expect(f.files.has(String(stage.renderable_key))).toBe(false);
+ }
+});
+
+it('keeps a compatible info-stand byte-identical with no preparation receipt',async()=>{
+ const f=fixture(true,Buffer.alloc(64,3)),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceInfoStandPreparation:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,{...f.writer,identity:{...f.writer.identity,payloadManifestSHA256:'a'.repeat(64)}});
+ const declaration={...f.declaration,kind:'info-stand',preparationPolicy:INFO_STAND_PREPARATION_POLICY};
+ const first=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,first.intakeId,f.bytes);
+ await service.complete(f.client,f.session,first.intakeId);
+ vi.mocked(prepareInfoStandInWorker).mockClear();
+ await service.work(f.pool);
+ const registered=await service.read(f.client,f.session,first.intakeId);
+ expect(registered).toMatchObject({phase:'registered',furnishing:{model:declaration.model}});
+ expect(registered).not.toHaveProperty('preparation');
+ expect(prepareInfoStandInWorker).not.toHaveBeenCalled();
+ expect(f.getStage()).toBeUndefined();
+});
+
+it('does not infer preparation from a licensee display grant or an expired owner grant',async()=>{
+ const f=fixture(true,Buffer.alloc(64,4));
+ const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceInfoStandPreparation:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,{...f.writer,identity:{...f.writer.identity,payloadManifestSHA256:'a'.repeat(64)}});
+ const declaration={...f.declaration,kind:'info-stand',preparationPolicy:INFO_STAND_PREPARATION_POLICY};
+ const licensed={...rights,ownership:'authorized-licensee'};
+ await expect(service.create(f.client,f.session,{...declaration,rights:licensed})).rejects.toMatchObject({code:'INFO_STAND_PREPARATION_RIGHTS_DENIED'});
+ const expired={...rights,expiresAt:'2020-01-01T00:00:00Z'};
+ const intake=await service.create(f.client,f.session,{...declaration,rights:expired});
+ await service.upload(f.client,f.session,intake.intakeId,f.bytes);
+ await service.complete(f.client,f.session,intake.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ vi.mocked(prepareInfoStandInWorker).mockClear();
+ await service.work(f.pool);
+ expect(prepareInfoStandInWorker).not.toHaveBeenCalled();
+ expect(await service.read(f.client,f.session,intake.intakeId)).toMatchObject({phase:'failed',retryable:false,error:{code:'INFO_STAND_PREPARATION_RIGHTS_DENIED'}});
+ const ordinary=fixture(true,Buffer.alloc(64,5));
+ const standard=new WorkspaceFurnishingIntakes(ordinary.blobs,owner,ordinary.writer);
+ const received=await standard.create(ordinary.client,ordinary.session,{...ordinary.declaration,kind:'info-stand',rights:licensed});
+ await standard.upload(ordinary.client,ordinary.session,received.intakeId,ordinary.bytes);
+ await standard.complete(ordinary.client,ordinary.session,received.intakeId);
+ await standard.work(ordinary.pool);
+ expect(await standard.read(ordinary.client,ordinary.session,received.intakeId)).toMatchObject({phase:'registered',furnishing:{rights:licensed,model:ordinary.declaration.model}});
 });

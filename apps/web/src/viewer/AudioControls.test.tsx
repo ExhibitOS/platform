@@ -25,3 +25,12 @@ it('preserves real failure/transcript text and separates mute from zero volume w
  const html=renderToStaticMarkup(<AudioControls audio={null} state={value} zones={[{id,roomId:'room',transcript:'Required transcript'} as never]} rooms={[{id:'room',name:'첫 공간'}]}/>);
  expect(html).toContain('role="switch"');expect(html).toContain('aria-checked="false"');expect(html).toContain(value.message);expect(html).toContain('음량이 0');expect(html).toContain('Required transcript');expect(html).toContain('첫 공간 소리 1 재생');expect(html).not.toContain(id);expect(html).not.toContain('concrete');
 });
+
+it('shows authored sound intent separately from browser permission with expanded room controls',()=>{
+ const html=renderToStaticMarkup(<AudioControls audio={null} state={{...state(),soundOn:true,muted:false,bgmOn:true,bgmAvailable:false}} zones={[]}/>);
+ expect(html).toContain('aria-checked="true"');
+ expect(html).toContain('브라우저에서 소리 켜기');
+ expect(html).toMatch(/<details[^>]+ open=""/);
+ expect(html).toContain('배경음 사용');
+ expect(html).toContain('이 공간에 지정된 배경음이 없어요.');
+});

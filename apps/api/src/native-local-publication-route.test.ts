@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
-import {mkdtemp,mkdir,realpath,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readdir,realpath,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -49,4 +49,40 @@ it('rejects original publication without a native detail owner before source adm
  const root=await realpath(await mkdtemp(join(tmpdir(),'native-original-denied-')));roots.push(root);const store=join(root,'blobs');await mkdir(store,{mode:0o700});const blobs=new FileBlobStore(store),draft=newDraft(),tenantId=randomUUID(),prepare=vi.spyOn(Publications.prototype,'publish');
  const app=buildApp({pool:{} as Pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},blobs});
  try{const result=await app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/publications`,headers:{host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':etag(1,draft),'x-exhibitos-publication-profile':'native-original-v1'},payload:{requestId:randomUUID()}});expect(result.statusCode).toBe(409);expect(prepare).not.toHaveBeenCalled();}finally{await app.close();}
+});
+
+it('releases the owned stage after rejected ordinary audio preparation', async () => {
+ const root = await realpath(await mkdtemp(join(tmpdir(), 'native-publication-rejected-audio-')));
+ roots.push(root);
+ const storage = join(root, 'blobs');
+ await mkdir(storage, {mode: 0o700});
+ const blobs = new FileBlobStore(storage);
+ const draft = newDraft();
+ const audioId = randomUUID();
+ draft.candidate.mediaAssets.push({
+  id: audioId, path: `media/${audioId}/audio.wav`, mime: 'audio/wav', bytes: 32044, sha256: 'a'.repeat(64),
+  rights: {holder: 'Synthetic', ownership: 'owner', licenseId: 'CC0-1.0', creditLine: 'Synthetic',
+   permissions: {display: true, export: true, download: true, commercial: true}},
+ });
+ const match = etag(1, draft);
+ const session = {id: randomUUID(), tenantId: randomUUID(), userId: randomUUID(), role: 'admin', expiresAt: '2099-01-01T00:00:00Z'} as Session;
+ const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({rows: []}));
+ const c = {query} as unknown as PoolClient;
+ const context = {workspaceId: randomUUID(), tenantId: session.tenantId, principalId: session.userId, assertDatabase: async () => {}} as NativeLocalExportContext;
+ vi.spyOn(Auth.prototype, 'request').mockImplementation(async (_token, _tenant, _csrf, _mutate, work) => work(c, session));
+ vi.spyOn(Studio.prototype, 'access').mockResolvedValue({revision: 1, metadata: draft} as never);
+ const app = buildApp({pool: {} as Pool, auth: {mode: 'local', origin: 'http://127.0.0.1:13200', bindHost: '127.0.0.1'}, blobs, nativeExportWorkspace: context});
+ const base = `/api/v1/tenants/${session.tenantId}/studio/exhibitions/${draft.exhibitionId}`;
+ const headers = {host: '127.0.0.1:13200', origin: 'http://127.0.0.1:13200', 'if-match': match, 'x-exhibitos-publication-profile': 'bounded-local-v1'};
+ try {
+  const rejected = await app.inject({method: 'POST', url: base + '/publications', headers, payload: {requestId: randomUUID()}});
+  expect(rejected.statusCode).toBe(422);
+  expect(rejected.json()).toMatchObject({code: 'PUBLICATION_NOT_READY'});
+  expect(query).toHaveBeenCalledWith(expect.stringContaining('SELECT * FROM studio_audio'), [session.tenantId, draft.exhibitionId, audioId]);
+  expect(await readdir(root)).toEqual(['blobs']);
+  expect(await readdir(storage)).toEqual([]);
+  const readiness = await app.inject({method: 'GET', url: base + '/ready', headers});
+  expect(readiness.statusCode).toBe(200);
+  expect(readiness.json()).toMatchObject({status: 'BLOCKED', issues: [{code: 'FORBIDDEN', path: '/candidate/mediaAssets/0'}]});
+ } finally {await app.close();}
 });

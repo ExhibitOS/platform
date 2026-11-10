@@ -168,7 +168,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     viewingSession.current=current;setViewingState(current.state());
     if(preferredViewingStyle.current==='ordered'){cancelMapTravel.current?.();current.actions.setStyle('ordered');}
   },[value]);
-  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;if(value)setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceMade:true}));};
+  const chooseViewingStyle=(style:ViewingStyle)=>{audio.current?.enterFromGesture();preferredViewingStyle.current=style;if(value)setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceMade:true}));};
   const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
@@ -221,21 +221,24 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   },[]);
   const prepareDetailEntry = useCallback(() => { detailEntry.current?.prepare(); }, []);
   const audio = useRef<AudioApi | null>(null);
+  useEffect(()=>{audio.current?.setGalleryReady(mode==='3d'&&stageReady);},[mode,stageReady]);
   const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; voiceSubscription.current?.();voiceSubscription.current=api?.subscribeVoice(setVoicePlayback)??null;if(!api)setVoicePlayback(null); }, []);
   const playVoice = useCallback(async (assetId: string) => {
     if (!audio.current) throw Error("AUDIO_UNAVAILABLE");
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
-  const showTextArtworks=useCallback(()=>{invalidateExit();entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[invalidateExit,stopVoice,entry.cancel,setSelectedId]);
-  const cancelEntry=()=>{entry.cancel();setMenuOpen(false);modeChanged.current=true;};
+  const showTextArtworks=useCallback(()=>{invalidateExit();audio.current?.leaveGallery();entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[invalidateExit,stopVoice,entry.cancel,setSelectedId]);
+  const cancelEntry=()=>{audio.current?.leaveGallery();entry.cancel();setMenuOpen(false);modeChanged.current=true;};
   const enter=()=>{
     if(modeRef.current==="3d")return;
     if(viewerUnavailable){window.location.reload();return;}
-    entry.begin();setMenuOpen(false);
+    if(entry.begin())audio.current?.enterFromGesture();
+    setMenuOpen(false);
   };
   async function load() {
     const current = ++generation.current;
+    audio.current?.leaveGallery();
     entry.cancel();
     setLoading(true);
     setGuidedIndex(null);
