@@ -4,7 +4,6 @@ import {Pool} from 'pg';
 import {expect,it,vi} from 'vitest';
 import {Cms} from './cms.ts';
 import type {Session} from './auth.ts';
-import {artworkThumbnailSource} from '../../web/src/native-catalog-protocol.ts';
 it.skipIf(!process.env.PROVENANCE_TEST_PG)('retains an approved primary outside the first 100 UUIDs in bounded CMS detail',async()=>{
  const pool=new Pool({connectionString:process.env.PROVENANCE_TEST_PG}),c=await pool.connect();
  const tenantId=randomUUID(),artworkId=randomUUID(),primary='ffffffff-ffff-4fff-8fff-ffffffffffff';
@@ -21,7 +20,7 @@ it.skipIf(!process.env.PROVENANCE_TEST_PG)('retains an approved primary outside 
   const detail=await cms.detail(c,{tenantId,userId:randomUUID(),role:'admin'} as Session,artworkId);
   expect(detail.assets).toHaveLength(100);expect(detail.assets[0].id).toBe(primary);
   expect(detail.assets.filter(x=>x.id===primary)).toHaveLength(1);
-  expect(artworkThumbnailSource(detail,artworkId,2)).toEqual({sourceAssetId:primary,sourceSha256:'a'.repeat(64),sourceBytes:128});
+  expect(detail.assets[0]).toMatchObject({id:primary,state:'approved',mime:'model/gltf-binary',sha256:'a'.repeat(64),bytes:128});
   // Unrelated tenants and artworks cannot displace the admitted primary.
   await c.query("INSERT INTO assets VALUES($1,$2,$3,NULL,'model/gltf-binary','approved',repeat('c',64),256)",[randomUUID(),primary,artworkId]);
   expect((await cms.detail(c,{tenantId} as Session,artworkId)).assets[0]).toMatchObject({id:primary,sha256:'a'.repeat(64),bytes:128});
