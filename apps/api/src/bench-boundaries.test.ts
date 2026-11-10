@@ -42,6 +42,7 @@ test.each(['slab','backed'] as const)('keeps a %s workspace bench bound to its s
     const changedDraft=structuredClone(draft);
     changedDraft.candidate=changedHost;
     expect(ordinaryWorkspaceBenchSeatDelta(draft,changedDraft)).toBe(false);
+    expect(ordinaryWorkspaceBenchSeatDelta(attachedDraft,changedDraft)).toBe(false);
   }
   const moved=structuredClone(attached);
   (moved.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings).placements[0]!.position[0]+=.1;
