@@ -5,7 +5,7 @@ import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 export interface PlacementPreviewContext {
  scene:Scene;model:Object3D;camera:Camera;renderer:WebGLRenderer;
  document:Exhibition;
- frameReady:(token:string,cameraSequence:number)=>boolean;
+ frameReady:(token:string,cameraSequence:number,artworkIntent:boolean)=>boolean;
  rooms:Map<string,Object3D>;surfaces:Map<string,Object3D>;
  load:(artwork:Artwork,signal:AbortSignal)=>Promise<{object:Object3D;release:()=>void}>;
  render:()=>void;

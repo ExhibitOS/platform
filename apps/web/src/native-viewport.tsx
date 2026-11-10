@@ -99,7 +99,7 @@ let snapshotBusy=false;
 let pendingEditorCommit:{epoch:string;sequence:number;candidate:string}|undefined;
 let activeSnapshotAbort:AbortController|undefined;
 let placementRendererReady=false;
-let catalogDropRenderer:{frameReady:(token:string,cameraSequence:number)=>boolean;preview:ReturnType<typeof installNativePlacementPreview>}|undefined;
+let catalogDropRenderer:{frameReady:Parameters<PlacementPreviewInstaller>[0]['frameReady'];preview:ReturnType<typeof installNativePlacementPreview>}|undefined;
 let lightPending=false;
 let benchPending=false;
 let plaquePending=false;
@@ -192,7 +192,8 @@ window.exhibitosViewport={
  catalogDropTarget:value=>{
   requireEditable();
   const frame=current,request=checkedCatalogDropRequest(value,frame),renderer=catalogDropRenderer;
-  if(!renderer||!renderer.frameReady(`${request.epoch}:${request.sequence}`,frame!.cameraSequence)||document.hidden||nativeCameraMode!=='object')
+  const artworkIntent=request.targetKind==='artwork'&&placement.snapshot()?.request.requestId===request.placementRequestId;
+  if(!renderer||!renderer.frameReady(`${request.epoch}:${request.sequence}`,frame!.cameraSequence,artworkIntent)||document.hidden||nativeCameraMode!=='object')
    throw Error('CATALOG_DROP_UNAVAILABLE');
   if(lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending||
      request.targetKind!=='artwork'&&request.phase!=='clear'&&placement.active)

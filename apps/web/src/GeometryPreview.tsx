@@ -1875,9 +1875,10 @@ export function GeometryPreview({
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
         const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,document,render,
-          frameReady:(token,sequence)=>{
+          frameReady:(token,sequence,artworkIntent)=>{
             const bridge=editingRef.current,canvas=renderer.domElement;
-            return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!editor?.busy&&canvas.isConnected&&
+            // An active artwork intent suspends ordinary editing while its own picker stays active.
+            return !disposed&&!gpuLost&&!!bridge&&(!bridge.disabled||artworkIntent)&&!editor?.busy&&canvas.isConnected&&
               !canvas.closest('[hidden],[inert]')&&!suspendedRef.current&&cameraAppliedToken.current===token&&
               consumedCameraRequest.current===sequence&&(bridge.document===document||onlyLightColorChanged(document,bridge.document));
           },
