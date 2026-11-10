@@ -3,7 +3,7 @@
  * tenant binding, CSRF and Origin checks still authorize every CMS operation. */
 import type { Pool,PoolClient } from 'pg';
 import { transaction } from '@exhibitos/storage';
-import { randomUUID } from 'node:crypto';
+import { randomBytes,randomUUID } from 'node:crypto';
 import { ApiError, digest, uuid } from './auth.ts';
 
 export interface LocalWorkspaceInput {
@@ -28,9 +28,9 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:(client:PoolClient)=>void|Promise<void>;furnishingExclusive?:true}) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:(client:PoolClient)=>void|Promise<void>;furnishingExclusive?:true;issueNativeOperator?:true}) {
   const v = validateLocalWorkspace(input, runtimeMode);
-  if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting','beforeCommit','furnishingExclusive'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true||options.beforeCommit!==undefined&&typeof options.beforeCommit!=='function'||options.furnishingExclusive!==undefined&&(options.furnishingExclusive!==true||!beforeOpen||!options.beforeCommit)))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
+  if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting','beforeCommit','furnishingExclusive','issueNativeOperator'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true||options.beforeCommit!==undefined&&typeof options.beforeCommit!=='function'||options.issueNativeOperator!==undefined&&(options.issueNativeOperator!==true||options.furnishingExclusive!==true)||options.furnishingExclusive!==undefined&&(options.furnishingExclusive!==true||!beforeOpen||!options.beforeCommit)))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
   return transaction(pool, async c => {
     if(options)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
     await c.query('SELECT pg_advisory_xact_lock(82003)');
@@ -56,9 +56,17 @@ export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput,
     // No credential row is ever created. Reopen revokes only this workspace's
     // previous sessions and never resets a password or grants a legacy owner.
     await c.query('UPDATE auth_sessions SET revoked=true WHERE tenant_id=$1 AND user_id=$2', [v.tenantId, v.principalId]);
-    await c.query("INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '8 hours')", [randomUUID(), digest(v.sessionToken), digest(v.csrfToken), v.csrfToken, v.tenantId, v.principalId]);
+    const insertSession=(sessionToken:string,csrfToken:string)=>c.query(
+      "INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '8 hours')",
+      [randomUUID(),digest(sessionToken),digest(csrfToken),csrfToken,v.tenantId,v.principalId],
+    );
+    await insertSession(v.sessionToken,v.csrfToken);
+    // The private operator is owned by this runtime generation, while the
+    // separately issued GUI credential may be rotated at any authoring connect.
+    const nativeOperator=options?.issueNativeOperator?{sessionToken:randomBytes(32).toString('base64url'),csrfToken:randomBytes(32).toString('base64url')}:undefined;
+    if(nativeOperator)await insertSession(nativeOperator.sessionToken,nativeOperator.csrfToken);
     await options?.beforeCommit?.(c);
-    return { workspaceId: v.workspaceId, tenantId: v.tenantId, principalId: v.principalId };
+    return { workspaceId: v.workspaceId, tenantId: v.tenantId, principalId: v.principalId,...(nativeOperator?{nativeOperator}:{}) };
   });
 }
 

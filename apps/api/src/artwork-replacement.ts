@@ -143,11 +143,35 @@ async function replaceModelCandidate(c:PoolClient,s:Session,exhibitionId:string,
 /** Resolve the retained product receipt from the current CMS selection. A
  * finished upload transfer is deliberately not an input to this lookup. */
 export async function resolveApprovedModelCandidate(c:PoolClient,s:Session,artworkId:string,artworkRevision:number,cms:Cms,imports:Imports){
+ const {job}=await selectApprovedModelCandidate(c,s,artworkId,artworkRevision,cms,imports);
+ return imports.view(job);
+}
+
+/** Internal source-side custody read. This result is not target authorization. */
+export async function readApprovedModelCustody(c:PoolClient,s:Session,artworkId:string,artworkRevision:number,cms:Cms,imports:Imports,blobs:BlobStore){
+ const {job,next,owner,receipt}=await selectApprovedModelCandidate(c,s,artworkId,artworkRevision,cms,imports);
+ const permitted=()=>allowedRights(job.rights,'download')&&allowedRights(job.rights,'display')&&allowedRights(job.rights,'export');
+ if(!permitted())throw new ApiError(403,'RIGHTS_DENIED');
+ const limits=COMPACT_MODEL_RECIPE.limits;
+ if(!Number.isSafeInteger(receipt.original.bytes)||receipt.original.bytes<28||receipt.original.bytes>limits.sourceBytes||
+    !Number.isSafeInteger(receipt.display.bytes)||receipt.display.bytes<28||
+    receipt.display.bytes>(receipt.display.reusedOriginal?limits.sourceBytes:limits.outputBytes))throw new ApiError(409,'ASSET_INTEGRITY');
+ const display=await readReplacementAsset(blobs,job.approved_key,receipt.display.bytes,receipt.display.sha256);
+ const original=receipt.display.reusedOriginal?display:
+   await readReplacementAsset(blobs,job.object_key,receipt.original.bytes,receipt.original.sha256);
+ if(!permitted())throw new ApiError(403,'RIGHTS_DENIED');
+ return {
+  source:{workspaceId:owner.workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:next.id,artworkRevision:next.revision,artworkRevisionId:next.revisionId},
+  rights:structuredClone(next.rights),receipt,original,display,
+ };
+}
+
+async function selectApprovedModelCandidate(c:PoolClient,s:Session,artworkId:string,artworkRevision:number,cms:Cms,imports:Imports){
  uuid(artworkId);
  if(!Number.isSafeInteger(artworkRevision)||artworkRevision<1)throw new ApiError(400,'INVALID_INPUT');
  artworkId=artworkId.toLowerCase();
  await imports.requiredModelReady(c,s);
- await imports.coarseOwner(c,s.tenantId,s.userId);
+ const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
  const artwork=await cms.ownArtwork(c,s,artworkId);
  if(artwork.revision!==artworkRevision||artwork.approved_revision!==artworkRevision||!artwork.approved_asset_id)throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
  const {rows}=await c.query(`SELECT id FROM import_jobs WHERE tenant_id=$1 AND user_id=$2 AND artwork_id=$3 AND asset_id=$4
@@ -155,8 +179,7 @@ export async function resolveApprovedModelCandidate(c:PoolClient,s:Session,artwo
   AND (model_preparation->'request'->'sourceFull') IS NULL LIMIT 2`,
  [s.tenantId,s.userId,artworkId,artwork.approved_asset_id,String(artworkRevision),COMPACT_MODEL_RECIPE.id]);
  if(rows.length!==1)throw new ApiError(409,'MODEL_CANDIDATE_NOT_READY');
- const {job}=await checkedModelCandidate(c,s,{artworkId,artworkRevision,importJobId:rows[0].id},artwork,cms,imports);
- return imports.view(job);
+ return {...await checkedModelCandidate(c,s,{artworkId,artworkRevision,importJobId:rows[0].id},artwork,cms,imports),owner};
 }
 
 async function checkedModelCandidate(c:PoolClient,s:Session,input:Pick<ReviewedImageReplacement,'artworkId'|'artworkRevision'|'importJobId'>,artwork:Awaited<ReturnType<Cms['ownArtwork']>>,cms:Cms,imports:Imports){
@@ -164,13 +187,13 @@ async function checkedModelCandidate(c:PoolClient,s:Session,input:Pick<ReviewedI
  if(!intent||intent.sourceFull!==undefined||intent.profileId!==COMPACT_MODEL_RECIPE.id||job.user_id!==s.userId||job.artwork_id!==input.artworkId||intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||!modelPreparationDrained(job))throw new ApiError(409,'MODEL_CANDIDATE_NOT_READY');
  // Imports.access also revalidates current rights, original/display asset rows,
  // object-key linkage and immutable producer lineage for required-model jobs.
- const {display}=modelPreparationReceipt(job);
+ const receipt=modelPreparationReceipt(job),{display}=receipt;
  if(!artwork||artwork.revision!==input.artworkRevision||artwork.approved_revision!==input.artworkRevision||artwork.approved_asset_id!==display.assetId)throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
  if(!allowedRights(job.rights,'display')||!allowedRights(job.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
  const {artwork:next}=await cms.studioArtwork(c,s,input.artworkId);
  const primary=next.assets.find(asset=>asset.id===next.primaryAssetId);
  if(next.artworkType!=='sculpture'||next.primaryAssetId!==display.assetId||next.assets.length!==1||!primary||primary.mime!==display.mime||primary.sha256!==display.sha256||primary.bytes!==display.bytes||!isDeepStrictEqual(next.rights,job.rights))throw new ApiError(409,'ASSET_INTEGRITY');
- return {job,next,display};
+ return {job,next,display,receipt};
 }
 
 async function readReplacementAsset(blobs:BlobStore,key:string,size:number,expected:string):Promise<Buffer>{

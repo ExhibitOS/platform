@@ -40,6 +40,7 @@ import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
+import {acquiredModelRuntime,acquiredModelTransitionCap,checkAcquiredModelGeometry,eligibleAcquiredModel} from './viewer/detail-model-admission';
 import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
 import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
@@ -1733,13 +1734,18 @@ export function GeometryPreview({
         imageBudget = viewerBudget,
         onCleanDecodeFailure?:()=>void,
         progress?:(bytes:number)=>void,
+        acquiredModel?:{
+          media:NonNullable<ReturnType<typeof eligibleAcquiredModel>>['media'];
+          read:(signal:AbortSignal)=>Promise<ArrayBuffer>;
+        },
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
-        const bytes=await readArtworkBytes(artwork,inventory,signal,progress);
+        const bytes=await (acquiredModel?acquiredModel.read(signal):readArtworkBytes(artwork,inventory,signal,progress));
         stage?.('verified-download');
         reserveDecode?.(bytes!);
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
         const resources: Array<{ dispose: () => void }> = [];let glbMayOwnAsync=false;
+        let acquiredBacking:ReturnType<typeof embeddedPNGManager>|undefined;
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
@@ -1775,8 +1781,14 @@ export function GeometryPreview({
             const manager = new three.LoadingManager();
             if(basis)resources.push(basis);
             if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
-            const protectedBytes = embeddedPNGManager(manager, bytes!,basis);
+            if(acquiredModel)checkAcquiredModelGeometry(bytes,acquiredModel.media);
+            const protectedBytes = embeddedPNGManager(manager,bytes,basis,acquiredModel?.media.textures);
+            if(acquiredModel)acquiredBacking=protectedBytes;
             resources.push(protectedBytes);
+            if(acquiredModel)resources.push({dispose:()=>{
+              protectedBytes.retire();
+              if(!protectedBytes.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN');
+            }});
             // Pin an identical cached allocation; independently retained bytes
             // stay charged even when the original encoded entry is evicted.
             const backing=retainEncodedBuffer(byteCache,inventory.id,protectedBytes.bytes);
@@ -1876,6 +1888,10 @@ export function GeometryPreview({
           return object;
         } catch (error) {
           let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
+          if(acquiredBacking){
+            await acquiredBacking.drain();acquiredBacking.retire();
+            if(!clean||!acquiredBacking.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN',{cause:error});
+          }
           if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
           throw error;
         }
@@ -3064,6 +3080,7 @@ export function GeometryPreview({
           },
         };
         viewingCallback.current?.(viewingBridge);
+        let acquiredModelDrain:Promise<void>|undefined;
         const mountSharedDetail:SharedDetailPreview=async input=>{
           const mountEpoch=++detailMountEpoch;
           const signal=AbortSignal.any([abort.signal,input.signal]);
@@ -3078,7 +3095,7 @@ export function GeometryPreview({
           // A reopened qualified original waits for the previous owned work and
           // reservation to retire; an uncertain drain never admits a successor.
           if(imageProfile&&detailOwner&&detailAccess&&isVerifiedStaticDetailAccess(detailOwner,detailAccess))await originalDetailSlot.whenAvailable(signal);
-          await canvasRestorePromise;assertMount();cancelDetail?.();
+          await canvasRestorePromise;await acquiredModelDrain;assertMount();cancelDetail?.();
           try{await checkPublicAvailability(signal);}catch(error){if(mountEpoch===detailMountEpoch&&!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
           assertMount();
           if(imageProfile&&!matchesMeasuredWheatImage(imageProfile,detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,imageProfile.candidateId):undefined,galleryBuffer()))imageProfile=undefined;
@@ -3157,12 +3174,15 @@ export function GeometryPreview({
           };
           let originalAttempt:ReturnType<typeof startDetailImageAttempt>|undefined,originalDrawGeneration=0,originalAttached=false,originalDisplayed=false,originalBlocked=false,originalSettled=false,originalDrawSuppressed=false;
           let redrawSettledBaseline=()=>{};
+          let stopAcquiredModel=()=>{};
+          let acquiredModelNeedsDrain=()=>false;
+          let recheckAcquiredModel=async()=>{};
           const previousCanvasVisibility=renderer.domElement.style.visibility;
           let guardOriginalDraw=()=>true,resumeLegacy=()=>{},restoreHold:{key:string;bytes:number}|undefined;
           const retireOriginal=()=>{if(originalAttempt)void originalAttempt.close().then(()=>{originalSettled=true;if(originalDrawSuppressed){originalDrawSuppressed=false;redrawSettledBaseline();}},()=>{if(alive&&!signal.aborted&&!disposed)input.unavailable('recovery');});};
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
-            if(!alive)return;alive=false;activeTransfer?.finish();beginDetailTransfer=undefined;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            if(!alive)return;alive=false;stopAcquiredModel();activeTransfer?.finish();beginDetailTransfer=undefined;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             diagnosticOriginal=null;
             diagnosticDrawn=null;
             diagnosticEvents.clearSelected();
@@ -3199,6 +3219,15 @@ export function GeometryPreview({
                 }catch(error){deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';throw error;}
               });
               void canvasRestorePromise.catch(()=>{if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('failed');});
+            }else if(acquiredModelNeedsDrain()&&acquiredModelDrain){
+              renderer.domElement.style.visibility='hidden';
+              if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('restoring');
+              canvasRestorePromise=acquiredModelDrain.then(()=>{
+                if(disposed||gpuLost||publicDisplayStopped||sharedDetail)return;
+                renderer.domElement.style.visibility=previousCanvasVisibility;
+                resize();update();render();setDetailRestoreStatus(null);
+              });
+              void canvasRestorePromise.catch(()=>{if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('failed');});
             }else if(!disposed&&!gpuLost){resize();update();}
             // A restored opener keeps focus; never focus a temporarily hidden canvas.
             if(!deferredCanvasRestore&&!disposed&&!gpuLost&&!suspendedRef.current&&renderer.domElement.isConnected&&globalThis.document.activeElement===globalThis.document.body)renderer.domElement.focus({preventScroll:true});
@@ -3208,6 +3237,7 @@ export function GeometryPreview({
             try{
               try{await checkPublicAvailability(signal);}catch{if(alive&&!signal.aborted&&!disposed)stopPublicDisplay();return;}
               if(originalAttempt&&originalDisplayed)try{await originalAttempt.recheck();}catch{retireOriginal();}
+              await recheckAcquiredModel();
             }finally{checking=false;}
           };
           try{
@@ -3227,7 +3257,7 @@ export function GeometryPreview({
             let mounted=false,preparedRejected=false,canvasReturned=false;
             const mount=(initial:InstanceType<typeof three.Object3D>)=>borrowedDetailPreview({
               three,renderer,object:initial,
-              request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},
+              request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked||acquiredModelNeedsDrain(),deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},
               environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),
               onRelease:()=>{canvasReturned=true;if(mounted)restore();},onObjectDraw:reportDrawnTier,
             });
@@ -3379,8 +3409,103 @@ export function GeometryPreview({
                 }).catch(()=>{activateLegacy();});
               }else startApproved();
             }else if(art.artworkType==='sculpture'){
-              if(!input.anchors.length&&lastDrawnTier==='lightweight')startApproved();
-              else promotionDecision(input.anchors.length?'promotion-skipped-annotations':lastDrawnTier==='approved-full'?'promotion-skipped-already-full':'promotion-skipped-no-lightweight-draw');
+              const fallback=()=>{if(!input.anchors.length&&lastDrawnTier==='lightweight')startApproved();
+                else promotionDecision(input.anchors.length?'promotion-skipped-annotations':lastDrawnTier==='approved-full'?'promotion-skipped-already-full':'promotion-skipped-no-lightweight-draw');};
+              const context=renderer.getContext(),owner=detailOwner,access=detailAccess,modelBaseline=object;
+              if(!modelBaseline||input.anchors.length||!owner||!access||!isVerifiedStaticDetailAccess(owner,access)||
+                 !matchMedia('(pointer: fine)').matches||matchMedia('(pointer: coarse)').matches||
+                 typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))fallback();
+              else{
+                const controller=new AbortController();
+                const originalSignal=AbortSignal.any([signal,controller.signal]);
+                const key=`acquired-model/${++sequence}`;
+                const current=()=>alive&&!originalSignal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope;
+                let loaded:InstanceType<typeof three.Object3D>|undefined,displayedCandidate:string|undefined;
+                let recheckWork:Promise<void>|undefined,uncertain=false;
+                const rememberUncertainty=(error:unknown)=>{
+                  uncertain ||= error instanceof DetailAccessFailure&&error.retirement==='uncertain'||
+                    error instanceof Error&&error.message==='DETAIL_MODEL_DRAIN_UNCERTAIN';
+                };
+                acquiredModelNeedsDrain=()=>(peak.reservationBytes(key)??0)>0;
+                const cleanup=async()=>{
+                  await modelWork;
+                  await recheckWork;
+                  if(loaded){destroy(loaded);loaded=undefined;if(!context.isContextLost())await completeDetailCommands(context);}
+                  if(uncertain)throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN');
+                  peak.release(key);
+                };
+                stopAcquiredModel=()=>{
+                  if(controller.signal.aborted)return;
+                  controller.abort();
+                  const drain=cleanup();
+                  acquiredModelDrain=drain;
+                  void drain.then(()=>{if(acquiredModelDrain===drain)acquiredModelDrain=undefined;},()=>{if(alive)input.unavailable('recovery');});
+                };
+                recheckAcquiredModel=async()=>{
+                  if(!displayedCandidate||!current())return;
+                  const recheck=access.recheck(displayedCandidate,originalSignal).catch(error=>{
+                    rememberUncertainty(error);
+                    if(!current())return;
+                    if(uncertain){scope.dispose();input.unavailable('recovery');return;}
+                    displayedCandidate=undefined;diagnosticOriginal=null;diagnosticOriginalLimits=null;
+                    try{scope.replaceModel(modelBaseline);stopAcquiredModel();}catch{scope.dispose();input.unavailable('rights');}
+                  });
+                  recheckWork=recheck;
+                  try{await recheck;}finally{if(recheckWork===recheck)recheckWork=undefined;}
+                };
+                const modelWork=(async()=>{
+                  const matches=await matchesDetailRuntime(acquiredModelRuntime,context,detailRuntimeHints(),originalSignal);
+                  if(!matches||!current())return;
+                  const candidates=await access.candidatesFor(art.revisionId,originalSignal);
+                  const candidate=candidates.find(item=>item.tier==='acquired-original'&&item.mime==='model/gltf-binary');
+                  const profile=candidate&&eligibleAcquiredModel(candidate,viewerBudget.maxTriangles,context.getParameter(context.MAX_TEXTURE_SIZE));
+                  if(!candidate||!profile||!current())return;
+                  const overhead=(viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes)-transitionBudgetBytes;
+                  const limit=acquiredModelTransitionCap-Math.max(0,overhead);
+                  const reclaim=()=>peak.total()+profile.cost.peakAdditionalBytes-limit;
+                  const optionalDrain=entranceOptional?.drain;
+                  cancelIncompatibleOptional();await optionalDrain;
+                  if(!current())return;
+                  for(const item of arts)for(const asset of item.assets){if(reclaim()<=0)break;byteCache.delete(asset.id);}
+                  evictPrepared(reclaim);
+                  peak.reserve(key,profile.cost.peakAdditionalBytes,limit);
+                  const transfer=beginDetailTransfer?.('acquired-original',candidate.bytes);
+                  try{
+                    const inventory={id:candidate.assetId,path:`assets/${candidate.assetId}/model.glb`,role:'model' as const,
+                      mime:'model/gltf-binary' as const,bytes:candidate.bytes,sha256:candidate.sha256};
+                    loaded=await loadArtwork(art,inventory,originalSignal,undefined,undefined,viewerBudget,undefined,undefined,{
+                      media:profile.media,read:async fetchSignal=>{
+                        const bytes=await access.fetch(candidate.candidateId,fetchSignal,received=>transfer?.loaded(received));
+                        fetchSignal.throwIfAborted();
+                        if(bytes.byteLength!==candidate.bytes)throw Error('DETAIL_MODEL_PROFILE');
+                        return Uint8Array.from(bytes).buffer;
+                      },
+                    });
+                    if(!current())return;
+                    const decoded=loaded.userData.viewer?.decodedBytes;
+                    if(!Number.isSafeInteger(decoded)||decoded>profile.cost.peakAdditionalBytes)throw Error('DETAIL_MODEL_PROFILE');
+                    await access.recheck(candidate.candidateId,originalSignal);
+                    if(!current())return;
+                    scope.replaceModel(loaded);
+                    displayedCandidate=candidate.candidateId;lastDrawnTier=undefined;
+                    if(diagnosticsEnabled()){
+                      diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:candidate.sha256};
+                      diagnosticOriginalLimits={transition:limit,scene:limit-profile.cost.peakAdditionalBytes};
+                    }
+                    try{input.renderedTier?.('acquired-original',++originalDrawGeneration);}catch{/* A UI observer cannot undo the committed draw. */}
+                  }finally{transfer?.finish();}
+                })().catch(error=>{
+                  rememberUncertainty(error);
+                  if(current()&&(uncertain||renderer.domElement.style.visibility==='hidden')){
+                    scope.dispose();input.unavailable('recovery');
+                  }
+                }).finally(()=>{
+                  if(!displayedCandidate&&!originalSignal.aborted){
+                    stopAcquiredModel();
+                    void acquiredModelDrain?.then(()=>{if(alive&&!signal.aborted)fallback();},()=>{});
+                  }
+                });
+              }
             }
             update();return scope;
           }catch(error){restore();throw error;}

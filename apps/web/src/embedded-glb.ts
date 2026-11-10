@@ -1,5 +1,6 @@
-import {embeddedBasisPairs,ordinaryPngRoleSet} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs,ordinaryPngRoleSet,type DetailTextureFeatures} from '@exhibitos/studio-contract';
 import type { LoadingManager, Texture } from 'three';
+import {embeddedJpegSize,acquiredModelTextureEdge} from './viewer/detail-model-admission';
 /** Kept separate so legacy scopes do not newly capture the manager/handlers. */
 function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<string>,assertLoaded:()=>void,bytes:ArrayBuffer){
   let backing:ArrayBuffer|undefined=bytes;
@@ -12,7 +13,7 @@ function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<str
   }};
 }
 /** Each GLB image is served from a predeclared immutable embedded buffer, never a URL supplied by the model. */
-export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}) {
+export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}, acquiredTextures?:readonly Readonly<DetailTextureFeatures>[]) {
   const bytes = new Uint8Array(input), view = new DataView(input);
   const reject = (): never => { throw Error('EXTERNAL_RESOURCE_REJECTED'); };
   if (bytes.length < 20 || bytes.length > 33554432 || view.getUint32(0,true) !== 0x46546c67 || view.getUint32(4,true) !== 2 || view.getUint32(8,true) !== bytes.length) reject();
@@ -37,16 +38,26 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
     expectedTextures=doc.textures===undefined?doc.images.length:new Set(doc.textures.map((t: {source:number;extensions?:{KHR_texture_basisu?:{source:number}}})=>compressed&&t.extensions?.KHR_texture_basisu?t.extensions.KHR_texture_basisu.source:t.source)).size;
     const ordinary=ordinaryPngRoleSet(doc)&&doc.images.every((image:{bufferView:number})=>{const buffer=doc.bufferViews?.[image.bufferView],offset=buffer?.byteOffset??0,length=buffer?.byteLength;if(!buffer||buffer.buffer!==0||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(length)||length<33||offset+length>doc.buffers[0].byteLength)return false;const png=bytes.subarray(start+offset,start+offset+length),header=new DataView(png.buffer,png.byteOffset,png.byteLength);return [137,80,78,71,13,10,26,10].every((b,i)=>png[i]===b)&&header.getUint32(8)===13&&new TextDecoder().decode(png.subarray(12,16))==='IHDR'&&png[24]===8&&png[25]===2;}),pixelLimit=(ordinary?12:2)*1024*1024,byteLimit=(ordinary?24:8)*1024*1024;
     phasedPng=ordinary&&doc.extensionsUsed===undefined&&doc.extensionsRequired===undefined&&doc.animations===undefined&&doc.skins===undefined&&doc.meshes.every((mesh:{primitives:Record<string,unknown>[]})=>mesh.primitives.every(primitive=>primitive.targets===undefined));
+    if(acquiredTextures&&(compressed||doc.images.length!==acquiredTextures.length||!Array.isArray(doc.textures)||
+      doc.textures.length!==acquiredTextures.length||new Set(doc.textures.map((t:{source:number})=>t.source)).size!==doc.images.length))reject();
     let pixels = 0, totalBytes = 0;
     for (const image of doc.images) {
-      if (Object.keys(image).some(k=>!['bufferView','mimeType','name'].includes(k)) || !['image/png','image/ktx2'].includes(image.mimeType) || !Number.isSafeInteger(image.bufferView)) reject();
+      const original=acquiredTextures?.find(item=>item.imageIndex===doc.images.indexOf(image));
+      const jpeg=image.mimeType==='image/jpeg'&&original?.codec==='jpeg';
+      if (Object.keys(image).some(k=>!['bufferView','mimeType','name'].includes(k)) || !jpeg&&!['image/png','image/ktx2'].includes(image.mimeType) || !Number.isSafeInteger(image.bufferView)) reject();
       const buffer = doc.bufferViews?.[image.bufferView], offset = buffer?.byteOffset ?? 0, length = buffer?.byteLength;
-      if (!buffer || buffer.buffer !== 0 || buffer.byteStride !== undefined || buffer.target !== undefined || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 33 || length > 8388608 || totalBytes+length > byteLimit || offset+length > doc.buffers[0].byteLength) reject();
+      if (!buffer || buffer.buffer !== 0 || buffer.byteStride !== undefined || buffer.target !== undefined || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 33 || length > 8388608 || totalBytes+length > (acquiredTextures?16*1024*1024:byteLimit) || offset+length > doc.buffers[0].byteLength) reject();
       const png = bytes.slice(start+offset,start+offset+length), p = new DataView(png.buffer);
       if(image.mimeType==='image/ktx2'){if(!basis.has(doc.images.indexOf(image)))reject();totalBytes+=length;if(totalBytes>8388608)reject();const key='exhibitos-embedded-ktx2-'+doc.images.indexOf(image);owned.add(key);image.uri=key;delete image.bufferView;compressedImages.set(key,png);continue;}
-      if (![137,80,78,71,13,10,26,10].every((b,i)=>png[i]===b) || p.getUint32(8)!==13 || new TextDecoder().decode(png.subarray(12,16))!=='IHDR') reject();
-      const w=p.getUint32(16),h=p.getUint32(20);pixels+=w*h;totalBytes+=length;
-      if (!w||!h||w>2048||h>2048||pixels>pixelLimit||totalBytes>byteLimit||ordinary&&(png[24]!==8||png[25]!==2)) reject();
+      const dimensions=jpeg?embeddedJpegSize(png):undefined;
+      if(jpeg&&!dimensions||!jpeg&&(![137,80,78,71,13,10,26,10].every((b,i)=>png[i]===b)||p.getUint32(8)!==13||
+        new TextDecoder().decode(png.subarray(12,16))!=='IHDR'))reject();
+      const w=dimensions?.width??p.getUint32(16),h=dimensions?.height??p.getUint32(20);
+      pixels+=w*h;totalBytes+=length;
+      if(acquiredTextures){
+        if(!original||original.codec!==(jpeg?'jpeg':'png')||original.encodedBytes!==length||w!==original.width||h!==original.height||
+         w>acquiredModelTextureEdge||h>acquiredModelTextureEdge||pixels>3*acquiredModelTextureEdge**2)reject();
+      }else if(!w||!h||w>2048||h>2048||pixels>pixelLimit||totalBytes>byteLimit||ordinary&&(png[24]!==8||png[25]!==2))reject();
       // Loader handler matches an opaque model-local key; no general blob/data/http resource is allowed.
       const key = 'exhibitos-embedded-png-'+owned.size;
       owned.add(key);
@@ -55,8 +66,8 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
         load(_url: string,onLoad: (texture: unknown)=>void,_progress: unknown,onError: (error: unknown)=>void) {
           if(disposed){onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}const finish=track();
           import('three').then(async three=>{
-            const bitmap=await createImageBitmap(new Blob([png],{type:'image/png'}),{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
-            if(disposed){attempt(()=>bitmap.close());throw Error('EMBEDDED_IMAGE_DISPOSED');}
+            const bitmap=await createImageBitmap(new Blob([png],{type:jpeg?'image/jpeg':'image/png'}),{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
+            if(disposed||original&&(bitmap.width!==w||bitmap.height!==h)){attempt(()=>bitmap.close());throw Error('EMBEDDED_IMAGE_DISPOSED');}
             bitmaps.add(bitmap);const texture=new three.Texture(bitmap);texture.needsUpdate=true;textures.add(texture);ownedTextures.add(texture);onLoad(texture);
           }).catch(onError).finally(finish);
         }

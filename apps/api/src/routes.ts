@@ -32,6 +32,8 @@ import { registerOpening } from './opening.ts';
 import { openingHostAuthority } from './opening-authority.ts';
 import {NATIVE_AUTHORING_PROPOSAL_PROFILE,type NativeDefaultSeatProposalInput,type NativeAuthoringProposalInput, Studio, etag, requiredMatch, type StudioInput } from './studio.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
+import {ADOPTED_MODEL_ORIGINAL_APPROVAL,approveAdoptedModelOriginal,type AdoptedModelOriginalApproval} from './adopted-model-original-approval.ts';
+import {hasAdoptedModelOriginalApproval} from './adopted-model-original-binding.ts';
 import {createNativeOriginalPublication} from './native-original-publication.ts';
 import {hasQualifiedOriginalImageModel} from './native-original-image-model.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
@@ -354,7 +356,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}
     await nativeExportWorkspace.assertDatabase(c);
     if(detailMode)cancelled.signal.throwIfAborted();
-    if(detailMode&&!hasQualifiedOriginalImageModel(nativeDetailContext,s,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+    if(detailMode&&!hasQualifiedOriginalImageModel(nativeDetailContext,s,p.id)&&!await hasAdoptedModelOriginalApproval(c,s,nativeDetailContext!.owner.workspaceId,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
     if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');return existing;}}
     {
      const row=await studio.access(c,s,p.id),current=etag(row.revision,row.metadata);if(match&&match!==current)throw new ApiError(412,'REMOTE_CONFLICT');
@@ -470,7 +472,18 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   }));
  }
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-artwork-replacement`,{bodyLimit:4096,schema:{body:{oneOf:[object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id}),object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id,kind:{const:'approved-model-candidate-v1'},placementId:id}),object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id,kind:{const:PRODUCT_IMAGE_THUMBNAIL_REPAIR}})]}}},nativeMutation(async(c,s,req,reply)=>{const kind=(req.body as {kind?:unknown}).kind;if(kind==='approved-model-candidate-v1'&&!nativeBoundedEditing)throw new ApiError(403,'NATIVE_MODEL_REPLACEMENT_UNAVAILABLE');if(kind===PRODUCT_IMAGE_THUMBNAIL_REPAIR&&!nativeBoundedEditing)throw new ApiError(403,'IMAGE_THUMBNAIL_REPAIR_UNAVAILABLE');const result=await replaceApprovedArtwork(c,s,(req.params as {id:string}).id,req.body as ArtworkReplacementInput,requiredMatch(req.headers['if-match']),studio,cms,importer(),store);reply.header('etag',result.etag);return result;}));
- if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-original-static-approval`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req)=>approveOriginalStaticSource(c,s,(req.params as {id:string}).id,req.body as OriginalStaticApprovalInput,studio,cms,importer(),store)));
+ if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-original-static-approval`,{
+  bodyLimit:4096,schema:{body:{oneOf:[
+   object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id}),
+   object({kind:{const:ADOPTED_MODEL_ORIGINAL_APPROVAL},artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},
+    operationId:id,grantSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}}),
+  ]}},
+ },nativeMutation(async(c,s,req)=>{
+  const {id:exhibitionId}=req.params as {id:string};
+  const input=req.body as OriginalStaticApprovalInput|AdoptedModelOriginalApproval;
+  if('kind' in input)return approveAdoptedModelOriginal(c,s,exhibitionId,input,requiredMatch(req.headers['if-match']),studio,cms,importer(),store);
+  return approveOriginalStaticSource(c,s,exhibitionId,input,studio,cms,importer(),store);
+ }));
  // Reject non-owner requests before Fastify allocates the extended binary body.
  // The handler repeats authorization under the operation's transaction.
  const largeModelBody=async(req:FastifyRequest)=>{

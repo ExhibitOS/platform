@@ -5,11 +5,14 @@ import type {PoolClient} from 'pg';
 import type {BlobStore} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
-import {replaceApprovedArtwork,resolveApprovedModelCandidate} from './artwork-replacement.ts';
+import {syntheticArtwork} from '../../web/src/placement/model.ts';
+import {readApprovedModelCustody,replaceApprovedArtwork,resolveApprovedModelCandidate} from './artwork-replacement.ts';
 import {etag,type Studio} from './studio.ts';
 import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
-import {COMPACT_MODEL_RECIPE} from './oam-original-preparation.ts';
+import {COMPACT_MODEL_RECIPE,COMPACT_MODEL_RECIPE_SHA256,type CompactModelReceipt} from './oam-original-preparation.ts';
+import {createModelPreparationReceipt} from './model-preparation-intent.ts';
+import {createNativeModelAdoptionGrant,parseNativeModelAdoptionGrant,readNativeModelAdoptionBlob} from './native-model-adoption-grant.ts';
 
 it('rejects stale draft and wrong owner before inspecting or mutating a job',async()=>{
  const draft=newDraft(),session={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session,owner={workspaceId:randomUUID()},jobAccess=vi.fn(),client={query:vi.fn(async(sql:string)=>({rows:[],rowCount:sql.startsWith('SELECT * FROM studio_requests')?0:null}))} as unknown as PoolClient;
@@ -47,4 +50,76 @@ it('does not discover or adopt the same-profile compact variant of an already ap
  expect(access).toHaveBeenCalledWith(client,session,importJobId);
  expect(project).not.toHaveBeenCalled();
  expect(put).not.toHaveBeenCalled();
+});
+
+it('reads both approved source artifacts only for the authenticated source owner',async()=>{
+ const session={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session;
+ const artworkId=randomUUID(),revisionId=randomUUID(),jobId=randomUUID(),workspaceId=randomUUID();
+ const original=Buffer.alloc(128,1),display=Buffer.alloc(96,2);
+ const digest=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
+ const originalAssetId=randomUUID(),displayAssetId=randomUUID(),rights=structuredClone(syntheticArtwork('sculpture').rights);
+ rights.permissions={download:true,display:true,export:true,commercial:false};
+ const bounds={min:[0,0,0],max:[1,1,1]} as CompactModelReceipt['source']['bounds'];
+ const producer:CompactModelReceipt={version:1,recipeId:COMPACT_MODEL_RECIPE.id,recipeSHA256:COMPACT_MODEL_RECIPE_SHA256,
+  source:{bytes:original.length,sha256:digest(original),triangles:1,vertices:3,bounds},
+  output:{bytes:display.length,sha256:digest(display),triangles:1,vertices:3,bounds,textureEdge:1,reusedOriginal:false},
+  images:[],simplifier:{version:'1.1.1',relativeAppearanceError:0,lockedVertices:3},decoder:COMPACT_MODEL_RECIPE.decoder};
+ const job={id:jobId,artwork_id:artworkId,user_id:session.userId,state:'approved',mime:'model/gltf-binary',asset_id:displayAssetId,
+  original_asset_id:originalAssetId,object_key:'original',approved_key:'display',expected_hash:digest(original),expected_bytes:original.length,
+  lease_id:null,png_drain_version:1,png_worker_tokens:[],rights,model_preparation:{kind:'required-model-compact',
+   request:{version:1,profileId:COMPACT_MODEL_RECIPE.id,operationID:'source',generation:'source',artworkRevision:1},
+   result:undefined as ReturnType<typeof createModelPreparationReceipt>|undefined}};
+ job.model_preparation.result=createModelPreparationReceipt(job,originalAssetId,displayAssetId,producer);
+ const cms={ownArtwork:vi.fn(async()=>({revision:1,approved_revision:1,approved_asset_id:displayAssetId})),studioArtwork:vi.fn(async()=>({
+  artwork:{id:artworkId,revision:1,revisionId,artworkType:'sculpture',rights,primaryAssetId:displayAssetId,
+   assets:[{id:displayAssetId,mime:'model/gltf-binary',sha256:digest(display),bytes:display.length}]},
+ }))} as unknown as Cms;
+ const imports={coarseOwner:vi.fn(async()=>({workspaceId})),requiredModelReady:vi.fn(),access:vi.fn(async()=>job)} as unknown as Imports;
+ const client={query:vi.fn(async()=>({rows:[{id:jobId}]}))} as unknown as PoolClient;
+ const read=vi.fn(async(key:string)=>key==='original'?original:display),blobs={getBounded:read} as unknown as BlobStore;
+ const run=()=>readApprovedModelCustody(client,session,artworkId,1,cms,imports,blobs);
+
+ await expect(run()).resolves.toMatchObject({
+  source:{workspaceId,tenantId:session.tenantId,principalId:session.userId,artworkId,artworkRevision:1,artworkRevisionId:revisionId},
+  receipt:job.model_preparation.result,original,display,
+ });
+ const custody=await run(),now=Date.now();
+ const target={workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),artworkId:randomUUID(),
+  artworkRevision:4,exhibitionId:randomUUID(),placementId:randomUUID(),etag:etag(3,newDraft())};
+ const grant=createNativeModelAdoptionGrant(custody,{operationId:randomUUID(),target,expiresAt:now+600_000},now);
+ expect(parseNativeModelAdoptionGrant(grant,now)).toEqual(grant);
+ expect(grant).toMatchObject({target,receiptSha256:custody.receipt.sha256,
+  original:{sha256:digest(original),bytes:original.length},display:{sha256:digest(display),bytes:display.length}});
+ for(const invalid of [
+  {...grant,target:{...target,workspaceId}},
+  {...grant,target:{...target,etag:'unbound'}},
+  {...grant,source:{...grant.source,jobToken:'unexpected'}},
+  {...grant,expiresAt:now+900_001},
+  {...grant,expiresAt:now},
+  {...grant,original:{...grant.original,bytes:27}},
+  {...grant,display:{...grant.display,sha256:grant.original.sha256}},
+ ])expect(()=>parseNativeModelAdoptionGrant(invalid,now)).toThrow('MODEL_ADOPTION_GRANT_INVALID');
+ expect(()=>createNativeModelAdoptionGrant({...custody,source:{...custody.source,artworkId:randomUUID()}},
+  {operationId:randomUUID(),target,expiresAt:now+600_000},now)).toThrow('MODEL_ADOPTION_SOURCE_CHANGED');
+ const signal=new AbortController().signal;
+ async function* chunks(...parts:Buffer[]){yield* parts;}
+ await expect(readNativeModelAdoptionBlob(grant,'original',chunks(original.subarray(0,12),original.subarray(12)),signal)).resolves.toEqual(original);
+ await expect(readNativeModelAdoptionBlob(grant,'display',chunks(display),signal)).resolves.toEqual(display);
+ for(const bytes of [display.subarray(1),Buffer.concat([display,Buffer.alloc(1)]),Buffer.alloc(display.length,3)])
+  await expect(readNativeModelAdoptionBlob(grant,'display',chunks(bytes),signal)).rejects.toThrow('MODEL_ADOPTION_STAGE_INTEGRITY');
+ await expect(readNativeModelAdoptionBlob(grant,'original',chunks(display),signal)).rejects.toThrow('MODEL_ADOPTION_STAGE_INTEGRITY');
+ await expect(readNativeModelAdoptionBlob(grant,'display',chunks(display),AbortSignal.abort())).rejects.toMatchObject({name:'AbortError'});
+ expect(read).toHaveBeenCalledWith('original',original.length);
+ expect(read).toHaveBeenCalledWith('display',display.length);
+ read.mockImplementationOnce(async()=>Buffer.alloc(display.length,3));
+ await expect(run()).rejects.toThrow('ASSET_INTEGRITY');
+ read.mockImplementationOnce(async()=>display).mockImplementationOnce(async()=>Buffer.alloc(original.length,3));
+ await expect(run()).rejects.toThrow('ASSET_INTEGRITY');
+ read.mockClear();
+ vi.mocked(imports.coarseOwner).mockRejectedValueOnce(Error('FORBIDDEN'));
+ await expect(run()).rejects.toThrow('FORBIDDEN');
+ rights.permissions.download=false;
+ job.model_preparation.result=createModelPreparationReceipt(job,originalAssetId,displayAssetId,producer);
+ await expect(run()).rejects.toThrow('RIGHTS_DENIED');
+ expect(read).not.toHaveBeenCalled();
 });

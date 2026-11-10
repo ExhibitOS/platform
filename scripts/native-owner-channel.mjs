@@ -2,24 +2,45 @@
 // Inactive private native channel handshake. No HTTP, job authority, claim,
 // worker-exit proof or release capability is provided by this module.
 import {closeSync,fstatSync} from 'node:fs';
+import {isAbsolute} from 'node:path';
 import {Socket} from 'node:net';
 import {timingSafeEqual} from 'node:crypto';
 import {attachNativeOwnerFrames} from './native-owner-frames.mjs';
 
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hex=/^[a-f0-9]{64}$/;
+const hayesKeys=['version','runtimeGeneration','secret','nativeOwnerId','runtimeManifestSha256'];
+const adoptionKeys=[...hayesKeys,'helper','rootDevice','rootInode'];
+const ordered=(value,keys)=>closed(value,keys)&&Object.keys(value).join(',')===keys.join(',');
+const validIdentity=value=>typeof value==='string'&&/^(0|[1-9][0-9]{0,19})$/.test(value)&&BigInt(value)<=18446744073709551615n;
+const validDedicated=(pin,owner)=>pin.version===1&&pin.runtimeGeneration===owner.runtimeGeneration&&
+ typeof pin.secret==='string'&&hex.test(pin.secret)&&pin.secret!==owner.secret&&
+ typeof pin.nativeOwnerId==='string'&&uuid.test(pin.nativeOwnerId)&&
+ typeof pin.runtimeManifestSha256==='string'&&hex.test(pin.runtimeManifestSha256);
 const closed=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
 export function closeNativeOwnerDescriptor(fdText){if(typeof fdText==='string'&&/^(?:[1-9][0-9]{1,3})$/.test(fdText)&&Number(fdText)<=1023)try{closeSync(Number(fdText));}catch{/* The descriptor may already have been closed. */}}
 
 /** Legacy FD0 data remains unchanged. The envelope is an opt-in fixed ABI. */
 export function unpackNativeOwnerInput(input){
  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('NATIVE_OWNER_INPUT');
- if(!Object.hasOwn(input,'ownerChannel')){if(Object.hasOwn(input,'hayesOwnerChannel'))throw Error('NATIVE_OWNER_INPUT');return {workspace:input};}
+ const hasHayes=Object.hasOwn(input,'hayesOwnerChannel'),hasAdoption=Object.hasOwn(input,'adoptionOwnerChannel');
+ if(!Object.hasOwn(input,'ownerChannel')){if(hasHayes||hasAdoption)throw Error('NATIVE_OWNER_INPUT');return {workspace:input};}
  const owner=input.ownerChannel,v1=closed(owner,['version','runtimeGeneration','secret'])&&owner.version===1,v2=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===2&&['fresh-oex-test-v1','normal-oex-v1','normal-oex-027-v2'].includes(owner.mode),v3=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===3&&['normal-oex-027-v3','normal-oex-028-v4','normal-oex-workspace-v5','normal-oex-workspace-import-v6','normal-oex-workspace-import-v7','workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'].includes(owner.mode);
- const hayes=input.hayesOwnerChannel,hasHayes=Object.hasOwn(input,'hayesOwnerChannel');
- if(!(hasHayes?closed(input,['workspace','ownerChannel','hayesOwnerChannel']):closed(input,['workspace','ownerChannel']))||!v1&&!v2&&!v3||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
- if(hasHayes&&(!v3||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'].includes(owner.mode)||!closed(hayes,['version','runtimeGeneration','secret','nativeOwnerId','runtimeManifestSha256'])||Object.keys(input).join(',')!=='workspace,ownerChannel,hayesOwnerChannel'||Object.keys(owner).join(',')!=='version,runtimeGeneration,secret,mode'||Object.keys(hayes).join(',')!=='version,runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256'||hayes.version!==1||hayes.runtimeGeneration!==owner.runtimeGeneration||typeof hayes.secret!=='string'||!hex.test(hayes.secret)||hayes.secret===owner.secret||typeof hayes.nativeOwnerId!=='string'||!uuid.test(hayes.nativeOwnerId)||typeof hayes.runtimeManifestSha256!=='string'||!hex.test(hayes.runtimeManifestSha256)))throw Error('NATIVE_OWNER_INPUT');
- return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})},...(hasHayes?{hayesOwnerChannel:{runtimeGeneration:hayes.runtimeGeneration,secret:hayes.secret,nativeOwnerId:hayes.nativeOwnerId,runtimeManifestSha256:hayes.runtimeManifestSha256}}:{})};
+ const hayes=input.hayesOwnerChannel,adoption=input.adoptionOwnerChannel,keys=['workspace','ownerChannel'];
+ if(hasHayes)keys.push('hayesOwnerChannel');
+ if(hasAdoption)keys.push('adoptionOwnerChannel');
+ if(!closed(input,keys)||(!v1&&!v2&&!v3)||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
+ const ordinary=owner.mode==='workspace-furnishing-036-initialize-v1'||owner.mode==='workspace-furnishing-036-reopen-v1';
+ if((hasHayes||hasAdoption)&&(!v3||!ordered(input,keys)||!ordered(owner,['version','runtimeGeneration','secret','mode'])))throw Error('NATIVE_OWNER_INPUT');
+ if(hasHayes&&((!ordinary&&!['workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'].includes(owner.mode))||
+   !ordered(hayes,hayesKeys)||!validDedicated(hayes,owner)))throw Error('NATIVE_OWNER_INPUT');
+ if(hasAdoption&&(!ordinary||!ordered(adoption,adoptionKeys)||!validDedicated(adoption,owner)||
+   typeof adoption.helper!=='string'||!isAbsolute(adoption.helper)||adoption.helper.includes('\0')||
+   !validIdentity(adoption.rootDevice)||!validIdentity(adoption.rootInode)||adoption.rootInode==='0'||
+   (hasHayes&&(hayes.secret===adoption.secret||hayes.nativeOwnerId===adoption.nativeOwnerId||hayes.runtimeManifestSha256!==adoption.runtimeManifestSha256))))throw Error('NATIVE_OWNER_INPUT');
+ const unpackDedicated=({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256})=>({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256});
+ return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})},
+   ...(hasHayes?{hayesOwnerChannel:unpackDedicated(hayes)}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{})};
 }
 
 /** Receives the Manager hello on its inherited socket; this cannot authenticate

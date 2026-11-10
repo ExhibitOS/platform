@@ -311,7 +311,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     snapshot.createdAt = at;
     snapshot.revision = 1;
     if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
-    const artworkIdentities=prepared.filter(p=>p.artwork.artworkType==='image').map(p=>({artworkId:p.artwork.id,artworkRevisionId:p.artwork.revisionId,artworkRevision:p.artwork.revision,publicArtworkId:map(p.artwork.id),publicArtworkRevisionId:map(p.artwork.revisionId)}));
+    const artworkIdentities=prepared.map(p=>({artworkId:p.artwork.id,artworkRevisionId:p.artwork.revisionId,artworkRevision:p.artwork.revision,publicArtworkId:map(p.artwork.id),publicArtworkRevisionId:map(p.artwork.revisionId)}));
     return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[],workspaceMaterialBindings:workspaceMaterials?.bindings??[],artworkIdentities };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
