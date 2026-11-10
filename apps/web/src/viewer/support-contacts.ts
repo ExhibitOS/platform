@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {artifactCorners,benchBoxes,benchesFor,installationFor,installationPlane} from '@exhibitos/studio-contract';
+import {artifactCorners,benchBoxes,benchesFor,installationFor,installationPlane,wallFinishesFor} from '@exhibitos/studio-contract';
 import type {SupportContact} from './shadows';
 
 type Rectangle = {x:number;y:number;width:number;height:number};
-type Receiver = {group:Three.Group;rectangles:readonly Rectangle[]};
+type Receiver = {group:Three.Group;rectangles:readonly Rectangle[];faceZ:number};
 
 // Bounded contact descriptors and matrix/uniform state; compiled-program
 // storage is driver-owned and is not represented by this byte estimate.
@@ -22,10 +22,11 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
   const up=new three.Vector3(0,1,0),axisX=new three.Vector3(1,0,0);
   const floorRotation=new three.Quaternion().setFromAxisAngle(axisX,-Math.PI/2);
   const point=(value:readonly number[])=>new three.Vector3(value[0],value[1],value[2]);
+  const wallDepths=new Map(wallFinishesFor(document).map(wall=>[wall.surfaceId.toLowerCase(),wall.depth]));
   const receiver=(roomId:string,type:'floor'|'wall')=>document.surfaces.flatMap((surface,index)=>{
     const group=surfaces.get(surface.id.toLowerCase());
     return surface.type===type&&surface.roomId.toLowerCase()===roomId.toLowerCase()&&group
-      ?[{group,rectangles:rectangles[index]??[]}]:[];
+      ?[{group,rectangles:rectangles[index]??[],faceZ:type==='wall'?(wallDepths.get(surface.id.toLowerCase())??0)/2:0}]:[];
   });
   function contains(receiver:Receiver,room:Three.Group,position:Three.Vector3,
     rotation:Three.Quaternion,width:number,height:number) {
@@ -33,7 +34,7 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       const local=new three.Vector3(x!*width/2,y!*height/2,0).applyQuaternion(rotation).add(position);
       return receiver.group.worldToLocal(room.localToWorld(local));
     });
-    return receiver.rectangles.some(rect=>corners.every(c=>Math.abs(c.z)<.008&&
+    return receiver.rectangles.some(rect=>corners.every(c=>Math.abs(c.z-receiver.faceZ)<.008&&
       Math.abs(c.x-rect.x)<rect.width/2-.002&&Math.abs(c.y-rect.y)<rect.height/2-.002));
   }
   function visibleLegBounds(leg:Three.Object3D,room:Three.Group) {
@@ -141,7 +142,9 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       const [a,b]=local;
       if(!a||!b||Math.abs(a.y-b.y)>.004||local.some(p=>p.z<frame.thickness||p.z>frame.thickness+.05))return [];
       const border=frame.gap+frame.matWidth+frame.borderWidth;
-      const position=point([(a.x+b.x)/2,a.y-border-.012,.002]).applyQuaternion(rotation).add(wall.group.position);
+      // Architectural wall structures are centred on the metadata plane.
+      // Shade their visible front face, rather than the buried centre plane.
+      const position=point([(a.x+b.x)/2,a.y-border-.012,wall.faceZ+.002]).applyQuaternion(rotation).add(wall.group.position);
       const width=Math.abs(b.x-a.x)+2*border+.04,height=.075;
       return contains(wall,room,position,rotation,width,height)?[{position,rotation,width,height,receiver:wall.group}]:[];
     });
