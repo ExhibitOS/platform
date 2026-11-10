@@ -3,7 +3,7 @@ import {SPATIAL_NAMESPACE,spatialProgramFor,validateSpatialProfile} from '@exhib
 import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
-import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,exitDestinationUrl,experienceFor,validateViewerExperience,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail,pinnedAuthoritySnapshot,portableOexSnapshot,withoutImportedPreviews,writeOexWithinBudget} from './oex.ts';
 import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -21,6 +21,40 @@ describe('OEX service boundaries',()=>{
   expect(mapped.furnishings).toEqual([{...source.furnishings[0],id:idMap[id]}]);
   expect(idMap[id]).not.toBe(id);
   expect(mapped.frameAttachments).toEqual([{...source.frameAttachments![0],placementId:idMap[placement.id],artworkRevisionId:idMap[art.revisionId],assetId:idMap[art.primaryAssetId],furnishingId:idMap[id]}]);
+ });
+ it('preserves per-placement exit destinations through the workspace room-visual remap',async()=>{
+  const e=await fixture(),wall=e.surfaces.find(surface=>surface.type==='wall')!;
+  const furnishingId='70000000-0000-4000-8000-000000000001',placementId='70000000-0000-4000-8000-000000000002';
+  const workspace:WorkspaceFurnishings={version:3,furnishings:[{id:furnishingId,version:1,kind:'barrier',name:'Exit',rights:e.artworks[0]!.rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256:'a'.repeat(64)}}],placements:[{id:placementId,roomId:wall.roomId,furnishingId,furnishingVersion:1,position:[...wall.transform.position],yaw:Math.atan2(2*wall.transform.rotation[1]*wall.transform.rotation[3],1-2*wall.transform.rotation[1]**2),scale:1}]};
+  const experience=experienceFor(e);
+  const door={placementId,surfaceId:wall.id,primary:{name:'ExhibitOS',url:'https://exhibitos.org/'},additional:[{name:'Museum',url:'https://example.org/visit'}]};
+  experience.exitDoors=[door];
+  e.extensions={...e.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:workspace,[EXPERIENCE_NAMESPACE]:experience} as unknown as Exhibition['extensions'];
+  expect(validateViewerExperience(e).valid).toBe(true);
+  const {exhibition,idMap}=remapOex(e,workspace);
+  expect(validateViewerExperience(exhibition).valid).toBe(true);
+  expect(experienceFor(exhibition).exitDoors).toEqual([{...door,placementId:idMap[placementId],surfaceId:idMap[wall.id]}]);
+  for(const url of ['javascript:alert(1)','http://example.org','//example.org','https:///example.org','https://user@example.org','https://@example.org','https://example.org/ x']){
+   expect(exitDestinationUrl(url)).toBeUndefined();
+   door.primary.url=url;
+   expect(validateViewerExperience(e).valid).toBe(false);
+  }
+  door.primary.url='https://EXAMPLE.org:443/visit';
+  expect(validateViewerExperience(e).valid).toBe(false);
+  door.primary.url='https://exhibitos.org/';
+  workspace.furnishings[0]!.kind='info-stand';
+  expect(validateViewerExperience(e).valid).toBe(false);
+  workspace.furnishings[0]!.kind='barrier';
+  const visual=workspace.placements[0]!,yaw=visual.yaw;
+  visual.yaw+=Math.PI/2;
+  expect(validateViewerExperience(e).valid).toBe(false);
+  visual.yaw=yaw;
+  visual.position[0]+=Math.sin(yaw)*.25;
+  visual.position[2]+=Math.cos(yaw)*.25;
+  expect(validateViewerExperience(e).valid).toBe(false);
+  visual.position=[...wall.transform.position];
+  wall.type='floor';
+  expect(validateViewerExperience(e).valid).toBe(false);
  });
  it('preserves bounded poster settings and remaps the cover with its approved PNG inventory', async () => {
   const e = await fixture(), image = e.artworks.find(a => a.artworkType === 'image')!;
