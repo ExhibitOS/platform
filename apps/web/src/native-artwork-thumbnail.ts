@@ -3,6 +3,7 @@ import {basisLoader} from './basis-loader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
 import type {FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
+import {artworkThumbnailSource,ARTWORK_THUMBNAIL_RECIPE,ARTWORK_THUMBNAIL_TOOL} from './native-catalog-protocol';
 import {approvedDisplayCopyResponse} from './approved-display-response';
 const maxBytes=16*1024*1024;
 async function bounded(response:Response,signal:AbortSignal,limit=maxBytes){
@@ -22,10 +23,21 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  const response=await fetch(`${path}/preview?expectedRevision=${request.expectedRevision}`,options);
  if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||!approvedDisplayCopyResponse(response.headers))throw Error('THUMBNAIL_REVISION');
  const mime=response.headers.get('content-type')?.split(';')[0];if(mime!=='image/png'&&mime!=='model/gltf-binary')throw Error('THUMBNAIL_TYPE');
+ const source=mime==='model/gltf-binary'?artworkThumbnailSource(artwork,request.artworkId,request.expectedRevision):undefined;
  const bytes=await bounded(response,signal);signal.throwIfAborted();
+ const displaySha256=source?await sha256(bytes):undefined;
  const canvas=await renderThumbnail(bytes,mime,signal);
  const currentResponse=await fetch(`${path}/display`,options);if(!currentResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');const current=await currentResponse.json() as {id:string;revision:number};if(current.id!==request.artworkId||current.revision!==request.expectedRevision)throw Error('THUMBNAIL_REVISION');
- return (await encodeThumbnail(canvas,signal)).image;
+ const {image,bytes:png}=await encodeThumbnail(canvas,signal);
+ if(!source)return image;
+ const pngSha256=await sha256(png);
+ // Encoding is asynchronous too: recheck the exact source after it completes.
+ const finalResponse=await fetch(path,options);if(!finalResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
+ const final=artworkThumbnailSource(await finalResponse.json(),request.artworkId,request.expectedRevision);
+ if(final.sourceAssetId!==source.sourceAssetId||final.sourceSha256!==source.sourceSha256||final.sourceBytes!==source.sourceBytes)throw Error('THUMBNAIL_REVISION');
+ signal.throwIfAborted();
+ return {...image,sourceAssetId:source.sourceAssetId,sourceSha256:source.sourceSha256,displaySha256:displaySha256!,pngSha256,
+  recipeId:ARTWORK_THUMBNAIL_RECIPE,toolId:ARTWORK_THUMBNAIL_TOOL,modelBytes:bytes.length};
 }
 
 async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal){

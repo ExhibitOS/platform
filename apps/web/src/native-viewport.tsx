@@ -20,7 +20,7 @@ import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedBoundedEditing,checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction,type NativeBoundedEditingCapability} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
-import {checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,FURNISHING_THUMBNAIL_CAPABILITY,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
+import {checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail,produceFurnishingThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
@@ -87,7 +87,9 @@ async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
  const generation=acceptGeneration;
  const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal});
  if(!response.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const session=await response.json() as Session;
- if(generation!==acceptGeneration||acceptPending||current!==frame||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
+ if(generation!==acceptGeneration||acceptPending||current!==frame||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');
+ if(!currentSession||session.csrfToken!==currentSession.csrfToken||session.expiresAt!==currentSession.expiresAt||session.role!==currentSession.role||session.nativeRenderedArtworkThumbnailProfile!==currentSession.nativeRenderedArtworkThumbnailProfile)throw Error('VIEWPORT_SCOPE_CHANGED');
+ signal.throwIfAborted();
 }
 function beginCatalogRequest(request:CatalogBinding){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
@@ -172,7 +174,7 @@ window.exhibitosViewport={
    if(Object.hasOwn(validated,'editingCapability'))editingCapability=checkedBoundedEditing(validated.editingCapability,frame);
    const again=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});
    if(!again.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const live=await again.json() as Session;
-   if(live.tenantId!==session.tenantId||live.userId!==session.userId||live.role!==session.role||live.csrfToken!==session.csrfToken||live.expiresAt!==session.expiresAt)throw Error('VIEWPORT_SCOPE_CHANGED');
+   if(live.tenantId!==session.tenantId||live.userId!==session.userId||live.role!==session.role||live.csrfToken!==session.csrfToken||live.expiresAt!==session.expiresAt||live.nativeRenderedArtworkThumbnailProfile!==session.nativeRenderedArtworkThumbnailProfile)throw Error('VIEWPORT_SCOPE_CHANGED');
   }
   if(generation!==acceptGeneration)throw Error('VIEWPORT_FRAME_STALE');
   // An earlier asynchronous accept may finish after a newer one.
@@ -181,13 +183,14 @@ window.exhibitosViewport={
   if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
   acceptPending=false;if(needsAuthority&&placement.active)placement.cancel('큰 전시는 보기 전용이어서 배치를 취소했어요.');
   cameraGate.advance();entrancePreview.invalidate();current=frame;if(pendingEditorCommit&&snapshotEditSettled(pendingEditorCommit,frame,false))pendingEditorCommit=undefined;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
-  const sameSession=!!currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt&&currentSession.role===session.role&&currentSession.workspaceFurnishingProfile===session.workspaceFurnishingProfile;
+  const sameSession=!!currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt&&currentSession.role===session.role&&currentSession.workspaceFurnishingProfile===session.workspaceFurnishingProfile&&currentSession.nativeRenderedArtworkThumbnailProfile===session.nativeRenderedArtworkThumbnailProfile;
   if(!sameSession)currentSession=session;
   ownerAuthority=ownerAuthorityGate.accept(session);
   receive?.(frame,currentSession!,ownerAuthority);
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
-  const capabilities=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
-   frame.disabled||frame.presentation==='plan'?NATIVE_CAPABILITIES:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
+  const capabilities:string[]=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
+   frame.disabled||frame.presentation==='plan'?[...NATIVE_CAPABILITIES]:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
+  if(!frame.disabled&&frame.presentation!=='plan'&&!currentReadOnly&&session.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE)capabilities.push(RENDERED_ARTWORK_THUMBNAIL_PROFILE);
   const canRenderFurnishing=!needsAuthority&&!frame.disabled&&session.workspaceFurnishingProfile==='workspace-furnishing-intake-v1';
   return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:canRenderFurnishing?[...capabilities,FURNISHING_THUMBNAIL_CAPABILITY]:capabilities,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
@@ -328,7 +331,8 @@ window.exhibitosViewport={
   const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');const {abort,signal}=beginCatalogRequest(request);
   const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>reject(Error('CATALOG_REQUEST_CANCELLED')),{once:true}));
   try{return await Promise.race([thumbnailQueue.run(async()=>{
-   await catalogSession(frame!,signal);const image=await produceArtworkThumbnail(request,signal);await catalogSession(frame!,signal);
+   await catalogSession(frame!,signal);const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;const image=await produceArtworkThumbnail(request,signal);await catalogSession(frame!,signal);
+   if('sourceAssetId' in image&&(currentReadOnly||!renderedReady))throw Error('THUMBNAIL_UNAVAILABLE');
    return {...catalogBinding(request),artworkId:request.artworkId,revision:request.expectedRevision,...image};
   }),cancelled]);}finally{catalogRequests.delete(abort);abort.abort();}
  },

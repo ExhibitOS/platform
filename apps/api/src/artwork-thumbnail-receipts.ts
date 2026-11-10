@@ -7,7 +7,7 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {Cms,validMetadata} from './cms.ts';
 import {allowedRights} from './rights.ts';
-import {parseThumbnailCandidate,validateThumbnailBytes} from './artwork-thumbnail.ts';
+import {parseThumbnailCandidate,parseRenderedThumbnail,validateThumbnailBytes,RENDERED_ARTWORK_THUMBNAIL_PROFILE,RENDERED_ARTWORK_THUMBNAIL_RECIPE,RENDERED_ARTWORK_THUMBNAIL_TOOL} from './artwork-thumbnail.ts';
 
 export interface FrozenThumbnailPin {artworkId:string;revision:number;bindingId:string;sourceAssetId:string;sourceSha256:string;thumbnailAssetId:string;thumbnailSha256:string;bytes:number}
 export function validFrozenThumbnailPin(pin:FrozenThumbnailPin){
@@ -74,6 +74,56 @@ export class ArtworkThumbnailReceipts {
   return {selectionVersion:selected?.version??0,bindingId:selected?.binding_id??null};
  }
  async select(c:PoolClient,s:Session,artworkId:string,value:unknown){
+  return this.selectBound(c,s,artworkId,value);
+ }
+ /** Persist the reviewed client PNG without changing artwork approval or revision. */
+ async selectRendered(c:PoolClient,s:Session,artworkId:string,value:unknown){
+  const input=parseRenderedThumbnail(value),{png,...claims}=input;
+  if(sha256(png)!==input.pngSha256)throw new ApiError(422,'ARTWORK_THUMBNAIL_INVALID');
+  if(!this.blobs.putDurable||!this.blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:rendered-thumbnail:${s.userId}:${input.requestId}`]);
+  const art=await this.cms.ownArtwork(c,s,artworkId);
+  if(!validMetadata(art.metadata)||art.revision!==input.expectedRevision||art.approved_revision!==art.revision||art.approved_asset_id!==input.sourceAssetId)throw new ApiError(409,'REVISION_CONFLICT');
+  if(!allowedRights(art.metadata.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+  const approval=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,artworkId,art.revision])).rows[0]?.snapshot;
+  if(approval?.asset?.id!==input.sourceAssetId||approval.asset.sha256!==input.sourceSha256||!isDeepStrictEqual(approval.metadata,art.metadata))throw new ApiError(409,'APPROVAL_INVALID');
+  const source=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,artworkId,input.sourceAssetId])).rows[0];
+  if(!source||!allowedRights(source.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+  if(source.mime!=='model/gltf-binary'||source.sha256!==input.sourceSha256||Number(source.bytes)!==approval.asset.bytes||source.mime!==approval.asset.mime||!Number.isSafeInteger(Number(source.bytes))||Number(source.bytes)<28||Number(source.bytes)>32*1024*1024)throw new ApiError(409,'ASSET_INTEGRITY');
+  // Recompute the same approved preview used by the existing renderer. Its hash
+  // may differ from the approved primary (for example, a display watermark).
+  const display=await this.cms.display(c,s,artworkId,true,input.expectedRevision) as {bytes:Buffer;mime:string;revision:number};
+  if(display.mime!=='model/gltf-binary'||display.revision!==input.expectedRevision||display.bytes.length<28||display.bytes.length>16*1024*1024||sha256(display.bytes)!==input.displaySha256)throw new ApiError(409,'ASSET_INTEGRITY');
+  const dimensions=await validateThumbnailBytes(png);
+  if(dimensions.width!==256||dimensions.height!==256)throw new ApiError(422,'ARTWORK_THUMBNAIL_INVALID');
+  const digest=sha256(Buffer.from(JSON.stringify({kind:RENDERED_ARTWORK_THUMBNAIL_PROFILE,artworkId,...claims})));
+  const prior=(await c.query('SELECT * FROM artwork_thumbnail_bindings WHERE tenant_id=$1 AND created_by=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId])).rows[0];
+  if(prior&&prior.payload_sha256!==digest)throw new ApiError(409,'REQUEST_CONFLICT');
+  const signal=AbortSignal.timeout(10000);
+  let thumbnailAssetId:string;
+  if(prior){
+   thumbnailAssetId=prior.thumbnail_asset_id;
+   const bytes=Buffer.from(await this.blobs.getBounded(prior.object_key,png.length,signal));
+   if(Number(prior.bytes)!==png.length||prior.sha256!==input.pngSha256||bytes.length!==png.length||sha256(bytes)!==input.pngSha256)throw new ApiError(409,'ASSET_INTEGRITY');
+  }else{
+   const selection=(await c.query('SELECT binding_id,version FROM artwork_thumbnail_selections WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3 FOR UPDATE',[s.tenantId,artworkId,input.expectedRevision])).rows[0];
+   if((selection?.version??0)!==input.expectedSelectionVersion||input.expectedSelectionVersion>=2147483647)throw new ApiError(409,'SELECTION_CONFLICT');
+   const key=`${s.tenantId}/artwork-thumbnails/${s.userId}/${input.requestId}/${digest}.png`;
+   // The immutable key is reusable after uncertain transaction failure. Never
+   // delete it on SQL rollback: a retry may already be using these exact bytes.
+   await this.blobs.putDurable(key,png);
+   const stored=Buffer.from(await this.blobs.getBounded(key,png.length,signal));
+   if(stored.length!==png.length||sha256(stored)!==input.pngSha256)throw new ApiError(409,'ASSET_INTEGRITY');
+   thumbnailAssetId=randomUUID();
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",[s.tenantId,thumbnailAssetId,artworkId,source.rights_id,key,input.pngSha256,png.length]);
+  }
+  const recipe={version:1,kind:'authorized-rendered-representative-image',profile:RENDERED_ARTWORK_THUMBNAIL_PROFILE,recipeId:RENDERED_ARTWORK_THUMBNAIL_RECIPE,toolId:RENDERED_ARTWORK_THUMBNAIL_TOOL,view:input.view,
+   source:{assetId:source.id,sha256:source.sha256,bytes:Number(source.bytes)},display:{sha256:input.displaySha256,bytes:display.bytes.length},output:{sha256:input.pngSha256,bytes:png.length,width:256,height:256}};
+  const receipt=await this.selectBound(c,s,artworkId,{requestId:input.requestId,expectedRevision:input.expectedRevision,expectedSelectionVersion:input.expectedSelectionVersion,
+   sourceAssetId:input.sourceAssetId,sourceSha256:input.sourceSha256,thumbnailAssetId,thumbnailSha256:input.pngSha256,view:input.view},{digest,recipe});
+  return {...receipt,thumbnailAssetId,thumbnailSha256:input.pngSha256};
+ }
+ private async selectBound(c:PoolClient,s:Session,artworkId:string,value:unknown,rendered?:{digest:string;recipe:Record<string,unknown>}){
   const input=parseThumbnailCandidate(value),art=await this.cms.ownArtwork(c,s,artworkId);
   if(!validMetadata(art.metadata)||art.revision!==input.expectedRevision||art.approved_revision!==art.revision||art.approved_asset_id!==input.sourceAssetId)throw new ApiError(409,'REVISION_CONFLICT');
   if(!allowedRights(art.metadata.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
@@ -87,7 +137,7 @@ export class ArtworkThumbnailReceipts {
   const source=await readAsset(input.sourceAssetId),thumb=await readAsset(input.thumbnailAssetId);
   if(source.sha256!==input.sourceSha256||Number(source.bytes)!==primary.bytes||source.mime!==primary.mime||thumb.sha256!==input.thumbnailSha256||thumb.mime!=='image/png'||Number(thumb.bytes)>512*1024||input.view.kind==='orbit'&&source.mime!=='model/gltf-binary')throw new ApiError(409,'ASSET_INTEGRITY');
   const payload={artworkId,revision:input.expectedRevision,sourceAssetId:input.sourceAssetId,sourceSha256:input.sourceSha256,thumbnailAssetId:input.thumbnailAssetId,thumbnailSha256:input.thumbnailSha256,expectedSelectionVersion:input.expectedSelectionVersion,view:input.view};
-  const digest=sha256(Buffer.from(JSON.stringify(payload)));
+  const digest=rendered?.digest??sha256(Buffer.from(JSON.stringify(payload)));
   const prior=(await c.query('SELECT id,payload_sha256,selection_version FROM artwork_thumbnail_bindings WHERE tenant_id=$1 AND created_by=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId])).rows[0];
   if(prior){if(prior.payload_sha256!==digest)throw new ApiError(409,'REQUEST_CONFLICT');const current=(await c.query('SELECT binding_id,version FROM artwork_thumbnail_selections WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3',[s.tenantId,artworkId,art.revision])).rows[0];return {id:prior.id,selectionVersion:prior.selection_version,selected:current?.binding_id===prior.id};}
   const selection=(await c.query('SELECT binding_id,version FROM artwork_thumbnail_selections WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3 FOR UPDATE',[s.tenantId,artworkId,art.revision])).rows[0];
@@ -99,7 +149,7 @@ export class ArtworkThumbnailReceipts {
   const current=await this.cms.ownArtwork(c,s,artworkId),sourceAgain=await readAsset(input.sourceAssetId),thumbAgain=await readAsset(input.thumbnailAssetId);
   if(current.revision!==input.expectedRevision||current.approved_revision!==current.revision||current.approved_asset_id!==input.sourceAssetId||!validMetadata(current.metadata)||!isDeepStrictEqual(current.metadata,approval.metadata)||!allowedRights(current.metadata.rights,'display')||sourceAgain.sha256!==source.sha256||thumbAgain.sha256!==thumb.sha256)throw new ApiError(409,'REVISION_CONFLICT');
   const id=randomUUID(),version=input.expectedSelectionVersion+1;
-  await c.query('INSERT INTO artwork_thumbnail_bindings(tenant_id,id,artwork_id,artwork_revision,source_asset_id,source_sha256,thumbnail_asset_id,selection_version,sha256,bytes,object_key,view,recipe,created_by,request_id,payload_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',[s.tenantId,id,artworkId,art.revision,source.id,source.sha256,thumb.id,version,thumb.sha256,Number(thumb.bytes),thumb.object_key,input.view,{version:1,kind:'authorized-representative-image'},s.userId,input.requestId,digest]);
+  await c.query('INSERT INTO artwork_thumbnail_bindings(tenant_id,id,artwork_id,artwork_revision,source_asset_id,source_sha256,thumbnail_asset_id,selection_version,sha256,bytes,object_key,view,recipe,created_by,request_id,payload_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',[s.tenantId,id,artworkId,art.revision,source.id,source.sha256,thumb.id,version,thumb.sha256,Number(thumb.bytes),thumb.object_key,input.view,rendered?.recipe??{version:1,kind:'authorized-representative-image'},s.userId,input.requestId,digest]);
   if(selection){const updated=await c.query('UPDATE artwork_thumbnail_selections SET binding_id=$4,version=$5 WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3 AND version=$6',[s.tenantId,artworkId,art.revision,id,version,input.expectedSelectionVersion]);if(!updated.rowCount)throw new ApiError(409,'SELECTION_CONFLICT');}
   else await c.query('INSERT INTO artwork_thumbnail_selections(tenant_id,artwork_id,artwork_revision,version,binding_id) VALUES($1,$2,$3,$4,$5)',[s.tenantId,artworkId,art.revision,version,id]);
   await c.query('INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,randomUUID(),{action:'cms.thumbnail-selected',actor:s.userId,target:artworkId,revision:art.revision,bindingId:id}]);
