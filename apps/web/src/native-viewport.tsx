@@ -20,8 +20,8 @@ import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedBoundedEditing,checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction,type NativeBoundedEditingCapability} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
-import {checkedCatalogRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
-import {produceArtworkThumbnail} from './native-artwork-thumbnail';
+import {checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,FURNISHING_THUMBNAIL_CAPABILITY,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
+import {produceArtworkThumbnail,produceFurnishingThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
 import {installNativePlacementPreview} from './native-placement-renderer';
@@ -55,6 +55,7 @@ declare global {interface Window {exhibitosViewport?:{
  catalogDropTarget:(v:unknown)=>CatalogDropReply;
  sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ReturnType<typeof catalogBinding>&{artworkId:string;revision:number;pngBase64:string;width:number;height:number}>;
+ furnishingThumbnailV1:(v:unknown)=>Promise<FurnishingThumbnailRequest&Awaited<ReturnType<typeof produceFurnishingThumbnail>>>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
 
@@ -178,14 +179,15 @@ window.exhibitosViewport={
   if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
   acceptPending=false;if(needsAuthority&&placement.active)placement.cancel('큰 전시는 보기 전용이어서 배치를 취소했어요.');
   cameraGate.advance();entrancePreview.invalidate();current=frame;if(pendingEditorCommit&&snapshotEditSettled(pendingEditorCommit,frame,false))pendingEditorCommit=undefined;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
-  const sameSession=!!currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt&&currentSession.role===session.role;
+  const sameSession=!!currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt&&currentSession.role===session.role&&currentSession.workspaceFurnishingProfile===session.workspaceFurnishingProfile;
   if(!sameSession)currentSession=session;
   ownerAuthority=ownerAuthorityGate.accept(session);
   receive?.(frame,currentSession!,ownerAuthority);
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
   const capabilities=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
    frame.disabled||frame.presentation==='plan'?NATIVE_CAPABILITIES:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
-  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
+  const canRenderFurnishing=!needsAuthority&&!frame.disabled&&session.workspaceFurnishingProfile==='workspace-furnishing-intake-v1';
+  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:canRenderFurnishing?[...capabilities,FURNISHING_THUMBNAIL_CAPABILITY]:capabilities,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
  },
  setCameraInteraction:value=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');return cameraGate.request(value);},
@@ -326,6 +328,19 @@ window.exhibitosViewport={
   try{return await Promise.race([thumbnailQueue.run(async()=>{
    await catalogSession(frame!,signal);const image=await produceArtworkThumbnail(request,signal);await catalogSession(frame!,signal);
    return {...catalogBinding(request),artworkId:request.artworkId,revision:request.expectedRevision,...image};
+  }),cancelled]);}finally{catalogRequests.delete(abort);abort.abort();}
+ },
+ furnishingThumbnailV1:async value=>{
+  requireEditable();
+  const frame=current;
+  if(!frame||currentSession?.workspaceFurnishingProfile!=='workspace-furnishing-intake-v1')throw Error('THUMBNAIL_UNAVAILABLE');
+  const request=checkedFurnishingThumbnailRequest(value,frame),{abort,signal}=beginCatalogRequest(request);
+  const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>reject(Error('CATALOG_REQUEST_CANCELLED')),{once:true}));
+  try{return await Promise.race([thumbnailQueue.run(async()=>{
+   await catalogSession(frame,signal);
+   const image=await produceFurnishingThumbnail(request,signal);
+   await catalogSession(frame,signal);
+   return {...request,...image};
   }),cancelled]);}finally{catalogRequests.delete(abort);abort.abort();}
  },
  findSelection:async value=>{

@@ -2,13 +2,13 @@
 import {basisLoader} from './basis-loader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
-import type {ThumbnailRequest} from './native-catalog-protocol';
+import type {FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
 import {approvedDisplayCopyResponse} from './approved-display-response';
 const maxBytes=16*1024*1024;
-async function bounded(response:Response,signal:AbortSignal){
+async function bounded(response:Response,signal:AbortSignal,limit=maxBytes){
  if(!response.ok||!response.body)throw Error('THUMBNAIL_UNAVAILABLE');
  const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
- try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>maxBytes)throw Error('THUMBNAIL_SIZE');chunks.push(value);}}
+ try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit)throw Error('THUMBNAIL_SIZE');chunks.push(value);}}
  catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
  const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
 }
@@ -23,6 +23,12 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||!approvedDisplayCopyResponse(response.headers))throw Error('THUMBNAIL_REVISION');
  const mime=response.headers.get('content-type')?.split(';')[0];if(mime!=='image/png'&&mime!=='model/gltf-binary')throw Error('THUMBNAIL_TYPE');
  const bytes=await bounded(response,signal);signal.throwIfAborted();
+ const canvas=await renderThumbnail(bytes,mime,signal);
+ const currentResponse=await fetch(`${path}/display`,options);if(!currentResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');const current=await currentResponse.json() as {id:string;revision:number};if(current.id!==request.artworkId||current.revision!==request.expectedRevision)throw Error('THUMBNAIL_REVISION');
+ return (await encodeThumbnail(canvas,signal)).image;
+}
+
+async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal){
  const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
  if(mime==='image/png'){
   const view=new DataView(bytes.buffer);if(bytes.length<33||[137,80,78,71,13,10,26,10].some((n,i)=>bytes[i]!==n)||view.getUint32(16)>4096||view.getUint32(20)>4096)throw Error('THUMBNAIL_IMAGE_LIMIT');
@@ -55,7 +61,44 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
    protectedBytes?.dispose();basis?.dispose();renderer.dispose();renderer.forceContextLoss();
   }
  }
- const currentResponse=await fetch(`${path}/display`,options);if(!currentResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');const current=await currentResponse.json() as {id:string;revision:number};if(current.id!==request.artworkId||current.revision!==request.expectedRevision)throw Error('THUMBNAIL_REVISION');
+ return canvas;
+}
+
+async function encodeThumbnail(canvas:HTMLCanvasElement,signal:AbortSignal){
  signal.throwIfAborted();const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(Error('THUMBNAIL_UNAVAILABLE')),'image/png'));
- if(blob.size>512*1024)throw Error('THUMBNAIL_RESULT_LIMIT');const result=new Uint8Array(await blob.arrayBuffer());let raw='';for(const byte of result)raw+=String.fromCharCode(byte);return {pngBase64:btoa(raw),width:256,height:256};
+ if(blob.size>512*1024)throw Error('THUMBNAIL_RESULT_LIMIT');const bytes=new Uint8Array(await blob.arrayBuffer());signal.throwIfAborted();let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return {bytes,image:{pngBase64:btoa(raw),width:256,height:256}};
+}
+
+async function sha256(bytes:Uint8Array<ArrayBuffer>){
+ return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+
+export async function produceFurnishingThumbnail(request:FurnishingThumbnailRequest,signal:AbortSignal){
+ const {tenantId,furnishingId,furnishingVersion,modelSha256,modelBytes}=request;
+ const path=`/api/v1/tenants/${tenantId}/workspace/furnishings/${furnishingId}/versions/${furnishingVersion}`;
+ const options={credentials:'same-origin' as const,redirect:'error' as const,cache:'no-store' as const,signal};
+ const mime='model/gltf-binary';
+ const check=async()=>{
+  const response=await fetch(`${path}/display-check`,options);
+  if(!response.ok)throw Error('THUMBNAIL_UNAVAILABLE');
+  const descriptor=await response.json();
+  if(descriptor?.id!==furnishingId||descriptor.version!==furnishingVersion||descriptor.model?.sha256!==modelSha256||
+     descriptor.model.bytes!==modelBytes||descriptor.model.mime!==mime)throw Error('THUMBNAIL_REVISION');
+  signal.throwIfAborted();
+ };
+ await check();
+ const response=await fetch(`${path}/model`,options);
+ if(response.headers.get('content-type')!==mime||response.headers.get('x-exhibitos-sha256')!==modelSha256||
+    response.headers.get('content-length')!==String(modelBytes)){
+  await response.body?.cancel().catch(()=>{});
+  throw Error('THUMBNAIL_REVISION');
+ }
+ const bytes=await bounded(response,signal,modelBytes);
+ if(bytes.length!==modelBytes||await sha256(bytes)!==modelSha256)throw Error('THUMBNAIL_REVISION');
+ signal.throwIfAborted();
+ const canvas=await renderThumbnail(bytes,mime,signal);
+ const {image,bytes:png}=await encodeThumbnail(canvas,signal);
+ const pngSha256=await sha256(png);
+ await check();
+ return {...image,pngSha256};
 }
