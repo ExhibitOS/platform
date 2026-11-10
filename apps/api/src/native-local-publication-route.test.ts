@@ -66,7 +66,7 @@ it('releases the owned stage after rejected ordinary audio preparation', async (
  });
  const match = etag(1, draft);
  const session = {id: randomUUID(), tenantId: randomUUID(), userId: randomUUID(), role: 'admin', expiresAt: '2099-01-01T00:00:00Z'} as Session;
- const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({rows: []}));
+ const query = vi.fn(async () => ({rows: []}));
  const c = {query} as unknown as PoolClient;
  const context = {workspaceId: randomUUID(), tenantId: session.tenantId, principalId: session.userId, assertDatabase: async () => {}} as NativeLocalExportContext;
  vi.spyOn(Auth.prototype, 'request').mockImplementation(async (_token, _tenant, _csrf, _mutate, work) => work(c, session));

@@ -3,8 +3,8 @@ import type {AffinePoint} from './artifact-affine.js';
 import type {StudioBench} from './benches.js';
 export interface BenchBox { position: AffinePoint; dimensions: {width:number;height:number;depth:number} }
 /** Five boxes for a slab; two more for a backed. All presets share one box geometry. */
-export function benchBoxes(bench: StudioBench): BenchBox[] {
-  const {width:w,depth:d,height:h}=bench.dimensions, thickness=.06, leg=.06;
+export function benchBoxes(bench: StudioBench, scale=1): BenchBox[] {
+  const {width:w,depth:d,height:h}=bench.dimensions, thickness=.06*scale, leg=.06*scale;
   const boxes:BenchBox[]=[{position:[0,h-thickness/2,0],dimensions:{width:w,height:thickness,depth:d}}];
   for(const x of [-1,1])for(const z of [-1,1])boxes.push({position:[x*(w/2-leg), (h-thickness)/2, z*(d/2-leg)],dimensions:{width:leg,height:h-thickness,depth:leg}});
   if(bench.kind==='backed'){

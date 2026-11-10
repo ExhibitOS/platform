@@ -23,3 +23,17 @@ it('reuses an identical authored viewpoint at capacity without changing it and r
  const removed=removeCatalogBench(added,bench.id),again=addCatalogBench(removed,roomId);expect(benchesFor(again)[0]!.viewpointId).toBe(viewpoints[0]!.id);expect(presentationFor(again).viewpoints).toEqual(viewpoints);
  const incompatible=structuredClone(document);(incompatible.extensions![PRESENTATION_NAMESPACE] as unknown as {viewpoints:{fov:number}[]}).viewpoints[0]!.fov=45;expect(()=>addCatalogBench(incompatible,roomId)).toThrow('BENCH_VIEWPOINT_LIMIT');
 });
+
+it('creates a fresh camera over the measured oak slat in the placed pose',()=>{
+ const document=newDraft().candidate,roomId=document.rooms[0]!.id;
+ const added=addCatalogBench(document,roomId,{position:[1,0,1],yaw:Math.PI/2,scale:1.25});
+ const [bench]=benchesFor(added);
+ const view=presentationFor(added).viewpoints.find(view=>view.id===bench!.viewpointId)!;
+ expect(bench!.position).toEqual([1,0,1]);
+ expect(bench!.dimensions.height).toBeCloseTo(.45*1.25);
+ expect(view.position[0]).toBeCloseTo(1+.05675*1.25);
+ expect(view.position[1]).toBeCloseTo(.45*1.25+.7);
+ expect(view.position[2]).toBeCloseTo(1+.4*1.25);
+ expect(view.target[0]-view.position[0]).toBeCloseTo(-2);
+ expect(view.target[2]).toBeCloseTo(view.position[2]);
+});

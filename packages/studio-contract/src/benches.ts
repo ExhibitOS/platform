@@ -6,7 +6,7 @@ import type { Exhibition } from '@exhibitos/spec';
 import type { InstallationMaterial } from './installation.js';
 import { PRESENTATION_NAMESPACE, presentationFor, validateStudioPresentation } from './index.js';
 import type { StudioCamera } from './index.js';
-import {WORKSPACE_FURNISHING_NAMESPACE,isBuiltInGalleryStool,validateWorkspaceFurnishings,type WorkspaceFurnishings} from './workspace-furnishing.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,workspaceDefaultSeat,validateWorkspaceFurnishings,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
 export const BENCH_NAMESPACE = 'org.exhibitos.studio/benches';
 export const BENCH_LIMITS = Object.freeze({ benches: 32, materials: 32, boxes: 224, triangles: 2688, bytes: 32768 });
@@ -32,6 +32,7 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 const closed = (v: Record<string, unknown>, keys: string[]) => keys.length === Object.keys(v).length && keys.every(k => Object.hasOwn(v, k));
 const finite = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+const near = (a:number,b:number)=>Math.abs(a-b)<=1e-6;
 const vector = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every(n => finite(n, -10000, 10000));
 const equal = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
@@ -66,11 +67,13 @@ export function validateStudioBenches(candidate: unknown) {
       add('BENCH_SCHEMA', path, 'Expected a named bounded bench with UUID references'); return;
     }
     const d = b.dimensions, m = b.material;
-    if (!object(d) || !closed(d, ['width','depth','height']) || !finite(d.width,Object.hasOwn(b,'workspaceVisual')?.38:.6,3) || !finite(d.depth,.3,1) || !finite(d.height,.3,.65) || !object(m) || !closed(m,['preset','color','roughness','metalness']) || (m.preset!=='paint'&&m.preset!=='wood'&&m.preset!=='stone'&&m.preset!=='metal') || typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color) || !finite(m.roughness,0,1) || !finite(m.metalness,0,1)) {
+    if (!object(d) || !closed(d, ['width','depth','height']) || !finite(d.width,.001,10000) || !finite(d.depth,.001,10000) || !finite(d.height,.001,10000) || !object(m) || !closed(m,['preset','color','roughness','metalness']) || (m.preset!=='paint'&&m.preset!=='wood'&&m.preset!=='stone'&&m.preset!=='metal') || typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color) || !finite(m.roughness,0,1) || !finite(m.metalness,0,1)) {
       add('BENCH_SCHEMA', path, 'Invalid size or existing PBR material'); return;
     }
     if (seen.has(b.id.toLowerCase())||workspaceIds.has(b.id.toLowerCase())) add('BENCH_REFERENCE', path+'/id', 'Bench UUID must be unique');
     seen.add(b.id.toLowerCase());
+    const ordinarySize=finite(d.width,.6,3)&&finite(d.depth,.3,1)&&finite(d.height,.3,.65);
+    let geometryScale=1;
     if (Object.hasOwn(b,'workspaceVisual')) {
       const link=b.workspaceVisual;
       if (!validWorkspace||!workspace||!object(link)||!closed(link,['placementId','modelSha256'])||!uuid(link.placementId)
@@ -80,14 +83,18 @@ export function validateStudioBenches(candidate: unknown) {
       const id=link.placementId.toLowerCase();
       const placement=workspace.placements.find(row=>equal(row.id,id));
       const item=placement&&workspace.furnishings.find(row=>equal(row.id,placement.furnishingId)&&row.version===placement.furnishingVersion);
-      const supportedSize = item?.kind==='bench'
-        ? d.width>=.6
-        : item!==undefined&&isBuiltInGalleryStool(item)&&d.width===.38&&d.depth===.38&&d.height===.45;
-      if (attachedPlacements.has(id)||!placement||!item||!supportedSize||item.model.sha256!==link.modelSha256
-        ||!equal(placement.roomId,b.roomId)||placement.scale!==1||placement.yaw!==b.yaw||!placement.position.every((n,i)=>n===(b.position as [number,number,number])[i])) {
+      const defaults=item&&workspaceDefaultSeat(item);
+      const defaultSize=!!placement&&!!defaults&&near(d.width,defaults.dimensions.width*placement.scale)
+        &&near(d.depth,defaults.dimensions.depth*placement.scale)&&near(d.height,defaults.dimensions.height*placement.scale);
+      const customSize=item?.kind==='bench'&&placement?.scale===1&&ordinarySize;
+      if (attachedPlacements.has(id)||!placement||!item||(!defaultSize&&!customSize)||item.model.sha256!==link.modelSha256
+        ||!equal(placement.roomId,b.roomId)||placement.yaw!==b.yaw||!placement.position.every((n,i)=>n===(b.position as [number,number,number])[i])) {
         add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Seat must match its unique workspace bench placement');return;
       }
       attachedPlacements.add(id);
+      geometryScale=placement.scale;
+    } else if(!ordinarySize){
+      add('BENCH_SCHEMA',path,'Invalid ordinary bench size');return;
     }
     const room = rooms.find(r => typeof r.id === 'string' && equal(r.id,b.roomId as string));
     const view = viewpoints.find(v => typeof v.id === 'string' && equal(v.id,b.viewpointId as string));
@@ -98,10 +105,10 @@ export function validateStudioBenches(candidate: unknown) {
     if (b.position[1] < 0 || Math.abs(b.position[0])+halfX > Number(room.dimensions.width)/2 || Math.abs(b.position[2])+halfZ > Number(room.dimensions.depth)/2 || b.position[1]+d.height+(b.kind==='backed'?.4:0) > Number(room.dimensions.height)) add('BENCH_BOUNDS',path,'Complete bench must fit inside its room');
     try {
       const bench=b as unknown as StudioBench,pose:ArtifactPose={position:bench.position,rotation:[0,Math.sin(bench.yaw/2),0,Math.cos(bench.yaw/2)],scale:[1,1,1]};
-      for(const box of benchBoxes(bench))artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},pose,room.transform as unknown as ArtifactPose],true);
+      for(const box of benchBoxes(bench,geometryScale))artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},pose,room.transform as unknown as ArtifactPose],true);
     } catch {add('BENCH_BOUNDS',path,'Generated world geometry must satisfy finite affine and Float32 hull limits');}
     const dx=view.position[0]-b.position[0], dz=view.position[2]-b.position[2], x=c*dx-s*dz, z=s*dx+c*dz, eye=view.position[1]-b.position[1];
-    if (Math.abs(x)>d.width/2-.05 || Math.abs(z)>d.depth/2-.05 || eye<d.height+.5 || eye>d.height+1.1 || Math.hypot(view.target[0]-view.position[0],view.target[2]-view.position[2])<.001) add('BENCH_VIEWPOINT',path+'/viewpointId','Seated eye must be above the seat footprint with a horizontal viewing direction');
+    if (Math.abs(x)>d.width/2-.05*geometryScale || Math.abs(z)>d.depth/2-.05*geometryScale || eye<d.height+.5 || eye>d.height+1.1 || Math.hypot(view.target[0]-view.position[0],view.target[2]-view.position[2])<.001) add('BENCH_VIEWPOINT',path+'/viewpointId','Seated eye must be above the seat footprint with a horizontal viewing direction');
   });
   try { if (new TextEncoder().encode(JSON.stringify(value)).length > BENCH_LIMITS.bytes) add('BENCH_LIMIT','','Maximum 32 KiB bench metadata'); }
   catch { add('BENCH_SCHEMA','','Expected finite JSON metadata'); }

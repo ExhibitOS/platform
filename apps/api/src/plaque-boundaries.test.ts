@@ -60,7 +60,7 @@ test('localized artwork caption preserves the approved artwork and all source id
  const source={kind:'artwork' as const,placementId:placement.id};
  const row={...plaque,source},before=applyPlaqueCommand(draft.candidate,{type:'add-plaque',plaque:row});
  const withIntro=applyRoomPlaqueIntroduction(before,plaque.roomId,{text:'공간 안내'});
- const artworkCaption={translations:[
+ const artworkCaption:{translations:{locale:string;artist:string;date:string;medium?:string;dimensions?:string}[]}={translations:[
   {locale:'ko',artist:'에두아르 마네',date:'1862~63년경',medium:'캔버스에 유채',dimensions:'65 × 81 cm'},
   {locale:'en',artist:'Édouard Manet',date:'ca. 1862–63'},
  ]};

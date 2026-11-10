@@ -129,6 +129,16 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
 }
 
 const galleryStool=USER_ASSET_CATALOGUE.find(item=>item.id==='gallery-stool')!;
+const upholsteredBench=USER_ASSET_CATALOGUE.find(item=>item.id==='upholstered-gallery-bench')!;
+export function workspaceDefaultSeat(item:WorkspaceFurnishingDescriptor){
+ const entry=item.kind==='stool'?galleryStool:item.kind==='bench'?upholsteredBench:undefined;
+ if(!entry||item.version!==entry.version||item.model.sha256!==entry.sha256||item.model.bytes!==entry.bytes||entry.functional?.kind!=='bench')return;
+ const {min,max}=entry.bounds;
+ const meters=(value:number)=>Math.round(value*1000)/1000;
+ return {dimensions:{width:meters(max[0]-min[0]),depth:meters(max[2]-min[2]),height:entry.functional.seatEnvelopeY},
+  point:entry.functional.seats[0]!.point,front:entry.functional.front};
+}
+
 export function isBuiltInGalleryStool(item:WorkspaceFurnishingDescriptor):boolean {
  return item.kind==='stool'&&item.model.sha256===galleryStool.sha256&&item.model.bytes===galleryStool.bytes;
 }
