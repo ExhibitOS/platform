@@ -2760,7 +2760,10 @@ export function GeometryPreview({
                 releaseCachedOriginal();
                 if(byteCache.set(cacheKey,body.buffer,bytes)){
                   cachedOriginalKey=cacheKey;
-                  stage(profile.candidateId,'optional-original-encoded',undefined,key);
+                  if(diagnosticsEnabled())diagnosticEvents.record({
+                      atMs:performance.now(),assetId:profile.candidateId,artworkRevisionId:art.revisionId,
+                      stage:'optional-original-encoded',errorCode:null,
+                    });
                 }
               }finally{
                 if(!originalPrefetchUncertain)peak.release(hold);
@@ -3303,7 +3306,10 @@ export function GeometryPreview({
                         const cached=byteCache.get(key);
                         releaseCachedOriginal();
                         if(!cached)return undefined;
-                        stage(profile.candidateId,'optional-original-reused');
+                        if(diagnosticsEnabled())diagnosticEvents.record({
+                          atMs:performance.now(),assetId:profile.candidateId,artworkRevisionId:art.revisionId,
+                          stage:'optional-original-reused',errorCode:null,
+                        });
                         return new Uint8Array(cached);
                       },
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
