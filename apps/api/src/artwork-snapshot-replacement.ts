@@ -7,9 +7,15 @@ import {artworkThumbnailFor,ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract
 /** Build the narrowly scoped draft change after the caller independently verifies
  * current owner, approval, original/derived bytes and new policy. This function
  * grants no asset authority and performs no persistence. */
-export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next:Artwork,placementId?:string):Exhibition {
+export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next:Artwork,placementId?:string,mode?:'same-artwork-model'):Exhibition {
  const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
- if(placementId===undefined){
+ if(mode==='same-artwork-model'){
+  if(!placementId||prior.artworkType!=='sculpture'||next.artworkType!=='sculpture'||!same(prior.id,next.id)||
+     next.revision!==prior.revision+1||prior.units!==next.units||prior.coordinates!==next.coordinates||
+     !isDeepStrictEqual(prior.transform,next.transform)||!isDeepStrictEqual(prior.dimensions,next.dimensions)||
+     !isDeepStrictEqual(prior.rights,next.rights)||same(prior.primaryAssetId,next.primaryAssetId))
+   throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ }else if(placementId===undefined){
   if(prior.artworkType!=='image'||next.artworkType!=='image'||!same(prior.id,next.id)||next.revision!==prior.revision+1)throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  }else if(prior.artworkType!=='sculpture'||next.artworkType!=='sculpture'||same(prior.id,next.id)||prior.units!==next.units||prior.coordinates!==next.coordinates||!isDeepStrictEqual(prior.transform,next.transform)||candidate.artworks.some(a=>same(a.id,next.id))){
   throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
@@ -40,7 +46,7 @@ export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next
  if(placementId===undefined&&entrance&&typeof entrance.imageAssetId==='string'&&same(entrance.imageAssetId,prior.primaryAssetId))entrance.imageAssetId=next.primaryAssetId;
  // Refuse unsupported cover, thumbnail, frame or other references. The
  // legacy image update retains its artwork ID; the model candidate differs.
- if(placementId!==undefined)oldIds.add(prior.id.toLowerCase());
+ if(placementId!==undefined&&mode!=='same-artwork-model')oldIds.add(prior.id.toLowerCase());
  const containsOld=(value:string)=>[...oldIds].some(id=>value.toLowerCase().includes(id));
  // An unchanged historical event can legitimately use the prior revision ID
  // as its own event identity (the CMS projection does this). Ignore only

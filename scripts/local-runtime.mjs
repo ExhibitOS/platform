@@ -20,6 +20,9 @@ import {openHayesOwnerChannel} from "./native-hayes-owner-channel.mjs";
 import {HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,hasHayesReleaseCapability,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,hasHayesDispositionCapability,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,hasHayesOriginalCapability,WORKSPACE_PORTAL_FINISH_CAPABILITY,hasWorkspacePortalFinishCapability,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,hasWorkspaceFramePreparationCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,hasWorkspaceFurnishingArtworkFrameModelsCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,hasWorkspaceFurnishingArtworkFrameCapability,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,hasWorkspaceFurnishingRoomVisualCapability,WORKSPACE_FURNISHING_STOOL_CAPABILITY,hasWorkspaceFurnishingStoolCapability,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,hasWorkspaceMaterialMultimapCapability,assertExactWorkspaceMaterialMultimapCatalog,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,hasWorkspaceMaterialPublicationCapability,assertExactWorkspaceMaterialPublicationCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,preflightNormalOexCatalog,assertExactWorkspacePublicationCatalog,assertWorkspaceImportOwnerMode,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,verifyWorkspaceMaterialMigrations,hasWorkspaceMaterialCapability,hasWorkspaceImportCapability,verifyWorkspaceImportMigrations,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,hasWorkspaceWallImportCapability,verifyWorkspaceWallImportMigration,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256} from "./native-oex-normal-catalog.mjs";
 import { Auth, bootstrap, config } from "../apps/api/dist/auth.js";
 import {createNativeHayesCaller} from "../apps/api/dist/native-hayes-caller.js";
+import {Cms} from '../apps/api/dist/cms.js';
+import {Studio} from '../apps/api/dist/studio.js';
+import {runNativeModelAdoptionOwner} from '../apps/api/dist/native-model-adoption-owner.js';
 import { buildApp } from "../apps/api/dist/app.js";
 import {WorkspaceMaterialIntakes} from "../apps/api/dist/workspace-material-intakes.js";
 import {validateWorkspaceMaterial} from "@exhibitos/spec/workspace-material";
@@ -191,7 +194,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, hayesChannel, adoptionChannel, nativeHayesCaller, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, cleanupHandledFailure=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController(),hayesAbort=new AbortController(),adoptionAbort=new AbortController();
+  let app, proxy, ownerChannel, hayesChannel, adoptionChannel, adoptionOperations, nativeHayesCaller, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, cleanupHandledFailure=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController(),hayesAbort=new AbortController(),adoptionAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
@@ -217,7 +220,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const close = (normalStop=false) => closed ??= (async () => {
     stopping=true;runtimeReady=false;ownerStopped=true;if(!normalStop)ownerAbort.abort();let failed=false;
     const attempt=async action=>{try{await action();}catch{failed=true;}};
-    adoptionAbort.abort();await attempt(()=>adoptionTask);if(adoptionChannel)await attempt(()=>adoptionChannel.close());
+    adoptionAbort.abort();await attempt(()=>adoptionTask);if(adoptionChannel)await attempt(()=>adoptionChannel.close());if(adoptionOperations)await adoptionOperations.catch(()=>{});
     await attempt(()=>ownerTask);hayesAbort.abort();await attempt(()=>hayesTask);if(nativeHayesCaller)await attempt(()=>nativeHayesCaller.close());if(hayesChannel)await attempt(()=>hayesChannel.close());if(!normalStop&&ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
     if(payloadAcquisition)await payloadAcquisition.catch(()=>{});if(proxyCreation)await proxyCreation.catch(()=>{});if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});if(deferredWork)await deferredWork.catch(()=>{});
     if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
@@ -474,6 +477,27 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     if(furnishingSelected)awaitOrdinaryStop(selectedTask);
     if(privateProbe){if(!hayesOriginalCapability||!nativeHayesCaller||!hayesChannel?.isOpen()||!privateWorkspace||!privateHayes||typeof privateProbe.run!=='function'||typeof privateProbe.onClaimCommitted!=='function'||typeof privateProbe.onProbePhase!=='function')throw Error('HAYES_PROBE_UNAVAILABLE');void Promise.resolve().then(()=>privateProbe.run({caller:nativeHayesCaller,channel:hayesChannel,pool,blobs,owner:nativeOexWorkspace,workspace:privateWorkspace,hayes:privateHayes,signal:hayesAbort.signal,assertLive:async()=>{if(!isOwnerAvailable()||!hayesChannel?.isOpen()||!pinnedPayload||hayesAbort.signal.aborted)throw Error('HAYES_OWNER_UNAVAILABLE');await writerLease.assertLive();await pinnedPayload.verify();if(!isOwnerAvailable()||!hayesChannel?.isOpen()||!pinnedPayload||hayesAbort.signal.aborted)throw Error('HAYES_OWNER_UNAVAILABLE');}})).catch(()=>{console.error('HAYES_SESSION_PROBE_FAILED');process.exitCode=1;void close().catch(()=>{});});}
     requiredModelWorkerActive=!selectedPhase&&!oexCleanupSelection;let failures=0;
+    if(adoptionDescriptors){
+      const assertAdoptionLive=async()=>{
+        if(!isOwnerAvailable()||!adoptionChannel?.isOpen()||adoptionAbort.signal.aborted||
+           !['fresh-empty','clean-reopen'].includes(ordinaryAdmission?.fields.admissionKind)||
+           ordinaryAdmission.fields.restoreProof||ordinaryAdmission.fields.carriedRestoreProof)
+          throw Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
+        assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
+        await writerLease.assertLive();
+        await pinnedPayload.verify();
+        if(!isOwnerAvailable()||!adoptionChannel.isOpen()||adoptionAbort.signal.aborted)
+          throw Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
+      };
+      await assertAdoptionLive();
+      adoptionOperations=runNativeModelAdoptionOwner({
+        channel:adoptionChannel,runtimeGeneration:privateAdoption.runtimeGeneration,owner:privateWorkspace,
+        auth:new Auth(pool),studio:new Studio(nativeOexWorkspace,true,workspaceMaterial,workspaceFurnishing),
+        cms:new Cms(blobs),imports:importer,blobs,broker:adoptionDescriptors.broker,signal:adoptionAbort.signal,
+        assertLive:assertAdoptionLive,
+      });
+      void adoptionOperations.catch(()=>{if(!stopping){terminalFailure=true;process.exitCode=1;void close().catch(()=>{});}});
+    }
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { terminalFailure=true;runtimeReady=false;stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     if(!selectedPhase&&!oexCleanupSelection)running = tick();
     if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
