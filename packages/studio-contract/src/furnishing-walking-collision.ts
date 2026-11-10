@@ -93,6 +93,30 @@ export function applyFurnishingWalkingCollisionOverride(document:Exhibition,targ
  return {...document,extensions};
 }
 
+/** Reconcile a trusted host edit with its validated baseline. */
+export function reconcileFurnishingWalkingCollision(before:Exhibition,after:Exhibition):Exhibition{
+ const prior=before.extensions?.[namespace];
+ if(!prior||JSON.stringify(prior)!==JSON.stringify(after.extensions?.[namespace])||
+    !validateFurnishingWalkingCollision(before).valid)return after;
+ const targets=new Set(furnishingWalkingCollisionTargets(after).map(row=>key(row.kind,row.id)));
+ const linked=new Map(benchesFor(after).flatMap(bench=>bench.workspaceVisual?
+  [[key('bench',bench.id),bench.workspaceVisual.placementId] as const]:[]));
+ const settings=prior as unknown as FurnishingWalkingCollisionSettings;
+ const overrides=settings.overrides.flatMap(row=>{
+  const target=key(row.kind,row.id);
+  if(targets.has(target))return [row];
+  const placementId=linked.get(target);
+  if(!placementId||!targets.has(key('workspace',placementId))||
+     settings.overrides.some(other=>key(other.kind,other.id)===key('workspace',placementId)))return [];
+  return [{kind:'workspace' as const,id:placementId,enabled:row.enabled}];
+ });
+ if(overrides.length===settings.overrides.length&&overrides.every((row,index)=>row===settings.overrides[index]))return after;
+ const extensions:NonNullable<Exhibition['extensions']>={...after.extensions};
+ if(overrides.length)extensions[namespace]={version:1,overrides:overrides.map(row=>({...row}))};
+ else delete extensions[namespace];
+ return {...after,extensions};
+}
+
 /** Resolve once per scene. Geometry consumers keep their own visibility and
  * admission checks even when the author requests collision. */
 export function furnishingWalkingCollisionLookup(document:Exhibition){

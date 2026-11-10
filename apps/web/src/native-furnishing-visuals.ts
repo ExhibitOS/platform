@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {applyFurnishingCommand,benchesFor,furnishingFor,validateFurnishings,type FurnishingCommand} from '@exhibitos/studio-contract';
+import {reconcileFurnishingWalkingCollision,applyFurnishingCommand,benchesFor,furnishingFor,validateFurnishings,type FurnishingCommand} from '@exhibitos/studio-contract';
 import type {CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
@@ -32,7 +32,7 @@ export function nativeFurnishingVisualsCandidate(frame:NativeViewportFrame,value
  const command:FurnishingCommand=request.type==='set-furnishing-visual'
   ?{type:request.type,hostKind:request.hostKind,hostId:request.hostId,catalogId:request.catalogId,catalogVersion:request.catalogVersion,pose:request.pose}
   :{type:request.type,hostKind:request.hostKind,hostId:request.hostId};
- const candidate=applyFurnishingCommand(frame.draft.candidate,command);
+ const candidate=reconcileFurnishingWalkingCollision(frame.draft.candidate,applyFurnishingCommand(frame.draft.candidate,command));
  if(!validateDraft({...frame.draft,candidate}).valid||!validateFurnishings(candidate).valid)throw Error('FURNISHING_CANDIDATE_INVALID');
  return candidate;
 }

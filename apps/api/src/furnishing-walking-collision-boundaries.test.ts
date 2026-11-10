@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {expect,test} from 'vitest';
 import {
  FURNISHING_WALKING_COLLISION_NAMESPACE as COLLISION,
- applyBenchCommand,applyFurnishingWalkingCollisionOverride,benchesFor,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,
+ applyBenchCommand,applyFurnishingWalkingCollisionOverride,benchesFor,furnishingWalkingCollisionState,reconcileFurnishingWalkingCollision,validateFurnishingWalkingCollision,
 } from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {validateDraft} from '../../web/src/drafts/validator.ts';
@@ -47,6 +47,15 @@ test('explicit defaults persist as author choices until explicitly cleared',()=>
  expect(furnishingWalkingCollisionState(changed)).toContainEqual({kind:'bench',id,defaultEnabled:true,override:false});
  expect(applyFurnishingWalkingCollisionOverride(changed,target,null)).toEqual(original);
  expect(()=>applyFurnishingWalkingCollisionOverride(original,{...target,id:randomUUID()},true)).toThrow('FURNISHING_WALKING_COLLISION_REFERENCE');
+});
+
+test('host removal prunes inherited overrides without concealing new invalid choices',()=>{
+ const {draft,id}=fixture(),before=applyFurnishingWalkingCollisionOverride(draft.candidate,{kind:'bench',id},false);
+ const removed=applyBenchCommand(before,{type:'remove-bench',benchId:id});
+ expect(reconcileFurnishingWalkingCollision(before,removed).extensions?.[COLLISION]).toBeUndefined();
+ removed.extensions![COLLISION]={version:1,overrides:[{kind:'bench',id,enabled:true}]};
+ expect(reconcileFurnishingWalkingCollision(before,removed)).toBe(removed);
+ expect(validateFurnishingWalkingCollision(removed).valid).toBe(false);
 });
 
 test('rejects duplicate and stale target IDs instead of accepting a decorative toggle',()=>{

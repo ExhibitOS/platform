@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {applyArchitecturalFinishCommand} from '@exhibitos/studio-contract';
+import {reconcileFurnishingWalkingCollision,applyArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import type {ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import type {CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
@@ -22,7 +22,7 @@ export function checkedArchitecturalFinishRequest(value:unknown,frame:NativeView
 export function nativeArchitecturalFinishCandidate(frame:NativeViewportFrame,input:unknown){
   const request=checkedArchitecturalFinishRequest(input,frame);
   if(!validateDraft(frame.draft).valid)throw Error('ARCHITECTURAL_FINISH_SOURCE_INVALID');
-  const candidate=applyArchitecturalFinishCommand(frame.draft.candidate,request);
+  const candidate=reconcileFurnishingWalkingCollision(frame.draft.candidate,applyArchitecturalFinishCommand(frame.draft.candidate,request));
   if(!validateDraft({...frame.draft,candidate}).valid)throw Error('ARCHITECTURAL_FINISH_CANDIDATE_INVALID');
   return candidate;
 }

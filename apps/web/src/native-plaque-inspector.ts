@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {applyPlaqueCommand} from '@exhibitos/studio-contract';
+import {reconcileFurnishingWalkingCollision,applyPlaqueCommand} from '@exhibitos/studio-contract';
 import type {PlaqueCommand} from '@exhibitos/studio-contract';
 import type {CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
@@ -23,7 +23,7 @@ export function checkedPlaqueInspectorRequest(value:unknown,frame:NativeViewport
 export function nativePlaqueInspectorCandidate(frame:NativeViewportFrame,input:unknown){
   const request=checkedPlaqueInspectorRequest(input,frame);
   if(!validateDraft(frame.draft).valid)throw Error('PLAQUE_INSPECTOR_SOURCE_INVALID');
-  const candidate=applyPlaqueCommand(frame.draft.candidate,request);
+  const candidate=reconcileFurnishingWalkingCollision(frame.draft.candidate,applyPlaqueCommand(frame.draft.candidate,request));
   if(!validateDraft({...frame.draft,candidate}).valid)throw Error('PLAQUE_INSPECTOR_CANDIDATE_INVALID');
   return candidate;
 }
