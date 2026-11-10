@@ -290,8 +290,14 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
     v.descriptor->'model' IS DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.renderable_bytes,'sha256',p.renderable_sha256) OR
     v.descriptor->'rights' IS DISTINCT FROM i.declaration->'rights' OR v.descriptor->'provenance' IS DISTINCT FROM i.declaration->'provenance' OR
     v.descriptor->'kind' IS DISTINCT FROM i.declaration->'kind' OR v.descriptor->'name' IS DISTINCT FROM i.declaration->'name') LIMIT 1`,options.tenantId?[options.tenantId]:[]);
-  const missing=await c.query(`SELECT i.id FROM workspace_furnishing_intakes i LEFT JOIN workspace_frame_preparations p ON p.workspace_id=i.workspace_id AND p.intake_id=i.id
-   WHERE i.phase='registered' AND i.declaration ? 'preparationPolicy' AND p.intake_id IS NULL ${options.tenantId?'AND i.tenant_id=$1':''} LIMIT 1`,options.tenantId?[options.tenantId]:[]);
+  const missing=await c.query(`SELECT i.id FROM workspace_furnishing_intakes i
+   LEFT JOIN workspace_frame_preparations p ON p.workspace_id=i.workspace_id AND p.intake_id=i.id
+   LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=i.workspace_id AND v.tenant_id=i.tenant_id AND v.user_id=i.user_id AND v.id=i.furnishing_id AND v.version=i.furnishing_version
+   WHERE i.phase='registered' AND i.declaration ? 'preparationPolicy' AND p.intake_id IS NULL AND (
+    i.declaration->>'preparationPolicy'='normalize-legacy-sign-texture-r1' AND i.declaration->>'kind'='info-stand' AND
+    i.declaration->'rights'->>'holder'='ExhibitOS' AND i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->>'licenseId'='CC0-1.0' AND
+    v.object_key=i.received->>'key' AND v.descriptor=(i.declaration-'requestId'-'preparationPolicy')||jsonb_build_object('id',i.furnishing_id,'version',i.furnishing_version)
+   ) IS NOT TRUE ${options.tenantId?'AND i.tenant_id=$1':''} LIMIT 1`,options.tenantId?[options.tenantId]:[]);
   if(mismatches.rowCount||missing.rowCount)report.issues.push({code:'FRAME_PREPARATION_BINDING_INVALID'});
  }
  const listing=options.tenantId?await store.list(options.tenantId):store.listAll?await store.listAll():(()=>{throw Error('full store listing required');})();
