@@ -1874,6 +1874,7 @@ export function GeometryPreview({
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let detailImageCandidate:InstanceType<typeof three.Object3D>|undefined;
         let detailBudgetWait:{assetId:string;bytes:number;phase:'resident'|'transition'}|undefined;
+        let detailMinimumArtwork: string | undefined;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined,retryOriginalDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
@@ -2298,7 +2299,7 @@ export function GeometryPreview({
           try {
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
             imageBudget=imageTarget?.budget??viewerBudget;
-            const preferCoarse=!detailPromotion&&preferModelCoarse(art.revisionId,manual&&full);
+            const preferCoarse=!detailPromotion&&(detailMinimumArtwork===art.revisionId||preferModelCoarse(art.revisionId,manual&&full));
             const entranceAsset=entranceReadiness&&!entranceFrameReported&&!full&&!detailPromotion?entranceAssets.get(art.revisionId):undefined;
             inventory = entranceAsset??imageTarget?.inventory??selectAssetVariant(art,full?0:Infinity,viewerBudget,preferCoarse);
             const lod = art.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
@@ -2497,7 +2498,7 @@ export function GeometryPreview({
                   }catch{/* Keep the existing visible failure when no authored coarse model is supported. */}
                 }
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
-                if (!requiredEntranceAsset && error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
+                if (!requiredEntranceAsset && detailMinimumArtwork!==art.revisionId && error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
@@ -2887,14 +2888,28 @@ export function GeometryPreview({
           if(imageProfile&&!matchesMeasuredWheatImage(imageProfile,detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,imageProfile.candidateId):undefined,galleryBuffer()))imageProfile=undefined;
           if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
             const deadline=performance.now()+10000;let settled=false;
-            const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;if(error)reject(error);else resolve();};
+            const finish=(error?:Error)=>{
+              if(settled)return;
+              settled=true;
+              signal.removeEventListener('abort',cancel);
+              if(settleDetail===check)settleDetail=undefined;
+              if(cancelDetail===cancel){
+                cancelDetail=undefined;
+                detailMinimumArtwork=undefined;
+              }
+              if(error)reject(error);else resolve();
+            };
             const cancel=()=>finish(Error('DETAIL_CANCELLED'));
             const check=()=>{
               if(signal.aborted||disposed||gpuLost){cancel();return;}
               if(objects.has(art.revisionId)){finish();return;}
               if(performance.now()>deadline||failed.has(art.revisionId)&&!pending.has(art.revisionId))finish(Error('DETAIL_NOT_READY'));
             };
-            settleDetail=check;cancelDetail=cancel;signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
+            settleDetail=check;cancelDetail=cancel;
+            const lod=art.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
+            if(art.artworkType==='sculpture'&&!input.anchors.length&&lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE)
+              detailMinimumArtwork=art.revisionId;
+            signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
           });
           assertMount();
           let object=objects.get(art.revisionId);
