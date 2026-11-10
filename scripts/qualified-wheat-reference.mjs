@@ -80,12 +80,20 @@ export const R27_REFERENCE=Object.freeze({
  assetSha256:WHEAT_REFERENCE.assetSha256,
  candidateId:'ee5a4365-509e-44f1-8495-30bc5f534eca',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R41_REFERENCE=Object.freeze({
+ indexSha256:'7930f6832341fa943b16820787febd84bc63138179583fe6d2a675cef84da189',
+ publicationSha256:'7cb41e36c27978ff33110236c7f4754d605e6f7fc112c84f1b093e5407c22588',
+ publicationId:'16029c47-7a21-4a8e-bb39-6821f7bca24d',
+ revisionSha256:'d00bfcfb4505e908260a153115a1051c5bdd2cd6438f9bb52c28ff331ecf26b8',
+ candidateId:'0cc51666-c6b6-4388-a0ab-6cb799defbf2',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -94,7 +102,7 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE;
+ const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE;
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
@@ -149,8 +157,8 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
  * verified native publication. No caller-supplied publication is accepted. */
 export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
- const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r27-v4-index.json'});
- if(source.reference!==R27_REFERENCE)fail();
+ const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r41-v4-index.json'});
+ if(source.reference!==R41_REFERENCE)fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();
