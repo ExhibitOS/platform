@@ -10,13 +10,16 @@ export interface MountedFurnishingCollision {
 }
 
 /** A mounted model stops contributing as soon as its render branch is hidden or detached. */
-export function mountedFurnishingCollision(three:typeof Three,id:string,root:Three.Object3D,unavailable:()=>boolean):MountedFurnishingCollision|undefined {
+export function mountedFurnishingCollision(three:typeof Three,id:string,root:Three.Object3D,scene:Three.Scene,unavailable:()=>boolean):MountedFurnishingCollision|undefined {
  const mesh=furnishingCollisionMesh(three,root);
  if(!mesh)return;
  return {id,mesh,active:()=>{
-  if(unavailable()||!root.parent)return false;
-  for(let node:Three.Object3D|null=root;node;node=node.parent)if(!node.visible)return false;
-  return true;
+  if(unavailable())return false;
+  for(let node:Three.Object3D|null=root;node;node=node.parent){
+   if(!node.visible)return false;
+   if(node===scene)return true;
+  }
+  return false;
  }};
 }
 

@@ -49,7 +49,7 @@ export function catalogOtherSources(document:Exhibition,source:{publicationId:st
   try{return [{binding,asset,resolved:resolveFurnishing(document,binding,asset),source:{url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256}}];}catch{return [];}
  });
 }
-export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,lightCollisionEnabled:(id:string)=>boolean=()=>false){
+export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,lightCollision?:{scene:Three.Scene;enabled:(id:string)=>boolean}){
  let disposed=false,remaining=FURNISHING_RESERVE_BYTES,triangles=0;const loaded:Awaited<ReturnType<typeof loadCatalogModel>>[]=[],hidden:{object:Three.Object3D;visible:boolean}[]=[];
  const lightCollisions=new Map<string,MountedFurnishingCollision>();
  const dispose=()=>{if(disposed)return;disposed=true;lightCollisions.clear();for(const h of hidden)h.object.visible=h.visible;for(const l of loaded)l.dispose();hidden.length=0;loaded.length=0;};
@@ -65,8 +65,8 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);
    visual.model.userData.editorSelection=binding.hostKind==='pedestal'?{kind:'placement',id:binding.hostId}:binding.hostKind==='opening'?{kind:'opening',id:binding.hostId}:undefined;
    parent.add(visual.model);target.add(parent);const disposeVisual=visual.dispose;visual.dispose=()=>{disposeVisual();parent.removeFromParent();};
-   if(binding.hostKind==='light'&&lightCollisionEnabled(binding.hostId)){
-    const collision=mountedFurnishingCollision(three,collisionId,visual.model,()=>disposed||signal.aborted||unavailable());
+   if(binding.hostKind==='light'&&lightCollision?.enabled(binding.hostId)){
+    const collision=mountedFurnishingCollision(three,collisionId,visual.model,lightCollision.scene,()=>disposed||signal.aborted||unavailable());
     if(collision)lightCollisions.set(collisionId,collision);
    }
    for(const h of previous)h.object.visible=false;changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});

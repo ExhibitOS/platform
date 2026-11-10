@@ -37,11 +37,11 @@ test('mounted furniture blocks its two spans, leaves the opening and ends clear,
 test('replacing a visible fixture on one host removes its old collision geometry',async()=>{
  const draft=newDraft(),state=createGeometryState(draft.candidate);
  const document=applyGeometryCommand(state,{type:'white-cube',roomId:state.present.rooms[0]!.id}).present;
- const room=new Three.Group(),geometry=new Three.BoxGeometry(.6,1,.12),material=new Three.MeshBasicMaterial();
+ const scene=new Three.Scene(),room=new Three.Group(),geometry=new Three.BoxGeometry(.6,1,.12),material=new Three.MeshBasicMaterial();
  const fallback=new Three.Mesh(geometry,material),replacement=new Three.Mesh(geometry,material);
- fallback.position.set(-.9,.5,0);replacement.position.set(.9,.5,0);room.add(fallback,replacement);
- const old=mountedFurnishingCollision(Three,'light:host',fallback,()=>false)!;
- const next=mountedFurnishingCollision(Three,'light:host',replacement,()=>false)!;
+ fallback.position.set(-.9,.5,0);replacement.position.set(.9,.5,0);room.add(fallback,replacement);scene.add(room);
+ const old=mountedFurnishingCollision(Three,'light:host',fallback,scene,()=>false)!;
+ const next=mountedFurnishingCollision(Three,'light:host',replacement,scene,()=>false)!;
  const navigation=await createNavigationController(document,{position:[0,1.65,2],furnishingCollisions:[old]});
  const canCross=(x:number)=>navigation.standingSegmentClear(navigation.qualifiedStandingEye([x,1.65,1])!,navigation.qualifiedStandingEye([x,1.65,-1])!);
  try{
@@ -52,5 +52,12 @@ test('replacing a visible fixture on one host removes its old collision geometry
   expect(canCross(.9)).toBe(false);
   room.visible=false;
   expect(canCross(.9)).toBe(true);
+  room.visible=true;
+  const otherScene=new Three.Scene();
+  otherScene.add(room);
+  expect(replacement.parent).toBe(room);
+  expect(canCross(.9)).toBe(true);
+  scene.add(room);
+  expect(canCross(.9)).toBe(false);
  }finally{navigation.dispose();geometry.dispose();material.dispose();}
 });
