@@ -3421,10 +3421,15 @@ export function GeometryPreview({
                 const key=`acquired-model/${++sequence}`;
                 const current=()=>alive&&!originalSignal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope;
                 let loaded:InstanceType<typeof three.Object3D>|undefined,displayedCandidate:string|undefined;
-                let modelWork:Promise<void>,uncertain=false;
+                let modelWork:Promise<void>,recheckWork:Promise<void>|undefined,uncertain=false;
+                const rememberUncertainty=(error:unknown)=>{
+                  uncertain ||= error instanceof DetailAccessFailure&&error.retirement==='uncertain'||
+                    error instanceof Error&&error.message==='DETAIL_MODEL_DRAIN_UNCERTAIN';
+                };
                 acquiredModelNeedsDrain=()=>(peak.reservationBytes(key)??0)>0;
                 const cleanup=async()=>{
                   await modelWork;
+                  await recheckWork;
                   if(loaded){destroy(loaded);loaded=undefined;if(!context.isContextLost())await completeDetailCommands(context);}
                   if(uncertain)throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN');
                   peak.release(key);
@@ -3438,11 +3443,15 @@ export function GeometryPreview({
                 };
                 recheckAcquiredModel=async()=>{
                   if(!displayedCandidate||!current())return;
-                  try{await access.recheck(displayedCandidate,originalSignal);}catch{
+                  const recheck=access.recheck(displayedCandidate,originalSignal).catch(error=>{
+                    rememberUncertainty(error);
                     if(!current())return;
+                    if(uncertain){scope.dispose();input.unavailable('recovery');return;}
                     displayedCandidate=undefined;diagnosticOriginal=null;diagnosticOriginalLimits=null;
                     try{scope.replaceModel(modelBaseline);stopAcquiredModel();}catch{scope.dispose();input.unavailable('rights');}
-                  }
+                  });
+                  recheckWork=recheck;
+                  try{await recheck;}finally{if(recheckWork===recheck)recheckWork=undefined;}
                 };
                 modelWork=(async()=>{
                   const matches=await matchesDetailRuntime(acquiredModelRuntime,context,detailRuntimeHints(),originalSignal);
@@ -3486,8 +3495,7 @@ export function GeometryPreview({
                     try{input.renderedTier?.('acquired-original',++originalDrawGeneration);}catch{/* A UI observer cannot undo the committed draw. */}
                   }finally{transfer?.finish();}
                 })().catch(error=>{
-                  uncertain=error instanceof DetailAccessFailure&&error.retirement==='uncertain'||
-                    error instanceof Error&&error.message==='DETAIL_MODEL_DRAIN_UNCERTAIN';
+                  rememberUncertainty(error);
                   if(current()&&(uncertain||renderer.domElement.style.visibility==='hidden')){
                     scope.dispose();input.unavailable('recovery');
                   }
