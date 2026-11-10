@@ -21,7 +21,7 @@ import {replaceArtworkReferences} from './artwork-snapshot-replacement.ts';
 
 it('binds adoption to the exact current owner, rights and placement without requiring a preexisting original hash',async()=>{
  const s={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session;
- const rights={holder:'Synthetic owner',ownership:'owner' as const,licenseId:'CC0-1.0',
+ const rights={holder:'Synthetic Institution',ownership:'owner' as const,licenseId:'CC0-1.0',
   permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic credit'};
  const prior={...syntheticArtwork('sculpture'),rights};
  const draft=newDraft(),placementId=randomUUID(),workspaceId=randomUUID();
@@ -37,12 +37,14 @@ it('binds adoption to the exact current owner, rights and placement without requ
  const cms={ownArtwork,studioArtwork:vi.fn(async()=>({artwork:prior}))} as unknown as Cms;
  const coarseOwner=vi.fn(),imports={requiredModelReady:vi.fn(),coarseOwner} as unknown as Imports;
  const c={} as PoolClient,now=Date.now();
+ const sourceRights={...rights,creditLine:'Independent source attribution',
+  licenseText:'Synthetic public-domain dedication for the 3D media. https://creativecommons.org/publicdomain/zero/1.0/'};
  const grant:NativeModelAdoptionGrant={version:1,operationId:randomUUID(),issuedAt:now,expiresAt:now+10_000,
   source:{workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),artworkId:randomUUID(),artworkRevision:1,artworkRevisionId:randomUUID()},
   target:{workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:prior.id,artworkRevision:prior.revision,
    exhibitionId:draft.exhibitionId,placementId,etag:etag(1,draft)},
-  receiptSha256:'a'.repeat(64),rightsSha256:modelReceiptDigest({...rights,creditLine:'Independent source attribution'}),
-  rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(rights),
+  receiptSha256:'a'.repeat(64),rightsSha256:modelReceiptDigest(sourceRights),
+  rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(sourceRights),
   original:{sha256:'b'.repeat(64),bytes:64},display:{sha256:'c'.repeat(64),bytes:32},
  };
  const run=(input=grant,session=s)=>lockNativeModelAdoptionTarget(c,session,input,studio,cms,imports);
@@ -51,6 +53,9 @@ it('binds adoption to the exact current owner, rights and placement without requ
  await expect(run({...grant,target:{...grant.target,etag:etag(2,draft)}})).rejects.toThrow('REMOTE_CONFLICT');
  expect(ownArtwork).not.toHaveBeenCalled();
  await expect(run({...grant,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest({...rights,permissions:{...rights.permissions,export:false}})})).rejects.toThrow('RIGHTS_DENIED');
+ await expect(run({...grant,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest({
+  ...sourceRights,licenseText:sourceRights.licenseText+' Additional approval is required.',
+ })})).rejects.toThrow('RIGHTS_DENIED');
  await expect(run({...grant,target:{...grant.target,placementId:randomUUID()}})).rejects.toThrow('MODEL_ADOPTION_TARGET_CHANGED');
  expect(prior.assets.some(asset=>asset.sha256===grant.original.sha256)).toBe(false);
  await expect(run()).resolves.toEqual({grant,artwork:row,prior,candidate:draft.candidate});

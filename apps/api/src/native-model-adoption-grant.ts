@@ -57,10 +57,18 @@ export function parseNativeModelAdoptionGrant(input:unknown,now=Date.now()):Nati
  return structuredClone(input) as unknown as NativeModelAdoptionGrant;
 }
 
-/** Attribution belongs to each artwork record. Every other rights field
- * must match the policy of the source whose full rights digest was verified. */
+/** Preserve full rights evidence on both sides. The compatibility digest
+ * ignores attribution and a strictly recognized redundant CC0 notice. */
 export function nativeModelAdoptionRightsPolicyDigest(rights:SourceRights){
- return modelReceiptDigest(Object.fromEntries(Object.entries(rights).filter(([key])=>key!=='creditLine')));
+ const cc0='https://creativecommons.org/publicdomain/zero/1.0/';
+ const issuer=rights.holder.match(/^[A-Za-z]+(?= |$)/)?.[0];
+ const redundant=rights.licenseId==='CC0-1.0'&&(
+  rights.licenseText===cc0||
+  rights.licenseText===`${rights.holder} public-domain dedication for the 3D media. ${cc0}`||
+  !!issuer&&rights.licenseText===`${issuer} public-domain dedication for the 3D media. ${cc0}`
+ );
+ return modelReceiptDigest(Object.fromEntries(Object.entries(rights)
+  .filter(([key])=>key!=='creditLine'&&!(redundant&&key==='licenseText'))));
 }
 type SourceRights=Custody['rights'];
 
