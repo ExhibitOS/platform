@@ -18,7 +18,7 @@ it('requires an exact descriptor, verified output and a clean broker close',asyn
   const grant:NativeModelAdoptionGrant={version:1,operationId:randomUUID(),issuedAt:now,expiresAt:now+60_000,
    source:{...scope(),artworkRevisionId:randomUUID()},
    target:{...scope(),exhibitionId:randomUUID(),placementId:randomUUID(),etag:'"studio-r1-'+'a'.repeat(64)+'"'},
-   receiptSha256:'a'.repeat(64),rightsSha256:'b'.repeat(64),
+   receiptSha256:'a'.repeat(64),rightsSha256:'b'.repeat(64),rightsPolicySha256:'e'.repeat(64),
    original:{sha256,bytes:bytes.length},display:{sha256,bytes:bytes.length},
   };
   const stat=await root.stat({bigint:true}),broker={helper,rootFd:root.fd,rootDevice:String(stat.dev),rootInode:String(stat.ino)};

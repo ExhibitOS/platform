@@ -14,7 +14,7 @@ import {IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {inspectCompactModelSource} from './oam-original-preparation.ts';
 import {readNativeAdoptionBrokerBlob,type NativeAdoptionBroker} from './native-model-adoption-broker.ts';
 import {modelReceiptDigest} from './model-preparation-intent.ts';
-import {parseNativeModelAdoptionGrant,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
+import {nativeModelAdoptionRightsPolicyDigest,parseNativeModelAdoptionGrant,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 import {allowedRights} from './rights.ts';
 import {etag,insertStudioReceipt,type Draft,type Studio,type StudioResponse} from './studio.ts';
 
@@ -37,7 +37,7 @@ export async function lockNativeModelAdoptionTarget(
     artwork.revision>=2147483647||!validMetadata(artwork.metadata))throw new ApiError(409,'MODEL_ADOPTION_TARGET_CHANGED');
  const {artwork:prior}=await cms.studioArtwork(c,s,target.artworkId);
  if(!isDeepStrictEqual(artwork.metadata.rights,prior.rights)||
-    modelReceiptDigest(prior.rights)!==grant.rightsSha256||
+    nativeModelAdoptionRightsPolicyDigest(prior.rights)!==grant.rightsPolicySha256||
     !(['download','display','export'] as const).every(permission=>allowedRights(prior.rights,permission)))
   throw new ApiError(403,'RIGHTS_DENIED');
  const {candidate}=exhibition.metadata as Draft;
@@ -152,7 +152,8 @@ export async function commitNativeModelAdoptionTarget(input:{
     [s.tenantId,entry.id,target.artworkId,rightsId,key,entry.identity.sha256,entry.identity.bytes]);
   }
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,randomUUID(),originalId,{
-   version:1,kind:'native-model-adoption',operationId:grant.operationId,grantSha256,receiptSha256:grant.receiptSha256,originalId,displayId,
+   version:1,kind:'native-model-adoption',operationId:grant.operationId,grantSha256,receiptSha256:grant.receiptSha256,
+   sourceRightsSha256:grant.rightsSha256,targetRightsSha256:modelReceiptDigest(prior.rights),rightsPolicySha256:grant.rightsPolicySha256,originalId,displayId,
   }]);
   const updated=await c.query('UPDATE artworks SET revision=$3,approved_revision=$3,approved_asset_id=$4,updated_at=$5,metadata=$6 WHERE tenant_id=$1 AND id=$2 AND revision=$7 AND approved_revision=$7 RETURNING id',
    [s.tenantId,target.artworkId,revision,displayId,now,metadata,target.artworkRevision]);

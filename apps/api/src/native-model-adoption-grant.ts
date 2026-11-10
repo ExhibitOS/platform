@@ -19,7 +19,7 @@ interface Target {
 interface BlobIdentity {sha256:string;bytes:number}
 export interface NativeModelAdoptionGrant {
  version:1;operationId:string;issuedAt:number;expiresAt:number;
- source:Source;target:Target;receiptSha256:string;rightsSha256:string;
+ source:Source;target:Target;receiptSha256:string;rightsSha256:string;rightsPolicySha256:string;
  original:BlobIdentity;display:BlobIdentity;
 }
 
@@ -42,8 +42,8 @@ function blob(value:unknown):value is BlobIdentity{
  * A valid frame is not evidence of custody when submitted by an HTTP caller. */
 export function parseNativeModelAdoptionGrant(input:unknown,now=Date.now()):NativeModelAdoptionGrant{
  const fail=()=>new ApiError(409,'MODEL_ADOPTION_GRANT_INVALID');
- if(!exact(input,['version','operationId','issuedAt','expiresAt','source','target','receiptSha256','rightsSha256','original','display'])||
-    input.version!==1||!uuid(input.operationId)||!digest(input.receiptSha256)||!digest(input.rightsSha256)||
+ if(!exact(input,['version','operationId','issuedAt','expiresAt','source','target','receiptSha256','rightsSha256','rightsPolicySha256','original','display'])||
+    input.version!==1||!uuid(input.operationId)||!digest(input.receiptSha256)||!digest(input.rightsSha256)||!digest(input.rightsPolicySha256)||
     !Number.isSafeInteger(input.issuedAt)||!Number.isSafeInteger(input.expiresAt)||!Number.isSafeInteger(now))throw fail();
  const issued=Number(input.issuedAt),expires=Number(input.expiresAt);
  if(issued<0||issued>now||expires<=now||expires-issued>MAX_GRANT_AGE)throw fail();
@@ -57,6 +57,13 @@ export function parseNativeModelAdoptionGrant(input:unknown,now=Date.now()):Nati
  return structuredClone(input) as unknown as NativeModelAdoptionGrant;
 }
 
+/** Attribution belongs to each artwork record. Every other rights field
+ * must match the policy of the source whose full rights digest was verified. */
+export function nativeModelAdoptionRightsPolicyDigest(rights:SourceRights){
+ return modelReceiptDigest(Object.fromEntries(Object.entries(rights).filter(([key])=>key!=='creditLine')));
+}
+type SourceRights=Custody['rights'];
+
 export function createNativeModelAdoptionGrant(custody:Custody,input:{operationId:string;target:Target;expiresAt:number},now=Date.now()){
  const {receipt,source,rights}=custody;
  const rightsSha256=modelReceiptDigest(rights);
@@ -64,7 +71,7 @@ export function createNativeModelAdoptionGrant(custody:Custody,input:{operationI
   throw new ApiError(409,'MODEL_ADOPTION_SOURCE_CHANGED');
  return parseNativeModelAdoptionGrant({
   version:1,operationId:input.operationId,issuedAt:now,expiresAt:input.expiresAt,source,target:input.target,
-  receiptSha256:receipt.sha256,rightsSha256,
+  receiptSha256:receipt.sha256,rightsSha256,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(rights),
   original:{sha256:receipt.original.sha256,bytes:receipt.original.bytes},
   display:{sha256:receipt.display.sha256,bytes:receipt.display.bytes},
  },now);

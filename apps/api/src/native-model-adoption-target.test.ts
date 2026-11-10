@@ -14,7 +14,7 @@ import type {Session} from './auth.ts';
 import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
 import {modelReceiptDigest} from './model-preparation-intent.ts';
-import type {NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
+import {nativeModelAdoptionRightsPolicyDigest,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 import {commitNativeModelAdoptionTarget,lockNativeModelAdoptionTarget} from './native-model-adoption-target.ts';
 import {etag,type Studio} from './studio.ts';
 import {replaceArtworkReferences} from './artwork-snapshot-replacement.ts';
@@ -41,7 +41,8 @@ it('binds adoption to the exact current owner, rights and placement without requ
   source:{workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),artworkId:randomUUID(),artworkRevision:1,artworkRevisionId:randomUUID()},
   target:{workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:prior.id,artworkRevision:prior.revision,
    exhibitionId:draft.exhibitionId,placementId,etag:etag(1,draft)},
-  receiptSha256:'a'.repeat(64),rightsSha256:modelReceiptDigest(rights),
+  receiptSha256:'a'.repeat(64),rightsSha256:modelReceiptDigest({...rights,creditLine:'Independent source attribution'}),
+  rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest(rights),
   original:{sha256:'b'.repeat(64),bytes:64},display:{sha256:'c'.repeat(64),bytes:32},
  };
  const run=(input=grant,session=s)=>lockNativeModelAdoptionTarget(c,session,input,studio,cms,imports);
@@ -49,7 +50,7 @@ it('binds adoption to the exact current owner, rights and placement without requ
  expect(studioAccess).not.toHaveBeenCalled();
  await expect(run({...grant,target:{...grant.target,etag:etag(2,draft)}})).rejects.toThrow('REMOTE_CONFLICT');
  expect(ownArtwork).not.toHaveBeenCalled();
- await expect(run({...grant,rightsSha256:'d'.repeat(64)})).rejects.toThrow('RIGHTS_DENIED');
+ await expect(run({...grant,rightsPolicySha256:nativeModelAdoptionRightsPolicyDigest({...rights,permissions:{...rights.permissions,export:false}})})).rejects.toThrow('RIGHTS_DENIED');
  await expect(run({...grant,target:{...grant.target,placementId:randomUUID()}})).rejects.toThrow('MODEL_ADOPTION_TARGET_CHANGED');
  expect(prior.assets.some(asset=>asset.sha256===grant.original.sha256)).toBe(false);
  await expect(run()).resolves.toEqual({grant,artwork:row,prior,candidate:draft.candidate});
