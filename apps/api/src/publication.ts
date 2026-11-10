@@ -621,7 +621,9 @@ export class Publications {
         const load=async(bytes:PublicationBytes):Promise<Buffer>=>{if(Buffer.isBuffer(bytes))return bytes;if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.read(bytes);};
         const put=async(key:string,bytes:PublicationBytes)=>{detail?.assertCurrent(s);const loaded=await load(bytes);detail?.assertCurrent(s);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);detail?.assertCurrent(s);fileOperation?.assertClaimed();};
         const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
-        if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
+        // Ordinary publication rows and output blobs are written only after
+        // the durable attempt is journaled. Keep the earlier detail fence.
+        if(detail&&fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
         detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined);detail?.assertCurrent(s);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
