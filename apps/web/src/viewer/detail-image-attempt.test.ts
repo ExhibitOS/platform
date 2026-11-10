@@ -97,3 +97,26 @@ it('binds the r19 original to its exact publication and artwork revision',()=>{
  expect(qualifiedDetailImageProfile(revision,priorArtwork)).toBeUndefined();
  expect(qualifiedDetailImageProfile(priorRevision,artwork)).toBeUndefined();
 });
+
+it('rechecks exact authority and integrity before using prefetched original bytes',async()=>{
+ const f=await fixture(),take=vi.fn(()=>new Uint8Array([1,2,3]));
+ const attempt=startDetailImageAttempt({...f.input,takePrefetchedBytes:take});
+ expect(await attempt.show()).toBe(true);
+ expect(f.access.recheck).toHaveBeenCalledTimes(2);
+ expect(take).toHaveBeenCalledOnce();
+ expect(f.access.fetch).not.toHaveBeenCalled();
+ await attempt.close();
+ const g=await fixture(),invalid=vi.fn(()=>new Uint8Array([1,2,4]));
+ const bad=startDetailImageAttempt({...g.input,takePrefetchedBytes:invalid});
+ await expect(bad.show()).rejects.toThrow('DETAIL_IMAGE_INTEGRITY');
+ await bad.close();
+ expect(g.draw).not.toHaveBeenCalled();
+ expect(g.access.fetch).not.toHaveBeenCalled();
+ const h=await fixture(),revoked=vi.fn();
+ vi.mocked(h.access.recheck).mockRejectedValueOnce(new DetailAccessFailure('confirmed',Error('revoked')));
+ const denied=startDetailImageAttempt({...h.input,takePrefetchedBytes:revoked});
+ await expect(denied.show()).rejects.toThrow('revoked');
+ await denied.close();
+ expect(revoked).not.toHaveBeenCalled();
+ expect(h.draw).not.toHaveBeenCalled();
+});

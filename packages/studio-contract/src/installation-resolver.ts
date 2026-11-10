@@ -6,7 +6,7 @@ import {INSTALLATION_NAMESPACE,installationBudget,validateStudioInstallation} fr
 import type {InstallationBinding,InstallationMaterial,StudioInstallation} from './installation.js';
 export type InstallationReason='placement-not-found'|'room-mismatch'|'source-not-planar'|'singular-transform'|'missing-room-floor'|'ambiguous-room-floor'|'missing-selected-wall'|'wall-not-parallel'|'limits-exceeded';
 export interface InstallationPrimitive {kind:'solid'|'mat';vertices:AffinePoint[];indices:number[];material:InstallationMaterial}
-export interface InstallationSolid {vertices:AffinePoint[];indices:number[];collision:ReturnType<typeof createConvexCollision>}
+export interface InstallationSolid {component:'pedestal'|'frame';vertices:AffinePoint[];indices:number[];collision:ReturnType<typeof createConvexCollision>}
 export interface ResolvedInstallation {placementId:string;roomId:string;primitives:InstallationPrimitive[];solids:InstallationSolid[];issues:{component:'frame'|'pedestal';reason:InstallationReason}[]}
 const add=(a:AffinePoint,b:AffinePoint):AffinePoint=>a.map((n,i)=>n+b[i]!) as AffinePoint;
 const sub=(a:AffinePoint,b:AffinePoint):AffinePoint=>a.map((n,i)=>n-b[i]!) as AffinePoint;
@@ -85,7 +85,7 @@ function resolveBinding(candidate:Exhibition,binding:InstallationBinding):Resolv
   // A failed component is omitted consistently from rendering, Rapier and presence; source metadata stays intact.
   for(const primitive of primitives){
    let vertices:AffinePoint[];try{vertices=primitive.vertices.map(v=>artifactPoint(v,room.transform));}catch(error){throw Error('limits-exceeded',{cause:error});}
-   if(primitive.kind==='solid'){createConvexCollision(primitive.vertices,primitive.indices);solids.push({vertices,indices:[...primitive.indices],collision:createConvexCollision(vertices,primitive.indices)});}
+   if(primitive.kind==='solid'){createConvexCollision(primitive.vertices,primitive.indices);solids.push({component,vertices,indices:[...primitive.indices],collision:createConvexCollision(vertices,primitive.indices)});}
    else for(const points of [primitive.vertices,vertices])for(const ps of [points,points.map(p=>p.map(Math.fround) as AffinePoint)])for(let i=0;i<primitive.indices.length;i+=3){const [a,b,c]=primitive.indices.slice(i,i+3).map(j=>ps[j]!);if(!(Math.hypot(...cross(sub(b!,a!),sub(c!,a!)))>1e-12))throw Error('singular-transform');}
   }
   result.primitives.push(...primitives);result.solids.push(...solids);

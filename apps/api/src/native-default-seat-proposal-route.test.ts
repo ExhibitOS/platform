@@ -4,7 +4,7 @@ import type {Pool} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
 
 import {expect,test,vi} from 'vitest';
-import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {applyFurnishingWalkingCollisionOverride,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {buildApp} from './app.ts';
 import {digest} from './auth.ts';
@@ -48,8 +48,13 @@ test('native seat proposals require a session, CSRF and workspace ownership and 
  });
  try{
   const session=(token:string)=>app.inject({method:'GET',url:'/api/v1/auth/session',headers:headers(token)});
-  expect((await session(ownerToken)).json()).toMatchObject({nativeDefaultSeatProposalProfile:'default-seat-proposal-v1'});
-  expect((await session(outsiderToken)).json()).not.toHaveProperty('nativeDefaultSeatProposalProfile');
+  expect((await session(ownerToken)).json()).toMatchObject({
+   nativeDefaultSeatProposalProfile:'default-seat-proposal-v1',
+   nativeFurnishingWalkingCollisionProfile:'furnishing-walking-collision-v1',
+  });
+  const outsiderSession=(await session(outsiderToken)).json();
+  expect(outsiderSession).not.toHaveProperty('nativeDefaultSeatProposalProfile');
+  expect(outsiderSession).not.toHaveProperty('nativeFurnishingWalkingCollisionProfile');
   expect((await post()).json()).toMatchObject({code:'AUTH_REQUIRED'});
   expect((await post(ownerToken)).json()).toMatchObject({code:'CSRF_REJECTED'});
   expect((await post(outsiderToken,csrf)).json()).toMatchObject({code:'FORBIDDEN'});
@@ -65,6 +70,24 @@ test('native seat proposals require a session, CSRF and workspace ownership and 
   expect(display).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({userId:principalId}),descriptor.id,1);
   read.mockResolvedValueOnce({...descriptor,name:'Different registered version'});
   expect((await post(ownerToken,csrf)).json()).toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
+  const collisionDraft={...draft,candidate:applyFurnishingWalkingCollisionOverride(draft.candidate,{kind:'workspace',id:placementId},true)};
+  const evaluate=(token:string,csrfToken?:string)=>app.inject({
+   method:'POST',url:`/api/v1/tenants/${tenantId}/studio/native-furnishing-walking-collision-evaluation`,
+   payload:{draft:collisionDraft},headers:{...headers(token),...(csrfToken?{'x-csrf-token':csrfToken}:{})},
+  });
+  expect((await evaluate(outsiderToken,csrf)).json()).toMatchObject({code:'FORBIDDEN'});
+  expect((await evaluate(ownerToken)).json()).toMatchObject({code:'CSRF_REJECTED'});
+  expect((await evaluate(ownerToken,csrf)).json()).toEqual({
+   targets:[{kind:'workspace',id:placementId,defaultEnabled:true,override:true}],
+  });
+  const propose=(enabled:boolean|null,id=placementId)=>app.inject({
+   method:'POST',url:`/api/v1/tenants/${tenantId}/studio/native-furnishing-walking-collision-proposal`,
+   payload:{draft:collisionDraft,target:{kind:'workspace',id},enabled},
+   headers:{...headers(ownerToken),'x-csrf-token':csrf},
+  });
+  expect((await propose(true)).json()).toEqual({changed:false,candidate:collisionDraft.candidate});
+  expect((await propose(null)).json()).toEqual({changed:true,candidate:draft.candidate});
+  expect((await propose(false,randomUUID())).json()).toMatchObject({code:'FURNISHING_WALKING_COLLISION_INVALID'});
   expect(payload).toEqual(before);
   expect(query.mock.calls.some(([sql])=>/\b(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
  }finally{await app.close();}

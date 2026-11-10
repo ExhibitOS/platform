@@ -1,3 +1,4 @@
+import {applyFurnishingWalkingCollisionOverride,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
@@ -77,7 +78,7 @@ function checked(input: StudioInput, bounded=false) {
     !validateArchitecture(input.draft.candidate).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
-    !validateArchitecturalFinishes(input.draft.candidate).valid || !validateStudioPlaques(input.draft.candidate).valid || !validateStudioBenches(input.draft.candidate).valid || !validateViewingPlan(input.draft.candidate).valid ||
+    !validateArchitecturalFinishes(input.draft.candidate).valid || !validateStudioPlaques(input.draft.candidate).valid || !validateStudioBenches(input.draft.candidate).valid || !validateFurnishingWalkingCollision(input.draft.candidate).valid || !validateViewingPlan(input.draft.candidate).valid ||
     !validateStudioLightDetails(input.draft.candidate).valid || !validateLightAttachments(input.draft.candidate).valid ||
     !validateStudioInstallation(input.draft.candidate).valid ||
     !validateStudioFloors(input.draft.candidate).valid ||
@@ -161,7 +162,7 @@ export class Studio {
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioFloors(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
-      !validateArchitecturalFinishes(row.metadata.candidate).valid || !validateStudioPlaques(row.metadata.candidate).valid || !validateStudioBenches(row.metadata.candidate).valid || !validateViewingPlan(row.metadata.candidate).valid ||
+      !validateArchitecturalFinishes(row.metadata.candidate).valid || !validateStudioPlaques(row.metadata.candidate).valid || !validateStudioBenches(row.metadata.candidate).valid || !validateFurnishingWalkingCollision(row.metadata.candidate).valid || !validateViewingPlan(row.metadata.candidate).valid ||
       !validateStudioLightDetails(row.metadata.candidate).valid || !validateLightAttachments(row.metadata.candidate).valid ||
       !validateViewerEntrance(row.metadata.candidate).valid ||
       !validateSpatialProfile(row.metadata.candidate).valid || !validateViewerCuration(row.metadata.candidate).valid || !validateViewerExperience(row.metadata.candidate).valid ||
@@ -217,6 +218,25 @@ export class Studio {
     await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
     return {additions:proposal.additions};
+  }
+  async evaluateNativeFurnishingWalkingCollision(c:PoolClient,s:Session,draft:Draft) {
+    if(!this.workspaceFurnishing)throw new ApiError(404,'NOT_FOUND');
+    await this.workspaceFurnishing.authorize(c,s);
+    checked({requestId:randomUUID(),draft});
+    await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
+    const targets=furnishingWalkingCollisionState(draft.candidate);
+    if(targets.length>1024)throw new ApiError(422,'FURNISHING_WALKING_COLLISION_LIMIT');
+    return {targets};
+  }
+  async proposeNativeFurnishingWalkingCollision(c:PoolClient,s:Session,draft:Draft,target:FurnishingWalkingCollisionTarget,enabled:boolean|null) {
+    await this.evaluateNativeFurnishingWalkingCollision(c,s,draft);
+    try {
+      const candidate=applyFurnishingWalkingCollisionOverride(draft.candidate,target,enabled);
+      return {changed:candidate!==draft.candidate,candidate};
+    } catch {
+      throw new ApiError(422,'FURNISHING_WALKING_COLLISION_INVALID');
+    }
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
     if(!this.nativeOexWorkspace)throw new ApiError(404,'NOT_FOUND');

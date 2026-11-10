@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {applyBenchCommand} from '@exhibitos/studio-contract';
+import {reconcileFurnishingWalkingCollision,applyBenchCommand} from '@exhibitos/studio-contract';
 import type {BenchCommand} from '@exhibitos/studio-contract';
 import type {CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
@@ -22,7 +22,7 @@ export function checkedBenchInspectorRequest(value:unknown,frame:NativeViewportF
 export function nativeBenchInspectorCandidate(frame:NativeViewportFrame,input:unknown){
   const request=checkedBenchInspectorRequest(input,frame);
   if(!validateDraft(frame.draft).valid)throw Error('BENCH_INSPECTOR_SOURCE_INVALID');
-  const candidate=applyBenchCommand(frame.draft.candidate,request);
+  const candidate=reconcileFurnishingWalkingCollision(frame.draft.candidate,applyBenchCommand(frame.draft.candidate,request));
   if(!validateDraft({...frame.draft,candidate}).valid)throw Error('BENCH_INSPECTOR_CANDIDATE_INVALID');
   return candidate;
 }

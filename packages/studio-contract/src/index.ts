@@ -275,3 +275,4 @@ export * from './workspace-default-seats.js';
 export * from './artwork-detail-quality.js';
 
 export * from './workspace-fit-receipt.js';
+export * from './furnishing-walking-collision.js';

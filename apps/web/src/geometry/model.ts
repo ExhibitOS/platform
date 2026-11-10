@@ -2,6 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
+  reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
   roomBaseLight,
   resizeRoomEnvelope, completeRoomCeiling, setLightAttachment, LIGHT_ATTACHMENT_NAMESPACE, type LightAttachment,
@@ -321,6 +322,7 @@ export function applyGeometryCommand(
     }
   }
   if(doc.extensions?.[TEMPLATE_NAMESPACE]){const provenance=doc.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};provenance.modified=true;}
+  doc=reconcileFurnishingWalkingCollision(state.present,doc);
   checked(doc,options?.archiveProfile);
   return {
     present: doc,

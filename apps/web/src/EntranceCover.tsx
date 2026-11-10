@@ -33,7 +33,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still);
-  const [image, setImage] = useState<{url:string;width:number;height:number;generation:number;variant:boolean}|null>(null);
+  const [image, setImage] = useState<{url:string;width:number;height:number;generation:number;variant:boolean;asset:{sha256:string;bytes:number}}|null>(null);
   const [box,setBox]=useState<{key:string;width:number;height:number;pixelRatio:number}|undefined>();
   const [forcePrimary,setForcePrimary]=useState(false);
   const [layoutReady,setLayoutReady]=useState(false);
@@ -43,6 +43,11 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
   const displayedImageState:ThemeProps['image']['status']=!showImage||!hasUsableImage?'absent':failed?'failed':image?(loaded?'ready':'decoded'):'loading';
   useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
+  useEffect(()=>{
+    if(displayedImageState!=='ready'||!image||image.generation!==generation.current)return;
+    entranceReadiness?.setDisplayedCover(image.asset);
+    return ()=>entranceReadiness?.setDisplayedCover(null);
+  },[displayedImageState,image,entranceReadiness]);
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
     if(!interactive||!showImage||!hasUsableImage||failed||!motion||!canReveal)setPaper('flat');
@@ -111,7 +116,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
       }); signal.throwIfAborted();
       if(current!==generation.current)return;
       retirement?.decoded(objectURL,{width:decoded.naturalWidth,height:decoded.naturalHeight});
-      setImage({url:objectURL,width:view.getUint32(16),height:view.getUint32(20),generation:current,variant:target.toLowerCase()!==id});
+      setImage({url:objectURL,width:view.getUint32(16),height:view.getUint32(20),generation:current,variant:target.toLowerCase()!==id,asset:inventory});
     };
     void (async()=>{try{await load(selectedId);}catch(error){
       retirement?.fail();

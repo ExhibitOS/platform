@@ -14,6 +14,7 @@ export interface EntranceProgress {
 export function createEntranceReadiness(bootstrapBytes: number) {
   const listeners = new Set<() => void>();
   let cover: EntranceAsset | null | undefined;
+  let displayedCover: string | undefined;
   let assets: readonly EntranceAsset[] | undefined;
   const received = new Map<string, number>();
   let progress: EntranceProgress | null = null;
@@ -43,10 +44,15 @@ export function createEntranceReadiness(bootstrapBytes: number) {
     snapshot: () => progress,
     setCover(asset: EntranceAsset | null) {
       cover = asset;
+      displayedCover = undefined;
       if (!asset || coverTransfer?.identity !== key(asset)) coverTransfer = undefined;
       publish();
     },
     hasCoverSelection: () => cover !== undefined,
+    setDisplayedCover(asset: EntranceAsset | null) {
+      displayedCover = cover && asset && key(cover) === key(asset) ? key(asset) : undefined;
+    },
+    isDisplayedCover: (asset: EntranceAsset) => displayedCover === key(asset),
     retainCoverTransfer(asset: EntranceAsset, bytes: Promise<ArrayBuffer>) {
       coverTransfer = {identity: key(asset), bytes};
     },

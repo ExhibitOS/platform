@@ -195,7 +195,34 @@ const r62Wheat:QualifiedDetailImage=Object.freeze({...r61Wheat,
  artworkRevisionId:'14f64cd8-d7f1-4260-89bb-6beda10142b9',
  sourceBindingSha256:'2fe15afb3a150fc4274119019e10cda307e94e86566cee53fa3d7b1f787129f8',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat,r57Wheat,r61Wheat,r62Wheat]);
+// The r64 backed-bench update retains the measured Wheat original and its bounds.
+const r64Wheat:QualifiedDetailImage=Object.freeze({...r62Wheat,
+ staticIndexSha256:'bb653fc24e22844e766a4766740cda40222d8717f9d4bb2274324c7e619cf9ba',
+ publicationSha256:'638beb58b18254b69ab4409827a3f2155497d165fc12a71a4d1b62b373d73ff1',
+ candidateId:'906ec075-a63d-4a01-9520-62ce87e39aaf',
+ revisionSha256:'bde439d920ebdb72f917e3ea13fa82e243196535ca53aa713a3ce0b3802a2844',
+ artworkRevisionId:'d454921b-9a6e-46a8-a8d3-0676b72465ef',
+ sourceBindingSha256:'07daad94b8b44fe52a071bf7e9295515b5782b458964372473bd4aa6020e7ff8',
+});
+// The r65 plaque update retains the measured Wheat original and its bounds.
+const r65Wheat:QualifiedDetailImage=Object.freeze({...r64Wheat,
+ staticIndexSha256:'67a876936034e2e9db73c8986147a9a0e6f65fcf809e01bca43b7c3a4b148f61',
+ publicationSha256:'10c673704ddc1435370beeeb863ba619378f0f9990c9f656ff8be8a19f49d967',
+ candidateId:'92a75e00-f47d-47ce-b07c-8ddfbd10d1d8',
+ revisionSha256:'1e1688f80e58e37930573f9a2563255ba308af7d8db5218b90266874e86608bb',
+ artworkRevisionId:'5d19e6c3-8c26-4f0f-8cac-861663d0c720',
+ sourceBindingSha256:'bad77052eef60cfa3557b56fb862485edb109babc320ab986d81d89297df5ab3',
+});
+// The r67 accessibility text update retains the measured Wheat original and its bounds.
+const r67Wheat:QualifiedDetailImage=Object.freeze({...r65Wheat,
+ staticIndexSha256:'34b014feb03bd3f50f2f1bc51d615d1e7c8f3bc49e7d31c4b8f41f8d89d312f9',
+ publicationSha256:'0730095254e1f6501c93bbdbdc6107bb2cf59e882a8f49712ed760b46b7cba46',
+ candidateId:'af6737e3-c558-4ba3-baaa-cfb435477b72',
+ revisionSha256:'5f9961a0cc7e699674f4a71e59db156a042a96bf6a840f40994d2d4d47760d3b',
+ artworkRevisionId:'9df1cfb3-a84c-4ea5-bb7c-1070384d9eb1',
+ sourceBindingSha256:'58d8c21c0cb6f3be4f34d624289434cd7ad1f082cc72d91c5591b431295cc43a',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat,r57Wheat,r61Wheat,r62Wheat,r64Wheat,r65Wheat,r67Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
@@ -211,6 +238,8 @@ export function startDetailImageAttempt(input:{
  profile:QualifiedDetailImage;access:DetailAccess;slot:DetailImageSlot;peak:AssetPeakBudget;limit:number;
  attemptId:string;generation:number;isCurrent:(generation:number)=>boolean;signal:AbortSignal;three:typeof Three;
  progress?:(loadedBytes:number)=>void;
+ /** Take encoded bytes from the same scene after the exact access recheck. */
+ takePrefetchedBytes?:()=>Uint8Array|undefined;
  /** Must check the exact loader-owned publication and capability identities. */
  isTrusted:()=>boolean;
  /** Transfer the still-charged hold synchronously to the canvas-restoration owner. */
@@ -241,7 +270,13 @@ export function startDetailImageAttempt(input:{
    const signal=AbortSignal.any([attemptSignal,ownerAbort.signal]);
    let bitmap:ImageBitmap|undefined,texture:Three.Texture|undefined,geometry:Three.PlaneGeometry|undefined,material:Three.MeshBasicMaterial|undefined;
    try{
-    let candidates:Awaited<ReturnType<DetailAccess['candidatesFor']>>;try{candidates=await access.candidatesFor(profile.artworkRevisionId,signal);}catch(error){if(uncertainRead(error))cleanupFailed=true;throw error;}signal.throwIfAborted();if(!trusted())throw Error('DETAIL_IMAGE_AUTHORITY');const candidate=candidates.find(value=>value.candidateId===profile.candidateId),media=candidate?.featureReport.media;if(!candidate||candidate.tier!=='acquired-original'||candidate.sha256!==profile.sha256||candidate.bytes!==profile.bytes||candidate.mime!==profile.mime||candidate.sourceBindingSha256!==profile.sourceBindingSha256||candidate.featureReportSha256!==profile.featureReportSha256||candidate.featureReport.inspector!==profile.inspector||candidate.featureReport.cost.model!==profile.model||!Number.isSafeInteger(candidate.featureReport.cost.peakAdditionalBytes)||candidate.featureReport.cost.peakAdditionalBytes>profile.reservationBytes||media?.kind!=='image'||media.width!==profile.width||media.height!==profile.height)throw Error('DETAIL_IMAGE_BINDING');let bytes:Uint8Array;try{await access.recheck(profile.candidateId,signal);bytes=await access.fetch(profile.candidateId,signal,input.progress);}catch(error){if(uncertainRead(error))cleanupFailed=true;throw error;}signal.throwIfAborted();if(!trusted())throw Error('DETAIL_IMAGE_AUTHORITY');
+    let candidates:Awaited<ReturnType<DetailAccess['candidatesFor']>>;try{candidates=await access.candidatesFor(profile.artworkRevisionId,signal);}catch(error){if(uncertainRead(error))cleanupFailed=true;throw error;}signal.throwIfAborted();if(!trusted())throw Error('DETAIL_IMAGE_AUTHORITY');const candidate=candidates.find(value=>value.candidateId===profile.candidateId),media=candidate?.featureReport.media;if(!candidate||candidate.tier!=='acquired-original'||candidate.sha256!==profile.sha256||candidate.bytes!==profile.bytes||candidate.mime!==profile.mime||candidate.sourceBindingSha256!==profile.sourceBindingSha256||candidate.featureReportSha256!==profile.featureReportSha256||candidate.featureReport.inspector!==profile.inspector||candidate.featureReport.cost.model!==profile.model||!Number.isSafeInteger(candidate.featureReport.cost.peakAdditionalBytes)||candidate.featureReport.cost.peakAdditionalBytes>profile.reservationBytes||media?.kind!=='image'||media.width!==profile.width||media.height!==profile.height)throw Error('DETAIL_IMAGE_BINDING');
+    try{await access.recheck(profile.candidateId,signal);}catch(error){if(uncertainRead(error))cleanupFailed=true;throw error;}
+    signal.throwIfAborted();if(!trusted())throw Error('DETAIL_IMAGE_AUTHORITY');
+    let bytes=input.takePrefetchedBytes?.();
+    if(!bytes)try{bytes=await access.fetch(profile.candidateId,signal,input.progress);}
+    catch(error){if(uncertainRead(error))cleanupFailed=true;throw error;}
+    signal.throwIfAborted();if(!trusted())throw Error('DETAIL_IMAGE_AUTHORITY');
     if(bytes.byteLength!==profile.bytes)throw Error('DETAIL_IMAGE_INTEGRITY');
     const snapshot=new Uint8Array(bytes);const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',snapshot))].map(v=>v.toString(16).padStart(2,'0')).join('');
     if(hash!==profile.sha256)throw Error('DETAIL_IMAGE_INTEGRITY');signal.throwIfAborted();
