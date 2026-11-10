@@ -225,10 +225,13 @@ export class AssetPeakBudget {
  constructor(private maxBytes:number,private resident:()=>number,private observed?:(total:number)=>void){}
  /** Release a completed external load hold without clearing live reservations. */
  raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
- reserve(key:string,bytes:number,limitBytes=this.maxBytes){
+ assertFits(key:string,bytes:number,limitBytes=this.maxBytes){
   // An explicit selected-image allowance still accounts for every other live
   // reservation and resident allocation in this same ledger.
   if(!Number.isSafeInteger(limitBytes)||limitBytes<1||!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>limitBytes)throw Error('ASSET_TRANSITION_PEAK');
+ }
+ reserve(key:string,bytes:number,limitBytes=this.maxBytes){
+  this.assertFits(key,bytes,limitBytes);
   this.reservations.set(key,bytes);
   this.observed?.(this.total());
  }
