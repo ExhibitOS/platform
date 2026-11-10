@@ -2115,6 +2115,8 @@ export function GeometryPreview({
         };
         const reclaimOffroom=(target:string,deficit:()=>number)=>{
           if(deficit()<=0)return;
+          releaseCachedOriginal();
+          if(deficit()<=0)return;
           const candidates=[...objects.keys()].filter(id=>id!==target&&id!==currentArtwork&&id!==viewingCurrentArt&&id!==detailPinnedArtwork&&
             !mapPins.has(id)&&!viewingPins.has(id)&&!pending.has(id)&&observedVisible.get(id)===false&&observedEligible.get(id)===false);
           // Leave the old working set intact when this phase cannot fit even
@@ -2300,7 +2302,9 @@ export function GeometryPreview({
           const selectedLimits=detailArt?requestLimits({detailPromotion:true,detailBudget:selectedBudget(detailArt)}):undefined;
           // A verified download-only preparation may settle without an object.
           // Its expendable encoded cache must also fit the current steady scope.
-          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=(selectedLimits?.resident??assetBudgetBytes))break;byteCache.delete(asset.id);}
+          const residentLimit=selectedLimits?.resident??assetBudgetBytes;
+          if(resident()>residentLimit)releaseCachedOriginal();
+          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=residentLimit)break;byteCache.delete(asset.id);}
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
@@ -2413,6 +2417,7 @@ export function GeometryPreview({
           const detailBudget=detailPromotion?selectedBudget(art,inventory):undefined;
           if(detailPromotion&&detailBudgetWait?.assetId===inventory.id){
             const {bytes,phase}=detailBudgetWait,limit=requestLimits({detailPromotion,detailBudget})[phase];
+            if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))releaseCachedOriginal();
             if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))return;
             detailBudgetWait=undefined;
           }
@@ -2730,7 +2735,7 @@ export function GeometryPreview({
             // the measured detail viewport still gate the later decode.
             const limit=Math.min(transitionBudgetBytes,profile.maxSceneBytes),reservation=4*bytes;
             if(entranceOptionalAttempted.has(cacheKey)||byteCache.get(cacheKey)||cache.bytes+bytes>cache.maxBytes||
-               peak.total()+reservation>limit)continue;
+               resident()+bytes>assetBudgetBytes||peak.total()+reservation>limit)continue;
             const inventory=art.assets.find(asset=>asset.id===art.primaryAssetId);
             if(!inventory)continue;
             queueOptional(art,inventory,cacheKey,!cover,async(signal,key)=>{
@@ -2749,7 +2754,7 @@ export function GeometryPreview({
                 if(transferSignal.aborted||!compatible()||body.byteLength!==bytes||!(body.buffer instanceof ArrayBuffer)||
                    body.byteOffset!==0||body.buffer.byteLength!==bytes)return;
                 const current=byteCache.stats();
-                if(current.bytes+bytes>current.maxBytes||peak.total(hold)+bytes>limit)return;
+                if(current.bytes+bytes>current.maxBytes||resident()+bytes>assetBudgetBytes||peak.total(hold)+bytes>limit)return;
                 releaseCachedOriginal();
                 if(byteCache.set(cacheKey,body.buffer,bytes)){
                   cachedOriginalKey=cacheKey;
@@ -3079,6 +3084,7 @@ export function GeometryPreview({
           // Verified downloads can outlive a deferred full-image promotion.
           // Spend no extra residency on the borrowed view until unpinned bytes
           // have yielded to the already displayed object and annotations.
+          if(resident()+markerBytes>assetBudgetBytes)releaseCachedOriginal();
           for(const work of arts)for(const asset of work.assets){
             if(resident()+markerBytes<=assetBudgetBytes)break;
             byteCache.delete(asset.id);
@@ -3286,6 +3292,7 @@ export function GeometryPreview({
                     if(current()&&deficit()>0){
                       for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
                       evictPrepared(deficit);
+                      if(deficit()>0)releaseCachedOriginal();
                     }
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       takePrefetchedBytes:()=>{
