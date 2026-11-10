@@ -76,6 +76,8 @@ async function waitForAccept(signal:AbortSignal){
 let currentSession:Session|undefined;
 let ownerAuthority:NativeOwnerAuthority|undefined;
 const ownerAuthorityGate=new NativeOwnerAuthorityGate(()=>invalidatePendingAccept());
+// The authenticated populated editor already retains about 171 MiB of artwork.
+const nativeOwnerResources={...DEVICE_BUDGETS.desktop,maxTransitionBytes:288*1024*1024};
 let receive:((frame:NativeViewportFrame,session:Session,authority:typeof ownerAuthority)=>void)|undefined;
 let findCurrentSelection:{frame:NativeViewportFrame;action:(id:string)=>boolean}|null=null;
 let cameraApply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null=null;
@@ -395,7 +397,7 @@ function Viewport(){
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview ownerWorkspaceFurnishings={authority} onSceneSnapshotReady={source=>{snapshotSource=source;}} fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview ownerWorkspaceFurnishings={authority} onSceneSnapshotReady={source=>{snapshotSource=source;}} fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={authority?nativeOwnerResources:DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>

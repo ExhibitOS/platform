@@ -5,7 +5,7 @@ import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
-import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
+import {createOwnerFurnishingScene,existingSceneCost,FurnishingSceneCapacityError} from './workspace-furnishing/owner-scene';
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
 import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
@@ -3364,7 +3364,14 @@ export function GeometryPreview({
       }
       if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
         await Promise.allSettled(catalogSettled);if(disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
-        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed:workspaceFurnishingsChanged});
+        try {
+          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,nativeEditor:true,resident:()=>localResidentBytes+byteCache.stats().bytes,changed:workspaceFurnishingsChanged});
+        } catch (error) {
+          if (!(error instanceof FurnishingSceneCapacityError)) throw error;
+          renderer.domElement.dataset.workspaceFurnishings = JSON.stringify({ reason: error.message });
+          setMessage('장면의 표시 한도에 도달해 작업 공간 비품을 표시하지 못했어요. 전시 편집은 계속할 수 있습니다.');
+          return;
+        }
         const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
     };
