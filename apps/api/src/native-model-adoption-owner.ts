@@ -9,7 +9,8 @@ import type {NativeAdoptionBroker} from './native-model-adoption-broker.ts';
 import {modelReceiptDigest} from './model-preparation-intent.ts';
 import {parseNativeModelAdoptionGrant,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 import {stageNativeModelAdoptionSource} from './native-model-adoption-source.ts';
-import {commitNativeModelAdoptionTarget,lockNativeModelAdoptionTarget,readNativeModelAdoptionReceipt} from './native-model-adoption-target.ts';
+import {commitNativeModelAdoptionTarget,lockNativeModelAdoptionTarget} from './native-model-adoption-target.ts';
+import {disposeNativeModelAdoptionTarget,readNativeModelAdoptionDisposition} from './native-model-adoption-disposition.ts';
 import type {Studio} from './studio.ts';
 
 type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs:number):Promise<Buffer>;isOpen():boolean;close():Promise<void>};
@@ -22,6 +23,7 @@ type Request={operationId:string}&(
  |{kind:'adoption-preview-target';grant:NativeModelAdoptionGrant}
  |{kind:'adoption-commit-target';grantSha256:string;grant:NativeModelAdoptionGrant}
  |{kind:'adoption-status-target';grantSha256:string}
+ |{kind:'adoption-dispose-target';grantSha256:string;exhibitionId:string}
 );
 
 export function parseNativeModelAdoptionRequest(bytes:Buffer,runtimeGeneration:string):Request{
@@ -40,6 +42,10 @@ export function parseNativeModelAdoptionRequest(bytes:Buffer,runtimeGeneration:s
     Number(frame.sourceArtworkRevision)<1||Number(frame.sourceArtworkRevision)>2147483647||
     !Number.isSafeInteger(frame.expiresAt))throw refused();
   return frame as unknown as Request;
+ }
+ if(kind==='adoption-dispose-target'){
+  if(!exact('grantSha256','exhibitionId')||typeof frame.grantSha256!=='string'||!hex.test(frame.grantSha256)||typeof frame.exhibitionId!=='string'||!uuid.test(frame.exhibitionId))throw refused();
+  return {kind,operationId,grantSha256:frame.grantSha256,exhibitionId:frame.exhibitionId};
  }
  if(kind==='adoption-status-target'){
   if(!exact('grantSha256')||typeof frame.grantSha256!=='string'||!hex.test(frame.grantSha256))throw refused();
@@ -114,17 +120,26 @@ export async function runNativeModelAdoptionOwner(input:{
      }));
      preview=undefined;
      result={kind:'adoption-target-committed',payload:{grantSha256,revision:response.revision,etag:response.etag}};
+    }else if(kind==='adoption-dispose-target'){
+     const {grantSha256,exhibitionId}=request;
+     const disposition=await transaction(async(c,s)=>{
+      await imports.coarseOwner(c,s.tenantId,s.userId,owner.workspaceId);
+      return disposeNativeModelAdoptionTarget(c,s,request,studio);
+     });
+     if(preview?.operationId===operationId&&preview.grantSha256===grantSha256)preview=undefined;
+     result={kind:'adoption-target-disposition',payload:{grantSha256,exhibitionId,outcome:disposition.outcome,
+      revision:disposition.outcome==='committed'?disposition.response.revision:null,etag:disposition.outcome==='committed'?disposition.response.etag:null}};
     }else{
      const {grantSha256}=request;
-     const response=await transaction(async(c,s)=>{
+     const disposition=await transaction(async(c,s)=>{
       await imports.coarseOwner(c,s.tenantId,s.userId,owner.workspaceId);
-      return readNativeModelAdoptionReceipt(c,s,operationId,grantSha256);
+      return readNativeModelAdoptionDisposition(c,s,operationId,grantSha256);
      });
-     result={kind:'adoption-target-status',payload:{grantSha256,outcome:response?'committed':'unresolved',revision:response?.revision??null,etag:response?.etag??null}};
+     result={kind:'adoption-target-status',payload:{grantSha256,outcome:disposition.outcome,revision:disposition.outcome==='committed'?disposition.response.revision:null,etag:disposition.outcome==='committed'?disposition.response.etag:null}};
     }
    }catch(error){
     await live();
-    const code=error instanceof ApiError&&['FORBIDDEN','RIGHTS_DENIED','REMOTE_CONFLICT','REQUEST_CONFLICT','MODEL_ADOPTION_TARGET_CHANGED','MODEL_ADOPTION_SOURCE_CHANGED'].includes(error.code)
+    const code=error instanceof ApiError&&['FORBIDDEN','RIGHTS_DENIED','REMOTE_CONFLICT','REQUEST_CONFLICT','MODEL_ADOPTION_TARGET_CHANGED','MODEL_ADOPTION_SOURCE_CHANGED','MODEL_ADOPTION_CANCELLED'].includes(error.code)
      ?error.code:'NATIVE_MODEL_ADOPTION_UNAVAILABLE';
     result={kind:'adoption-refused',payload:{code}};
    }

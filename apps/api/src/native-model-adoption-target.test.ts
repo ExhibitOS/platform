@@ -90,6 +90,13 @@ it.each([false,true])('binds adoption to the exact current owner, rights and pla
  const different={...grant,receiptSha256:'e'.repeat(64)};
  await expect(commitNativeModelAdoptionTarget({...input,grant:different,confirmedGrantSha256:modelReceiptDigest(different)})).rejects.toThrow('REQUEST_CONFLICT');
  expect(putDurable).not.toHaveBeenCalled();
+ const cancelledQuery=vi.fn(async(sql:string)=>sql.includes('FROM studio_requests')?{rowCount:1,rows:[{
+  payload_sha256:modelReceiptDigest(['native-model-adoption-v1',modelReceiptDigest(grant)]),exhibition_id:draft.exhibitionId,
+  response:{kind:'native-model-adoption-cancelled-v1',grantSha256:modelReceiptDigest(grant),exhibitionId:draft.exhibitionId},
+ }]}:{rowCount:0,rows:[]});
+ await expect(commitNativeModelAdoptionTarget({...input,client:{query:cancelledQuery} as unknown as PoolClient})).rejects.toThrow('MODEL_ADOPTION_CANCELLED');
+ expect(cancelledQuery.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+ expect(putDurable).not.toHaveBeenCalled();
 
  const {publicTexturedGLB,publicTexturePNG}=createRequire(import.meta.url)('../../../scripts/embedded-texture-fixture.mjs') as {
   publicTexturedGLB:(options?:{png:Buffer})=>Buffer;publicTexturePNG:(width:number,height:number)=>Buffer;

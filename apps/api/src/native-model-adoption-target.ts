@@ -16,8 +16,9 @@ import {readNativeAdoptionBrokerBlob,type NativeAdoptionBroker} from './native-m
 import {modelReceiptDigest} from './model-preparation-intent.ts';
 import {nativeModelAdoptionRightsPolicyDigest,parseNativeModelAdoptionGrant,type NativeModelAdoptionGrant} from './native-model-adoption-grant.ts';
 import {allowedRights} from './rights.ts';
+import {lockNativeModelAdoptionOperation,readNativeModelAdoptionDisposition} from './native-model-adoption-disposition.ts';
 import {modelAdoptionDisplayPolicy} from './model-adoption-display-policy.ts';
-import {etag,insertStudioReceipt,type Draft,type Studio,type StudioResponse} from './studio.ts';
+import {etag,insertStudioReceipt,type Draft,type Studio} from './studio.ts';
 
 /** Revalidate the target in the transaction that will consume the grant.
  * The caller must first obtain explicit approval from the authenticated target
@@ -103,7 +104,7 @@ export async function commitNativeModelAdoptionTarget(input:{
  await live();
  await imports.requiredModelReady(c,s);
  await imports.coarseOwner(c,s.tenantId,s.userId,target.workspaceId);
- await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:${s.userId}:${grant.operationId}`]);
+ await lockNativeModelAdoptionOperation(c,s,grant.operationId);
  const priorResponse=await readNativeModelAdoptionReceipt(c,s,grant.operationId,grantSha256,target.exhibitionId);
  if(priorResponse){await live();return priorResponse;}
  const receiptHash=modelReceiptDigest(['native-model-adoption-v1',grantSha256]);
@@ -183,10 +184,7 @@ export async function commitNativeModelAdoptionTarget(input:{
 /** A missing receipt is unresolved. The caller cannot use it as proof that
  * a prior commit attempt rolled back or that the Manager may retire staging. */
 export async function readNativeModelAdoptionReceipt(c:PoolClient,s:Session,operationId:string,grantSha256:string,exhibitionId?:string){
- const receipt=await c.query('SELECT payload_sha256,exhibition_id,response FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,operationId]);
- if(!receipt.rowCount)return undefined;
- const row=receipt.rows[0];
- if(row.payload_sha256!==modelReceiptDigest(['native-model-adoption-v1',grantSha256])||
-    exhibitionId!==undefined&&row.exhibition_id!==exhibitionId)throw new ApiError(409,'REQUEST_CONFLICT');
- return row.response as StudioResponse;
+ const disposition=await readNativeModelAdoptionDisposition(c,s,operationId,grantSha256,exhibitionId);
+ if(disposition.outcome==='cancelled')throw new ApiError(409,'MODEL_ADOPTION_CANCELLED');
+ return disposition.outcome==='committed'?disposition.response:undefined;
 }
