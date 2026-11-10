@@ -31,6 +31,7 @@ export async function createWalkingCamera({
   onSeat,
   onNearbyBench,
   workspaceBenchAvailability,
+  stoolVisible,
   wasWalkingBeforeSeat,
   onViewpointFov,
 }: {
@@ -55,6 +56,7 @@ export async function createWalkingCamera({
   canLookSeated?: () => boolean;
   onSeat?: (benchId:string|null) => void;
   onNearbyBench?: (benchId: string | null) => void;
+  stoolVisible?: (placementId:string)=>boolean;
   workspaceBenchAvailability?: (link:WorkspaceBenchVisual) => 'pending'|'ready'|'unavailable';
   wasWalkingBeforeSeat?: () => boolean;
   /** The embedding projection owner retains the authored FOV and applies its
@@ -69,6 +71,7 @@ export async function createWalkingCamera({
   const controller = await createNavigationController(document, {
     position: defaultEntry ? undefined : (initialCamera ?? camera).position.toArray() as [number, number, number],
     yaw: angles.y,
+    stoolVisible,
     ...settings,
   });
   if(signal?.aborted){controller.dispose();signal.throwIfAborted();}
