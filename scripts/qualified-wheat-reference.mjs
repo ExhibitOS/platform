@@ -191,12 +191,21 @@ export const R85_REFERENCE=Object.freeze({...R69_REFERENCE,
  modelCandidateId:'ba20b738-deb8-4e31-93c8-892202bd81ae',
  modelSourceBindingSha256:'4b87d63a83a60399c7e1cd13db7b752e23fe29a306147f4f8d2099bbd43e3e6d',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R86_REFERENCE=Object.freeze({...R85_REFERENCE,
+ indexSha256:'ae2a56762901fca9335648ef89200abf5d61d317f19cdf3abc0318850adc7fc0',
+ publicationSha256:'60608b872958859c131b559aea75ced0219b50b237cd5dac783f444478ae56e0',
+ publicationId:'cba69e9d-1c69-4a34-a39f-0eb66da28b68',
+ revisionSha256:'eb6ec0f836dead3d0ae69d334021716a5c11d39439806d9336f2e132fac15f12',
+ candidateId:'e692f6c7-be23-46d5-b776-91757027b179',
+ modelCandidateId:'a32f08d1-d51a-49d7-b4dc-616ed00ea00e',
+ modelSourceBindingSha256:'5d29ad63019fb8afcdf326f919040c8bc8e6b47a8b940b7d121643514a368103',
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53|r57|r61|r62|r64|r65|r67|r69|r85)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53|r57|r61|r62|r64|r65|r67|r69|r85|r86)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -205,7 +214,7 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE;
+ const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE;
  const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal);
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
@@ -272,7 +281,7 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
 export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor,indexPath='qualified-r67-v4-index.json'}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
  const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath});
- if(![R67_REFERENCE,R69_REFERENCE,R85_REFERENCE].includes(source.reference))fail();
+ if(![R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE].includes(source.reference))fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();

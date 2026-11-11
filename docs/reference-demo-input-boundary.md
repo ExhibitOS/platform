@@ -121,3 +121,10 @@ detail already prefer placement descriptions. Physical plaques use independent
 structured captions, while map previews and the native entrance text preview
 read artwork metadata; this revision does not change those fields. Admission
 does not establish actual text observation or public deployment of r85.
+
+The r86 Closing-seat revision is separately admitted by index
+`ae2a56762901fca9335648ef89200abf5d61d317f19cdf3abc0318850adc7fc0`.
+It adds one functional host and viewpoint linked to the existing unit-scale
+Closing bench visual. Media, rights, artwork placement and measured original
+constraints remain unchanged. Source admission is separate from actual
+sit/stand, collision, contact, mobile and public-deployment qualification.
