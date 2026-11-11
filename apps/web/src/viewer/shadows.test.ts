@@ -151,6 +151,43 @@ test('an initial camera outside scene bounds can enter and recover without a roo
   expect(h.reports.at(-1)).toMatchObject({mode:'bounded',mapSize:512,casters:1,updates:1});h.pass.dispose();
 });
 
+test('fixed world capture keeps architecture and projection stable through walking, turning, FOV and refresh',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const images=Array.from({length:270},(_,i)=>{const mesh=new three.Mesh(new three.PlaneGeometry(1,1),new three.MeshStandardMaterial());mesh.position.set((i%10)*.1,1,0);mesh.userData.viewerArtworkType='image';h.room.add(mesh);return mesh;});
+  const walls=Array.from({length:50},(_,i)=>{const mesh=new three.Mesh(new three.PlaneGeometry(1,1),new three.MeshStandardMaterial());mesh.position.set((i%10)-4.5,1,1);mesh.userData.exhibitosShadowArchitecture=true;h.room.add(mesh);return mesh;});
+  const reports:ShadowReport[]=[],bounds=new three.Box3(new three.Vector3(-5,0,-12),new three.Vector3(18,4,2));
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r),bounds);
+  const camera=contactView();pass.flush(camera);h.light.shadow.updateMatrices(h.light);
+  const selected=images.filter(mesh=>mesh.castShadow),projection=h.light.shadow.camera.projectionMatrix.clone(),matrix=h.light.shadow.matrix.clone(),bias=h.light.shadow.normalBias;
+  expect(walls.every(mesh=>mesh.castShadow&&mesh.receiveShadow)).toBe(true);expect(selected).toHaveLength(14);
+  for(const x of [.5,2,7,12]){
+    camera.position.x=x;camera.lookAt(-5,1,-2);camera.fov=90;camera.updateProjectionMatrix();pass.flush(camera);
+    pass.invalidate();pass.flush(camera);h.light.shadow.updateMatrices(h.light);
+    expect(h.light.shadow.camera.projectionMatrix.equals(projection)).toBe(true);expect(h.light.shadow.matrix.equals(matrix)).toBe(true);
+    expect(h.light.shadow.normalBias).toBe(bias);expect(images.filter(mesh=>mesh.castShadow)).toEqual(selected);
+    expect(walls.every(mesh=>mesh.castShadow&&mesh.receiveShadow)).toBe(true);
+    expect(reports.at(-1)).toMatchObject({mode:'bounded',mapSize:512,casters:64,triangles:128});
+  }
+  expect(h.light.position.toArray()).toEqual([4,8,4]);pass.dispose();
+});
+
+test('near-field content invalidation preserves the old anchor until movement exceeds six metres',()=>{
+  const h=setup();h.mesh.geometry=new three.BoxGeometry(60,2,60);const camera=contactView();
+  h.pass.flush(camera);h.light.shadow.updateMatrices(h.light);const original=h.light.shadow.matrix.clone();
+  for(const x of [.5,1,3,5.9]){camera.position.x=x;h.pass.invalidate();h.pass.flush(camera);h.light.shadow.updateMatrices(h.light);expect(h.light.shadow.matrix.equals(original)).toBe(true);}
+  camera.position.x=6.1;h.pass.flush(camera);h.light.shadow.updateMatrices(h.light);expect(h.light.shadow.matrix.equals(original)).toBe(false);h.pass.dispose();
+});
+
+test('a failed earlier source cannot move the retained near-field anchor for the valid source',()=>{
+  const h=setup();h.pass.dispose();h.mesh.geometry=new three.BoxGeometry(60,2,60);
+  const far=new three.DirectionalLight(0xffffff,0);far.position.set(1000,1000,1000);h.room.add(far,far.target);
+  const spot=new three.SpotLight();spot.position.set(4,8,4);h.room.add(spot,spot.target);
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:far},{room:h.room,light:spot}],false,SHADOW_RESERVE_BYTES,()=>{}),camera=contactView();
+  pass.flush(camera);spot.shadow.updateMatrices(spot);const original=spot.shadow.matrix.clone();expect(spot.castShadow).toBe(true);
+  camera.position.x=1;far.intensity=1;pass.invalidate();pass.flush(camera);spot.shadow.updateMatrices(spot);
+  expect(far.castShadow).toBe(false);expect(spot.castShadow).toBe(true);expect(spot.shadow.matrix.equals(original)).toBe(true);pass.dispose();
+});
+
 test('planarity result is reused until position or index versions change',()=>{
   const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1);
   const position=h.mesh.geometry.getAttribute('position'),read=vi.spyOn(position,'getX');
@@ -300,4 +337,38 @@ test('authority visibility descriptor refresh removes and restores masks without
   expect(h.mesh.material.onBeforeCompile).toBe(owned);expect(h.mesh.material.customProgramCacheKey).toBe(key);
   expect(h.mesh.material.version).toBe(version);expect(retired).toBe(0);
   pass.setContacts([]);pass.setView(camera);pass.dispose();expect(retired).toBe(1);h.pass.dispose();
+});
+
+test('same-pose descriptor hide/restore retains unchanged receiver-local support masks',()=>{
+  const h=setup(),rows=[...Array.from({length:7},()=>contactRow(h.room,h.mesh)),contactRow(h.room,h.mesh,1),contactRow(h.room,h.mesh,-1)];
+  const pass=installSupportContactShadows(three,rows,false,()=>{});pass.setView(contactView(.4));pass.setView(contactView(-.4));
+  const uniforms=h.mesh.material.userData.exhibitosSupportContact;
+  const retained=()=>uniforms.exhibitosContactMatrices.value.slice(0,uniforms.exhibitosContactCount.value).map((matrix:three.Matrix4)=>matrix.elements[12]);
+  expect(retained()).toContain(-5);expect(retained()).not.toContain(5);
+  pass.setContacts(rows.slice(0,8));pass.setView(contactView(-.4));
+  pass.setContacts(rows.map(row=>({...row,position:[...row.position],rotation:[...row.rotation]})));pass.setView(contactView(-.4));
+  expect(retained()).toContain(-5);expect(retained()).not.toContain(5);expect(uniforms.exhibitosContactCount.value).toBe(8);
+  pass.dispose();h.pass.dispose();
+});
+
+test('two visible receiver materials each retain eight world masks as the camera moves and turns',()=>{
+  const h=setup(),second=new three.Mesh(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());second.position.x=.5;h.room.add(second);
+  const a=Array.from({length:8},(_,i)=>contactRow(h.room,h.mesh,-.5-i*.01)),b=Array.from({length:8},(_,i)=>contactRow(h.room,second,.5+i*.01)),reports:unknown[]=[];
+  const pass=installSupportContactShadows(three,[...a,...b],false,r=>reports.push(r));pass.setView(contactView());
+  const first=h.mesh.material.userData.exhibitosSupportContact,other=second.material.userData.exhibitosSupportContact;
+  const values=(uniforms:typeof first)=>uniforms.exhibitosContactMatrices.value.map((m:three.Matrix4)=>m.toArray());
+  const original=values(first),originalOther=values(other);
+  expect(reports.at(-1)).toMatchObject({activeContacts:16,materials:2,uniformBytes:1040});
+  for(const x of [.4,.6,-.4]){const camera=contactView(x);camera.lookAt(0,0,0);camera.updateMatrixWorld();pass.setView(camera);
+    expect(first.exhibitosContactCount.value).toBe(8);expect(other.exhibitosContactCount.value).toBe(8);
+    expect(values(first)).toEqual(original);expect(values(other)).toEqual(originalOther);
+  }
+  pass.dispose();h.pass.dispose();
+});
+
+test('a visible receiver does not lose its fixed contact when the camera crosses twelve metres',()=>{
+  const h=setup();h.mesh.geometry=new three.BoxGeometry(40,.1,40);
+  const pass=installSupportContactShadows(three,[contactRow(h.room,h.mesh)],false,()=>{});
+  for(const z of [11.9,12.1,13]){const camera=new three.PerspectiveCamera(70,1,.1,100);camera.position.set(0,1,z);camera.lookAt(0,0,0);camera.updateMatrixWorld();pass.setView(camera);expect(h.mesh.material.userData.exhibitosSupportContact.exhibitosContactCount.value).toBe(1);}
+  pass.dispose();h.pass.dispose();
 });

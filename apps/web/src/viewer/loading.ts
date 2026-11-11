@@ -396,6 +396,7 @@ export class AssetScheduler<T> {
  cancel(key:string){const task=this.tasks.get(key);if(!task||task.settled)return;task.settled=true;task.controller.abort();task.reject(cancelled());this.cancelled++;this.emit(task,"cancelled");this.tasks.delete(key);queueMicrotask(()=>this.drain());}
  cancelAll(){for(const key of this.tasks.keys())this.cancel(key);}
  dispose(){this.stopped=true;this.cancelAll();}
+ isQueued(key:string){return this.tasks.get(key)?.status==='queued';}
  stats():SchedulerStats{return {active:this.active,queued:[...this.tasks.values()].filter(t=>t.status==="queued").length,completed:this.completed,failed:this.failed,cancelled:this.cancelled};}
  private emit(task:Task<T>,status:LoadingStatus,error?:unknown){task.status=status;this.options.onState?.({key:task.key,status,...(error===undefined?{}:{error})});}
  private drain(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>(a.priorityOverride??a.priority)-(b.priorityOverride??b.priority)||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
@@ -414,6 +415,16 @@ export class MemoryAssetCache<T> {
  while(this.used+bytes>this.maxBytes){const oldest=[...this.entries.entries()].filter(([,e])=>e.pins===0).sort((a,b)=>a[1].order-b[1].order)[0];if(!oldest){this.onDispose(value);return false;}this.delete(oldest[0]);this.evictions++;}
  this.entries.set(key,{value,bytes,pins:0,order:this.order++});this.used+=bytes;return true;}
  delete(key:string):boolean{const entry=this.entries.get(key);if(!entry||entry.pins)return false;this.entries.delete(key);this.used-=entry.bytes;this.onDispose(entry.value);return true;}
+ /** Snapshot only expendable candidates; reading order does not touch LRU. */
+ reclamationKeys(rank:(key:string)=>number=()=>0,eligible:(key:string)=>boolean=()=>true){
+  return [...this.entries].filter(([key,entry])=>entry.pins===0&&eligible(key))
+   .sort((a,b)=>rank(b[0])-rank(a[0])||a[1].order-b[1].order).map(([key])=>key);
+ }
+ /** Pressure preferences are soft; pins and caller-owned cache domains stay hard. */
+ reclaim(deficit:()=>number,rank:(key:string)=>number=()=>0,eligible:(key:string)=>boolean=()=>true){
+  if(deficit()<=0)return;
+  for(const key of this.reclamationKeys(rank,eligible)){if(deficit()<=0)break;this.delete(key);}
+ }
  /** Teardown only: detach active GPU resources and cancel loaders before clearing pinned entries. */
  clear(){for(const entry of this.entries.values())this.onDispose(entry.value);this.entries.clear();this.used=0;}
  stats(){return {entries:this.entries.size,bytes:this.used,maxBytes:this.maxBytes,pinned:[...this.entries.values()].filter(e=>e.pins>0).length,evictions:this.evictions};}
