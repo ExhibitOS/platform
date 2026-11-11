@@ -74,6 +74,7 @@ import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
+import {prepareArtwork} from './viewer/artwork-preparation';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
@@ -2288,11 +2289,11 @@ export function GeometryPreview({
                 // share the upload budget with other live allocations.
                 if(object.userData.viewer?.decodeBackingReleased)reserve(key,object.userData.viewer.decodedBytes);
                 stage(t.inventory.id,'texture-upload-shader-prepare',undefined,key);
-                object.traverse(node=>{if(node instanceof three.Mesh)for(const material of Array.isArray(node.material)?node.material:[node.material])for(const value of Object.values(material))if(value instanceof three.Texture)renderer.initTexture(value);});
-                renderer.compile(object,camera,scene);
+                const preparation=await prepareArtwork(three,renderer,object,camera,scene,signal,()=>disposed||gpuLost);
+                object.userData.artworkPreparation=preparation;
                 signal.throwIfAborted();
                 // Geometry buffers are uploaded by the first draw, not compile().
-                stage(t.inventory.id,'textures-shaders-prepared-geometry-awaits-draw',undefined,key);
+                stage(t.inventory.id,preparation.shaderCompletion==='tracked'?'textures-shaders-prepared-geometry-awaits-draw':'textures-uploaded-shader-completion-untracked-geometry-awaits-draw',undefined,key);
                 return {object,key};
               }catch(error){destroy(object);throw error;}
             } catch(error){
