@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Immutable distribution-source records, not a new OEX schema or runtime admission registry.
-// Metres, GLB +Y up, authored front -Z. Retain source node transforms; no recentering.
+// Metres, GLB +Y up. Authored front is asset-specific; compact-caption-stand is +Z,
+// the earlier source records are -Z. Retain source node transforms; no recentering.
 // Asset rights are independent of this module's code license. No preview is selected.
 type Point = readonly [number, number, number];
 type Bounds = { readonly min: Point; readonly max: Point };
@@ -1405,5 +1406,36 @@ export const USER_ASSET_CATALOGUE = [
       "evidence": "actual-glb-geometry",
       "consumerBehavior": "unverified"
     }
-  }
+  },
+  {
+    "id": "compact-caption-stand",
+    "version": 1,
+    "mime": "model/gltf-binary",
+    "path": "assets/furnishings/exhibitos-authored-20261111/compact-caption-stand/model.glb",
+    "bytes": 13864,
+    "sha256": "ec9e424fe07eceeb4b422c0ed3dfa6981ac9f5dc335bd6ed32954d2c1a190752",
+    "triangles": 196,
+    "bounds": {
+      "min": [
+        -0.11,
+        0,
+        -0.11
+      ],
+      "max": [
+        0.11,
+        1.0195833,
+        0.11
+      ]
+    },
+    "rights": {
+      "licenseId": "CC0-1.0",
+      "noticePath": "assets/furnishings/exhibitos-authored-20261111/compact-caption-stand/LICENSE-NOTICE.txt",
+      "noticeBytes": 580,
+      "noticeSha256": "5d90fcaaec647de18cf2be4b7bf46927b8136080c3cd7f37c3ee1efe3336b87f"
+    },
+    "provenance": {
+      "sourceSha256": "ec9e424fe07eceeb4b422c0ed3dfa6981ac9f5dc335bd6ed32954d2c1a190752",
+      "recipe": "original-v1"
+    }
+  },
 ] as const satisfies readonly UserAssetCatalogueEntry[];
