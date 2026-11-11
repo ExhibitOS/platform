@@ -35,8 +35,8 @@ it('uses only visible geometry in the verified catalog legs',()=>{
 it('leaves the existing scene allocation alone when the optional pass cannot fit',()=>{
   const scene=400_000;
   expect(supportContactFits(scene,scene)).toBe(false);
-  expect(supportContactFits(scene,scene+12*1024-1)).toBe(false);
-  expect(supportContactFits(scene,scene+12*1024)).toBe(true);
+  expect(supportContactFits(scene,scene+SUPPORT_CONTACT_RESERVE_BYTES-1)).toBe(false);
+  expect(supportContactFits(scene,scene+SUPPORT_CONTACT_RESERVE_BYTES)).toBe(true);
 });
 
 it('uses actual mounted workspace feet, merges overlapping submeshes and never shadows a hidden functional host',()=>{
@@ -120,7 +120,7 @@ it('retains the budget denial when encoded bytes are pinned or insufficient and 
   const resident=50_000,limit=100_000,peak=new AssetPeakBudget(limit,()=>resident);
   peak.reserve('contact',SUPPORT_CONTACT_RESERVE_BYTES,80_000);
   expect(peak.total()).toBe(resident+SUPPORT_CONTACT_RESERVE_BYTES);
-  peak.reserve('decode',30_000);
+  peak.reserve('decode',20_000);
   expect(()=>peak.reserve('other',10_000)).toThrow('ASSET_TRANSITION_PEAK');
   peak.release('decode');expect(peak.reservationBytes('contact')).toBe(SUPPORT_CONTACT_RESERVE_BYTES);
   peak.release('contact');expect(peak.total()).toBe(resident);

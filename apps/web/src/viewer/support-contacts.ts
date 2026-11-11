@@ -9,14 +9,16 @@ type Receiver = {group:Three.Group;rectangles:readonly Rectangle[];faceZ:number}
 
 // Bounded contact descriptors and matrix/uniform state; compiled-program
 // storage is driver-owned and is not represented by this byte estimate.
-export const SUPPORT_CONTACT_RESERVE_BYTES=12*1024;
+// 64 shared world matrices (CPU), 16 eight-matrix material uniforms (GPU),
+// bounded reference arrays and cached room transforms; no driver-program claim.
+export const SUPPORT_CONTACT_RESERVE_BYTES=24*1024;
 export function supportContactFits(used:number,limit:number){
   return used<=limit-SUPPORT_CONTACT_RESERVE_BYTES;
 }
 
 /** Stable admission may discard only expendable encoded cache entries. Leave a
  * modeled 1MiB working margin when reclaimable; keep all byte/pin guards and the
- * actual 12KiB contact gate. Mounted model reservations remain counted. */
+ * actual 24KiB contact gate. Mounted model reservations remain counted. */
 export function reclaimSupportContactCache(input:{used:()=>number;limit:number;keys:Iterable<string>;evict:(key:string)=>unknown}){
   if(supportContactFits(input.used(),input.limit))return true;
   const target=input.limit-1024*1024;

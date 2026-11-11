@@ -688,7 +688,7 @@ export function GeometryPreview({
       document.surfaces.forEach((surface, index) => {
         const group = new three.Group();
         pose(group, surface.transform);
-        group.userData.editorSelection={kind:"surface",id:surface.id};editTargets.set(selectionKey(group.userData.editorSelection),group);
+        group.userData.editorSelection={kind:"surface",id:surface.id};group.userData.exhibitosShadowArchitecture=true;editTargets.set(selectionKey(group.userData.editorSelection),group);
         surfaces.set(surface.id.toLowerCase(), group);
         rooms.get(surface.roomId.toLowerCase())?.add(group);
         const looks = appearance(surface.id),
@@ -752,7 +752,7 @@ export function GeometryPreview({
         if (!artwork) continue;
         const group = new three.Group();
         group.userData.placementId = placement.id;
-        group.userData.editorSelection={kind:"placement",id:placement.id};editTargets.set(selectionKey(group.userData.editorSelection),group);
+        group.userData.editorSelection={kind:"placement",id:placement.id};group.userData.viewerArtworkType=artwork.artworkType;editTargets.set(selectionKey(group.userData.editorSelection),group);
         pose(group, placement.transform);
         rooms.get(placement.roomId.toLowerCase())?.add(group);
         placements.set(placement.id.toLowerCase(), group);
@@ -775,6 +775,7 @@ export function GeometryPreview({
       const plaques=installPlaques(three,document,rooms,compactQuality);owned.push(plaques);
       const benches=installBenches(three,document,rooms);owned.push(benches);
       const installation=installDecor(three,document,rooms);owned.push(installation);setInstallationIssueCount(installation.issues.length);
+      for(const placement of document.placements){const group=installation.groups.get(placement.id.toLowerCase()),art=document.artworks.find(value=>value.revisionId.toLowerCase()===placement.artworkRevisionId.toLowerCase());if(group&&art)group.userData.viewerArtworkType=art.artworkType;}
       const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
         const color = new three.Color().setRGB(
@@ -855,10 +856,16 @@ export function GeometryPreview({
         return room&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room}]:[];
       });
       for(const room of rooms.values())shadowCandidates.push({light:sun,room});
+      // Architecture is immutable for this renderer lifetime. A bounded whole
+      // exhibition uses its world envelope, never camera or decoded-asset bounds.
+      const shadowWorldBounds=new three.Box3();
+      for(const surface of surfaces.values()){surface.updateWorldMatrix(true,true);shadowWorldBounds.expandByObject(surface);}
+      for(const room of rooms.values())room.traverse(node=>{if(node.userData.catalogImplicitFloor===true){node.updateWorldMatrix(true,false);shadowWorldBounds.expandByObject(node);}});
+      const fixedShadowWorld=!shadowWorldBounds.isEmpty()&&Math.max(...shadowWorldBounds.getSize(new three.Vector3()).toArray())<=32?shadowWorldBounds:undefined;
       const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
-      });owned.push(shadowPass);
+      },fixedShadowWorld);owned.push(shadowPass);
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {

@@ -45,7 +45,8 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
  * room labels never change lighting variants, receiver ownership or map identity.
  * No point-light cube maps or new lights; depth work stays globally bounded. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
-  candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void) {
+  candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3) {
+  const fixedWorld=worldBounds&&!worldBounds.isEmpty()&&[...worldBounds.min.toArray(),...worldBounds.max.toArray()].every(Number.isFinite)?worldBounds.clone():undefined;
   let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
   let view:THREE.Camera|undefined,captureAnchor:THREE.Vector3|undefined,viewRotation:THREE.Quaternion|undefined,captureProjection:THREE.Matrix4|undefined,omittedLast=0;
   let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
@@ -93,19 +94,28 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     const ownedAfter:THREE.Mesh['onAfterShadow']=(...args)=>restoreDepth(args[5]);
     hooks.set(mesh,{before,after,ownedBefore,ownedAfter});mesh.onBeforeShadow=ownedBefore;mesh.onAfterShadow=ownedAfter;
   };
+  let priorLight:Candidate['light']|undefined,priorAnchor:THREE.Vector3|undefined;
+  const priority=(mesh:THREE.Mesh)=>{
+    let artwork:unknown;
+    for(let node:THREE.Object3D|null=mesh;node;node=node.parent){
+      if(node.userData.exhibitosShadowArchitecture===true||node.userData.catalogImplicitFloor===true)return 0;
+      if(node.userData.viewerArtworkType)artwork=node.userData.viewerArtworkType;
+    }
+    return artwork==='sculpture'?1:artwork===undefined?2:3;
+  };
   const fit=(candidate:Candidate)=>{
     const {light}=candidate;light.updateWorldMatrix(true,false);light.target.updateWorldMatrix(true,false);
-    const box=new three.Box3();for(const room of sourceRooms){room.updateWorldMatrix(true,true);box.expandByObject(room);}
+    const box=fixedWorld?.clone()??new three.Box3();if(!fixedWorld)for(const room of sourceRooms){room.updateWorldMatrix(true,true);box.expandByObject(room);}
     const size=box.getSize(new three.Vector3());
     if(box.isEmpty()||![...box.min.toArray(),...box.max.toArray()].every(Number.isFinite))return false;
     const position=light.getWorldPosition(new three.Vector3()),target=light.target.getWorldPosition(new three.Vector3());
     if(position.distanceToSquared(target)<1e-8)return false;
     // Clip to a near-field capture, including occluders behind the camera. A
     // six-metre inner coverage prevents refitting for tiny movement/room labels.
-    const anchor=view?.getWorldPosition(new three.Vector3())??(box.containsPoint(target)?target:box.getCenter(new three.Vector3()));
-    if(view||Math.max(size.x,size.y,size.z)>20)box.intersect(new three.Box3(anchor.clone().addScalar(-10),anchor.clone().addScalar(10)));
+    const current=view?.getWorldPosition(new three.Vector3());
+    const anchor=current&&priorLight===light&&priorAnchor&&current.distanceToSquared(priorAnchor)<=36?priorAnchor.clone():current??(box.containsPoint(target)?target:box.getCenter(new three.Vector3()));
+    if(!fixedWorld&&(view||Math.max(size.x,size.y,size.z)>20))box.intersect(new three.Box3(anchor.clone().addScalar(-10),anchor.clone().addScalar(10)));
     if(box.isEmpty())return false;
-    captureAnchor=view?anchor:undefined;viewRotation=view?.getWorldQuaternion(new three.Quaternion());captureProjection=view?.projectionMatrix.clone();
     const lightView=new three.Matrix4().lookAt(position,target,light.shadow.camera.up);lightView.setPosition(position);lightView.invert();
     const local=new three.Box3();
     for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z])local.expandByPoint(new three.Vector3(x,y,z).applyMatrix4(lightView));
@@ -129,6 +139,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       pose.proxy.matrixWorld.copy(light.matrixWorld).setPosition(position.clone().addScaledVector(target.clone().sub(position).normalize(),-shift));
       pose.proxy.target=light.target;
     }
+    captureAnchor=view&&!fixedWorld?anchor:undefined;viewRotation=view?.getWorldQuaternion(new three.Quaternion());captureProjection=view?.projectionMatrix.clone();
     capture=box;return true;
   };
   const restoreMesh=(mesh:THREE.Mesh)=>{
@@ -148,6 +159,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(!dirty)return;dirty=false;
     if(disabled){emit(disabled);return;}
     const previous=selected;
+    priorLight=previous?.light;priorAnchor=captureAnchor?.clone();
     // Keep a positive directional source ahead of spots. Authored values never
     // change; only representative shadow-source policy changes from room-based.
     const ordered=[...candidates.filter(c=>c.light instanceof three.DirectionalLight),...candidates.filter(c=>c.light instanceof three.SpotLight)];
@@ -166,7 +178,10 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       rows.push({mesh:node,box,cost,visible:!frustum||frustum.intersectsBox(box),distance:position?box.distanceToPoint(position):0});
     });
     // Bound persistent receiver references. Omitted geometry is still rendered.
-    rows.sort((a,b)=>Number(b.visible)-Number(a.visible)||a.distance-b.distance);
+    // Camera motion cannot exchange architectural occluders for nearby frames.
+    // Stable traversal order resolves equal priority within the same scene.
+    if(fixedWorld)rows.sort((a,b)=>priority(a.mesh)-priority(b.mesh));
+    else rows.sort((a,b)=>Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const receivers=rows.slice(0,256),eligible=new Set(receivers.map(row=>row.mesh));
     receiverBounds=receivers.map(row=>row.box);receiverVersion++;
     for(const mesh of [...flags.keys()])if(!eligible.has(mesh))restoreMesh(mesh);
@@ -174,7 +189,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     for(const [mesh,h]of hooks){if(mesh.onBeforeShadow===h.ownedBefore)mesh.onBeforeShadow=h.before;if(mesh.onAfterShadow===h.ownedAfter)mesh.onAfterShadow=h.after;}hooks.clear();
     // Small structural occluders first, then visible work; retain relevant
     // offscreen occluders in the capture rather than frustum-only shadowing.
-    receivers.sort((a,b)=>Number(b.cost<=12)-Number(a.cost<=12)||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
+    if(!fixedWorld)receivers.sort((a,b)=>Number(b.cost<=12)-Number(a.cost<=12)||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const meshes:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
     for(const {mesh,box,cost} of receivers){
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
@@ -211,13 +226,14 @@ export type SupportContact = {
   position:readonly [number,number,number];rotation:readonly [number,number,number,number];
   width:number;height:number;
 };
-const VIEW_CONTACT_LIMIT=8,CONTACT_MATERIAL_LIMIT=16;
+const VIEW_CONTACT_LIMIT=8,CONTACT_MATERIAL_LIMIT=16,CONTACT_MATRIX_LIMIT=64;
 /** Receiver shading owns bounded material-scoped uniforms for its lifetime.
  * View changes update masks without retiring programs, meshes or textures. */
 export function installSupportContactShadows(three:typeof THREE,initialContacts:readonly SupportContact[],
   compact:boolean,report:(value:{activeContacts:number;activeTriangles:number;drawCalls:number;textureBytes:number;uniformBytes:number;materials:number;programBytes:null})=>void){
-  // Share eight owned world matrices; each material has its own reference mask.
-  const matrixPool=Array.from({length:VIEW_CONTACT_LIMIT},()=>new three.Matrix4());
+  // Bound world masks independently of camera ranking. Each physical material
+  // still uploads at most eight matrices; no extra shader loops, draws or textures.
+  const matrixPool=Array.from({length:CONTACT_MATRIX_LIMIT},()=>new three.Matrix4());
   const makeUniforms=()=>({
     exhibitosContactMatrices:{value:Array.from({length:VIEW_CONTACT_LIMIT},()=>matrixPool[0]!)},
     exhibitosContactCount:{value:0},exhibitosContactOpacity:{value:compact?.18:.14},
@@ -225,7 +241,10 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
   type Uniforms=ReturnType<typeof makeUniforms>;
   type Hook={before:THREE.Material['onBeforeCompile'];key:THREE.Material['customProgramCacheKey'];owned:THREE.Material['onBeforeCompile'];ownedKey:THREE.Material['customProgramCacheKey'];hadMarker:boolean;marker:unknown;uniforms:Uniforms};
   const hooks=new Map<THREE.Material,Hook>();let contacts=initialContacts,disposed=false,active:SupportContact[]=[];
-  let lastPosition:THREE.Vector3|undefined,lastRotation:THREE.Quaternion|undefined,lastProjection:THREE.Matrix4|undefined;
+  let lastView:THREE.Matrix4|undefined,lastProjection:THREE.Matrix4|undefined,refreshWorld=true;
+  type Row={row:SupportContact;matrix:THREE.Matrix4};
+  let membership=new Map<THREE.Material,Row[]>(),receiverBounds=new Map<THREE.Material,THREE.Box3[]>();
+  const roomMatrices=new Map<THREE.Group,THREE.Matrix4>();
   const publish=()=>report({activeContacts:active.length,activeTriangles:0,drawCalls:0,textureBytes:0,
     uniformBytes:hooks.size*(VIEW_CONTACT_LIMIT*16*4+8),materials:hooks.size,programBytes:null});
   const retire=(material:THREE.Material,h:Hook)=>{
@@ -288,49 +307,57 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
   const setView=(camera:THREE.Camera)=>{
     if(disposed)return;
     camera.updateWorldMatrix(true,false);
-    const position=camera.getWorldPosition(new three.Vector3()),rotation=camera.getWorldQuaternion(new three.Quaternion());
-    if(lastPosition&&position.distanceToSquared(lastPosition)<.16&&lastRotation&&Math.abs(rotation.dot(lastRotation))>Math.cos(Math.PI/72)&&lastProjection?.equals(camera.projectionMatrix))return;
-    lastPosition=position;lastRotation=rotation;lastProjection=camera.projectionMatrix.clone();
-    const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-    type Row={row:SupportContact;matrix:THREE.Matrix4;score:number};
-    const selected:Row[]=[];
-    // Stream the existing descriptor array: retain at most eight world masks.
-    for(const row of contacts){
-      if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
-        Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
-      let ancestor:THREE.Object3D|null=row.receiver,attached=false,visible=true;
-      while(ancestor){if(!ancestor.visible)visible=false;if(ancestor===row.room)attached=true;ancestor=ancestor.parent;}
-      if(!attached||!visible)continue;
-      row.room.updateWorldMatrix(true,false);
-      const world=new three.Matrix4().multiplyMatrices(row.room.matrixWorld,new three.Matrix4().compose(new three.Vector3().fromArray(row.position),new three.Quaternion().fromArray(row.rotation),new three.Vector3(row.width,row.height,1)));
-      const center=new three.Vector3().setFromMatrixPosition(world),distance=center.distanceTo(position);
-      if(distance>12)continue;
-      const box=new three.Box3().setFromPoints([[-.5,-.5],[-.5,.5],[.5,-.5],[.5,.5]].map(([x,y])=>new three.Vector3(x,y,0).applyMatrix4(world))).expandByScalar(.05);
-      if(!frustum.intersectsBox(box))continue;
-      const score=distance-(active.includes(row)?.75:0);
-      selected.push({row,matrix:world.invert(),score});selected.sort((a,b)=>a.score-b.score);
-      if(selected.length>VIEW_CONTACT_LIMIT)selected.pop();
+    for(const room of new Set(contacts.map(row=>row.room))){
+      room.updateWorldMatrix(true,false);
+      if(!roomMatrices.get(room)?.equals(room.matrixWorld))refreshWorld=true;
     }
-    selected.forEach((row,index)=>matrixPool[index]!.copy(row.matrix));
-    const membership=new Map<THREE.Material,Row[]>();
-    for(const row of selected)row.row.receiver.traverseVisible(node=>{
-      if(node instanceof three.Mesh)for(const material of Array.isArray(node.material)?node.material:[node.material]){
-        if(!membership.has(material)&&membership.size>=CONTACT_MATERIAL_LIMIT)continue;
-        const rows=membership.get(material)??[];if(!rows.includes(row))rows.push(row);membership.set(material,rows);
+    if(!refreshWorld&&lastView?.equals(camera.matrixWorld)&&lastProjection?.equals(camera.projectionMatrix))return;
+    lastView=camera.matrixWorld.clone();lastProjection=camera.projectionMatrix.clone();
+    if(refreshWorld){
+      refreshWorld=false;membership=new Map();receiverBounds=new Map();roomMatrices.clear();
+      for(const room of new Set(contacts.map(row=>row.room)))roomMatrices.set(room,room.matrixWorld.clone());
+      const bounds=new Map<THREE.Object3D,THREE.Box3>();let used=0;
+      for(const row of contacts){
+        if(used>=CONTACT_MATRIX_LIMIT)break;
+        if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
+          Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
+        let ancestor:THREE.Object3D|null=row.receiver,attached=false,visible=true;
+        while(ancestor){if(!ancestor.visible)visible=false;if(ancestor===row.room)attached=true;ancestor=ancestor.parent;}
+        if(!attached||!visible)continue;
+        row.room.updateWorldMatrix(true,false);
+        const matrix=matrixPool[used++]!;
+        matrix.multiplyMatrices(row.room.matrixWorld,new three.Matrix4().compose(new three.Vector3().fromArray(row.position),new three.Quaternion().fromArray(row.rotation),new three.Vector3(row.width,row.height,1))).invert();
+        const selected={row,matrix};
+        let box=bounds.get(row.receiver);
+        if(!box){row.receiver.updateWorldMatrix(true,true);box=new three.Box3().setFromObject(row.receiver);bounds.set(row.receiver,box);}
+        const receiverBox=box;
+        row.receiver.traverseVisible(node=>{
+          if(!(node instanceof three.Mesh))return;
+          for(const material of Array.isArray(node.material)?node.material:[node.material]){
+            // Receiver-local admission stays stable when another contact enters
+            // the camera view. Visibility only chooses which material is hooked.
+            if(!membership.has(material)&&membership.size>=CONTACT_MATRIX_LIMIT)continue;
+            const rows=membership.get(material)??[];
+            if(rows.length<VIEW_CONTACT_LIMIT&&!rows.includes(selected))rows.push(selected);
+            membership.set(material,rows);
+            const boxes=receiverBounds.get(material)??[];if(!boxes.includes(receiverBox))boxes.push(receiverBox);receiverBounds.set(material,boxes);
+          }
+        });
       }
-    });
+    }
+    const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+    const visible=new Map([...membership].filter(([material])=>receiverBounds.get(material)?.some(box=>frustum.intersectsBox(box))));
     for(const h of hooks.values())h.uniforms.exhibitosContactCount.value=0;
     const admitted=new Set<SupportContact>();
-    for(const [material,rows]of membership){
-      // Admission is sequential: every missing material may need its own slot.
+    for(const [material,rows]of visible){
       if(!hooks.has(material)&&hooks.size>=CONTACT_MATERIAL_LIMIT){
-        const inactive=[...hooks].find(([owned])=>!membership.has(owned));if(inactive)retire(...inactive);
+        const inactive=[...hooks].find(([owned])=>!visible.has(owned));if(inactive)retire(...inactive);
       }
       const h=install(material);if(!h)continue;
-      rows.forEach((row,index)=>{h.uniforms.exhibitosContactMatrices.value[index]=matrixPool[selected.indexOf(row)]!;admitted.add(row.row);});
+      rows.forEach((row,index)=>{h.uniforms.exhibitosContactMatrices.value[index]=row.matrix;admitted.add(row.row);});
       h.uniforms.exhibitosContactCount.value=rows.length;
     }
-    active=selected.map(row=>row.row).filter(row=>admitted.has(row));publish();
+    active=[...admitted];publish();
   };
   const setContacts=(next:readonly SupportContact[])=>{
     if(disposed)return;
@@ -340,7 +367,7 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
         row.position.every((value,i)=>value===other.position[i])&&row.rotation.every((value,i)=>value===other.rotation[i]);
     });
     if(same)return;
-    contacts=next;active=[];lastPosition=undefined;
+    contacts=next;refreshWorld=true;lastView=undefined;
   };
   const dispose=()=>{if(disposed)return;disposed=true;for(const [material,h]of hooks)retire(material,h);active=[];contacts=[];publish();};
   publish();return {setView,setContacts,dispose};
