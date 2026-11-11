@@ -53,7 +53,7 @@
     "test:realtime": "npm run build && EXHIBITOS_REALTIME_ONLY=1 node scripts/test-experience.mjs",
     "test:opening": "npm run build && EXHIBITOS_OPENING_ONLY=1 node scripts/test-experience.mjs",
     "test:voice-transport": "node scripts/voice-transport-spike.mjs",
-    "test:packaging": "node --test scripts/package-local-runtime.test.mjs scripts/license-checkout.test.mjs scripts/deploy-reference-demo.test.mjs scripts/finalize-native-runtime.test.mjs scripts/native-static-export.test.mjs",
+    "test:packaging": "node --test scripts/package-local-runtime.test.mjs scripts/license-checkout.test.mjs scripts/deploy-reference-demo.test.mjs scripts/finalize-native-runtime.test.mjs scripts/native-static-export.test.mjs scripts/refresh-native-detail-shell.test.mjs",
     "test:processing-authorization": "node scripts/test-processing-authorization.mjs",
     "test:embedded-png-profile": "node --test scripts/embedded-png-profile.test.mjs",
     "test:metric-previews": "node scripts/test-metric-previews.mjs",
