@@ -3,29 +3,42 @@ import {expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {EntryProgress} from './EntryProgress';
 
-it('stays quiet until the static download plan is known',()=>{
- expect(renderToStaticMarkup(<EntryProgress download={null}/>)).toBe('');
+it('gives honest preparation feedback after Enter while the static plan is unknown',()=>{
+ const html=renderToStaticMarkup(<EntryProgress download={null}/>);
+ expect(html).toContain('role="status"');
+ expect(html).toContain('전시장 준비 중');
+ expect(html).not.toContain('<progress');
 });
 
-it('shows just the measured percentage without a visible bar or byte count',()=>{
+it('shows a named native gauge using received required bytes, without visible numbers',()=>{
  const html=renderToStaticMarkup(<EntryProgress download={{receivedBytes:65,requiredBytes:100}}/>);
- expect(html).toContain('role="progressbar"');
- expect(html).toContain('aria-valuenow="65"');
- expect(html).toContain('aria-valuemax="100"');
- expect(html).toContain('>65%</p>');
- expect(html).not.toMatch(/바이트|MB|전시장 준비 중|<span/);
+ expect(html).toContain('<progress');
+ expect(html).toContain('aria-label="전시장 입장 파일 받는 중"');
+ expect(html).toContain('max="100"');
+ expect(html).toContain('value="65"');
+ expect(html).toContain('전시장에 필요한 파일을 받고 있어요.');
+ expect(html).not.toMatch(/65%|바이트|MB/);
 });
 
-it('never shows 100 percent before the exact bytes complete',()=>{
+it('keeps the exact byte ratio near completion rather than rounding to a finished transfer',()=>{
  const html=renderToStaticMarkup(<EntryProgress download={{receivedBytes:Number.MAX_SAFE_INTEGER-1,requiredBytes:Number.MAX_SAFE_INTEGER}}/>);
- expect(html).toContain('>99%</p>');
+ expect(html).toContain('max="9007199254740991"');
+ expect(html).toContain('value="9007199254740990"');
 });
 
-it('shows the same preparation text for completed downloads and the existing dynamic fallback',()=>{
- for(const download of [undefined,{receivedBytes:65536,requiredBytes:65536}]){
+it('does not leave a completed transfer gauge while scene or navigation preparation remains',()=>{
+ for(const download of [undefined,{receivedBytes:65536,requiredBytes:65536},{receivedBytes:0,requiredBytes:null}]){
   const html=renderToStaticMarkup(<EntryProgress download={download}/>);
   expect(html).toContain('role="status"');
   expect(html).toContain('>전시장 준비 중</p>');
-  expect(html).not.toMatch(/aria-value|progressbar|<span/);
+  expect(html).not.toMatch(/aria-value|<progress/);
+ }
+});
+
+it('never manufactures a ratio from invalid counts',()=>{
+ for(const download of [{receivedBytes:-1,requiredBytes:100},{receivedBytes:3,requiredBytes:0},{receivedBytes:NaN,requiredBytes:100}]){
+  const html=renderToStaticMarkup(<EntryProgress download={download}/>);
+  expect(html).toContain('전시장 준비 중');
+  expect(html).not.toContain('<progress');
  }
 });
