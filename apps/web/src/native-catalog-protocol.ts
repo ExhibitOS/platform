@@ -2,6 +2,18 @@
 import type {NativeViewportFrame} from './native-viewport-protocol';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const NATIVE_CATALOG_CAPABILITIES=['artwork-thumbnail-v1','find-selection-v1'] as const;
+export const RENDERED_ARTWORK_THUMBNAIL_PROFILE='rendered-display-preview-v1';
+export const ARTWORK_THUMBNAIL_RECIPE='artwork-glb-card-256-v1';
+export const ARTWORK_THUMBNAIL_TOOL='exhibitos-three-0.186.1-thumbnail-v1';
+/** Only the currently approved primary is a source; the acquired original is distinct. */
+export function artworkThumbnailSource(value:unknown,artworkId:string,revision:number){
+ const a=value as {id?:unknown;revision?:unknown;approvedRevision?:unknown;approvedAssetId?:unknown;archived?:unknown;assets?:unknown};
+ if(!a||a.id!==artworkId||a.revision!==revision||a.approvedRevision!==revision||a.archived!==false||typeof a.approvedAssetId!=='string'||!uuid.test(a.approvedAssetId)||!Array.isArray(a.assets))throw Error('THUMBNAIL_REVISION');
+ const matches=a.assets.filter(x=>x?.id===a.approvedAssetId);
+ const source=matches[0];
+ if(matches.length!==1||source.state!=='approved'||source.mime!=='model/gltf-binary'||typeof source.sha256!=='string'||!/^[a-f0-9]{64}$/.test(source.sha256)||!Number.isSafeInteger(source.bytes)||source.bytes<28||source.bytes>32*1024*1024)throw Error('THUMBNAIL_REVISION');
+ return {sourceAssetId:a.approvedAssetId,sourceSha256:source.sha256 as string,sourceBytes:source.bytes as number};
+}
 export interface CatalogBinding {version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string}
 export interface ThumbnailRequest extends CatalogBinding {artworkId:string;expectedRevision:number}
 export const FURNISHING_THUMBNAIL_CAPABILITY='furnishing-registration-thumbnail-v1';

@@ -2,7 +2,7 @@
 import {expect,test,vi,afterEach} from 'vitest';
 import {readFile} from 'node:fs/promises';
 import {fixtureURL,readOex,type Artwork} from '@exhibitos/spec';
-import {DISPLAY_POLICY_NAMESPACE as N,LOD_NAMESPACE} from '@exhibitos/studio-contract';
+import {DISPLAY_POLICY_NAMESPACE as N,LOD_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import type {Pool,PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import {APPROVED_DEMO_DISPLAY_FILES as approved} from './approved-demo-display-files.ts';
@@ -13,6 +13,8 @@ import {derivative} from './derivative.ts';
 import {measureFullVariant,viewerVariants} from './viewer-variants.ts';
 import {Publications,projectPublication} from './publication.ts';
 import {checkOexProfile,remapOex} from './oex.ts';
+import {checkPublicOexProfile} from './oex-profile.ts';
+import {sha256} from '@exhibitos/storage';
 const witness=vi.hoisted(()=>({bytes:Buffer.alloc(0),approvalId:'10000000-0000-4000-8000-000000000097'}));
 // Synthetic approval and mocked isolated decoder only. These tests do not admit
 // the real model or claim strict decoding, compact runtime or public acceptance.
@@ -50,6 +52,43 @@ test('the real selected model record binds the new rights snapshot rather than t
  expect(qualifyDemoDisplay(a)?.canonicalTriangles).toBe(20000);expect(qualifyDemoDisplay(a)?.canonicalMaxTextureSize).toBe(512);
  a.extensions![N]={...a.extensions![N] as object,rightsEvidenceSha256:'448a4193a1668e67588c36224b25dd63b9c595f4039b8ee45a23253351f9d94c'};
  expect(()=>qualifyDemoDisplay(a)).toThrow('DISPLAY_POLICY_INVALID');
+});
+test('an exact canonical model composes with one validated optional PNG through public projection and OEX remapping',async()=>{
+ const {a,exhibition}=await fixture(),{files,manifest}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex')));
+ const image=manifest.assets.find(asset=>asset.mime==='image/png')!,png=Buffer.from(files.get(image.path)!);
+ const thumbnail={id:crypto.randomUUID(),role:'preview' as const,mime:'image/png' as const,path:'assets/synthetic-thumbnail.png',bytes:png.length,sha256:sha256(png)};
+ a.assets.push(thumbnail);a.extensions![ARTWORK_THUMBNAIL_NAMESPACE]={version:1,assetId:thumbnail.id};
+ const before=structuredClone(a);
+ expect(validateArtworkThumbnail(a).valid).toBe(true);expect(qualifyDemoDisplay(a,witness.bytes)?.approvalId).toBe(witness.approvalId);
+ expect(()=>checkPublicOexProfile(exhibition)).not.toThrow();
+ const remapped=remapOex(exhibition).exhibition;expect(artworkThumbnailFor(remapped.artworks[0])).toMatchObject({sha256:thumbnail.sha256});expect(()=>checkPublicOexProfile(remapped)).not.toThrow();
+ const projected=projectPublication(exhibition,[{artwork:a,sourceAssetId:a.primaryAssetId,sourceSha256:a.assets[0]!.sha256,bytes:witness.bytes,mime:'model/gltf-binary',variants:{full:measureFullVariant(witness.bytes,'model/gltf-binary')},thumbnail:{sourceAssetId:thumbnail.id,sourceSha256:thumbnail.sha256,bytes:png,receiptId:crypto.randomUUID()}}],'2026-10-25T00:00:00Z');
+ const out=projected.snapshot.artworks[0]!;
+ expect(()=>checkPublicOexProfile(projected.snapshot)).not.toThrow();expect(qualifyDemoDisplay(out,witness.bytes)?.approvalId).toBe(witness.approvalId);
+ expect(out.assets).toHaveLength(2);expect(artworkThumbnailFor(out)).toMatchObject({sha256:thumbnail.sha256,bytes:png.length});
+ expect(projected.assets.find(asset=>asset.prepared.thumbnailReceiptId)?.prepared).toMatchObject({sourceAssetId:thumbnail.id,sourceSha256:thumbnail.sha256,bytes:png});
+ expect(a).toEqual(before);
+});
+test('optional preview composition does not admit malformed references, unrelated assets or changed model authority',async()=>{
+ const {a}=await fixture(),preview={id:crypto.randomUUID(),role:'preview' as const,mime:'image/png' as const,path:'assets/synthetic-thumbnail.png',bytes:100,sha256:'a'.repeat(64)};
+ a.assets.push(preview);a.extensions![ARTWORK_THUMBNAIL_NAMESPACE]={version:1,assetId:preview.id};
+ for(const change of [
+  (a:Artwork)=>{delete a.extensions![ARTWORK_THUMBNAIL_NAMESPACE];},
+  (a:Artwork)=>{a.extensions![ARTWORK_THUMBNAIL_NAMESPACE]={version:1,assetId:a.primaryAssetId};},
+  (a:Artwork)=>{a.assets[1]!.mime='model/gltf-binary';},
+  (a:Artwork)=>{a.assets[1]!.role='model';},
+  (a:Artwork)=>{a.assets[1]!.bytes=512*1024+1;},
+  (a:Artwork)=>{a.assets[1]!.sha256='not-a-digest';},
+  (a:Artwork)=>{a.assets.push({...a.assets[1]!,id:crypto.randomUUID()});},
+  (a:Artwork)=>{a.assets.push({...a.assets[0]!,id:crypto.randomUUID()});},
+  (a:Artwork)=>{a.assets.push({...a.assets[1]!});},
+  (a:Artwork)=>{a.assets[0]!.sha256='b'.repeat(64);},
+  (a:Artwork)=>{a.assets[0]!.bytes++;},
+  (a:Artwork)=>{a.rights.permissions.display=false;},
+  (a:Artwork)=>{a.extensions![N]={...a.extensions![N] as object,approvalId:crypto.randomUUID()};},
+  (a:Artwork)=>{a.extensions![LOD_NAMESPACE]={version:1,variants:[{assetId:a.primaryAssetId,detail:'full',triangles:20001}]};},
+ ]){const changed=structuredClone(a);change(changed);expect(()=>qualifyDemoDisplay(changed,witness.bytes)).toThrow('DISPLAY_POLICY_INVALID');}
+ expect(()=>qualifyDemoDisplay(a,Buffer.alloc(witness.bytes.length))).toThrow('ASSET_INTEGRITY');
 });
 test('selected bytes must pass the existing strict decoder and are copied exactly; ordinary GLB uses the clean derivative route',async()=>{
  const {a}=await fixture(),before=Buffer.from(witness.bytes),copy=await publicationModelDerivative(a,witness.bytes);

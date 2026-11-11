@@ -17,3 +17,16 @@ it('rejects an old placement session after auth changes even when the same user 
  const pending=capture.hooks!.authenticate(frame,new AbortController().signal),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  browser.dispatchEvent(new Event('exhibitos-auth-changed'));expect(capture.hooks!.suspended()).toBe(true);delayed=false;await browser.exhibitosViewport!.accept({...frame,sequence:2});expect(capture.hooks!.suspended()).toBe(false);release(session());await rejected;
 });
+
+it('advertises rendered thumbnails only for a ready editable session and rejects lost readiness during work',async()=>{
+ const browser=new EventTarget() as unknown as Window;vi.stubGlobal('window',browser);vi.stubGlobal('document',{getElementById:()=>({})});
+ const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false};
+ let profile:string|undefined;
+ vi.stubGlobal('fetch',async()=>Response.json({tenantId:frame.tenantId,userId:frame.principalId,role:'admin',csrfToken:'csrf',expiresAt:'2099-01-01T00:00:00Z',nativeRenderedArtworkThumbnailProfile:profile}));
+ await import('./native-viewport');
+ expect((await browser.exhibitosViewport!.accept(frame)).capabilities).not.toContain('rendered-display-preview-v1');
+ profile='rendered-display-preview-v1';const ready={...frame,sequence:2};
+ expect((await browser.exhibitosViewport!.accept(ready)).capabilities).toContain('rendered-display-preview-v1');
+ profile=undefined;await expect(capture.hooks!.authenticate(ready,new AbortController().signal)).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ profile='rendered-display-preview-v1';expect((await browser.exhibitosViewport!.accept({...frame,sequence:3,disabled:true})).capabilities).not.toContain('rendered-display-preview-v1');
+});

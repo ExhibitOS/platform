@@ -6,6 +6,7 @@ export interface Session {
   expiresAt: string;
   nativePublicationProfile?: 'bounded-local-v1';
   workspaceFurnishingProfile?: 'workspace-furnishing-intake-v1';
+  nativeRenderedArtworkThumbnailProfile?: 'rendered-display-preview-v1';
 }
 export interface Rights {
   holder: string;
