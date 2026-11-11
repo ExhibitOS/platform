@@ -236,6 +236,14 @@ export const HAYES_MOBILE_REFERENCE=Object.freeze({...R97_MOBILE_REFERENCE,
  nativeManifestSha256:'917192929b0885d69861b759316fbffcc443f04e617d3cab7a784170a0453231',
  nativeFiles:141,
 });
+// The selected follow-on release preserves the new Hayes content; this is an
+// exact additional pair, not arbitrary web authority or an old-content upgrade.
+export const HAYES_VIEW_INTEREST_REFERENCE=Object.freeze({...HAYES_MOBILE_REFERENCE,
+ viewerSourceCommit:'8de6622192f0e5f8708f4f9106a7c03dedda6b8e',
+ viewerSourceTree:'236a582e4c53ed84754fb2fcf0e4b9e8fd501b01',
+ viewerBuildId:'aa8d46a1574db261c49d95d801514992005574ad1389d323305dbc5ca6901996',
+ viewerInventorySha256:'739d60f280e4f677f9b644e193df475bbb97f5e3846f901996aad5aff2886f33',
+});
 const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
