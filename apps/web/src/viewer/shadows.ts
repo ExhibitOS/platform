@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as THREE from 'three';
+import {selectShadowDependencies,shadowReceiverRegions} from './shadow-interest';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
@@ -47,6 +48,8 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void) {
   let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
   let view:THREE.Camera|undefined,captureAnchor:THREE.Vector3|undefined,viewRotation:THREE.Quaternion|undefined,captureProjection:THREE.Matrix4|undefined,omittedLast=0;
+  let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
+  let dependencyCache:{version:number;view:THREE.Matrix4;projection:THREE.Matrix4;light:THREE.Matrix4;lightProjection:THREE.Matrix4;regions:THREE.Box3[]}|undefined;
   const sourceRooms=[...new Set(candidates.map(candidate=>candidate.room))];
   const planarity=new WeakMap<THREE.BufferGeometry,{position:unknown;positionVersion:number;index:unknown;indexVersion:number;result:boolean}>();
   const cachedPlanar=(geometry:THREE.BufferGeometry)=>{
@@ -165,6 +168,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     // Bound persistent receiver references. Omitted geometry is still rendered.
     rows.sort((a,b)=>Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const receivers=rows.slice(0,256),eligible=new Set(receivers.map(row=>row.mesh));
+    receiverBounds=receivers.map(row=>row.box);receiverVersion++;
     for(const mesh of [...flags.keys()])if(!eligible.has(mesh))restoreMesh(mesh);
     for(const {mesh} of receivers){if(!flags.has(mesh))flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=false;mesh.receiveShadow=true;}
     for(const [mesh,h]of hooks){if(mesh.onBeforeShadow===h.ownedBefore)mesh.onBeforeShadow=h.before;if(mesh.onAfterShadow===h.ownedAfter)mesh.onAfterShadow=h.after;}hooks.clear();
@@ -187,9 +191,19 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     selected.light.castShadow=true;renderer.shadowMap.enabled=true;renderer.shadowMap.type=three.PCFShadowMap;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
     updates++;emit('bounded',meshes.length,triangles,omittedCasters);
   };
+  const dependencies=(rows:readonly {id:string;box:THREE.Box3;distance:number}[],camera:THREE.Camera)=>{
+    if(disposed||disabled||!selected||!capture||!renderer.shadowMap.enabled)return {ids:[] as string[],candidates:0,admitted:0,deferred:0};
+    const lightCamera=selected.light.shadow.camera;
+    if(!dependencyCache||dependencyCache.version!==receiverVersion||!dependencyCache.view.equals(camera.matrixWorld)||
+      !dependencyCache.projection.equals(camera.projectionMatrix)||!dependencyCache.light.equals(lightCamera.matrixWorld)||!dependencyCache.lightProjection.equals(lightCamera.projectionMatrix)){
+      dependencyCache={version:receiverVersion,view:camera.matrixWorld.clone(),projection:camera.projectionMatrix.clone(),light:lightCamera.matrixWorld.clone(),lightProjection:lightCamera.projectionMatrix.clone(),
+        regions:shadowReceiverRegions(three,receiverBounds,capture,camera,lightCamera)};
+    }
+    return selectShadowDependencies(three,rows,capture,dependencyCache.regions,lightCamera);
+  };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
-  return {flush,afterRender,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+  return {flush,afterRender,dependencies,invalidate:()=>{if(!disposed)dirty=true;},dispose};
 }
 
 export type SupportContact = {

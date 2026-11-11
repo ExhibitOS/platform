@@ -13,6 +13,19 @@ An expanded projection (horizontal/vertical projection coefficients multiplied b
 0.75), existing six-metre preparation range, and visible nearby doors identify at
 most two optional next-view works. These do not block visible detail promotion.
 
+Desktop additionally queries the existing bounded shadow pass for at most two
+offscreen artwork revisions whose metadata bounds can project onto camera-visible
+receiver regions, clipped to the actual fitted capture and light frustum. This
+uses the actual directional or spot shadow camera, XY overlap and light-depth
+ordering. Receiver regions are conservative bounding approximations, especially
+for perspective spots; metadata does not guarantee a decoded mesh will cast.
+Compact/disabled/unavailable maps request none. These soft dependencies follow
+visible minima and attended quality, precede speculative preparation, and never
+block full promotion or add pins. Candidate/admitted/deferred metadata counts
+remain separate from actual 64-caster/100k-triangle omissions. Unchanged camera
+and capture reuse receiver-region calculations. Ordinary source/tier/budget and
+stale-queued rules still apply.
+
 The existing 200 ms demand cadence continues advancing dwell, admission and task
 settlement even when the camera is stationary. Static placement assertion bounds
 are cached against their actual world matrix; wall group references are reused.

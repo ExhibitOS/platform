@@ -52,7 +52,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
-import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainGalleryDetail,optionalResidentRetryReady,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
+import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,retainGalleryDetail,optionalResidentRetryReady,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -2922,6 +2922,7 @@ export function GeometryPreview({
             const point=group.localToWorld(new three.Vector3(door.offset[0],door.offset[1],0));
             return camera.position.distanceTo(point)<=3&&nextFrustum.intersectsSphere(new three.Sphere(point,.75))&&clearPath(camera.position,point)?[{point,roomId:surface.roomId}]:[];
           });
+          const shadowCandidateBounds:Array<{id:string;box:InstanceType<typeof three.Box3>;distance:number}>=[];
           const observations=arts.map(art=>{
             let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false,connected=false;
             const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
@@ -2936,6 +2937,7 @@ export function GeometryPreview({
               }
               const {points,box,center}=bounds;
               const d=box.distanceToPoint(camera.position);distance=Math.min(distance,d);
+              shadowCandidateBounds.push({id:art.revisionId,box,distance:d});
               const room=document.rooms.find(v=>v.id.toLowerCase()===p.roomId.toLowerCase());
               const sameRoom=cameraRoom?.id.toLowerCase()===p.roomId.toLowerCase();
               connected=connected||minimumRooms.has(p.roomId.toLowerCase());
@@ -2966,6 +2968,9 @@ export function GeometryPreview({
             const minimumEligible=visible||mapPins.has(art.revisionId)||viewingPins.has(art.revisionId)||art.revisionId===viewingCurrentArt;
             return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible,connected};
           });
+          const visibleRevisions=new Set(observations.filter(item=>item.visible).map(item=>item.art.revisionId));
+          const dependencyReport=shadowPass.dependencies(shadowCandidateBounds.filter(item=>!visibleRevisions.has(item.id)),camera),shadowDependencies=new Set(dependencyReport.ids);
+          renderer.domElement.dataset.shadowDependencies=JSON.stringify({candidates:dependencyReport.candidates,admitted:dependencyReport.admitted,deferred:dependencyReport.deferred});
           const requiredRevisionIds=new Set(observations.filter(item=>item.minimumEligible).map(item=>item.art.revisionId));
           requiredMinimumRooms=new Set(ordered.filter(item=>requiredRevisionIds.has(item.artworkRevisionId)).map(item=>item.roomId.toLowerCase()));
           if(entranceReadiness&&!entranceFrameReported){
@@ -3014,10 +3019,10 @@ export function GeometryPreview({
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
-          for(const item of observations)viewInterests.set(item.art.revisionId,{visible:item.visible,next:preparing.has(item.art.revisionId),recent:item.want,connected:item.connected,distance:item.distance});
+          for(const item of observations)viewInterests.set(item.art.revisionId,{visible:item.visible,next:preparing.has(item.art.revisionId),recent:item.want,connected:item.connected,distance:item.distance,shadow:shadowDependencies.has(item.art.revisionId)});
           for(const id of pending.keys())syncPinnedPriority(id);
           // Cancel obsolete preparation without releasing its unsettled reservation.
-          for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
+          for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&!retainPreparationDemand(artId===currentArtwork,preparing.has(artId),shadowDependencies.has(artId))){scheduler.cancel(key);pending.delete(artId);}}
           for(const [id,key]of pending){
             const task=tasks.get(key),pinned=mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||id===detailPinnedArtwork;
             if(active.has(id)||task?.manual||task?.detailPromotion||hasViewDemand(viewInterests.get(id),id===currentArtwork,pinned)||!scheduler.isQueued(key)){coldQueuedSince.delete(id);continue;}
@@ -3036,7 +3041,7 @@ export function GeometryPreview({
           for(const {art} of missingMinimum)request(art,false);
           const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)||materialBudgetDeferred.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
-            if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!preparing.has(art.revisionId)&&!want&&!focused&&distance>12){
+            if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!preparing.has(art.revisionId)&&!shadowDependencies.has(art.revisionId)&&!want&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
@@ -3058,6 +3063,7 @@ export function GeometryPreview({
               if(active.has(art.revisionId))request(art,false);
             }
             else if(retainGalleryDetail(lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===active.get(art.revisionId)),want,reclaiming.has(art.revisionId)))continue;
+            else if(shadowDependencies.has(art.revisionId))request(art,false);
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
               else if(!entranceReadiness&&canPromote&&!minimumOutstanding)request(art,true,true);
