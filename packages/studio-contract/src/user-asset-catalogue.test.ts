@@ -19,7 +19,7 @@ describe('user asset distribution source', () => {
       expect(item.id).toMatch(/^[a-z]+(?:-[a-z]+)*$/);
       expect(item.version).toBe(1);
       expect(item.mime).toBe('model/gltf-binary');
-      const directory = item.id.startsWith('portal-') ? 'exhibitos-authored-20261109' : 'user-authored-20261027';
+      const directory = item.id === 'compact-caption-stand' ? 'exhibitos-authored-20261111' : item.id.startsWith('portal-') ? 'exhibitos-authored-20261109' : 'user-authored-20261027';
       const prefix = `assets/furnishings/${directory}/${item.id}/`;
       expect(item.path).toBe(`${prefix}model.glb`);
       expect(item.rights.noticePath).toBe(`${prefix}LICENSE-NOTICE.txt`);
@@ -52,8 +52,8 @@ describe('user asset distribution source', () => {
     expect(JSON.stringify(entries)).not.toMatch(/(?:\/Users\/|\/Volumes\/|\.blend|build\.py|verification\.json)/);
   });
 
-  it('selects twenty-one originals and the reviewed wallwasher derivative without admitting its malformed original', () => {
-    expect(entries).toHaveLength(22);
+  it('selects twenty-two originals and the reviewed wallwasher derivative without admitting its malformed original', () => {
+    expect(entries).toHaveLength(23);
     const wallwasher = entry('museum-wallwasher');
     expect(wallwasher).toMatchObject({ bytes: 201724, sha256: 'a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d', provenance: { recipe: 'omit-unused-tangent-v1' } });
     expect(wallwasher.sha256).not.toBe(wallwasher.provenance.sourceSha256);
@@ -70,6 +70,17 @@ describe('user asset distribution source', () => {
     const upholstered = entry('upholstered-gallery-bench').functional;
     if (upholstered?.kind !== 'bench') throw Error('Missing upholstered seat references');
     expect(upholstered.seats.every(seat => seat.directSurfaceContactVerified)).toBe(true);
+  });
+
+  it('adds the compact stand as an unchanged original without new functional authority', () => {
+    expect(entry('compact-caption-stand')).toEqual({
+      id:'compact-caption-stand',version:1,mime:'model/gltf-binary',
+      path:'assets/furnishings/exhibitos-authored-20261111/compact-caption-stand/model.glb',
+      bytes:13864,sha256:'ec9e424fe07eceeb4b422c0ed3dfa6981ac9f5dc335bd6ed32954d2c1a190752',triangles:196,
+      bounds:{min:[-.11,0,-.11],max:[.11,1.0195833,.11]},
+      rights:{licenseId:'CC0-1.0',noticePath:'assets/furnishings/exhibitos-authored-20261111/compact-caption-stand/LICENSE-NOTICE.txt',noticeBytes:580,noticeSha256:'5d90fcaaec647de18cf2be4b7bf46927b8136080c3cd7f37c3ee1efe3336b87f'},
+      provenance:{sourceSha256:'ec9e424fe07eceeb4b422c0ed3dfa6981ac9f5dc335bd6ed32954d2c1a190752',recipe:'original-v1'},
+    });
   });
 
   it('preserves the first four exact source identities from the preservation handoff', () => {
