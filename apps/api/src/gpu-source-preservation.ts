@@ -71,12 +71,13 @@ export function verifyGpuSourcePreservation(source:Buffer,candidate:Buffer,bindi
  const sourceImages=array(a.doc.images),sourceViews=array(a.doc.bufferViews),textures=array(a.doc.textures);
  const images=array(b.doc.images),views=array(b.doc.bufferViews),outTextures=array(b.doc.textures);
  if(images.length!==sourceImages.length+1||views.length!==sourceViews.length+1||outTextures.length!==textures.length||index>=textures.length)fail();
- if(sourceImages.some(x=>object(x).mimeType==='image/ktx2')||textures.some(x=>object(x).extensions!==undefined))fail();
+ if(sourceImages.some(x=>object(x).mimeType==='image/ktx2'))fail();
  if(a.doc.extensionsRequired!==undefined&&array(a.doc.extensionsRequired).includes('KHR_texture_basisu'))fail();
- const expectedUsed=a.doc.extensionsUsed===undefined?['KHR_texture_basisu']:[...array(a.doc.extensionsUsed),'KHR_texture_basisu'];
- if(a.doc.extensionsUsed!==undefined&&array(a.doc.extensionsUsed).includes('KHR_texture_basisu'))fail();
+ const originalUsed=a.doc.extensionsUsed===undefined?undefined:array(a.doc.extensionsUsed);
+ const expectedUsed=originalUsed===undefined?['KHR_texture_basisu']:originalUsed.includes('KHR_texture_basisu')?originalUsed:[...originalUsed,'KHR_texture_basisu'];
  if(!isDeepStrictEqual(b.doc.extensionsUsed,expectedUsed))fail();
  const sourceTexture=object(textures[index]),pngIndex=integer(sourceTexture.source);
+ if(Object.hasOwn(sourceTexture,'extensions'))fail();
  if(pngIndex>=sourceImages.length||object(sourceImages[pngIndex]).mimeType!=='image/png')fail();
  if(!isDeepStrictEqual(object(outTextures[index]).extensions,{KHR_texture_basisu:{source:sourceImages.length}}))fail();
  const ktxLength=integer(binding.ktx.bytes);if(!ktxLength||ktxLength>8388608||!/^[a-f0-9]{64}$/.test(binding.ktx.sha256))fail();

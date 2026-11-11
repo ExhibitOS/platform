@@ -67,3 +67,22 @@ it('preserves an existing extensionsUsed array and buffer properties exactly',()
  const f=fixture();const sourceDoc={...f.sourceDoc,extensionsUsed:[]};const source=glb(sourceDoc,f.bin),b=f.candidate(),binding=f.binding(b);binding.source={sha256:sha(source),bytes:source.length};
  expect(verifyGpuSourcePreservation(source,b,binding).sourceSHA256).toMatch(/^[a-f0-9]{64}$/);
 });
+it.each([
+ ['KHR_texture_basisu'],
+ ['EXAMPLE_other','KHR_texture_basisu'],
+ ['KHR_texture_basisu','EXAMPLE_other'],
+])('preserves existing Basis declaration and its array order: %j',(...used)=>{
+ const f=fixture(),sourceDoc={...f.sourceDoc,extensionsUsed:used};f.doc.extensionsUsed=[...used];
+ const source=glb(sourceDoc,f.bin),b=f.candidate(),binding=f.binding(b);binding.source={sha256:sha(source),bytes:source.length};
+ expect(verifyGpuSourcePreservation(source,b,binding).sourceSHA256).toMatch(/^[a-f0-9]{64}$/);
+ f.doc.extensionsUsed=[...used,'KHR_texture_basisu'];const duplicate=f.candidate();
+ expect(()=>verifyGpuSourcePreservation(source,duplicate,{...binding,candidate:{sha256:sha(duplicate),bytes:duplicate.length}})).toThrow();
+});
+it('preserves unrelated texture extensions while leaving eligibility to the source validator',()=>{
+ const f=fixture(),sourceDoc=JSON.parse(JSON.stringify(f.sourceDoc));
+ const other={source:0,extensions:{EXAMPLE_other:{value:2}}};sourceDoc.textures.push(other);f.doc.textures.push(structuredClone(other));
+ const source=glb(sourceDoc,f.bin),b=f.candidate(),binding=f.binding(b);binding.source={sha256:sha(source),bytes:source.length};
+ expect(verifyGpuSourcePreservation(source,b,binding).sourceSHA256).toMatch(/^[a-f0-9]{64}$/);
+ f.doc.textures[1].extensions.EXAMPLE_other.value=3;const changed=f.candidate();
+ expect(()=>verifyGpuSourcePreservation(source,changed,{...binding,candidate:{sha256:sha(changed),bytes:changed.length}})).toThrow();
+});
