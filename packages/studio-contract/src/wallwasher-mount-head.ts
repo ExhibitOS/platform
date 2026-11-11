@@ -9,7 +9,7 @@ export type WasherPose={position:WasherVector;rotation:WasherQuaternion;scale:Wa
 export type WasherBounds={min:WasherVector;max:WasherVector};
 export type WasherPart={name:string;bounds:WasherBounds};
 export type WallwasherMountHeadProfile={
- profileId:'museum-wallwasher-fixed-head-v1';modelSha256:string;
+ profileId:'museum-wallwasher-fixed-head-v1'|'museum-wallwasher-rear-relief-fixed-head-v1';modelSha256:string;
  fixedParts:readonly WasherPart[];headParts:readonly WasherPart[];
  mountFootprint:readonly WasherVector[];
  opticalA:WasherVector;pivotP:WasherVector;axis:WasherVector;
@@ -21,6 +21,7 @@ export type WallwasherMountHeadInput={
  expectedEmitter?:{position:WasherVector;direction:WasherVector};
 };
 export const WALLWASHER_MOUNT_HEAD_MODEL_SHA256='a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d';
+export const WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256='7c1c7bb441031b7496c80d1bd39edb66b31346887e928ce68a0f22fbf9bf7f8f';
 const fixedNames=['Track_adapter','Swivel_neck','Bracket_bridge','Bracket_arm','Bracket_arm.001','Pivot','Pivot.001'];
 const headNames=['Back_panel','Black_baffle','Housing','Lower_shade','Optical_panel','Reflector'];
 const fail=(code:string):never=>{throw Error(code);};
@@ -51,7 +52,7 @@ function bounds(points:readonly WasherVector[]):WasherBounds{
 }
 export function resolveWallwasherMountHead(input:WallwasherMountHeadInput){
  const profile=input?.profile;
- if(!profile||profile.profileId!=='museum-wallwasher-fixed-head-v1'||profile.modelSha256!==WALLWASHER_MOUNT_HEAD_MODEL_SHA256)return fail('WASHER_PROFILE_PIN_INVALID');
+ if(!profile||!(profile.profileId==='museum-wallwasher-fixed-head-v1'&&profile.modelSha256===WALLWASHER_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-wallwasher-rear-relief-fixed-head-v1'&&profile.modelSha256===WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256))return fail('WASHER_PROFILE_PIN_INVALID');
  const groups=[[profile.fixedParts,fixedNames],[profile.headParts,headNames]] as const;
  for(const [parts,names]of groups){
   if(!Array.isArray(parts)||parts.length!==names.length||new Set(parts.map(p=>p?.name)).size!==names.length||parts.some(p=>!p||!names.includes(p.name)||!p.bounds||!tuple(p.bounds.min,3)||!tuple(p.bounds.max,3)||p.bounds.min.some((n:number,i:number)=>n>p.bounds.max[i]!)))return fail('WASHER_PARTITION_INVALID');
