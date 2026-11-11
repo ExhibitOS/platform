@@ -67,7 +67,7 @@ export async function createWalkingCamera({
   onViewpointFov?: (fov:number) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   signal?.throwIfAborted();
-  const { Euler, Vector3 } = await import("three");
+  const { Euler, Vector3, Quaternion } = await import("three");
   signal?.throwIfAborted();
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
   const angles = defaultEntry ? new Euler(0, 0, 0, "YXZ") : new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
@@ -114,7 +114,10 @@ export async function createWalkingCamera({
     last = 0;
   let orderedViewing=false;
   let orderedViewpointId:string|undefined;
-  let seated: {benchId:string;workspaceVisual?:WorkspaceBenchVisual;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;resumeInput:boolean}|undefined;
+  let seated: {benchId:string;roomId:string;workspaceVisual?:WorkspaceBenchVisual;eye:[number,number,number];floor:[number,number,number];floorCorners:readonly [number,number,number][];yaw:number;pitch:number;fov:number;returnFov:number;returnWalking:boolean;resumeInput:boolean}|undefined;
+  let seatTransition:{phase:'sit'|'stand';startedAt:number;progress:number;
+    from:import('three').Vector3;to:import('three').Vector3;fromRotation:import('three').Quaternion;toRotation:import('three').Quaternion;
+    fromFov:number;toFov:number;complete:()=>void}|undefined;
   const seatPose = (benchId: string) => {
     const {bench, floor, top, floorCorners} = benchSeat(document, benchId);
     const destination = presentationFor(document).viewpoints.find(v => v.id.toLowerCase() === bench.viewpointId.toLowerCase());
@@ -123,7 +126,7 @@ export async function createWalkingCamera({
     const eye = artifactPoint(destination.position, room.transform);
     const target = artifactPoint(destination.target, room.transform);
     if (!controller.seatedClear(eye, floor, top[1], bench.id, floorCorners)) throw Error('BENCH_SEAT_UNSAFE');
-    return {bench, floor, eye, target, fov: destination.fov};
+    return {bench, floor, floorCorners, eye, target, fov: destination.fov};
   };
   // The authored bench geometry and clearance are immutable for this adapter.
   const nearbySeats = onNearbyBench ? benchesFor(document).flatMap(bench => {
@@ -159,7 +162,8 @@ export async function createWalkingCamera({
   };
   const publish = () => {
     const raw = controller.state();
-    const state:NavigationState=seated?{...raw,eyePosition:[...seated.eye],yaw:seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
+    const movingAngles=seatTransition?new Euler().setFromQuaternion(camera.quaternion,'YXZ'):undefined;
+    const state:NavigationState=seated?{...raw,eyePosition:seatTransition?camera.position.toArray() as [number,number,number]:[...seated.eye],yaw:movingAngles?.y??seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
     canvas.dataset.navigationState = JSON.stringify({
       ...state,
       walking,
@@ -167,6 +171,8 @@ export async function createWalkingCamera({
       targetYaw,
       targetPitch,
       lookTransition: settings.reducedMotion ? "immediate" : "smoothed",
+      seatTransition:seatTransition?{phase:seatTransition.phase,progress:seatTransition.progress,duration:350}:null,
+      cameraQuaternion:seatTransition?camera.quaternion.toArray():undefined,
       settings,
     });
     onState?.(state);
@@ -179,10 +185,68 @@ export async function createWalkingCamera({
   if (onNearbyBench) controls.addEventListener?.('change', orbitChanged);
   const apply = () => {
     const state = publish();
-    camera.position.fromArray(state.eyePosition);
-    camera.rotation.set(pitch, state.yaw, 0, "YXZ");
+    if(!seatTransition){camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');}
     orbitChanged();
     render();
+  };
+  const finishSeatTransition=()=>{
+    const transition=seatTransition;if(!transition||disposed)return;
+    seatTransition=undefined;cancelAnimationFrame(frame);
+    try{transition.complete();}catch{
+      // reset revalidates the standing capsule. Keep the qualified seat if a
+      // newly active obstacle invalidates the landing before this completion.
+      if(seated){camera.position.fromArray(seated.eye);camera.rotation.set(pitch,seated.yaw,0,'YXZ');camera.fov=transition.fromFov;camera.updateProjectionMatrix();}
+      onMessage('주변 공간이 바뀌어 앉은 상태를 유지합니다.');apply();return;
+    }
+    camera.position.copy(transition.to);camera.quaternion.copy(transition.toRotation);camera.fov=transition.toFov;camera.updateProjectionMatrix();
+    const end=new Euler().setFromQuaternion(camera.quaternion,'YXZ');pitch=end.x;targetPitch=pitch;targetYaw=end.y;
+    if(seated){seated.yaw=end.y;seated.pitch=end.x;}
+    controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+    apply();if(transition.phase==='stand')canvas.focus({preventScroll:true});
+  };
+  const animateSeat=(phase:'sit'|'stand',eye:[number,number,number],yaw:number,nextPitch:number,fov:number,complete:()=>void)=>{
+    cancelAnimationFrame(frame);
+    const transition={phase,startedAt:performance.now(),progress:0,from:camera.position.clone(),to:new Vector3(...eye),
+      fromRotation:camera.quaternion.clone(),toRotation:new Quaternion().setFromEuler(new Euler(nextPitch,yaw,0,'YXZ')),fromFov:camera.fov,toFov:fov,complete};
+    seatTransition=transition;
+    if(settings.reducedMotion){finishSeatTransition();return;}
+    const advance=(now:number)=>{
+      if(disposed||seatTransition!==transition)return;
+      if(transition.phase==='stand'&&(!controller.qualifiedStandingEye(transition.to.toArray() as [number,number,number])||!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],transition.to.toArray() as [number,number,number]))){
+        seatTransition=undefined;cancelAnimationFrame(frame);
+        if(seated){camera.position.fromArray(seated.eye);camera.quaternion.copy(transition.fromRotation);camera.fov=transition.fromFov;camera.updateProjectionMatrix();pitch=new Euler().setFromQuaternion(camera.quaternion,'YXZ').x;targetPitch=pitch;targetYaw=seated.yaw;}
+        onMessage('주변 공간이 바뀌어 앉은 상태를 유지합니다.');apply();return;
+      }
+      const t=Math.min(1,Math.max(0,(now-transition.startedAt)/350));transition.progress=t;
+      if(t===1){finishSeatTransition();return;}
+      const ease=t*t*(3-2*t);
+      camera.position.lerpVectors(transition.from,transition.to,ease);
+      camera.quaternion.slerpQuaternions(transition.fromRotation,transition.toRotation,ease);
+      camera.fov=transition.fromFov+(transition.toFov-transition.fromFov)*ease;camera.updateProjectionMatrix();
+      pitch=new Euler().setFromQuaternion(camera.quaternion,'YXZ').x;
+      apply();if(!disposed&&seatTransition===transition)frame=requestAnimationFrame(advance);
+    };
+    apply();frame=requestAnimationFrame(advance);
+  };
+  const standLanding=(saved:NonNullable<typeof seated>)=>{
+    const current=camera.position.toArray() as [number,number,number],height=saved.floor[1]+settings.eyeHeight;
+    const qualify=(x:number,z:number)=>{const eye=controller.qualifiedStandingEye([x,height,z]);return eye&&controller.viewSegmentClear(current,eye)?eye:undefined;};
+    const vertical=qualify(current[0],current[2]);if(vertical)return {eye:vertical,displaced:false};
+    const [a,b,c]=saved.floorCorners;if(!a||!b||!c)return undefined;
+    const u=new Vector3(c[0]-a[0],0,c[2]-a[2]),v=new Vector3(b[0]-a[0],0,b[2]-a[2]),width=u.length(),depth=v.length();
+    if(width<1e-6||depth<1e-6)return undefined;u.divideScalar(width);v.divideScalar(depth);
+    const offset=new Vector3(current[0]-a[0],0,current[2]-a[2]),x=Math.max(0,Math.min(width,offset.dot(u))),z=Math.max(0,Math.min(depth,offset.dot(v))),gap=NAVIGATION_PROFILE.radius+NAVIGATION_PROFILE.skin;
+    const point=(du:number,dv:number)=>new Vector3(a[0],height,a[2]).addScaledVector(u,du).addScaledVector(v,dv).toArray() as [number,number,number];
+    // Authored front wins equal-distance ties, independent of the current gaze.
+    const candidates=[point(x,-gap),point(x,depth+gap),point(-gap,z),point(width+gap,z)];
+    const cells=controller.navigationMesh.cells.filter(cell=>cell.roomId.toLowerCase()===saved.roomId.toLowerCase()&&Math.abs(cell.center[1]-saved.floor[1])<.05).map(cell=>{
+      const points=cell.vertices.map(i=>controller.navigationMesh.vertices[i]!);
+      return [Math.max(Math.min(...points.map(p=>p[0])),Math.min(Math.max(...points.map(p=>p[0])),current[0])),height,Math.max(Math.min(...points.map(p=>p[2])),Math.min(Math.max(...points.map(p=>p[2])),current[2]))] as [number,number,number];
+    }).filter(p=>Math.hypot(p[0]-current[0],p[2]-current[2])<=2).sort((a,b)=>Math.hypot(a[0]-current[0],a[2]-current[2])-Math.hypot(b[0]-current[0],b[2]-current[2])).slice(0,32);
+    candidates.push(...cells);
+    const ranked=candidates.map((seed,index)=>({seed,index,distance:Math.hypot(seed[0]-current[0],seed[2]-current[2])})).sort((a,b)=>Math.abs(a.distance-b.distance)>1e-7?a.distance-b.distance:a.index-b.index);
+    for(const {seed}of ranked){const eye=qualify(seed[0],seed[2]);if(eye)return {eye,displaced:true};}
+    return undefined;
   };
   const stop = (reason: WalkingPauseReason) => {
     if (disposed) return;
@@ -190,6 +254,7 @@ export async function createWalkingCamera({
     if (seated && (reason === "hidden" || reason === "window" || reason === "escape" || reason === "user")) {
       seated.resumeInput = false;
     }
+    finishSeatTransition();
     controller.pause();
     targetYaw = seated?.yaw ?? controller.state().yaw;
     targetPitch = pitch;
@@ -203,12 +268,12 @@ export async function createWalkingCamera({
   };
   const startPointerLook = () => {
     if(!seated)return (resumeDrag??resumeMovement)?.()??false;
-    if(disposed||!canLookSeated())return false;
+    if(disposed||seatTransition||!canLookSeated())return false;
     input.enable();
     return true;
   };
   const queueSeatedLook = () => {
-    if(!seated||disposed)return;
+    if(!seated||disposed||seatTransition)return;
     cancelAnimationFrame(frame);
     frame=requestAnimationFrame(()=>{
       if(!seated||disposed)return;
@@ -224,7 +289,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement, startPointerLook, resumeBenchArrow, activateContextAction, queueSeatedLook, ()=>!seated||canLookSeated());
+  }, isPanelFocus, resumeMovement, startPointerLook, resumeBenchArrow, activateContextAction, queueSeatedLook, ()=>!seatTransition&&(!seated||canLookSeated()));
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
@@ -304,17 +369,18 @@ export async function createWalkingCamera({
     sit: benchId => {
       if(disposed||seated||orderedViewing)return;
       try {
-        const {bench, eye, target, fov} = seatPose(benchId);
+        const {bench, floor, floorCorners, eye, target, fov} = seatPose(benchId);
         if(bench.workspaceVisual&&workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready'){
           onMessage('벤치가 아직 표시되지 않아 앉을 수 없어요.');
           return;
         }
         const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
-        const snapshot={benchId:bench.id,workspaceVisual:bench.workspaceVisual,eye,yaw,pitch:seatPitch,fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
+        if(!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],eye))throw Error('BENCH_VIEW_PATH_UNSAFE');
+        const snapshot={benchId:bench.id,roomId:bench.roomId,workspaceVisual:bench.workspaceVisual,eye,floor,floorCorners,yaw,pitch:seatPitch,fov,returnFov:camera.fov,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
         input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;canvas.style.touchAction="none";
-        pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
-        camera.fov=fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
-        onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 이전 위치와 시점으로 돌아갑니다.');
+        targetPitch=seatPitch;targetYaw=yaw;onMode(false,true);onSeat?.(bench.id);
+        onMessage('벤치에 앉습니다.');
+        animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
       } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
     },
     sitNearby: expectedBenchId => {
@@ -332,15 +398,19 @@ export async function createWalkingCamera({
       else reportNearbyBench(nearbyBench(controller.state()));
     },
     stand: () => {
-      if(!seated||disposed)return;
-      const saved=seated;input.pause("panel");seated=undefined;
-      pitch=saved.returnPitch;targetPitch=pitch;targetYaw=controller.state().yaw;walking=saved.returnWalking;paused=true;
-      camera.position.fromArray(saved.returnPosition);camera.quaternion.fromArray(saved.returnQuaternion);camera.fov=saved.returnFov;camera.updateProjectionMatrix();
-      controls.target.fromArray(saved.returnTarget);controls.enabled=!walking;canvas.style.touchAction=walking?'none':previousTouchAction;
-      const resumeInput=saved.resumeInput&&controller.state().grounded;
-      onSeat?.(null);onMode(walking,true,resumeInput?"bench-return":undefined);publish();render();
-      canvas.focus({preventScroll:true});
-      onMessage('이전 위치와 시점으로 돌아왔습니다. 걷기는 직접 재개하세요.');
+      if(!seated||disposed||seatTransition?.phase==='stand')return;
+      finishSeatTransition();
+      const saved=seated,angle=new Euler().setFromQuaternion(camera.quaternion,'YXZ'),landing=standLanding(saved);
+      input.pause('panel');
+      if(!landing){onMessage('주변에 안전하게 일어설 공간이 없어요. 앉은 상태를 유지합니다.');return;}
+      onMessage(landing.displaced?'앉은 자리에는 서 있을 공간이 없어 가까운 빈 곳에서 일어납니다.':'현재 시선을 유지하며 일어납니다.');
+      animateSeat('stand',landing.eye,angle.y,angle.x,saved.returnFov,()=>{
+        controller.reset({position:landing.eye,yaw:angle.y});
+        seated=undefined;walking=saved.returnWalking;paused=true;
+        controls.enabled=!walking;canvas.style.touchAction=walking?'none':previousTouchAction;
+        onSeat?.(null);onMode(walking,true,saved.resumeInput&&controller.state().grounded?'bench-return':undefined);
+        onMessage('현재 시선을 유지해 일어났습니다.');
+      });
     },
     teleport: (viewpointId) => {
       if(seated||orderedViewing)return;
@@ -402,7 +472,10 @@ export async function createWalkingCamera({
       }
     },
     settings: (value) => {
-      if(seated)return;
+      if(seated){
+        settings.reducedMotion=value.reducedMotion;controller.setSettings({reducedMotion:value.reducedMotion});
+        if(value.reducedMotion)finishSeatTransition();publish();return;
+      }
       input.pause("settings");
       try {
         controller.setSettings(value);
@@ -424,7 +497,7 @@ export async function createWalkingCamera({
     actions,
     dispose: () => {
       if (disposed) return;
-      disposed = true;
+      disposed = true;seatTransition=undefined;
       reportNearbyBench(null);
       if (onNearbyBench) controls.removeEventListener?.('change', orbitChanged);
       cancelAnimationFrame(frame);

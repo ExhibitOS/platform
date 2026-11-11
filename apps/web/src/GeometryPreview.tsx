@@ -3905,7 +3905,7 @@ export function GeometryPreview({
       )}
       {viewerBudget && viewingStyle==='free' && (seatedBenchId || availableBenches.length>0) && (
         <section aria-label="앉아서 감상" className="viewer-options">
-          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 일어서면 이전 위치로 돌아갑니다.</p>{availableBenches.map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
+          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 일어서기 버튼으로 일어날 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 정해진 앉은 시점으로 이동합니다. 일어설 때는 현재 시선을 유지하고 가까운 안전한 위치에 섭니다.</p>{availableBenches.map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
         </section>
       )}
       {viewerBudget && viewingStyle==='free' && presentationFor(document).viewpoints.length>0 && (

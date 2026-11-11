@@ -73,6 +73,7 @@ export interface NavigationController {
     isWalkable: (position: Vec3) => boolean;
     qualifiedStandingEye: (position: Vec3) => Vec3 | undefined;
     standingSegmentClear: (fromEye:Vec3,toEye:Vec3) => boolean;
+    viewSegmentClear: (fromEye:Vec3,toEye:Vec3) => boolean;
     seatedClear: (eye:Vec3, floor:Vec3, seatTop:number, benchId?:string, footprint?:readonly Vec3[]) => boolean;
     readonly navigationMesh: NavigationMesh;
     setFurnishingCollisions: (sources:readonly MountedFurnishingCollision[]) => void;
@@ -481,13 +482,23 @@ export async function createNavigationController(doc: Exhibition, options: {
             }
             if (!initial) throw Error("NAVIGATION_SPAWN_UNSAFE");
         }
+        // Seated/rising camera clearance is a head envelope, not a standing
+        // capsule swept through the seat. Final standing still uses the capsule.
+        const viewSegmentClear=(from:Vec3,to:Vec3)=>{
+            ensure();if(!finite([...from,...to]))return false;
+            for(let i=0;i<=4;i++){const t=i/4;if(!inside(from.map((v,j)=>v+(to[j]!-v)*t) as Vec3))return false;}
+            const head=new RAPIER.Ball(.15);
+            for(const eye of [from,to])if(world.intersectionWithShape(v(eye),q([0,0,0,1]),head,undefined,undefined,character,undefined,activeCollider))return false;
+            const delta=to.map((n,i)=>n-from[i]!) as Vec3;
+            return Math.hypot(...delta)<1e-8||!world.castShape(v(from),q([0,0,0,1]),v(delta),head,.005,1,true,undefined,undefined,character,undefined,activeCollider);
+        };
         const standingSegmentClear=(from:Vec3,to:Vec3)=>{
             ensure();const a=qualifiedStandingEye(from),b=qualifiedStandingEye(to);
             if(!a||!b||Math.abs(a[1]-from[1])>.005||Math.abs(b[1]-to[1])>.005||Math.abs(from[1]-to[1])>.005)return false;
             return clearSegment([a[0],a[1]-settings.eyeHeight,a[2]],[b[0],b[1]-settings.eyeHeight,b[2]],false);
         };
         reset();
-        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), setFurnishingCollisions:sources=>{ensure();setFurnishingCollisions(sources);}, pathBetween, physicsVersion: RAPIER.version(), isWalkable, qualifiedStandingEye, standingSegmentClear, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
+        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), setFurnishingCollisions:sources=>{ensure();setFurnishingCollisions(sources);}, pathBetween, physicsVersion: RAPIER.version(), isWalkable, qualifiedStandingEye, standingSegmentClear, viewSegmentClear, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
                 if (!disposed) {
                     disposed = true;
                     world.free();

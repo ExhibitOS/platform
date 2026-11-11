@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,test,vi} from 'vitest';
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 import {BENCH_NAMESPACE as N,PRESENTATION_NAMESPACE as P,applyBenchCommand} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
 import {applyGeometryCommand,createGeometryState} from '../geometry/model';
@@ -24,7 +24,7 @@ test('bench blocks real walking and matching server presence, while seated clear
   }finally{c.dispose();}
   const legacy=structuredClone(d);delete legacy.extensions![N];const free=await createNavigationController(legacy,{position:[0,1.65,3]});try{expect(free.isWalkable([0,1.65,0])).toBe(true);}finally{free.dispose();}
 });
-test.each([false,true])('explicit seated view and return preserve camera while keeping held movement and stride stopped (running=%s)',async(running)=>{
+test.each([false,true])('explicit seat and nearest clear stand keep current gaze and held movement stopped (running=%s)',async(running)=>{
   const d=benchFixture(),camera=new PerspectiveCamera(63,1,.01,100);camera.position.set(0,1.65,3);camera.lookAt(0,1.2,0);
   const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,pointerLockElement:null as unknown,hidden:false,exitPointerLock:vi.fn()});
   const canvas=Object.assign(new EventTarget(),{dataset:{} as Record<string,string>,style:{touchAction:''},focus:vi.fn(()=>{doc.activeElement=canvas;}),getBoundingClientRect:()=>({left:0,width:100})}) as unknown as HTMLCanvasElement;
@@ -34,11 +34,12 @@ test.each([false,true])('explicit seated view and return preserve camera while k
   const adapter=await createWalkingCamera({document:d,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode(_walking,_paused,reason){modes.push(reason);},wasWalkingBeforeSeat:()=>running,onMessage(){},onState:s=>{states.push(s);expect(clock.advance(s,!s.paused)).toBe(false);},onSeat:id=>seats.push(id)});
   try{
     if(running){adapter.actions.start();adapter.actions.press('forward',9);}
-    const position=camera.position.clone(),rotation=camera.quaternion.clone(),fov=camera.fov;
+    const position=camera.position.clone(),fov=camera.fov;
     const bench=(d.extensions![N] as unknown as {benches:{id:string}[]}).benches[0]!;
     adapter.actions.sit!(bench.id);expect(seats).toEqual([bench.id]);expect(camera.position.toArray()).toEqual([0,1.15,-.08]);expect(controls.enabled).toBe(false);expect(states.at(-1)).toMatchObject({paused:true,grounded:false,velocity:[0,0,0]});
     adapter.actions.start();expect(camera.position.toArray()).toEqual([0,1.15,-.08]);
-    adapter.actions.stand!();expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});expect(seats).toEqual([bench.id,null]);expect(doc.activeElement).toBe(canvas);expect(modes.at(-1)).toBe(running?"bench-return":undefined);
+    const seatedRotation=camera.quaternion.clone();
+    adapter.actions.stand!();expect(camera.position.x).toBeCloseTo(0);expect(camera.position.z).toBeCloseTo(-.61);expect(camera.position.y).toBeCloseTo(1.661,4);expect(camera.position.distanceTo(position)).toBeGreaterThan(1);expect(camera.quaternion.angleTo(seatedRotation)).toBeLessThan(1e-7);expect(camera.fov).toBe(fov);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});expect(seats).toEqual([bench.id,null]);expect(doc.activeElement).toBe(canvas);expect(modes.at(-1)).toBe(running?"bench-return":undefined);
   }finally{adapter.dispose();}
 });
 
@@ -72,7 +73,8 @@ test('nearby action requires the exact visible bench and clears eligibility outs
     expect(onNearbyBench.mock.lastCall).toEqual([null]);
     expect(adapter.actions.sitNearby?.(benchId)).toBe(false);
     adapter.actions.stand?.();
-    expect(camera.position.toArray()).toEqual(prior);
+    expect(camera.position.toArray()).not.toEqual(prior);
+    expect(camera.position.z).toBeCloseTo(-.61);
     expect(onNearbyBench.mock.lastCall).toEqual([benchId]);
   } finally {
     adapter.dispose();
@@ -81,7 +83,7 @@ test('nearby action requires the exact visible bench and clears eligibility outs
 });
 
 
-test.each(['mouse','touch'])('seated %s drag rotates in place and preserves the standing camera',async pointerType=>{
+test.each(['mouse','touch'])('seated %s drag rotates in place and its current gaze is kept when standing',async pointerType=>{
   const d=benchFixture(),camera=new PerspectiveCamera(63,1,.01,100);
   camera.position.set(0,1.65,3);camera.lookAt(0,1.2,0);
   const doc=Object.assign(new EventTarget(),{activeElement:null as HTMLElement|null,pointerLockElement:null,hidden:false});
@@ -119,13 +121,14 @@ test.each(['mouse','touch'])('seated %s drag rotates in place and preserves the 
     expect(camera.position.toArray()).toEqual(seated.eye);
     expect(camera.quaternion.toArray()).not.toEqual(seated.quaternion);
     expect(JSON.parse(canvas.dataset.navigationState!)).toMatchObject({walking:false,paused:true,velocity:[0,0,0]});
+    const looking=camera.quaternion.clone();
     win.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'Escape'}));
     expect(modes.at(-1)).toBe('escape');
     adapter.actions.stand!();
     expect(modes.at(-1)).toBeUndefined();
-    expect(camera.position.toArray()).toEqual(standing.eye);
-    expect(camera.quaternion.toArray()).toEqual(standing.quaternion);
-    expect(controls.target.toArray()).toEqual(standing.target);
+    expect(camera.position.z).toBeCloseTo(-.61);
+    expect(camera.quaternion.angleTo(looking)).toBeLessThan(1e-7);
+    expect(controls.target.clone().sub(camera.position).normalize().distanceTo(camera.getWorldDirection(new Vector3()))).toBeLessThan(1e-7);
     expect(camera.fov).toBe(standing.fov);
   }finally{adapter.dispose();}
 });
