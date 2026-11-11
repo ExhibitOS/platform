@@ -101,15 +101,17 @@ export function validateFurnishings(candidate:unknown){
  }catch(error){fail(error instanceof Error?error.message:'FURNISHING_INVALID');}
  return {valid:errors.length===0,errors};
 }
-/** One atomic domain command; caller owns base-document admission and history. */
-export function applyFurnishingCommand(candidate:Exhibition,input:FurnishingCommand):Exhibition {
+/** One atomic domain command; caller owns base-document admission and history.
+ * Trusted producers may supply a new catalogue asset ID for replay stability.
+ * The closed command wire and default interactive UUID allocation stay unchanged. */
+export function applyFurnishingCommand(candidate:Exhibition,input:FurnishingCommand,internal?:{newAssetId:string}):Exhibition {
  if(!validateFurnishings(candidate).valid||!object(input)||!uuid(input.hostId))throw Error('FURNISHING_INVALID');
  const next=structuredClone(candidate),value=furnishingsFor(next)??{version:1 as const,assets:[],bindings:[]};
  if(input.type==='remove-furnishing-visual'){
   if(!closed(input,['type','hostKind','hostId'])||!Object.values(SUPPORTED_FURNISHINGS).includes(input.hostKind))throw Error('FURNISHING_INVALID');value.bindings=value.bindings.filter(b=>b.hostKind!==input.hostKind||!same(b.hostId,input.hostId));
  }else{
   if(input.type!=='set-furnishing-visual'||!closed(input,['type','hostKind','hostId','catalogId','catalogVersion','pose'])||input.catalogVersion!==1||!validPose(input.pose)||SUPPORTED_FURNISHINGS[input.catalogId]!==input.hostKind)throw Error('FURNISHING_INVALID');
-  const source=furnishingCatalogueEntry(input.catalogId),pose=input.pose;let asset=value.assets.find(a=>a.catalogId===input.catalogId);if(!asset){asset=furnishingAsset(crypto.randomUUID(),input.catalogId);value.assets.push(asset);}
+  const source=furnishingCatalogueEntry(input.catalogId),pose=input.pose;let asset=value.assets.find(a=>a.catalogId===input.catalogId);if(!asset){asset=furnishingAsset(internal?.newAssetId??crypto.randomUUID(),input.catalogId);value.assets.push(asset);}
   if(input.hostKind==='pedestal'){
    if(!next.placements.some(p=>same(p.id,input.hostId)))throw Error('FURNISHING_REFERENCE');const installation=(next.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined)??{version:1,placements:[]},existing=installation.placements.find(p=>same(p.placementId,input.hostId)),binding=existing??{placementId:input.hostId};binding.pedestal=pedestal(source,pose);if(!existing)installation.placements.push(binding);next.extensions={...next.extensions,[INSTALLATION_NAMESPACE]:installation as unknown as NonNullable<Exhibition['extensions']>[string]};
   }else if(input.hostKind==='bench'){
