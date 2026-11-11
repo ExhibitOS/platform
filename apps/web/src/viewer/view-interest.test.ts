@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import {AssetScheduler,MemoryAssetCache,ArtworkAttention,detailDemand,nearbyPreparation} from './loading';
-import {optionalResidentRetryReady,retainGalleryDetail,viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,type ViewInterest} from './view-interest';
+import {optionalResidentRetryReady,retainGalleryDetail,viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,ownedWallFullPromotion,planDecodedReclamation,type DecodedReclamationRow,type ViewInterest} from './view-interest';
 const cold:ViewInterest={visible:false,next:false,recent:false,connected:false,distance:20};
 it('connected rooms remain soft interest rather than visible or next-view entitlement',()=>{
   expect(viewInterestRank({...cold,connected:true})).toBeGreaterThan(viewInterestRank({...cold,next:true}));
@@ -75,4 +75,37 @@ it('ordinary updates with no pressure do not sort or inspect cache interest',()=
   const cache=new MemoryAssetCache<string>(100);cache.set('first','first',10);cache.set('second','second',10);
   let inspected=0;cache.reclaim(()=>0,()=>{inspected++;return 4;});
   expect(inspected).toBe(0);expect(cache.stats().bytes).toBe(20);
+});
+
+const reclaimRow=(id:string,bytes:number,overrides:Partial<DecodedReclamationRow>={}):DecodedReclamationRow=>({id,bytes,protected:false,visible:false,eligible:false,view:cold,rank:4,lastAttended:0,...overrides});
+it('admits measured Wheat full quality by reclaiming cold decoded resources, retaining its coarse and every cap',()=>{
+  const used=153990647,incoming=31157187,limit=179569962,wait={identity:'Wheat/full/exact-policy',bytes:incoming};
+  const rows=[reclaimRow('Wheat/coarse',2000000,{protected:true}),reclaimRow('Hayes/cold',125357442)];
+  expect(optionalResidentRetryReady(wait,wait.identity,used,limit)).toBe(false);
+  const plan=planDecodedReclamation(rows,used+incoming-limit,true);expect(plan).toEqual(['Hayes/cold']);
+  const remaining=used-rows.filter(row=>plan.includes(row.id)).reduce((sum,row)=>sum+row.bytes,0);
+  expect(optionalResidentRetryReady(wait,wait.identity,remaining,limit)).toBe(true);
+  // The same planner serves initial postdecode admission and measured retry.
+  expect(remaining+incoming).toBeLessThanOrEqual(limit);
+});
+it('optional promotion never reclaims a useful, unknown, or ownership-protected decoded object',()=>{
+  const rows=[reclaimRow('pinned-or-current-or-pending',100,{protected:true}),reclaimRow('visible',100,{visible:true}),
+    reclaimRow('required',100,{eligible:true}),reclaimRow('unknown-visible',100,{visible:undefined}),reclaimRow('unknown-interest',100,{view:undefined}),
+    ...(['visible','next','recent','shadow'] as const).map(key=>reclaimRow(key,100,{view:{...cold,[key]:true}})),
+    reclaimRow('connected-cold',10,{view:{...cold,connected:true}})];
+  expect(planDecodedReclamation(rows,10,true)).toEqual(['connected-cold']);
+  expect(planDecodedReclamation(rows,11,true)).toEqual([]); // No partial destructive reclaim.
+});
+it('plans only the required ranked prefix including retained minima once, without changing legacy minimum eligibility',()=>{
+  const rows=[reclaimRow('nearby-soft',20,{rank:3}),reclaimRow('cold-new',5,{lastAttended:10}),reclaimRow('cold-old',8,{lastAttended:1})];
+  expect(planDecodedReclamation(rows,7,true)).toEqual(['cold-old']);
+  expect(planDecodedReclamation(rows,12,true)).toEqual(['cold-old','cold-new']);
+  expect(planDecodedReclamation(rows,34,true)).toEqual([]);
+  expect(planDecodedReclamation([reclaimRow('next',8,{view:{...cold,next:true}})],8)).toEqual(['next']);
+});
+it('ordinary full reclamation requires current wall ownership and the exact full inventory',()=>{
+  const owned={prepareOnly:false,detailPromotion:false,full:true,observeWall:true,artworkId:'Wheat',currentArtwork:'Wheat',assetId:'FULL',fullAssetId:'full'};
+  expect(ownedWallFullPromotion(owned)).toBe(true);
+  for(const change of [{prepareOnly:true},{detailPromotion:true},{full:false},{observeWall:false},{currentArtwork:'other'},{assetId:'coarse'},{fullAssetId:undefined}])
+    expect(ownedWallFullPromotion({...owned,...change})).toBe(false);
 });

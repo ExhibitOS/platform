@@ -34,3 +34,22 @@ export function optionalResidentRetryReady(wait:ResidentRetryWait|undefined,iden
 
 /** A compatible speculative transfer can become a shadow minimum in place. */
 export function retainPreparationDemand(current:boolean,next:boolean,shadow:boolean){return current||next||shadow;}
+
+/** Optional full quality may reclaim only for the current ordinary wall owner. */
+export function ownedWallFullPromotion(input:{prepareOnly:boolean;detailPromotion?:boolean;full?:boolean;observeWall:boolean;artworkId:string;currentArtwork?:string;assetId:string;fullAssetId?:string}){
+  return !input.prepareOnly&&!input.detailPromotion&&!!input.full&&input.observeWall&&input.artworkId===input.currentArtwork&&
+    input.assetId.toLowerCase()===input.fullAssetId?.toLowerCase();
+}
+export type DecodedReclamationRow={id:string;bytes:number;protected:boolean;visible:boolean|undefined;eligible:boolean|undefined;view?:ViewInterest;rank:number;lastAttended:number};
+/** Plan before disposing: an insufficient cold set must not churn displayed
+ * resources. Original-detail and authority decisions stay in their owner. */
+export function planDecodedReclamation(rows:ReadonlyArray<DecodedReclamationRow>,deficit:number,coldOnly=false){
+  if(deficit<=0)return [];
+  const candidates=rows.filter(row=>!row.protected&&row.visible===false&&row.eligible===false&&
+    (!coldOnly||!!row.view&&!hasViewDemand(row.view)));
+  if(candidates.reduce((sum,row)=>sum+row.bytes,0)<deficit)return [];
+  candidates.sort((a,b)=>b.rank-a.rank||a.lastAttended-b.lastAttended);
+  const result:string[]=[];let reclaimed=0;
+  for(const row of candidates){if(reclaimed>=deficit)break;result.push(row.id);reclaimed+=row.bytes;}
+  return result;
+}

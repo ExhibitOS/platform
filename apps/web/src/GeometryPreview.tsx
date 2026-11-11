@@ -52,7 +52,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
-import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,retainGalleryDetail,optionalResidentRetryReady,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
+import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,retainGalleryDetail,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -2159,19 +2159,15 @@ export function GeometryPreview({
           destroy(old);
           if(assetId){byteCache.delete(assetId);stage(assetId,'evicted-offroom-minimum');}
         };
-        const reclaimOffroom=(target:string,deficit:()=>number)=>{
+        const reclaimOffroom=(target:string,deficit:()=>number,coldOnly=false)=>{
           if(deficit()<=0)return;
           releaseCachedOriginal();
           if(deficit()<=0)return;
-          const candidates=[...objects.keys()].filter(id=>id!==target&&id!==currentArtwork&&id!==viewingCurrentArt&&id!==detailPinnedArtwork&&
-            !mapPins.has(id)&&!viewingPins.has(id)&&!pending.has(id)&&observedVisible.get(id)===false&&observedEligible.get(id)===false);
-          // Leave the old working set intact when this phase cannot fit even
-          // after reclaiming all eligible off-room display resources.
-          const reclaimable=candidates.reduce((sum,id)=>sum+
-            (objects.get(id)?.userData.viewer?.decodedBytes??0)+
-            (minimumObjects.get(id)?.object.userData.viewer?.decodedBytes??0),0);
-          if(reclaimable<deficit())return;
-          candidates.sort((a,b)=>interestRank(b)-interestRank(a)||(lastAttended.get(a)??0)-(lastAttended.get(b)??0));
+          const candidates=planDecodedReclamation([...objects.keys()].map(id=>({id,
+            bytes:(objects.get(id)?.userData.viewer?.decodedBytes??0)+(minimumObjects.get(id)?.object.userData.viewer?.decodedBytes??0),
+            protected:id===target||id===currentArtwork||id===viewingCurrentArt||id===detailPinnedArtwork||mapPins.has(id)||viewingPins.has(id)||pending.has(id),
+            visible:observedVisible.get(id),eligible:observedEligible.get(id),view:viewInterests.get(id),rank:interestRank(id),lastAttended:lastAttended.get(id)??0,
+          })),deficit(),coldOnly);
           let changed=false;
           for(const id of candidates){
             if(deficit()<=0)break;
@@ -2491,6 +2487,8 @@ export function GeometryPreview({
             const reclaimable=!prepareOnly&&art.revisionId===currentArtwork?preparedBytes():0;
             if(!optionalResidentRetryReady(residentWait,residentIdentity,peak.total(),requestLimits().resident,reclaimable)){
               releaseCachedOriginal();reclaimEncoded(()=>peak.total()+residentWait.bytes-reclaimable-requestLimits().resident);
+              if(ownedWallFullPromotion({prepareOnly,detailPromotion,full,observeWall:demandContext().observeWall,artworkId:art.revisionId,currentArtwork,assetId:inventory.id,fullAssetId:authoredImagePair(art)?.full.assetId}))
+                reclaimOffroom(art.revisionId,()=>peak.total()+residentWait.bytes-reclaimable-requestLimits().resident,true);
               if(!optionalResidentRetryReady(residentWait,residentIdentity,peak.total(),requestLimits().resident,reclaimable))return;
             }
           }
@@ -2563,12 +2561,12 @@ export function GeometryPreview({
               reclaimEncoded(deficit);
               // An owned selected promotion can use the same speculative
               // capacity as a wall promotion. Keep every displayed object.
-              const wallPromotion=!task.prepareOnly&&!task.detailPromotion&&demandContext().observeWall&&art.revisionId===currentArtwork&&
-                 inventory.id.toLowerCase()===authoredImagePair(art)?.full.assetId.toLowerCase();
+              const wallPromotion=ownedWallFullPromotion({...task,observeWall:demandContext().observeWall,artworkId:art.revisionId,currentArtwork,assetId:inventory.id,fullAssetId:authoredImagePair(art)?.full.assetId});
               const selectedPromotion=task.detailPromotion&&detailPinnedArtwork===art.revisionId&&!!sharedDetail;
               const shortage=deficit();
               if((selectedPromotion||wallPromotion)&&shortage>0&&preparedBytes()>=shortage)evictPrepared(deficit);
               if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
+              else if(wallPromotion)reclaimOffroom(art.revisionId,deficit,true);
               if(deficit()>0){
                 stage(inventory.id,'deferred-budget',undefined,key);
                 const missingMinimum=neededMinimum(task);
