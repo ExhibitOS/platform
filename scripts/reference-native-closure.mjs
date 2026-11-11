@@ -25,7 +25,7 @@ async function regular(root,path,limit){
  const handle=await open(join(root,path),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{const stat=await handle.stat();if(!stat.isFile()||stat.size>limit)fail('REFERENCE_NATIVE_INTEGRITY');const bytes=Buffer.alloc(stat.size);let offset=0;while(offset<bytes.length){const item=await handle.read(bytes,offset,Math.min(bytes.length-offset,1024*1024),offset);if(!item.bytesRead)fail('REFERENCE_NATIVE_INTEGRITY');offset+=item.bytesRead;}const after=await handle.stat();if(after.size!==stat.size||after.dev!==stat.dev||after.ino!==stat.ino)fail('REFERENCE_NATIVE_INTEGRITY');return bytes;}finally{await handle.close();}
 }
-async function completeInventory(root,entries,extra=[]){
+export async function completeInventory(root,entries,extra=[]){
  const pending=new Set([...entries.keys(),...extra]),directories=new Set([...pending].flatMap(path=>{const parts=path.split('/');return parts.slice(0,-1).map((_,index)=>parts.slice(0,index+1).join('/'));}));let visited=0;
  async function walk(dir,prefix='',depth=0){if(depth>32)fail('REFERENCE_NATIVE_INTEGRITY');for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail('REFERENCE_NATIVE_INTEGRITY');const path=prefix+item.name;if(item.isDirectory()){if(!directories.has(path))fail('REFERENCE_NATIVE_INTEGRITY');await walk(join(dir,item.name),path+'/',depth+1);}else if(!item.isFile()||!pending.delete(path))fail('REFERENCE_NATIVE_INTEGRITY');}}
  await walk(root);if(pending.size)fail('REFERENCE_NATIVE_INTEGRITY');
@@ -69,7 +69,7 @@ export async function readNativeReferenceClosure(input){
 
 /** Apply only the established public-demo session configuration to reviewed
  * native entry HTML. Native exports retain their ordinary browser-copy mode. */
-async function sessionHostingOverlay(source){
+export async function sessionHostingOverlay(source){
  const overlays=new Map();
  for(const path of ['index.html','studio.html']){
   const entry=source.sourceEntries.get(path),bytes=await regular(source.sourceRoot,path,entry.bytes);
