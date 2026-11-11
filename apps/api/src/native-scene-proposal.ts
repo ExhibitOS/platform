@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {TEMPLATE_NAMESPACE,INSTALLATION_NAMESPACE,installationFor,setLightDetails,type InstallationPedestal,type StudioInstallation,
+import {TEMPLATE_NAMESPACE,INSTALLATION_NAMESPACE,LIGHT_DETAILS_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,type InstallationPedestal,type StudioInstallation,
  type ExhibitionLight,type LightDetails} from '@exhibitos/studio-contract';
 
 /** The existing installation and light-details representations, applied to one
@@ -19,6 +19,9 @@ export function nativeSceneProposal(candidate:Exhibition,command:NativeSceneComm
   next.lights.push(structuredClone(command.light));
   if(next.extensions?.[TEMPLATE_NAMESPACE]){const template=next.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};template.modified=true;}
   const {id,...light}=command.light;
+  // Purpose is immutable on updates. Establish it only for this newly-created
+  // light, then let the shared setter validate the complete binding and limits.
+  if(command.settings?.purpose==='room-base')next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[...lightDetailsFor(next),{lightId:id,fixture:'none',purpose:'room-base'}]} as unknown as NonNullable<Exhibition['extensions']>[string]};
   return {lightId:id,candidate:command.settings?setLightDetails(next,id,light,command.settings):next};
  }
  const placement=next.placements.find(item=>item.id.toLowerCase()===command.placementId.toLowerCase());
