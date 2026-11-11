@@ -59,16 +59,28 @@ test('export refuses overlap/existing output and removes only its own failed sta
 });
 
 const actual=process.env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE,pin=process.env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256;
-test('reproduces the exact admitted R97 raw artifact and strict hosting overlay from the public closure',{skip:!actual||!pin},async t=>{
+test('preserves R97 content and applies exact session-only hosting configuration from the public closure',{skip:!actual||!pin},async t=>{
  const inputRoot=await realpath(resolve(actual)),source=await readNativeReferenceClosure({inputRoot,inventorySha256:pin}),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-integration-')));t.after(()=>rm(parent,{recursive:true,force:true}));
  const outputDir=join(parent,'output'),result=await exportNativeReferenceClosure({inputRoot,inventorySha256:pin,outputDir});
- assert.equal(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.rawFiles,140);assert.equal(result.outputFiles,141);assert.equal(result.files,141);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
- assert.deepEqual(await readFile(join(outputDir,'static-export-manifest.json')),await readFile(join(source.sourceRoot,'static-export-manifest.json')));
+ assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,140);assert.equal(result.outputFiles,141);assert.equal(result.files,141);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
+ for(const path of ['index.html','studio.html']){
+  const original=await readFile(join(source.sourceRoot,path),'utf8'),html=await readFile(join(outputDir,path),'utf8');
+  assert.equal(html,original.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>'));
+  assert.equal(html.split('exhibitos-demo-decoration').length,2);
+ }
+ for(const path of source.sourceEntries.keys()){
+  if(['index.html','studio.html','static-export-manifest.json'].includes(path))continue;
+  assert.deepEqual(await readFile(join(outputDir,path)),await readFile(join(source.sourceRoot,path)));
+ }
  assert.deepEqual(await readFile(join(outputDir,'static-publication-index.json')),await readFile(join(source.sourceRoot,'static-publication-index.json')));
  await inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin});
  const {inspectDemo}=await import('./deploy-reference-demo.mjs');
  const proof=await inspectDemo({output:outputDir,pin:source.reference.indexSha256,commit:'tool-producer',nativeClosure:{inputRoot,inventorySha256:pin}});
  assert.equal(proof.sourceCommit,'tool-producer');assert.equal(proof.viewerSourceCommit,source.reference.viewerSourceCommit);
  await assert.rejects(inspectDemo({output:outputDir,pin:source.reference.indexSha256,commit:'tool-producer'}),/REFERENCE_NATIVE_REQUEST/);
+ const studio=await readFile(join(outputDir,'studio.html'));
+ await writeFile(join(outputDir,'studio.html'),studio.toString('utf8').replace('content="session-v1"','content="persistent"'));
+ await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
+ await writeFile(join(outputDir,'studio.html'),studio);
  await writeFile(join(outputDir,'_headers'),'foreign headers');await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
 });
