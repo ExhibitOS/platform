@@ -24,13 +24,14 @@ async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixtu
  const canvas=Object.assign(new EventTarget(),{dataset:{} as Record<string,string>,style:{touchAction:''},focus:vi.fn(()=>{doc.activeElement=canvas;}),setPointerCapture:vi.fn(),hasPointerCapture:()=>false,getBoundingClientRect:()=>({left:0,width:100})}) as unknown as HTMLCanvasElement;
  vi.stubGlobal('document',doc);vi.stubGlobal('window',win);
  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{frames.set(++id,callback);return id;});
- vi.stubGlobal('cancelAnimationFrame',(key:number)=>frames.delete(key));vi.spyOn(performance,'now').mockImplementation(()=>now);
+ vi.stubGlobal('cancelAnimationFrame',(key:number)=>frames.delete(key));
  const gate=createPanelResumeGate(),messages:string[]=[],rendered:{eye:number[];quaternion:number[];state:Record<string,unknown>}[]=[];
  const controls={enabled:true,target:new Three.Vector3(0,1.2,0),update(){}} as OrbitControls;
  let sources:MountedFurnishingCollision[]=[];
  const adapter=await createWalkingCamera({document:f.document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion},
   render:()=>rendered.push({eye:camera.position.toArray(),quaternion:camera.quaternion.toArray(),state:JSON.parse(canvas.dataset.navigationState!)}),
   onMode:(walking,paused,reason)=>gate.mode(walking,paused,reason),onMessage:message=>messages.push(message),wasWalkingBeforeSeat:gate.wasWalkingBeforeSeat,furnishingCollisions:()=>sources});
+ vi.spyOn(performance,'now').mockImplementation(()=>now);
  const advance=(time:number)=>{now=time;const pending=[...frames.values()];frames.clear();for(const callback of pending)callback(time);};
  const pointer=(type:string,x:number,y:number)=>canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerType:'touch',pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
  return {...f,camera,canvas,doc,win,frames,controls,gate,messages,rendered,adapter,advance,pointer,time:()=>now,state:()=>JSON.parse(canvas.dataset.navigationState!),setSources:(value:MountedFurnishingCollision[])=>{sources=value;adapter.actions.refreshFurnishingCollisions?.();}};
