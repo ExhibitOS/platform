@@ -24,6 +24,12 @@ bound catalog reply. The approved primary is distinct from an optional acquired
 original, and the preview derivative may have a different hash. Existing model,
 texture, memory, queue and disposal limits remain in force.
 
+An approved canonical GLB keeps its exact model admission when accompanied by
+one separately validated optional PNG thumbnail. The model profile still rejects
+unreferenced previews, malformed thumbnail references and all unrelated extra
+assets; a thumbnail does not authorize another model or change its byte/rights
+checks. This composition applies to the shared public/OEX profile as well.
+
 `POST /api/v1/tenants/:tenantId/cms/artworks/:id/thumbnail-selection` accepts exactly
 these ten fields for this profile:
 

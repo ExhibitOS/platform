@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Artwork} from '@exhibitos/spec';
-import {artworkDisplayPolicy,LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
+import {artworkDisplayPolicy,artworkThumbnailFor,validateArtworkThumbnail,LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
 import {sha256} from '@exhibitos/storage';
 import {APPROVED_DEMO_DISPLAY_FILES} from './approved-demo-display-files.ts';
 import {ApiError} from './api-error.ts';
@@ -23,7 +23,11 @@ export function qualifyDemoDisplay(artwork:Artwork,bytes?:Buffer){
  const approval:DemoDisplayApproval|undefined=APPROVED_DEMO_DISPLAY_FILES.find(a=>a.approvalId.toLowerCase()===policy.approvalId.toLowerCase()),primary=artwork.assets.find(a=>a.id.toLowerCase()===artwork.primaryAssetId.toLowerCase());
  if(!approval||!primary||policy.rightsEvidenceSha256!==approval.rightsEvidenceSha256||policy.sourceAssetSha256!==approval.canonicalAssetSha256||primary.sha256!==approval.canonicalAssetSha256||primary.bytes!==approval.canonicalBytes||!allowedRights(artwork.rights,'display'))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  if(approval.canonicalMime==='model/gltf-binary'){
-  if(approval.canonicalRole!=='model'||approval.artworkType!=='sculpture'||primary.mime!=='model/gltf-binary'||primary.role!=='model'||artwork.artworkType!=='sculpture'||!Number.isSafeInteger(approval.canonicalTriangles)||approval.canonicalTriangles!<1||approval.canonicalTriangles!>20000||approval.canonicalMaxTextureSize!==512||approval.coarse||artwork.assets.length!==1||!validateViewerLod(artwork).valid)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+  // A separately selected preview does not broaden the exact model approval.
+  // Its existing closed reference contract admits only one bounded PNG; every
+  // other extra asset remains outside this canonical-model profile.
+  const thumbnail=artworkThumbnailFor(artwork);
+  if(approval.canonicalRole!=='model'||approval.artworkType!=='sculpture'||primary.mime!=='model/gltf-binary'||primary.role!=='model'||artwork.artworkType!=='sculpture'||!Number.isSafeInteger(approval.canonicalTriangles)||approval.canonicalTriangles!<1||approval.canonicalTriangles!>20000||approval.canonicalMaxTextureSize!==512||approval.coarse||!validateArtworkThumbnail(artwork).valid||artwork.assets.length!==(thumbnail?2:1)||artwork.assets.some(asset=>asset!==primary&&asset!==thumbnail)||!validateViewerLod(artwork).valid)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
   const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
   if(lod&&(lod.variants.length!==1||lod.variants[0]?.detail!=='full'||lod.variants[0]?.assetId.toLowerCase()!==primary.id.toLowerCase()||lod.variants[0]?.triangles!==approval.canonicalTriangles||(lod.variants[0]?.textureSize!==undefined&&lod.variants[0].textureSize!==approval.canonicalMaxTextureSize)))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  }else if(primary.mime!=='image/png'||primary.role!=='image'||artwork.artworkType!=='image')throw new ApiError(422,'DISPLAY_POLICY_INVALID');
