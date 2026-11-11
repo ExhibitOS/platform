@@ -260,6 +260,7 @@ export * from "./floor-commands.js";
 export * from "./floor-textures.js";
 
 export * from './furnishings.js';
+export * from './light-object.js';
 export * from './surface-texture-resources.js';
 
 export * from './viewing-plan.js';
