@@ -51,7 +51,7 @@ import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
-import {reclaimSupportContactCache,supportContactFits,supportContacts} from './viewer/support-contacts';
+import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -905,15 +905,10 @@ export function GeometryPreview({
         }
         if(id!==currentExitId){currentExitId=id;setNearbyExitId(id);}
       };
-      let shadowRoom:InstanceType<typeof three.Group>|undefined;
       let contactShadows:ReturnType<typeof installSupportContactShadows>|undefined;
       let refreshContactReceivers=()=>{};
       let contactFurnishingsSettled=!hasWorkspaceFurnishings;
       const publishNavigationState=(state:NavigationState)=>{
-        if(publicSource&&state.grounded&&state.roomId){
-          const room=rooms.get(state.roomId.toLowerCase());
-          if(room&&room!==shadowRoom){shadowRoom=room;shadowPass.setRoom(room);contactShadows?.setRoom(room);}
-        }
         exitNavigation=state;
         refreshExit();
         navigationCallbacks.current.onNavigationState?.(state);
@@ -1004,7 +999,7 @@ export function GeometryPreview({
           ownerFurnishings?.enforce();
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
-          shadowPass.flush();
+          contactShadows?.setView(camera);shadowPass.flush(camera);
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           if (!galleryArtworkDrawn && artworkDrawnInFrame && !renderer.getContext().isContextLost()) galleryArtworkDrawn = true;
@@ -1284,7 +1279,7 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?guardedXrFrame(()=>{ownerFurnishings?.enforce();workspaceTextures?.enforce();},()=>shadowPass.flush(),()=>shadowPass.afterRender(),callback):null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?guardedXrFrame(()=>{ownerFurnishings?.enforce();workspaceTextures?.enforce();},()=>shadowPass.flush(camera),()=>shadowPass.afterRender(),callback):null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const resetCameraMapping=()=>{controls.touches.ONE=three.TOUCH.ROTATE;controls.mouseButtons.LEFT=three.MOUSE.ROTATE;};
       const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
@@ -2082,14 +2077,10 @@ export function GeometryPreview({
         let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
         let contactReceivers:ReturnType<typeof supportContacts>|undefined;
         const contactEligible=!document.scripts.length;
-        const releaseContact=()=>{contactShadows?.dispose();contactShadows=undefined;};
-        const retireContactForBudget=(used:number)=>{
-          if(contactShadows&&!supportContactFits(used,Math.min(assetBudgetBytes,transitionBudgetBytes))){
-            releaseContact();renderer.domElement.dataset.supportContactShadows='budget';
-          }
-        };
-        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,contactEligible||diagnosticsEnabled()?total=>{
-          diagnosticPeak=Math.max(diagnosticPeak,total);retireContactForBudget(total);
+        let releaseContactReservation=()=>{};
+        const releaseContact=()=>{contactShadows?.dispose();contactShadows=undefined;releaseContactReservation();releaseContactReservation=()=>{};};
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{
+          diagnosticPeak=Math.max(diagnosticPeak,total);
         }:undefined);
         if(contactEligible){
           owned.push({dispose:releaseContact});
@@ -3554,14 +3545,15 @@ export function GeometryPreview({
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
         const updateSupportContact=()=>{
-          if(!contactFurnishingsSettled||!contactReceivers?.length||!shadowRoom||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled)return;
-          const used=peak.total(),limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
-          retireContactForBudget(used);
+          if(!contactFurnishingsSettled||!contactReceivers?.length||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled)return;
+          const limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
           if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
           if(!reclaimSupportContactCache({used:()=>peak.total(),limit,keys:arts.flatMap(art=>art.assets.map(asset=>asset.id)),evict:key=>byteCache.delete(key)})){renderer.domElement.dataset.supportContactShadows='budget';return;}
           try{
+            const key='viewer:support-contact';peak.reserve(key,SUPPORT_CONTACT_RESERVE_BYTES,limit);
+            releaseContactReservation=()=>peak.release(key);
             contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);});
-            contactShadows.setRoom(shadowRoom);render();
+            contactShadows.setView(camera);render();
           }catch{releaseContact();contactReceivers=undefined;renderer.domElement.dataset.supportContactShadows='unavailable';}
         };
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
