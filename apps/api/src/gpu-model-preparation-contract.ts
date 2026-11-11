@@ -16,7 +16,7 @@ function canonical(value:unknown):string {
 }
 
 /** A producer recipe, not a capability or an assertion of encoder readiness. */
-export const GPU_MODEL_PREPARATION_RECIPE=immutable({
+export const GPU_MODEL_PREPARATION_VENDOR_RECIPE=immutable({
  consumer:{formats:['astc-4x4','bc7'],otherwise:'core-png-before-parse',reservation:'conservative-no-discount'},
  encoder:{librarySHA256:'bd26f0747b7a800384b7b3c9221dafeb3943ef565a560ab98238cade597c0947',name:'toktx',
   options:['--t2','--encode','uastc','--uastc_quality','2','--threads','1','--assign_oetf','srgb','--assign_primaries','bt709','--genmipmap','--filter','lanczos4','--fscale','1','--wmode','wrap','--nometadata'],
@@ -27,8 +27,18 @@ export const GPU_MODEL_PREPARATION_RECIPE=immutable({
   levels:10,normal:'byte-identical-png',occlusion:'byte-identical-png',required:false,samplers:'unchanged'},
  profile:GPU_MODEL_PREPARATION_PROFILE,purpose:GPU_MODEL_PREPARATION_PURPOSE,version:1,
 } as const);
+// Historical vendor input remains immutable; never use its pins for the signed source build.
+export const GPU_MODEL_PREPARATION_VENDOR_RECIPE_SHA256='6739a173b5a3af38f3fb02b250a2fa4d3315972f62ea8592f1c5695ab5848d98';
+export const GPU_MODEL_PREPARATION_RECIPE=immutable({
+ ...GPU_MODEL_PREPARATION_VENDOR_RECIPE,version:2,
+ encoder:{...GPU_MODEL_PREPARATION_VENDOR_RECIPE.encoder,
+  sha256:'4ec0c7fa5f123e91f8e2adb21c1b94e7119a0f396f11cc8fd747459b2a51620c',bytes:993520,
+  librarySHA256:'e2f8115a77cf2c1e375210d3687f487a4e54f0cde803060cb1c4085427f3d393',libraryBytes:2454960,
+  build:'source-noetc-v1',sourceCommit:'4d6fc70eaf62ad0558e63e8d97eb9766118327a6',etcUnpack:false,
+  runtimePrefix:'platform/tools/ktx-4.4.2-noetc',signingTeam:'W563ZQD9G6'},
+} as const);
 export const GPU_MODEL_PREPARATION_RECIPE_JSON=canonical(GPU_MODEL_PREPARATION_RECIPE);
-export const GPU_MODEL_PREPARATION_RECIPE_SHA256='6739a173b5a3af38f3fb02b250a2fa4d3315972f62ea8592f1c5695ab5848d98';
+export const GPU_MODEL_PREPARATION_RECIPE_SHA256='886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc';
 
 export interface GpuModelPreparationInput {
  revision:number;assetId:string;sha256:string;bytes:number;idempotencyKey:string;generation:string;profile:typeof GPU_MODEL_PREPARATION_PROFILE;
