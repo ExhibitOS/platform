@@ -6,6 +6,7 @@ import {mkdtemp,mkdir,readFile,readdir,realpath,rm,symlink,writeFile} from 'node
 import {dirname,join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {readNativeReferenceClosure,exportNativeReferenceClosure,inspectNativeReferenceClosure} from './reference-native-closure.mjs';
+import {isRefreshedShellPath} from './refresh-native-detail-shell.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -65,15 +66,27 @@ test('preserves R97 content and applies exact session-only hosting configuration
  assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,140);assert.equal(result.outputFiles,141);assert.equal(result.files,141);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
  for(const path of ['index.html','studio.html']){
   const original=await readFile(join(source.sourceRoot,path),'utf8'),html=await readFile(join(outputDir,path),'utf8');
-  assert.equal(html,original.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>'));
+  if(source.reference.viewerBuildId==='b54b543b7b9f5d14a3e0ed750240c087d50baa0302209e6dd4f71a93680f27a1'){
+   assert.equal(html,original.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>'));
+   assert.equal(result.manifestSha256,'b6c1bd0277e2f453646d0f0640f91889e17fb4b10e31c5b8fa45bb95879613a6');
+  }
+  assert(html.includes(`<meta name="exhibitos-viewer-build-id" content="${source.reference.viewerBuildId}">`));
+  if(path==='index.html'){
+   assert.equal(html.match(/<title>[^<]*<\/title>/)?.[0],original.match(/<title>[^<]*<\/title>/)?.[0]);
+   assert.equal(html.match(/<body>[\s\S]*<\/body>/)?.[0],original.match(/<body>[\s\S]*<\/body>/)?.[0]);
+  }
   assert.equal(html.split('exhibitos-demo-decoration').length,2);
  }
  for(const path of source.sourceEntries.keys()){
-  if(['index.html','studio.html','static-export-manifest.json'].includes(path))continue;
+  if(path==='static-export-manifest.json'||isRefreshedShellPath(path))continue;
   assert.deepEqual(await readFile(join(outputDir,path)),await readFile(join(source.sourceRoot,path)));
  }
  assert.deepEqual(await readFile(join(outputDir,'static-publication-index.json')),await readFile(join(source.sourceRoot,'static-publication-index.json')));
  await inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin});
+ for(const [path]of source.webEntries){
+  if(['static.html','static-studio.html'].includes(path))continue;
+  assert.deepEqual(await readFile(join(outputDir,path)),await readFile(join(source.webRoot,path)));
+ }
  const {inspectDemo}=await import('./deploy-reference-demo.mjs');
  const proof=await inspectDemo({output:outputDir,pin:source.reference.indexSha256,commit:'tool-producer',nativeClosure:{inputRoot,inventorySha256:pin}});
  assert.equal(proof.sourceCommit,'tool-producer');assert.equal(proof.viewerSourceCommit,source.reference.viewerSourceCommit);

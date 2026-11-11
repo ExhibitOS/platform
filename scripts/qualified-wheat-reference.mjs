@@ -215,6 +215,14 @@ export const R97_REFERENCE=Object.freeze({...R86_REFERENCE,
  viewerInventorySha256:'84bc824f08eebe006509f8f065507aa29dc6c3793d4219937202c4eb78e39ec8',
  viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
 });
+// A second exact production web target for the same approved R97 content.
+// Source publication/detail authority and the original b54b rollback stay fixed.
+export const R97_MOBILE_REFERENCE=Object.freeze({...R97_REFERENCE,
+ viewerSourceCommit:'cdf4728c0e568b2852f95fc4b2542b28e7cf2068',
+ viewerSourceTree:'9fa86180ffddf3d810fbc9266626f8c7e22d15a2',
+ viewerBuildId:'776bfe96635d1251ba49a405f458e72954551bc187a2cd398387fba48e84b71f',
+ viewerInventorySha256:'be3e36e385d100e18676350243d52fc4331127b42c1bd96c9a394011e3068c20',
+});
 const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
