@@ -406,12 +406,18 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
         const carried=ordinaryAdmission.fields.carriedRestoreProof;
         const assertLive=async()=>{await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');};
         // Read-only physical/provenance binding; no workspace/session rotation.
-        await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot,workspaceImport:true,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true,...(carried?{restoredProvenance:{...carried,assertLive}}:{})});
+        const provenance=await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot,workspaceImport:true,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true,...(carried?{restoredProvenance:{...carried,assertLive}}:{})});
+        if(carried){if(typeof provenance.assertRestoredInventory!=='function')throw Error('NATIVE_OEX_PROVENANCE_INVALID');await provenance.assertRestoredInventory(c);}
         await pinnedPayload.verify();await assertLive();return upgraded;
       });
       // A queued stop is consumed only after COMMIT. Failure here is not rollback
       // evidence: a sealed retry must recheck exact46 without another DDL write.
-      stage='THUMBNAIL_UPGRADE_DRAIN';await ordinaryStop.wait();await close(true);
+      stage='THUMBNAIL_UPGRADE_DRAIN';
+      // Bound this one-shot helper only; timeout still awaits actual cleanup.
+      let stopExpired=false,timeoutClose;
+      const stopDeadline=setTimeout(()=>{stopExpired=true;ownerAbort.abort();timeoutClose=ownerChannel.close().catch(()=>{});},5000);
+      try{await ordinaryStop.wait();if(stopExpired)throw Error('NATIVE_OWNER_UNAVAILABLE');}finally{clearTimeout(stopDeadline);if(timeoutClose)await timeoutClose;}
+      await close(true);
       return {helperCompleted:true,result:{version:1,mode:privateOwner.mode,profile:'workspace-furnishing-thumbnail-v1',state:result.state,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,runtimeGeneration:privateOwner.runtimeGeneration,payloadManifestSha256:writerLease.identity.payloadManifestSHA256,catalogRows:46,migration:WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,migrationSha256:WORKSPACE_FURNISHING_THUMBNAIL_SHA256,drained:true},close};
     }
     stage = "BOOTSTRAP";
