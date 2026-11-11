@@ -4,7 +4,7 @@ import {SUPPORTED_FURNISHINGS,freezeCanonical,furnishingAsset,furnishingCatalogu
 import {ApiError} from './auth.ts';
 import type {PoolClient} from 'pg';
 import type {BlobStore} from '@exhibitos/storage';
-const names:Record<FurnishingCatalogId,string>={'backless-oak-bench':'등받이 없는 참나무 벤치','museum-track-spot':'전시용 트랙 스포트','museum-wallwasher':'전시용 월워셔','gallery-open-portal':'열린 전시 통로','rectangular-plinth':'사각 전시 받침'};
+const names:Record<FurnishingCatalogId,string>={'backless-oak-bench':'등받이 없는 참나무 벤치','museum-track-spot':'전시용 트랙 스포트','museum-wallwasher':'전시용 월워셔','museum-wallwasher-rear-relief':'전시용 월워셔 (후면 수정형)','gallery-open-portal':'열린 전시 통로','rectangular-plinth':'사각 전시 받침'};
 export function furnishingCatalog(){return {version:1,items:Object.entries(SUPPORTED_FURNISHINGS).map(([id,hostKind])=>{
  const e=furnishingCatalogueEntry(id);return {catalogId:e.id,catalogVersion:e.version,name:names[id as FurnishingCatalogId],hostKinds:[hostKind],mime:e.mime,bytes:e.bytes,sha256:e.sha256,triangles:e.triangles,bounds:structuredClone(e.bounds),rights:{licenseId:'CC0-1.0'},functional:structuredClone(e.functional)};
 })};}
