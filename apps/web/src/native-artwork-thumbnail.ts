@@ -5,7 +5,32 @@ import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
 import type {FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
 import {artworkThumbnailSource,ARTWORK_THUMBNAIL_RECIPE,ARTWORK_THUMBNAIL_TOOL} from './native-catalog-protocol';
 import {approvedDisplayCopyResponse} from './approved-display-response';
+import type * as Three from 'three';
+import {DEVICE_BUDGETS,type DeviceBudget} from './viewer/loading';
 const maxBytes=16*1024*1024;
+type ThumbnailModelBudget=Readonly<Pick<DeviceBudget,'maxTextureSize'|'maxCacheBytes'>>;
+const furnishingModelBudget:ThumbnailModelBudget=Object.freeze({maxTextureSize:1024,maxCacheBytes:32*1024*1024});
+export const artworkThumbnailModelBudget:ThumbnailModelBudget=Object.freeze({maxTextureSize:DEVICE_BUDGETS.desktop.maxTextureSize,maxCacheBytes:DEVICE_BUDGETS.desktop.maxCacheBytes});
+
+/** Resident estimate, including mipmaps, for this one transient desktop card.
+ * Encoded-byte, decoder, authority and cancellation guards remain independent. */
+export function assertThumbnailModelBudget(three:typeof Three,object:Three.Object3D,budget=artworkThumbnailModelBudget){
+ let triangles=0,memory=0;const seen=new Set<unknown>();object.traverse(node=>{if(!(node instanceof three.Mesh))return;
+  const geometry=node.geometry;triangles+=(geometry.index?.count??geometry.getAttribute('position')?.count??0)/3;
+  for(const attribute of Object.values(geometry.attributes)){
+   if(!(attribute instanceof three.BufferAttribute)&&!(attribute instanceof three.InterleavedBufferAttribute))throw Error('THUMBNAIL_ATTRIBUTE_UNSUPPORTED');
+   const buffer=attribute instanceof three.InterleavedBufferAttribute?attribute.data:attribute;
+   if(!seen.has(buffer)){seen.add(buffer);memory+=buffer.array.byteLength;}
+  }
+  if(geometry.index&&!seen.has(geometry.index)){seen.add(geometry.index);memory+=geometry.index.array.byteLength;}
+  for(const material of Array.isArray(node.material)?node.material:[node.material])for(const item of Object.values(material))if(item instanceof three.Texture&&!seen.has(item)){
+   seen.add(item);const image=item.image as {width?:number;height?:number}|undefined;
+   const w=image?.width??0,h=image?.height??0;
+   if(!Number.isSafeInteger(w)||!Number.isSafeInteger(h)||w<1||h<1||w>budget.maxTextureSize||h>budget.maxTextureSize)throw Error('THUMBNAIL_TEXTURE_LIMIT');
+   memory+=w*h*4*4/3;
+  }
+ });if(triangles>150000||memory>budget.maxCacheBytes)throw Error('THUMBNAIL_MODEL_LIMIT');
+}
 async function bounded(response:Response,signal:AbortSignal,limit=maxBytes){
  if(!response.ok||!response.body)throw Error('THUMBNAIL_UNAVAILABLE');
  const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
@@ -26,7 +51,7 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  const source=mime==='model/gltf-binary'?artworkThumbnailSource(artwork,request.artworkId,request.expectedRevision):undefined;
  const bytes=await bounded(response,signal);signal.throwIfAborted();
  const displaySha256=source?await sha256(bytes):undefined;
- const canvas=await renderThumbnail(bytes,mime,signal);
+ const canvas=await renderThumbnail(bytes,mime,signal,artworkThumbnailModelBudget);
  const currentResponse=await fetch(`${path}/display`,options);if(!currentResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');const current=await currentResponse.json() as {id:string;revision:number};if(current.id!==request.artworkId||current.revision!==request.expectedRevision)throw Error('THUMBNAIL_REVISION');
  const {image,bytes:png}=await encodeThumbnail(canvas,signal);
  if(!source)return image;
@@ -40,7 +65,7 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
   recipeId:ARTWORK_THUMBNAIL_RECIPE,toolId:ARTWORK_THUMBNAIL_TOOL,modelBytes:bytes.length};
 }
 
-async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal){
+async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal,modelBudget=furnishingModelBudget){
  const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
  if(mime==='image/png'){
   const view=new DataView(bytes.buffer);if(bytes.length<33||[137,80,78,71,13,10,26,10].some((n,i)=>bytes[i]!==n)||view.getUint32(16)>4096||view.getUint32(20)>4096)throw Error('THUMBNAIL_IMAGE_LIMIT');
@@ -55,16 +80,7 @@ async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:
    basis=await basisLoader(renderer,bytes.buffer);signal.throwIfAborted();const manager=new three.LoadingManager();protectedBytes=embeddedPNGManager(manager,bytes.buffer,basis);
    const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);
    object=(await loader.parseAsync(protectedBytes.bytes,'')).scene;protectedBytes.assertLoaded();signal.throwIfAborted();
-   let triangles=0,memory=0;const seen=new Set<unknown>();object.traverse(node=>{if(!(node instanceof three.Mesh))return;
-    const geometry=node.geometry;triangles+=(geometry.index?.count??geometry.getAttribute('position')?.count??0)/3;
-    for(const attribute of Object.values(geometry.attributes)){
-     if(!(attribute instanceof three.BufferAttribute)&&!(attribute instanceof three.InterleavedBufferAttribute))throw Error('THUMBNAIL_ATTRIBUTE_UNSUPPORTED');
-     const buffer=attribute instanceof three.InterleavedBufferAttribute?attribute.data:attribute;
-     if(!seen.has(buffer)){seen.add(buffer);memory+=buffer.array.byteLength;}
-    }
-    if(geometry.index&&!seen.has(geometry.index)){seen.add(geometry.index);memory+=geometry.index.array.byteLength;}
-    for(const material of Array.isArray(node.material)?node.material:[node.material])for(const item of Object.values(material))if(item instanceof three.Texture&&!seen.has(item)){seen.add(item);const image=item.image as {width?:number;height?:number}|undefined;const w=image?.width??0,h=image?.height??0;if(w>1024||h>1024)throw Error('THUMBNAIL_TEXTURE_LIMIT');memory+=w*h*4*4/3;}
-   });if(triangles>150000||memory>32*1024*1024)throw Error('THUMBNAIL_MODEL_LIMIT');
+   assertThumbnailModelBudget(three,object,modelBudget);
    const centered=centerMetricModel(three,object),scene=new three.Scene();scene.background=new three.Color('#f8fbfc');scene.add(centered.object);scene.add(new three.HemisphereLight(0xffffff,0x48503d,2));const light=new three.DirectionalLight(0xffffff,3);light.position.set(3,4,5);scene.add(light);
    const fit=metricCameraFit(centered.extent,1),camera=new three.PerspectiveCamera(40,1,fit.near,fit.far);camera.position.set(1,.45,1.3).normalize().multiplyScalar(fit.distance);camera.lookAt(0,0,0);renderer.render(scene,camera);
    const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');context.drawImage(renderer.domElement,0,0);
