@@ -225,6 +225,10 @@ export type SupportContact = {
   room:THREE.Group;receiver:THREE.Object3D;
   position:readonly [number,number,number];rotation:readonly [number,number,number,number];
   width:number;height:number;
+  /** True rectangular support inside the outer, feathered mask. */
+  shape?:{kind:'rectangle';width:number;height:number};
+  /** Floor masks also follow the actual visible support, not just the floor. */
+  supports?:readonly THREE.Object3D[];
 };
 const VIEW_CONTACT_LIMIT=8,CONTACT_MATERIAL_LIMIT=16,CONTACT_MATRIX_LIMIT=64;
 /** Receiver shading owns bounded material-scoped uniforms for its lifetime.
@@ -245,6 +249,14 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
   type Row={row:SupportContact;matrix:THREE.Matrix4};
   let membership=new Map<THREE.Material,Row[]>(),receiverBounds=new Map<THREE.Material,THREE.Box3[]>();
   const roomMatrices=new Map<THREE.Group,THREE.Matrix4>();
+  const visibility=new Map<SupportContact,boolean>();
+  const attachedVisible=(node:THREE.Object3D,room:THREE.Group)=>{
+    let attached=false;
+    for(let ancestor:THREE.Object3D|null=node;ancestor;ancestor=ancestor.parent){if(!ancestor.visible)return false;if(ancestor===room)attached=true;}
+    return attached;
+  };
+  const eligible=(row:SupportContact)=>attachedVisible(row.receiver,row.room)&&(row.supports??[]).every(node=>
+    attachedVisible(node,row.room)&&(!(node instanceof three.Mesh)||(Array.isArray(node.material)?node.material:[node.material]).every(material=>material.visible&&!material.transparent&&material.opacity===1)));
   const publish=()=>report({activeContacts:active.length,activeTriangles:0,drawCalls:0,textureBytes:0,
     uniformBytes:hooks.size*(VIEW_CONTACT_LIMIT*16*4+8),materials:hooks.size,programBytes:null});
   const retire=(material:THREE.Material,h:Hook)=>{
@@ -289,8 +301,15 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
             vec3 contactPoint=(contactMatrix*vec4(vExhibitosContactWorld,1.0)).xyz;
             vec3 planeNormal=normalize(vec3(contactMatrix[0][2],contactMatrix[1][2],contactMatrix[2][2]));
             if(abs(contactPoint.z)<0.008&&dot(contactNormal,planeNormal)>0.5){
-              vec2 contactUV=contactPoint.xy*2.0;
+            vec2 contactUV=contactPoint.xy*2.0;
               float support=max(0.0,1.0-dot(contactUV,contactUV));
+              // Only xyz rows transform positions. The otherwise unused w row
+              // carries rectangle mode and normalized physical half extents.
+              if(contactMatrix[0][3]>0.5){
+                vec2 contactInner=vec2(contactMatrix[1][3],contactMatrix[2][3]);
+                vec2 outside=max(abs(contactUV)-contactInner,vec2(0.0))/max(vec2(0.001),vec2(1.0)-contactInner);
+                support=max(0.0,1.0-length(outside));
+              }
               contactStrength=max(contactStrength,support*support);
             }
           }
@@ -298,7 +317,7 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
         outgoingLight*=1.0-contactStrength*exhibitosContactOpacity;
         #include <opaque_fragment>`);
     };
-    const ownedKey=()=>baseKey+'|exhibitos-support-contact-v2';
+    const ownedKey=()=>baseKey+'|exhibitos-support-contact-v3';
     const hook={before,key,owned,ownedKey,uniforms,hadMarker:Object.hasOwn(material.userData,'exhibitosSupportContact'),marker:material.userData.exhibitosSupportContact};
     hooks.set(material,hook);material.onBeforeCompile=owned;material.customProgramCacheKey=ownedKey;
     material.userData.exhibitosSupportContact=uniforms;supportMaterialHooks.set(material,owned);material.needsUpdate=true;
@@ -311,22 +330,30 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
       room.updateWorldMatrix(true,false);
       if(!roomMatrices.get(room)?.equals(room.matrixWorld))refreshWorld=true;
     }
+    for(const row of contacts){const live=eligible(row);if(visibility.get(row)!==live)refreshWorld=true;}
     if(!refreshWorld&&lastView?.equals(camera.matrixWorld)&&lastProjection?.equals(camera.projectionMatrix))return;
     lastView=camera.matrixWorld.clone();lastProjection=camera.projectionMatrix.clone();
     if(refreshWorld){
-      refreshWorld=false;membership=new Map();receiverBounds=new Map();roomMatrices.clear();
+      refreshWorld=false;membership=new Map();receiverBounds=new Map();roomMatrices.clear();visibility.clear();
       for(const room of new Set(contacts.map(row=>row.room)))roomMatrices.set(room,room.matrixWorld.clone());
       const bounds=new Map<THREE.Object3D,THREE.Box3>();let used=0;
       for(const row of contacts){
-        if(used>=CONTACT_MATRIX_LIMIT)break;
+        const live=eligible(row);visibility.set(row,live);
+        // Track every row's visibility even when the bounded matrix pool is
+        // full, so unchanged omitted contacts do not force a rebuild per frame.
+        if(used>=CONTACT_MATRIX_LIMIT)continue;
         if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
           Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
-        let ancestor:THREE.Object3D|null=row.receiver,attached=false,visible=true;
-        while(ancestor){if(!ancestor.visible)visible=false;if(ancestor===row.room)attached=true;ancestor=ancestor.parent;}
-        if(!attached||!visible)continue;
+        if(row.shape&&(row.shape.kind!=='rectangle'||![row.shape.width,row.shape.height].every(Number.isFinite)||
+          row.shape.width<=0||row.shape.width>=row.width||row.shape.height<=0||row.shape.height>=row.height))continue;
+        if(!live)continue;
         row.room.updateWorldMatrix(true,false);
         const matrix=matrixPool[used++]!;
         matrix.multiplyMatrices(row.room.matrixWorld,new three.Matrix4().compose(new three.Vector3().fromArray(row.position),new three.Quaternion().fromArray(row.rotation),new three.Vector3(row.width,row.height,1))).invert();
+        // GPU payload only: xyz and normal rows remain the exact inverse pose.
+        // Do not invert/applyMatrix4 this packed value on CPU without restoring
+        // affine w=[0,0,0,1]. No extra uniform arrays or resident buffers.
+        if(row.shape){matrix.elements[3]=1;matrix.elements[7]=row.shape.width/row.width;matrix.elements[11]=row.shape.height/row.height;}
         const selected={row,matrix};
         let box=bounds.get(row.receiver);
         if(!box){row.receiver.updateWorldMatrix(true,true);box=new three.Box3().setFromObject(row.receiver);bounds.set(row.receiver,box);}
@@ -364,6 +391,8 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
     const same=contacts.length===next.length&&contacts.every((row,index)=>{
       const other=next[index]!;
       return row.room===other.room&&row.receiver===other.receiver&&row.width===other.width&&row.height===other.height&&
+        row.shape?.kind===other.shape?.kind&&row.shape?.width===other.shape?.width&&row.shape?.height===other.shape?.height&&
+        row.supports?.length===other.supports?.length&&(row.supports??[]).every((node,i)=>node===other.supports?.[i])&&
         row.position.every((value,i)=>value===other.position[i])&&row.rotation.every((value,i)=>value===other.rotation[i]);
     });
     if(same)return;

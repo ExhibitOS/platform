@@ -372,3 +372,39 @@ test('a visible receiver does not lose its fixed contact when the camera crosses
   for(const z of [11.9,12.1,13]){const camera=new three.PerspectiveCamera(70,1,.1,100);camera.position.set(0,1,z);camera.lookAt(0,0,0);camera.updateMatrixWorld();pass.setView(camera);expect(h.mesh.material.userData.exhibitosSupportContact.exhibitosContactCount.value).toBe(1);}
   pass.dispose();h.pass.dispose();
 });
+
+test('rectangular support packs shape in unused GPU w components without changing xyz or normal transforms',()=>{
+  const h=setup(),row={...contactRow(h.room,h.mesh),width:.72,height:.72,shape:{kind:'rectangle' as const,width:.65,height:.65}};
+  const pass=installSupportContactShadows(three,[row],false,()=>{});pass.setView(contactView());
+  const uniforms=h.mesh.material.userData.exhibitosSupportContact,matrix=uniforms.exhibitosContactMatrices.value[0] as three.Matrix4;
+  const affine=new three.Matrix4().compose(new three.Vector3().fromArray(row.position),new three.Quaternion().fromArray(row.rotation),new three.Vector3(row.width,row.height,1)).invert();
+  for(const i of [0,1,2,4,5,6,8,9,10,12,13,14])expect(matrix.elements[i]).toBe(affine.elements[i]);
+  expect(matrix.elements[3]).toBe(1);expect(matrix.elements[7]).toBeCloseTo(.65/.72);expect(matrix.elements[11]).toBeCloseTo(.65/.72);
+  const shader={uniforms:{},vertexShader:three.ShaderLib.standard.vertexShader,fragmentShader:three.ShaderLib.standard.fragmentShader};
+  h.mesh.material.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0],h.renderer);
+  expect(shader.fragmentShader).toContain('contactMatrix[0][3]>0.5');expect(h.mesh.material.customProgramCacheKey()).toContain('exhibitos-support-contact-v3');
+  const unchanged=matrix.toArray();pass.setView(contactView(.4));expect(matrix.toArray()).toEqual(unchanged);
+  pass.setContacts([{...row,shape:{kind:'rectangle',width:.6,height:.65}}]);pass.setView(contactView(.4));expect(matrix.elements[7]).toBeCloseTo(.6/.72);
+  pass.setContacts([{...row,shape:undefined}]);pass.setView(contactView(.4));expect(matrix.elements[3]).toBe(0);expect(matrix.elements[7]).toBe(0);expect(matrix.elements[11]).toBe(0);
+  pass.dispose();h.pass.dispose();
+});
+
+test('removes floor contact when its physical support hides or detaches at a stationary camera',()=>{
+  const h=setup(),support=new three.Mesh(new three.BoxGeometry(.2,.4,.2),new three.MeshStandardMaterial());
+  h.room.add(support);
+  const row={...contactRow(h.room,h.mesh),supports:[support]},camera=contactView();
+  const pass=installSupportContactShadows(three,[row],false,()=>{});pass.setView(camera);
+  const count=()=>h.mesh.material.userData.exhibitosSupportContact.exhibitosContactCount.value;
+  expect(count()).toBe(1);
+  support.visible=false;pass.setView(camera);expect(count()).toBe(0);
+  support.visible=true;pass.setView(camera);expect(count()).toBe(1);
+  support.removeFromParent();pass.setView(camera);expect(count()).toBe(0);
+  pass.dispose();h.pass.dispose();support.geometry.dispose();support.material.dispose();
+});
+
+test('malformed rectangle extents are not admitted as GPU masks',()=>{
+  const h=setup(),rows=[{...contactRow(h.room,h.mesh),shape:{kind:'rectangle' as const,width:.2,height:.1}},
+    {...contactRow(h.room,h.mesh),shape:{kind:'rectangle' as const,width:NaN,height:.1}}];
+  const pass=installSupportContactShadows(three,rows,false,()=>{});pass.setView(contactView());
+  expect(h.mesh.material.userData.exhibitosSupportContact).toBeUndefined();pass.dispose();h.pass.dispose();
+});
