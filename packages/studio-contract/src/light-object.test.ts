@@ -6,7 +6,7 @@ import {applyLightObjectCommand,type LightObjectCommand} from './light-object.js
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE} from './furnishings.js';
 import {lightDetailsFor,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type LightDetails,type ExhibitionLight} from './light-details.js';
 import {lightAttachmentsFor,lightAttachmentPose,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE} from './room-envelope.js';
-import {TEMPLATE_NAMESPACE} from './architecture.js';
+import {TEMPLATE_NAMESPACE,validateArchitecture} from './architecture.js';
 const id='a0000000-0000-4000-8000-000000000001',cloneId='a0000000-0000-4000-8000-000000000002',assetId='a0000000-0000-4000-8000-000000000003';
 const pose=()=>({position:[0,2,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]});
 function fixture(){
@@ -108,4 +108,11 @@ it.each(['intensity','small-area','large-area'])('preserves base-Spec-valid broa
 it.each(['wrong-unit','nonrigid-scale','wide-beam'])('retains exact base Spec semantic rejection for %s',kind=>{
  const d=fixture();if(kind==='wrong-unit')d.lights[0]!.unit='lux';if(kind==='nonrigid-scale')d.lights[0]!.transform.scale=[2,1,1];if(kind==='wide-beam')d.lights[0]!.beamAngle=Math.PI;
  expect(validateExhibition(d).valid).toBe(false);const before=structuredClone(d);expect(()=>applyLightObjectCommand(d,{type:'remove-light-object',lightId:id})).toThrow();expect(d).toEqual(before);
+});
+
+it('preserves a base-valid opaque extension id reference during ordinary parameter edits without interpreting it as a definition',()=>{
+ const d=fixture();d.extensions!['com.example/light-reference']={id,revisionId:id,nested:{id}};expect(validateExhibition(d).errors).toEqual([]);expect(validateArchitecture(d).valid).toBe(true);valid(d);
+ const command=set(d);if(command.type!=='set-light-object')throw Error('test');command.light.intensity=42;const before=structuredClone(d),result=applyLightObjectCommand(d,command).candidate;
+ expect(result.lights[0]!.intensity).toBe(42);expect(result.extensions!['com.example/light-reference']).toEqual(d.extensions!['com.example/light-reference']);expect(d).toEqual(before);
+ expect(()=>applyLightObjectCommand(d,{type:'remove-light-object',lightId:id})).toThrow('LIGHT_OBJECT_REFERENCED');
 });

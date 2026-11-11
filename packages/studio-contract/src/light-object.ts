@@ -3,6 +3,7 @@ import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint,validateArtifactPose} from './artifact-affine.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {freezeCanonical} from './freeze.js';
+import {benchesFor} from './benches.js';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
 import {lightDetailsFor,setLightDetails,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
@@ -31,10 +32,14 @@ function assertNoForeignReference(document:Exhibition,id:string){
  const rest={...document,lights:undefined,extensions:Object.fromEntries(Object.entries(document.extensions??{}).filter(([name])=>!ownedNamespaces.has(name)))};
  if(hasReference(rest,id))fail('LIGHT_OBJECT_REFERENCED');
 }
-function identityCount(value:unknown,id:string):number {
- if(Array.isArray(value))return value.reduce((n,v)=>n+identityCount(v,id),0);
- if(!object(value))return 0;
- return Object.entries(value).reduce((n,[key,v])=>n+((key==='id'||key==='revisionId')&&typeof v==='string'&&same(v,id)?1:identityCount(v,id)),0);
+/** Only declared schema positions define identities. Opaque extension/metadata
+ * fields named id or revisionId may be references and are never reinterpreted. */
+function identityCount(document:Exhibition,id:string):number {
+ const definitions:unknown[]=[document,...document.rooms,...(document.surfaces??[]),...(document.openings??[]),...document.placements,...document.lights,
+  ...(document.artworks??[]),...(document.mediaAssets??[]),...(document.navigation??[]),...(document.audioZones??[]),...(document.annotations??[]),...(document.scripts??[]),
+  ...(document.artworks??[]).flatMap(a=>a.assets??[]),...benchesFor(document),...(furnishingsFor(document)?.assets??[])];
+ const still=document.extensions?.['org.exhibitos.viewer/space-still'];if(object(still)&&object(still.asset))definitions.push(still.asset);
+ return definitions.reduce<number>((count,value)=>count+(object(value)?[value.id,value.revisionId].filter(v=>typeof v==='string'&&same(v,id)).length:0),0);
 }
 function assertFreshId(document:Exhibition,id:unknown){if(!uuid(id)||hasReference(document,id))fail('LIGHT_OBJECT_ID_COLLISION');}
 function assertLight(document:Exhibition,light:ExhibitionLight){
