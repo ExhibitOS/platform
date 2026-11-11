@@ -18,10 +18,10 @@ import {assertExactWorkspaceMaterialPublicationCatalog,assertExactWorkspaceMater
 // select these modes. The database's exclusive token check remains mandatory;
 // this admission never reclaims an unknown predecessor's retained work.
 export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,{allowInterruptedReopen=false}={}){
- const upgrade='workspace-furnishing-039-to-040-upgrade-v1',upgrade44='workspace-furnishing-040-to-044-upgrade-v1',upgrade45='workspace-furnishing-044-to-045-upgrade-v1',init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1',selected='workspace-furnishing-038-selected-import-v7',selected39='workspace-furnishing-039-selected-import-v7',selected40='workspace-furnishing-040-selected-import-v7';
- if(mode!==init&&mode!==reopen&&mode!==upgrade&&mode!==upgrade44&&mode!==upgrade45&&mode!==selected&&mode!==selected39&&mode!==selected40)return;
+ const upgrade='workspace-furnishing-039-to-040-upgrade-v1',upgrade44='workspace-furnishing-040-to-044-upgrade-v1',upgrade45='workspace-furnishing-044-to-045-upgrade-v1',upgrade50='workspace-furnishing-045-to-050-upgrade-v1',init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1',selected='workspace-furnishing-038-selected-import-v7',selected39='workspace-furnishing-039-selected-import-v7',selected40='workspace-furnishing-040-selected-import-v7';
+ if(mode!==init&&mode!==reopen&&mode!==upgrade&&mode!==upgrade44&&mode!==upgrade45&&mode!==upgrade50&&mode!==selected&&mode!==selected39&&mode!==selected40)return;
  assertIssuedFurnishingOrdinaryAdmission(admission);
- if(admission.writer.identity.mode!==mode||(mode===upgrade?admission.fields.admissionKind!=='catalog-upgrade-039-to-040':mode===upgrade44?admission.fields.admissionKind!=='catalog-upgrade-040-to-044':mode===upgrade45?admission.fields.admissionKind!=='catalog-upgrade-044-to-045':mode===init||mode===selected||mode===selected39||mode===selected40?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore',...(allowInterruptedReopen?['interrupted-reopen']:[])].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(admission.writer.identity.mode!==mode||(mode===upgrade?admission.fields.admissionKind!=='catalog-upgrade-039-to-040':mode===upgrade44?admission.fields.admissionKind!=='catalog-upgrade-040-to-044':mode===upgrade45?admission.fields.admissionKind!=='catalog-upgrade-044-to-045':mode===upgrade50?admission.fields.admissionKind!=='catalog-upgrade-045-to-050':mode===init||mode===selected||mode===selected39||mode===selected40?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore',...(allowInterruptedReopen?['interrupted-reopen']:[])].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
  await admission.writer.assertLive();
 }
 
@@ -167,4 +167,29 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  for(const [name,hash,sql] of migrations){await c.query(sql);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[name,hash]);}
  if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
  if(writer)await writer.assertLive();
+}
+
+/** Fixed, sealed 045 -> 050 helper. Caller owns the transaction and returns from
+ * the process after commit/drain; this never opens a workspace/session or worker. */
+export async function upgradeWorkspaceFurnishingThumbnailCatalog(c,{mode,ownerUid,writer,ordinaryAdmission,channel,isStopped,catalog}){
+ const upgrade='workspace-furnishing-045-to-050-upgrade-v1';
+ assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);assertIssuedFurnishingWriterLease(writer);
+ if(mode!==upgrade||writer.identity.mode!==upgrade||ordinaryAdmission.writer!==writer||ordinaryAdmission.fields.admissionKind!=='catalog-upgrade-045-to-050'||!Number.isSafeInteger(ownerUid)||ownerUid<0||typeof isStopped!=='function')throw Error('FURNISHING_ADMISSION_INVALID');
+ const live=async()=>{await writer.assertLive();if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');};
+ const {base,normal,...options}=catalog;
+ if(!options.modelPreparationDirectory||!options.workspaceFurnishingThumbnailDirectory||options.infoStandPreparationDirectory||options.largeModelDirectory||options.freshImageDirectory)throw Error('NATIVE_OEX_CATALOG');
+ const sql=await verifyWorkspaceFurnishingThumbnailMigration(options.workspaceFurnishingThumbnailDirectory);await live();
+ // Same lock order as ordinary exclusive furnishing open, without its writes.
+ await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+ await c.query('SELECT pg_advisory_xact_lock(82003)');await c.query('SELECT pg_advisory_xact_lock(82002)');await c.query('SELECT pg_advisory_xact_lock(82001)');
+ const rows=(await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows,apply=rows.length===45;
+ if(rows.length===45)await assertExactModelPreparationCatalog(c);else if(rows.length===46)await assertExactWorkspaceFurnishingThumbnailCatalog(c);else throw Error('NATIVE_OEX_CATALOG');
+ if(!await recognizeNormalOexCatalog(c,base,normal,options))throw Error('NATIVE_OEX_CATALOG');
+ const identity=writer.identity,owner=await c.query("SELECT 1 FROM local_workspaces w JOIN memberships m ON m.tenant_id=w.tenant_id AND m.user_id=w.user_id JOIN users u ON u.id=m.user_id JOIN tenants t ON t.id=m.tenant_id WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND w.mac_uid=$4 AND m.role='admin' AND NOT u.disabled AND t.deleted_at IS NULL FOR SHARE OF w",[identity.workspaceId,identity.tenantId,identity.principalId,ownerUid]);
+ if(owner.rowCount!==1)throw Error('LOCAL_WORKSPACE_OWNER_UNAVAILABLE');
+ const pending=await c.query('SELECT EXISTS (SELECT 1 FROM workspace_furnishing_intakes WHERE worker_token IS NOT NULL) AS pending');if(pending.rows[0]?.pending!==false)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+ await live();
+ if(apply){await c.query(sql);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,WORKSPACE_FURNISHING_THUMBNAIL_SHA256]);}
+ await assertExactWorkspaceFurnishingThumbnailCatalog(c);if(!await recognizeNormalOexCatalog(c,base,normal,options))throw Error('NATIVE_OEX_CATALOG');await live();
+ return {state:apply?'applied':'already-applied'};
 }
