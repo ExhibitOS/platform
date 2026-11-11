@@ -342,8 +342,9 @@ export function GeometryPreview({
   const nearbyBenchRef=useRef<string|null>(null);
   const [nearbyBenchId,setNearbyBenchId]=useState<string|null>(null);
   const [seatedBenchId,setSeatedBenchId]=useState<string|null>(null);
+  const [seatTransitioning,setSeatTransitioning]=useState(false);
   const [readyWorkspaceBenches,setReadyWorkspaceBenches]=useState<{scene:typeof sceneDocument;ids:ReadonlySet<string>}|null>(null);
-  useEffect(()=>{if(seatedBenchId)benchActionButton.current?.focus({preventScroll:true});},[seatedBenchId]);
+  useEffect(()=>{if(seatedBenchId&&!seatTransitioning)benchActionButton.current?.focus({preventScroll:true});},[seatedBenchId,seatTransitioning]);
   const currentWalkMode = useRef({ walking: false, paused: true });
   const preparedEntry = useRef<boolean | null>(null);
   const committedEntry = useRef<boolean | null>(null);
@@ -486,7 +487,7 @@ export function GeometryPreview({
     let cancelSharedDetail=()=>{},guardOriginalDetail=()=>{},canvasReturnEpoch=0,detailMountEpoch=0,deferredCanvasRestore=false;
     let canvasRestorePromise:Promise<void>=Promise.resolve();
     walkingActions.current = null;
-    seatedBenchRef.current=null;setSeatedBenchId(null);
+    seatedBenchRef.current=null;setSeatedBenchId(null);setSeatTransitioning(false);
     setReadyWorkspaceBenches(null);
     nearbyBenchRef.current=null;setNearbyBenchId(null);benchAction.current=null;
     setNearbyExitId(null);exitAction.current=null;
@@ -1471,6 +1472,7 @@ export function GeometryPreview({
                   if(id&&button?.getClientRects().length)return tryBenchAction(id,button.dataset.benchSeated==='true');
                   return activateExit();
                 },
+                onSeatTransition:active=>{if(!disposed)setSeatTransitioning(active);},
                 onSeat:id=>{
                   if(disposed)return;
                   seatedBenchRef.current=id;setSeatedBenchId(id);

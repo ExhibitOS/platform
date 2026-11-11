@@ -30,6 +30,7 @@ export async function createWalkingCamera({
   activateContextAction,
   canLookSeated = () => true,
   onSeat,
+  onSeatTransition,
   onNearbyBench,
   workspaceBenchAvailability,
   stoolVisible,
@@ -57,6 +58,8 @@ export async function createWalkingCamera({
   activateContextAction?: () => boolean;
   canLookSeated?: () => boolean;
   onSeat?: (benchId:string|null) => void;
+  /** Defer embedding focus effects while the camera owns a seat transition. */
+  onSeatTransition?: (active:boolean) => void;
   onNearbyBench?: (benchId: string | null) => void;
   stoolVisible?: (placementId:string)=>boolean;
   furnishingCollisions?:()=>readonly MountedFurnishingCollision[];
@@ -160,7 +163,10 @@ export async function createWalkingCamera({
     nearbyBenchId = id;
     onNearbyBench?.(id);
   };
+  let publishedSeatTransition:boolean|undefined;
   const publish = () => {
+    const active=!!seatTransition;
+    if(active!==publishedSeatTransition){publishedSeatTransition=active;onSeatTransition?.(active);}
     const raw = controller.state();
     const movingAngles=seatTransition?new Euler().setFromQuaternion(camera.quaternion,'YXZ'):undefined;
     const state:NavigationState=seated?{...raw,eyePosition:seatTransition?camera.position.toArray() as [number,number,number]:[...seated.eye],yaw:movingAngles?.y??seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
@@ -416,9 +422,10 @@ export async function createWalkingCamera({
         if(!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],eye))throw Error('BENCH_VIEW_PATH_UNSAFE');
         const snapshot={benchId:bench.id,roomId:bench.roomId,workspaceVisual:bench.workspaceVisual,eye,floor,floorCorners,yaw,pitch:seatPitch,fov,returnFov:camera.fov,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
         input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;canvas.style.touchAction="none";
-        targetPitch=seatPitch;targetYaw=yaw;onMode(false,true);onSeat?.(bench.id);
+        targetPitch=seatPitch;targetYaw=yaw;onMode(false,true);
         onMessage('벤치에 앉습니다.');
         animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
+        if(seated)onSeat?.(bench.id);
       } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
     },
     sitNearby: expectedBenchId => {
