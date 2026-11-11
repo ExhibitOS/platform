@@ -70,3 +70,9 @@ it('cold connected topology does not keep an unseen queued minimum alive or rest
   expect(scheduler.isQueued('unseen')).toBe(true);scheduler.cancel('unseen');expect(scheduler.isQueued('unseen')).toBe(false);
   expect(scheduler.stats().active).toBe(1);finish();await Promise.all([busy,settled]);expect(started).toEqual(['busy']);scheduler.dispose();
 });
+
+it('ordinary updates with no pressure do not sort or inspect cache interest',()=>{
+  const cache=new MemoryAssetCache<string>(100);cache.set('first','first',10);cache.set('second','second',10);
+  let inspected=0;cache.reclaim(()=>0,()=>{inspected++;return 4;});
+  expect(inspected).toBe(0);expect(cache.stats().bytes).toBe(20);
+});

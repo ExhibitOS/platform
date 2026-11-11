@@ -422,6 +422,7 @@ export class MemoryAssetCache<T> {
  }
  /** Pressure preferences are soft; pins and caller-owned cache domains stay hard. */
  reclaim(deficit:()=>number,rank:(key:string)=>number=()=>0,eligible:(key:string)=>boolean=()=>true){
+  if(deficit()<=0)return;
   for(const key of this.reclamationKeys(rank,eligible)){if(deficit()<=0)break;this.delete(key);}
  }
  /** Teardown only: detach active GPU resources and cancel loaders before clearing pinned entries. */
