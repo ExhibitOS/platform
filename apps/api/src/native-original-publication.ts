@@ -1,3 +1,4 @@
+import {prepareRequiredModelOriginals,persistRequiredModelOriginal,readBoundModelOriginal} from './required-model-original-binding.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
@@ -16,13 +17,13 @@ import {matchesPrivateWheatOwner,matchesPrivateWheatGrant,matchesPrivateWheatBin
 import type {Studio} from './studio.ts';
 import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
-import {persistAdoptedModelOriginal,prepareAdoptedModelOriginals,readBoundAdoptedModelOriginal} from './adopted-model-original-binding.ts';
+import {persistAdoptedModelOriginal,prepareAdoptedModelOriginals} from './adopted-model-original-binding.ts';
 
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
 const issued=new WeakSet<object>();
 type Grant=Awaited<ReturnType<typeof readApprovedOriginalStaticSource>>['grant'];
 export type OriginalArtworkIdentity={artworkId:string;artworkRevisionId:string;artworkRevision:number;publicArtworkId:string;publicArtworkRevisionId:string};
-type Prepared={client:PoolClient;xid:string;sessionId:string;exhibitionId:string;publicationId:string;snapshot:Exhibition;models:Awaited<ReturnType<typeof prepareAdoptedModelOriginals>>;items:{artworkId:string;artworkRevision:number;publicArtworkId:string;publicArtworkRevisionId:string;importJobId:string;candidate:DetailCandidate;nonce:string;grant:Grant;modelInput:{sha256:string;bytes:number;width:number;height:number;iccSha256:string|null}}[]};
+type Prepared={client:PoolClient;xid:string;sessionId:string;exhibitionId:string;publicationId:string;snapshot:Exhibition;models:Awaited<ReturnType<typeof prepareAdoptedModelOriginals>>;requiredModels:Awaited<ReturnType<typeof prepareRequiredModelOriginals>>;items:{artworkId:string;artworkRevision:number;publicArtworkId:string;publicArtworkRevisionId:string;importJobId:string;candidate:DetailCandidate;nonce:string;grant:Grant;modelInput:{sha256:string;bytes:number;width:number;height:number;iccSha256:string|null}}[]};
 type Services={context:NativeDetailContext;studio:Studio;cms:Cms;imports:Imports;blobs:FileBlobStore;operationSignal?:AbortSignal};
 
 /** Internal only: callers must hold an owned operation reservation and the
@@ -44,7 +45,7 @@ export function createNativeOriginalPublication(services:Services){
    const owned=(await c.query('SELECT 1 FROM exhibitions WHERE tenant_id=$1 AND id=$2 AND studio_owner_user_id=$3 AND deleted_at IS NULL',[s.tenantId,exhibitionId,s.userId])).rowCount;if(owned!==1)unavailable();
    let count=0,imageCount=0,total=0;const ids=new Set<string>(),candidateIds=new Set<string>();for(const artwork of snapshot.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')return unavailable();const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified||verified.candidates.length!==1)return unavailable();const candidate=verified.candidates[0]!;if(candidate.tier!=='acquired-original'||ids.has(candidate.assetId)||candidateIds.has(candidate.candidateId))unavailable();ids.add(candidate.assetId);candidateIds.add(candidate.candidateId);count++;total+=candidate.bytes;if(count>16||!Number.isSafeInteger(total)||total>100*1024*1024)unavailable();
     if(artwork.artworkType==='sculpture'){
-     const bytes=await readBoundAdoptedModelOriginal(c,s,{workspaceId:owner.workspaceId,exhibitionId,publicationId},revision,artwork.id,artwork.revisionId,candidate,services,signal);
+     const bytes=await readBoundModelOriginal(c,s,{workspaceId:owner.workspaceId,exhibitionId,publicationId},revision,artwork.id,artwork.revisionId,candidate,services,signal);
      bytes.fill(0);continue;
     }
     if(++imageCount!==1||!matchesPrivateWheatOwner(context,s,exhibitionId)||candidate.featureReport.inspector!=='sharp-0.35.4-vips-8.18.6-mozjpeg-0826579')unavailable();
@@ -69,9 +70,10 @@ export function createNativeOriginalPublication(services:Services){
     }finally{source.bytes.fill(0);inspected?.bytes.fill(0);}
    }
    const models=await prepareAdoptedModelOriginals(c,s,{workspaceId:owner.workspaceId,exhibitionId,publicationId},draft.artworks,bindings,reserved,services,signal);
-   if(!items.length&&!models.length||items.length+models.length>16||models.reduce((sum,item)=>sum+item.candidate.bytes,total)>100*1024*1024||
+   const requiredModels=await prepareRequiredModelOriginals(c,s,{workspaceId:owner.workspaceId,exhibitionId,publicationId},draft.artworks,bindings,reserved,services,signal);
+   if(!items.length&&!models.length&&!requiredModels.length||items.length+models.length+requiredModels.length>16||[...models,...requiredModels].reduce((sum,item)=>sum+item.candidate.bytes,total)>100*1024*1024||
     Buffer.byteLength(freezeCanonical(draft),'utf8')>1048576)unavailable();
-   await live(c,s);freeze(draft);freeze(items);freeze(models);const prepared=Object.freeze({client:c,xid,sessionId:s.id,exhibitionId,publicationId,snapshot:draft,items,models});pending.add(prepared);return prepared;
+   await live(c,s);freeze(draft);freeze(items);freeze(models);freeze(requiredModels);const prepared=Object.freeze({client:c,xid,sessionId:s.id,exhibitionId,publicationId,snapshot:draft,items,models,requiredModels});pending.add(prepared);return prepared;
   },
   async persist(c:PoolClient,s:Session,prepared:Prepared,revision:string){
    if(!pending.has(prepared)||prepared.items.some(item=>!matchesPrivateWheatOwner(context,s,prepared.exhibitionId)||!matchesPrivateWheatGrant(item.grant)))unavailable();pending.delete(prepared);await live(c,s);if(prepared.client!==c||prepared.sessionId!==s.id||(await c.query('SELECT txid_current()::text AS xid')).rows[0]?.xid!==prepared.xid||revisionHash(prepared.snapshot)!==revision)unavailable();
@@ -85,14 +87,15 @@ export function createNativeOriginalPublication(services:Services){
    }
    const scope={workspaceId:owner.workspaceId,exhibitionId:prepared.exhibitionId,publicationId:prepared.publicationId};
    for(const item of prepared.models)await persistAdoptedModelOriginal(c,s,scope,revision,item,services,signal);
+   for(const item of prepared.requiredModels)await persistRequiredModelOriginal(c,s,scope,revision,item,services,signal);
    await live(c,s);persisted.add(prepared);
   },
   async recheck(c:PoolClient,s:Session,prepared:Prepared,revision:string){
    if(!persisted.has(prepared)||prepared.items.some(item=>!matchesPrivateWheatOwner(context,s,prepared.exhibitionId)||!matchesPrivateWheatGrant(item.grant))||prepared.client!==c||prepared.sessionId!==s.id||(await c.query('SELECT txid_current()::text AS xid')).rows[0]?.xid!==prepared.xid||revisionHash(prepared.snapshot)!==revision)unavailable();
    await live(c,s);for(const item of prepared.items){const source=await readBoundOriginalDetail(c,s,{workspaceId:owner.workspaceId,publicationId:prepared.publicationId,revisionSha256:revision,exhibitionId:prepared.exhibitionId,artworkId:item.artworkId,artworkRevision:item.artworkRevision,publicArtworkId:item.publicArtworkId,publicArtworkRevisionId:item.publicArtworkRevisionId,importJobId:item.importJobId,candidate:item.candidate},studio,cms,imports,blobs,signal);try{if(sha256(source.bytes)!==item.candidate.sha256||!isDeepStrictEqual(source.modelInput,item.modelInput)||!isDeepStrictEqual(qualifiedOriginalImageModel(source.modelInput),item.candidate.featureReport.cost))unavailable();}finally{source.bytes.fill(0);}}
    const scope={workspaceId:owner.workspaceId,exhibitionId:prepared.exhibitionId,publicationId:prepared.publicationId};
-   for(const item of prepared.models){
-    const bytes=await readBoundAdoptedModelOriginal(c,s,scope,revision,item.publicArtworkId,item.publicArtworkRevisionId,item.candidate,services,signal);
+   for(const item of [...prepared.models,...prepared.requiredModels]){
+    const bytes=await readBoundModelOriginal(c,s,scope,revision,item.publicArtworkId,item.publicArtworkRevisionId,item.candidate,services,signal);
     bytes.fill(0);
    }
    await live(c,s);

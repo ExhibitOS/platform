@@ -6,7 +6,7 @@ import {FileBlobStore} from '@exhibitos/storage';
 import {buildApp} from './app.ts';
 import type {ModelPreparationExecution} from './model-preparation-import.ts';
 const resolve=vi.hoisted(()=>vi.fn());
-vi.mock('./artwork-replacement.ts',async original=>({...await original<typeof import('./artwork-replacement.ts')>(),replaceApprovedArtwork:vi.fn(),resolveApprovedModelCandidate:resolve}));
+vi.mock('./required-model-original.ts',async original=>({...await original<typeof import('./required-model-original.ts')>(),resolveRequiredModelCandidate:resolve}));
 // Route-only test. The real service independently verifies issued execution;
 // this mock avoids fabricating native authority or touching an owned profile.
 vi.mock('./imports.ts',async original=>{const actual=await original<typeof import('./imports.ts')>();return {...actual,Imports:class extends actual.Imports {constructor(...args:ConstructorParameters<typeof actual.Imports>){super(args[0],args[1],args[2]);} async requiredModelReady(){}}};});
