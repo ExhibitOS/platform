@@ -111,3 +111,18 @@ test('rejects mixing a qualified content publication with another qualified web 
  const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
  await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/);
 });
+
+// Re-pinning the outer inventory cannot authorize a changed field in the
+// admitted web tuple, even when all source/content bytes remain unchanged.
+test('rejects independently re-pinned web identity mutations',{skip:!actual||!pin},async t=>{
+ const inputRoot=await realpath(resolve(actual)),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-tuple-')));t.after(()=>rm(parent,{recursive:true,force:true}));
+ const root=join(parent,'bundle');await cp(inputRoot,root,{recursive:true});
+ const original=JSON.parse(await readFile(join(root,'closure.json'),'utf8'));
+ for(const field of ['sourceCommit','sourceTree','lockSha256','buildId','inventorySha256']){
+  const closure=structuredClone(original);closure.viewer[field]='0'.repeat(closure.viewer[field].length);
+  const bytes=Buffer.from(JSON.stringify(closure));await writeFile(join(root,'closure.json'),bytes);
+  const inventory=JSON.parse(await readFile(join(root,'integrity.json'),'utf8')),row=inventory.files.find(item=>item.path==='closure.json');row.bytes=bytes.length;row.sha256=hash(bytes);
+  const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
+  await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/,field);
+ }
+});

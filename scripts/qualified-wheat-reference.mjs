@@ -256,6 +256,14 @@ export const R101_VIEW_INTEREST_REFERENCE=Object.freeze({...HAYES_VIEW_INTEREST_
  modelSourceBindingSha256:'cca860b8ab3a2125b3e85adff66d6aa105ca1935a013d971164a4ea6bc9459f3',
  nativeManifestSha256:'c16a17f1bee0858f7b6554cac5b53b95330d0f611d4233ea589b126fca85465d',
 });
+// One additional exact web/content pair for accepted world-shadow continuity.
+// The original R101 view-interest pair remains the unchanged rollback target.
+export const R101_WORLD_CONTINUITY_REFERENCE=Object.freeze({...R101_VIEW_INTEREST_REFERENCE,
+ viewerSourceCommit:'280c8bd5847fac9d1c317484343fed45114d8cbb',
+ viewerSourceTree:'31e3b9db0912ea07e35386b8125d00becd7e8a4d',
+ viewerBuildId:'62d96a59ffb851828f248ceefc36a53782d6bf281b3b9327e6b9339a892225fa',
+ viewerInventorySha256:'93f4446f7c932847941a9ab24a034c06899de08cf7b44834552d3a49836ed6d2',
+});
 const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
