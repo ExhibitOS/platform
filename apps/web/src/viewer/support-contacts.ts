@@ -3,6 +3,7 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,benchBoxes,benchesFor,installationFor,installationPlane,wallFinishesFor} from '@exhibitos/studio-contract';
 import type {SupportContact} from './shadows';
+import {rectangularGroundContact,type RectangularGroundContact} from './ground-contact-footprint';
 
 type Rectangle = {x:number;y:number;width:number;height:number};
 type Receiver = {group:Three.Group;rectangles:readonly Rectangle[];faceZ:number};
@@ -44,16 +45,18 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       ?[{group,rectangles:rectangles[index]??[],faceZ:type==='wall'?(wallDepths.get(surface.id.toLowerCase())??0)/2:0}]:[];
   });
   function contains(receiver:Receiver,room:Three.Group,position:Three.Vector3,
-    rotation:Three.Quaternion,width:number,height:number) {
+    rotation:Three.Quaternion,width:number,height:number,tolerance=.008) {
     const corners=[[-1,-1],[-1,1],[1,-1],[1,1]].map(([x,y])=>{
       const local=new three.Vector3(x!*width/2,y!*height/2,0).applyQuaternion(rotation).add(position);
       return receiver.group.worldToLocal(room.localToWorld(local));
     });
-    return receiver.rectangles.some(rect=>corners.every(c=>Math.abs(c.z-receiver.faceZ)<.008&&
+    return receiver.rectangles.some(rect=>corners.every(c=>Math.abs(c.z-receiver.faceZ)<tolerance&&
       Math.abs(c.x-rect.x)<rect.width/2-.002&&Math.abs(c.y-rect.y)<rect.height/2-.002));
   }
   function visibleLegBounds(leg:Three.Object3D,room:Three.Group) {
-    for(let ancestor:Three.Object3D|null=leg;ancestor;ancestor=ancestor.parent)if(!ancestor.visible)return;
+    let attached=false;
+    for(let ancestor:Three.Object3D|null=leg;ancestor;ancestor=ancestor.parent){if(!ancestor.visible)return;if(ancestor===room)attached=true;}
+    if(!attached)return;
     const result=new three.Box3();
     leg.traverseVisible(node=>{
       if(!(node instanceof three.Mesh))return;
@@ -65,8 +68,19 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     });
     return result.isEmpty()?undefined:result;
   }
-  const add=(room:Three.Group,position:Three.Vector3,rotation:Three.Quaternion,width:number,height:number,receiver:Three.Object3D)=>{
-    contacts.push({room,receiver,position:position.toArray(),rotation:rotation.toArray(),width,height});
+  const add=(room:Three.Group,position:Three.Vector3,rotation:Three.Quaternion,width:number,height:number,receiver:Three.Object3D,shape?:SupportContact['shape'],supports?:readonly Three.Object3D[])=>{
+    contacts.push({room,receiver,position:position.toArray(),rotation:rotation.toArray(),width,height,...(shape?{shape}:{}),...(supports?{supports}:{})});
+  };
+  const addGroundRectangle=(room:Three.Group,floors:Receiver[],foot:RectangularGroundContact,supports?:readonly Three.Object3D[])=>{
+    const center=point(foot.position),rotation=new three.Quaternion().fromArray(foot.rotation).multiply(floorRotation),feather=.035;
+    const width=foot.width+2*feather,height=foot.depth+2*feather;
+    // Prove physical support against the actual floor plane before adding the
+    // existing 2mm shader offset. Keep the entire feather inside its rectangle.
+    const floor=floors.find(floor=>contains(floor,room,center,rotation,foot.width,foot.depth,.004));
+    if(!floor)return;
+    center.y+=.002;
+    if(contains(floor,room,center,rotation,width,height))
+      add(room,center,rotation,width,height,floor.group,{kind:'rectangle',width:foot.width,height:foot.depth},supports);
   };
 
   for(const bench of benchesFor(document)){
@@ -74,7 +88,6 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     if(!room)continue;
     const floor=receiver(bench.roomId,'floor');
     const yaw=new three.Quaternion().setFromAxisAngle(up,bench.yaw);
-    const rotation=yaw.clone().multiply(floorRotation);
     const addFoot=(center:Three.Vector3,width:number,depth:number,plane:Three.Quaternion)=>{
       center.y+=.002;
       const surface=floor.find(surface=>contains(surface,room,center,plane,width,depth));
@@ -87,17 +100,19 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       if(!model)continue;
       const base=visibleLegBounds(model,room);
       if(!base||Math.abs(base.min.y-bench.position[1])>.014)continue;
-      const feet:Three.Box3[]=[];
+      const feet:{bounds:Three.Box3;meshes:Three.Mesh[]}[]=[];
       model.traverseVisible(node=>{
         if(!(node instanceof three.Mesh))return;
         const bounds=visibleLegBounds(node,room),size=bounds?.getSize(new three.Vector3());
         if(!bounds||!size||Math.abs(bounds.min.y-base.min.y)>.004||size.x>.25||size.z>.3)return;
         // Adjacent submeshes at one foot form one cue, avoiding stacked patches.
-        const overlap=feet.find(box=>box.min.x<=bounds.max.x&&box.max.x>=bounds.min.x&&box.min.z<=bounds.max.z&&box.max.z>=bounds.min.z);
-        if(overlap)overlap.union(bounds);else feet.push(bounds);
+        const overlap=feet.find(foot=>foot.bounds.min.x<=bounds.max.x&&foot.bounds.max.x>=bounds.min.x&&foot.bounds.min.z<=bounds.max.z&&foot.bounds.max.z>=bounds.min.z);
+        if(overlap){overlap.bounds.union(bounds);overlap.meshes.push(node);}else feet.push({bounds,meshes:[node]});
       });
       for(const foot of feet){
-        const center=foot.getCenter(new three.Vector3()),size=foot.getSize(new three.Vector3());
+        const rectangle=rectangularGroundContact(three,foot.meshes,room,bench.position[1]);
+        if(rectangle){addGroundRectangle(room,floor,rectangle,foot.meshes);continue;}
+        const center=foot.bounds.getCenter(new three.Vector3()),size=foot.bounds.getSize(new three.Vector3());
         center.y=bench.position[1];
         addFoot(center,Math.min(.18,size.x+.07),Math.min(.18,size.z+.07),floorRotation);
       }
@@ -107,6 +122,8 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
         if(!leg)continue;
         const bounds=visibleLegBounds(leg,room);
         if(!bounds||Math.abs(bounds.min.y-bench.position[1])>.014)continue;
+        const rectangle=rectangularGroundContact(three,[leg],room,bench.position[1]);
+        if(rectangle){addGroundRectangle(room,floor,rectangle,[leg]);continue;}
         const center=bounds.getCenter(new three.Vector3());
         center.y=bench.position[1];
         const size=bounds.getSize(new three.Vector3());
@@ -115,9 +132,8 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     }else{
       for(const box of benchBoxes(bench)){
         if(Math.abs(box.position[1]-box.dimensions.height/2)>.001)continue;
-        const center=point(box.position).applyQuaternion(yaw).add(point(bench.position));
-        center.y=bench.position[1];
-        addFoot(center,box.dimensions.width+.07,box.dimensions.depth+.07,rotation);
+        const center=point(box.position).applyQuaternion(yaw).add(point(bench.position));center.y=bench.position[1];
+        addGroundRectangle(room,floor,{position:center.toArray(),rotation:yaw.toArray(),width:box.dimensions.width,depth:box.dimensions.depth});
       }
     }
   }
@@ -127,9 +143,12 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
     const art=document.artworks.find(a=>a.revisionId.toLowerCase()===placement.artworkRevisionId.toLowerCase());
     if(!room||!binding||!art)continue;
     const pedestal=binding.pedestal;
-    if(pedestal?.kind==='box'&&pedestals.get(placement.id.toLowerCase())?.some(mesh=>mesh.visible)){
+    const visiblePedestals=pedestals.get(placement.id.toLowerCase())?.filter(mesh=>visibleLegBounds(mesh,room))??[];
+    if(pedestal?.kind==='box'&&visiblePedestals.length){
       const yaw=new three.Quaternion().setFromAxisAngle(up,pedestal.yaw);
       const center=point(pedestal.position),top=center.y+pedestal.dimensions.height;
+      const footprint=rectangularGroundContact(three,visiblePedestals,room,center.y);
+      if(footprint)addGroundRectangle(room,receiver(placement.roomId,'floor'),footprint,visiblePedestals);
       const vertices=artifactCorners(art.dimensions,[art.transform,placement.transform]).map(value=>point(value).sub(center).applyQuaternion(yaw.clone().invert()));
       const bounds=new three.Box3().setFromPoints(vertices);
       if(Math.abs(bounds.min.y-pedestal.dimensions.height)<=.012){
@@ -141,7 +160,7 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
           const position=new three.Vector3((x+right)/2,0,(z+far)/2).applyQuaternion(yaw).add(center);
           position.y=top+.002;
           // A shallow support cue can complement the existing projected shadow.
-          add(room,position,yaw.multiply(floorRotation),right-x,far-z,pedestals.get(placement.id.toLowerCase())!.find(mesh=>mesh.visible)!);
+          add(room,position,yaw.multiply(floorRotation),right-x,far-z,visiblePedestals[0]!);
         }
       }
     }
