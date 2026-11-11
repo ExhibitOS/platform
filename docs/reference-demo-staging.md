@@ -41,3 +41,18 @@ Malformed requests, production scope, same production build ID, modified input,
 extra or linked files, overlap, existing output and writer collisions fail. Only
 the invocation's own staging and lock are removed on failure. Existing public
 R97 output, original immutable inputs and earlier evidence are preserved.
+
+## Native runtime inputs are a different closure
+
+The 36-file immutable web input above is the HTML/JavaScript shell used when
+refreshing an already complete static publication. It is not the full Native
+runtime `dist-static` directory used to create a new export. Native export also
+needs the declared floor maps, footstep samples/notices, surface maps/notices and
+catalogue previews. The packager verifies all 43 current declared resource files
+before creating a runtime destination and rechecks the copied runtime directory.
+
+When reusing an immutable shell, the producer must supply these unchanged
+catalogue/spec resource bytes as separate pinned inputs before invoking the
+packager. An incomplete shell-only input must fail rather than become a runtime
+whose exporter fails after writing a partial publication. This does not modify
+existing runtime packets, failed stages, original grants or publication records.
