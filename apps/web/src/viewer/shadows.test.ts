@@ -249,3 +249,27 @@ test('known nondeforming receiver shading preserves the bounded planar shadow po
   expect(h.mesh.onBeforeShadow).not.toBe(three.Object3D.prototype.onBeforeShadow);
   pass.dispose();h.pass.dispose();
 });
+
+
+test('later room contacts retain their own eight slots after more than sixteen earlier descriptors',()=>{
+  for(const compact of [false,true]){
+    const h=setup(),other=new three.Group(),receiver=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());
+    other.add(receiver);
+    const row=(room:three.Group,mesh:three.Object3D,x:number):SupportContact=>({room,receiver:mesh,position:[x,.002,0],rotation:[0,0,0,1],width:.2,height:.2});
+    const earlier=Array.from({length:20},(_,i)=>row(other,receiver,i*.1));
+    const later=Array.from({length:6},(_,i)=>row(h.room,h.mesh,i*.1));
+    const reports:{activeContacts:number;uniformBytes:number}[]=[];
+    const pass=installSupportContactShadows(three,[...earlier,...later],compact,r=>reports.push(r));
+    pass.setRoom(h.room);
+    expect(reports.at(-1)).toMatchObject({activeContacts:6,uniformBytes:520});
+    const owned=h.mesh.material.userData.exhibitosSupportContact;
+    expect(owned.exhibitosContactMatrices.value[5].elements[12]).toBeCloseTo(-2.5);
+    pass.setRoom(other);
+    expect(reports.at(-1)).toMatchObject({activeContacts:8,uniformBytes:520});
+    expect(h.mesh.material.userData.exhibitosSupportContact).toBeUndefined();
+    pass.setRoom(h.room);
+    expect(reports.at(-1)).toMatchObject({activeContacts:6,uniformBytes:520});
+    expect(receiver.material.userData.exhibitosSupportContact).toBeUndefined();
+    pass.dispose();h.pass.dispose();receiver.geometry.dispose();receiver.material.dispose();
+  }
+});
