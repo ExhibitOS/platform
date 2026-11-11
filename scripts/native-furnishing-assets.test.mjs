@@ -12,20 +12,21 @@ import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio
 import {copyNativeFurnishings,verifyDefaultFurnishingsManifest,checkedDefaultFurnishingsRoot,requireCurrentFurnishingsRelease} from './package-native-runtime.mjs';
 
 const producer18Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_18_TEST_ROOT;
-test('native package includes exactly five current functional pairs and all declared custody files', {skip:!producer18Root},async t => {
+const producer19Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_19_TEST_ROOT;
+test('native package includes exactly six current functional pairs and all declared custody files', {skip:!producer19Root},async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'exhibitos-native-furnishing-')));
   t.after(() => rm(root, {recursive:true, force:true}));
   const source = join(root, 'source'), output = join(root, 'output');
-  await mkdir(source); await mkdir(output);
   const repository = fileURLToPath(new URL('../', import.meta.url));
+  await mkdir(source); await mkdir(output);
   const paths = Object.keys(SUPPORTED_FURNISHINGS).flatMap(id => {
     const entry = furnishingCatalogueEntry(id);
     return [entry.path, entry.rights.noticePath,...(entry.preparation?.files??[]).map(file=>file.path)];
   });
-  assert.equal(paths.length, 14);
+  assert.equal(paths.length, 20);
   for (const path of paths) {
     await mkdir(dirname(join(source,path)), {recursive:true});
-    await cp(join(path.includes('/museum-wallwasher/')?producer18Root:repository,path), join(source,path));
+    await cp(join(producer19Root,path), join(source,path));
   }
   await copyNativeFurnishings(source, output);
   for (const path of paths) {
@@ -115,7 +116,7 @@ test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and
   assert.deepEqual(next.assets.slice(0,-1),previous.assets);
   assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
   assert.equal(next.assets.at(-1).hostKind,'info-stand');
-  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,5);
+  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,6);
   await writeFile(join(root,'manifest.json'),manifest16());
   assert.equal(manifest16().length,11855);
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);
@@ -221,4 +222,25 @@ test('1.8 copies the full release and exact prepared source/notice/receipt/integ
   const original=await readFile(join(source,path)),changed=Buffer.from(original);changed[0]^=1;await writeFile(join(source,path),changed);const corrupt=join(root,'corrupt'+index);await mkdir(corrupt);await assert.rejects(copyNativeFurnishings(source,corrupt,release18),/NATIVE_PACKAGE_FURNISHING_INVALID/);
   await rm(join(source,path));const missing=join(root,'missing'+index);await mkdir(missing);await assert.rejects(copyNativeFurnishings(source,missing,release18),{code:'ENOENT'});await writeFile(join(source,path),original);
  }
+});
+
+const release19={commit:'8dee4eebb0d36d74d3d8cd955c9faf2c6bd2904a',manifestSHA256:'957af345c80951c287ce5492e0078769b800b3f889c19c24365b31b5e1c591ad'};
+test('1.9 adds only the separately identified rear-relief fixture and requires the matched current release',async t=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'furnishings19-manifest-')));t.after(()=>rm(root,{recursive:true,force:true}));
+ const bytes=await readFile(new URL('./fixtures/default-furnishings-1.9.0.manifest.json',import.meta.url));
+ assert.equal(bytes.length,14567);assert.equal(createHash('sha256').update(bytes).digest('hex'),release19.manifestSHA256);
+ const manifest=JSON.parse(bytes);assert.equal(manifest.assets.length,16);assert.deepEqual(manifest.assets.slice(0,15),JSON.parse(release18Manifest).assets);
+ await writeFile(join(root,'manifest.json'),bytes);assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release19);
+ await assert.rejects(requireCurrentFurnishingsRelease(root)); // Exact manifest is not the release Git identity.
+ await writeFile(join(root,'manifest.json'),release18Manifest);assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release18);await assert.rejects(requireCurrentFurnishingsRelease(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+});
+test('1.9 copies both distinct washer models and every source/notice/receipt custody file',{skip:!producer19Root},async t=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'furnishings19-copy-')));t.after(()=>rm(root,{recursive:true,force:true}));assert.deepEqual(await verifyDefaultFurnishingsManifest(producer19Root),release19);
+ const output=join(root,'output');await mkdir(output);await copyNativeFurnishings(producer19Root,output,release19);
+ for(const id of ['museum-wallwasher','museum-wallwasher-rear-relief']){
+  const e=furnishingCatalogueEntry(id),paths=[e.path,e.rights.noticePath,...e.preparation.files.map(f=>f.path)];
+  for(const path of paths)assert.deepEqual(await readFile(join(output,path)),await readFile(join(producer19Root,path)));
+ }
+ const e=furnishingCatalogueEntry('museum-wallwasher-rear-relief'),source=join(root,'source');await cp(producer19Root,source,{recursive:true,filter:path=>!path.includes('/.git')});
+ await writeFile(join(source,e.preparation.files[0].path),Buffer.from('corrupt source custody'));const bad=join(root,'bad');await mkdir(bad);await assert.rejects(copyNativeFurnishings(source,bad,release19),/NATIVE_PACKAGE_FURNISHING_INVALID/);
 });
