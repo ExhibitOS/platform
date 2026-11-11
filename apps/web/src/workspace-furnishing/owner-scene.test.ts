@@ -127,7 +127,7 @@ it('receiver shading leaves the admitted scene capacity unchanged and keeps load
  const geometry=new three.BoxGeometry(),material=new three.MeshStandardMaterial(),receiver=new three.Mesh(geometry,material);room.add(receiver);
  const filler=new three.InstancedMesh(geometry,material,256-existingSceneCost(three,scene).draws);scene.add(filler);
  const before=existingSceneCost(three,scene);expect(before.draws).toBe(256);
- const contacts=installSupportContactShadows(three,[{room,receiver,position:[0,.002,0],rotation:[0,0,0,1],width:.1,height:.1}],true,()=>{});contacts.setRoom(room);
+ const contacts=installSupportContactShadows(three,[{room,receiver,position:[0,.002,0],rotation:[0,0,0,1],width:.1,height:.1}],true,()=>{});const camera=new three.PerspectiveCamera(70,1,.1,100);camera.position.set(0,1,3);camera.lookAt(0,0,0);contacts.setView(camera);
  expect(existingSceneCost(three,scene)).toEqual(before);
  runtime.enforce();expect(runtime.stats()).toEqual({loaded:1,failed:0});
  contacts.dispose();expect(existingSceneCost(three,scene)).toEqual(before);

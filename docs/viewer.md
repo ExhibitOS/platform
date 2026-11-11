@@ -65,3 +65,5 @@ The demo permits new private-editor entry on desktop browsers. Recognizable phon
 Device identification uses browser-provided platform, user-agent and touch information, not viewport width or keyboard/pointer presence. These signals are not an attestation: desktop-mode iPadOS is detected through its Mac platform with multiple touch points, but devices or browsers that conceal or misrepresent their identity, including some Windows or ChromeOS tablets, may be classified as desktops. Emulation is not physical-device qualification.
 
 Omitted browser memory with coarse-only pointer input uses the bounded Auto/Compact [mobile operating policy](performance/viewer-mobile-no-hint-policy.md). The accepted base iPhone12 Safari observations are limited to Auto Hayes visibility and Compact sculpture visibility/movement; allocation ceilings remain estimates with existing pressure guards.
+
+카메라 위치 기반 그림자·접촉 음영 구현 후보와 제한은 [정책 문서](performance/view-interest-effects.md)를 참고하세요. 실제 방 경계 개선·실기기 수락·공개 반영은 각각의 검증 결과로 구분합니다.

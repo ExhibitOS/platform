@@ -9,9 +9,9 @@ type Receiver = {group:Three.Group;rectangles:readonly Rectangle[];faceZ:number}
 
 // Bounded contact descriptors and matrix/uniform state; compiled-program
 // storage is driver-owned and is not represented by this byte estimate.
-const SUPPORT_CONTACT_BYTES=12*1024;
+export const SUPPORT_CONTACT_RESERVE_BYTES=12*1024;
 export function supportContactFits(used:number,limit:number){
-  return used<=limit-SUPPORT_CONTACT_BYTES;
+  return used<=limit-SUPPORT_CONTACT_RESERVE_BYTES;
 }
 
 /** Stable admission may discard only expendable encoded cache entries. Leave a

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import * as three from 'three';
-import {MemoryAssetCache} from './loading';
+import {AssetPeakBudget,MemoryAssetCache} from './loading';
 import type {Exhibition} from '@exhibitos/spec';
 import {ARCHITECTURAL_FINISH_NAMESPACE,BENCH_NAMESPACE,INSTALLATION_NAMESPACE} from '@exhibitos/studio-contract';
-import {reclaimSupportContactCache,supportContactFits,supportContacts} from './support-contacts';
+import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContactFits,supportContacts} from './support-contacts';
 
 it('uses only visible geometry in the verified catalog legs',()=>{
   const room=new three.Group(),floor=new three.Group(),model=new three.Group();
@@ -115,3 +115,13 @@ it('retains the budget denial when encoded bytes are pinned or insufficient and 
   expect(reclaimSupportContactCache({used:()=>1024,limit,keys:['pinned'],evict:()=>{evictions++;}})).toBe(true);
   expect(evictions).toBe(0);cache.release('pinned');cache.clear();
 });
+
+ it('keeps admitted contact bytes charged while concurrent decode holds are acquired and released',()=>{
+  const resident=50_000,limit=100_000,peak=new AssetPeakBudget(limit,()=>resident);
+  peak.reserve('contact',SUPPORT_CONTACT_RESERVE_BYTES,80_000);
+  expect(peak.total()).toBe(resident+SUPPORT_CONTACT_RESERVE_BYTES);
+  peak.reserve('decode',30_000);
+  expect(()=>peak.reserve('other',10_000)).toThrow('ASSET_TRANSITION_PEAK');
+  peak.release('decode');expect(peak.reservationBytes('contact')).toBe(SUPPORT_CONTACT_RESERVE_BYTES);
+  peak.release('contact');expect(peak.total()).toBe(resident);
+ });
