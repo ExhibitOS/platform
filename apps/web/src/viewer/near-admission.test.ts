@@ -133,7 +133,7 @@ test('candidate keeps backing, encoded coexistence and minimum scene charged bef
 test('bounds the exact Hayes selected-detail staging trial with the original scene ledger',async()=>{
  const assetSha256='694a9cf81dfbf12fd0841ae45240c5ae0f1d7cb129d0ee122be7cff86c4625bc';
  const indexSha256='054b6756a6aa468e25eaa634b84800fb01d3b21d11f0fff6075f5d54291e8d68';
- const touch={coarsePointer:true,finePointer:false},budget=selectedDeviceBudget('auto',touch);
+ const touch={coarsePointer:true,finePointer:false},budget=deviceBudget(touch);
  const input={enabled:true,indexSha256,assetSha256,...touch,budget};
  const trial=stagingHayesDetailBudget(input)!;
  expect(trial).toEqual({...budget,maxCacheBytes:256*1024*1024,maxTransitionBytes:272*1024*1024});

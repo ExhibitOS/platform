@@ -2,7 +2,7 @@
 import type {PublicationAssetFetcher} from '../publication-client';
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
+export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -29,7 +29,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
- // Use the verified touch support floor when the browser supplies no hint.
+ // Preserve the existing touch allowance when the browser supplies no hint.
  // Pointer input selects the policy; it does not identify a device model.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
@@ -55,7 +55,7 @@ export function stagingHayesDetailBudget(input:{
  * development starting budget (192 MiB steady / 256 MiB transition); actual
  * allocations and coexistence still have to pass, not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
-export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
+function baseSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  // At 4 GiB, Auto already selects Compact geometry and texture limits.
  // Keep its bounded transition headroom when the visitor selects Compact directly.
  if(profile==='auto'||(profile==='compact'&&input.deviceMemory===4))return deviceBudget(input);
@@ -82,6 +82,28 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
   return selectedImageCapacity(budget,memory);
  }
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
+}
+/** Missing hints and pointer input select a bounded mobile operating policy,
+ * not a device model or a physical-memory guarantee. Known/desktop-like
+ * policies and the explicit Desktop choice keep their separate limits. */
+export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
+ const current=baseSelectedDeviceBudget(profile,input);
+ if(input.deviceMemory!==undefined||input.coarsePointer!==true||input.finePointer!==false)return current;
+ // Current R97 measures 114,519 triangles with five Compact models and seven
+ // furnishings. Keep useful aggregate headroom without raising the 20k tier.
+ if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:160000};
+ // The retained no-hint trial admitted the ordinary Hayes tier at 336/448 MiB.
+ // Preserve its 192 MiB material plans and actual holds. R97 adds the Greek
+ // model to the former ~174.5k scene: 250k leaves room beyond ~194.5k.
+ if(profile==='auto')return {...current,maxCacheBytes:336*1024*1024,maxTransitionBytes:448*1024*1024,materialPlanningBytes:current.maxCacheBytes,maxSceneTriangles:250000};
+ return current;
+}
+/** Extra artwork capacity must not silently enlarge initial material plans.
+ * Every actual material/furnishing hold remains charged against the full ledger. */
+export function materialPlanningCapacity(available:number,frameReserve:number,budget?:Pick<DeviceBudget,'maxCacheBytes'|'materialPlanningBytes'>):number {
+ const ceiling=budget?.materialPlanningBytes;
+ if(ceiling!==undefined&&(!Number.isSafeInteger(ceiling)||ceiling<=0||ceiling>budget!.maxCacheBytes))throw Error('MATERIAL_PLANNING_BUDGET');
+ return Math.max(0,available-frameReserve-(ceiling===undefined?0:budget!.maxCacheBytes-ceiling));
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget,preferCoarse=false):Artwork["assets"][number] {
