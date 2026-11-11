@@ -111,3 +111,13 @@ viewport and runtime constraints. Its new publication/candidate/source binding
 identities do not broaden device qualification. Native output qualification,
 current Viewer/gallery/thumbnail consumption and actual public deployment are
 separate stages.
+
+The r85 placement-description revision is separately admitted by index
+`345c7240f0e59e54222f9de16c389b069ef3ee72a5c98b10255b4809b2cd9627`
+through the same explicit source input. It changes 16 placement descriptions
+and rebinds public identities; artwork metadata, poses, media bytes, rights and
+measured original-image constraints remain unchanged. The list and artwork
+detail already prefer placement descriptions. Physical plaques use independent
+structured captions, while map previews and the native entrance text preview
+read artwork metadata; this revision does not change those fields. Admission
+does not establish actual text observation or public deployment of r85.
