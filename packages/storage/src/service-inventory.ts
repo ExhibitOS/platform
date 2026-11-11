@@ -187,8 +187,9 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  }
  case 'workspace_furnishing_thumbnail_selections':{
   const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+  const intent={furnishingId:row.furnishing_id,furnishingVersion:1,requestId:row.request_id,candidateId:row.candidate_id,receiptSha256:row.receipt_sha256,expectedSelectionVersion:Number(row.version)-1};
   if(![row.workspace_id,tenant,row.user_id,row.furnishing_id,row.request_id,row.candidate_id].every(uuid)||row.furnishing_version!==1||!Number.isSafeInteger(row.version)||Number(row.version)<1||Number(row.version)>2147483647||
-   !hex(row.request_sha256)||!hex(row.receipt_sha256)||typeof row.created_at!=='string'||!Number.isFinite(Date.parse(row.created_at)))issues.push({code:'INVALID_FURNISHING_THUMBNAIL_SELECTION',binding});
+   !hex(row.request_sha256)||thumbnailHash(intent)!==row.request_sha256||!hex(row.receipt_sha256)||typeof row.created_at!=='string'||!Number.isFinite(Date.parse(row.created_at)))issues.push({code:'INVALID_FURNISHING_THUMBNAIL_SELECTION',binding});
   // Append-only selection history contains no object keys. All ready candidates
   // are independently required, including never-selected and superseded PNGs.
   break;
