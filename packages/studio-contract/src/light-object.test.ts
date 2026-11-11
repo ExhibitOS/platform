@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import type {Exhibition} from '@exhibitos/spec';
+import {validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {newDraft} from '../../../apps/web/src/drafts/example.js';
 import {applyLightObjectCommand,type LightObjectCommand} from './light-object.js';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE} from './furnishings.js';
@@ -96,4 +96,16 @@ it('replaces attachment rows at their original index and preserves explicit same
 
 it('rejects trusted new visual descriptor IDs colliding with global or extension identities',()=>{
  for(const where of['room','extension']){const d=fixture();if(where==='extension')d.extensions!['org.example/identity']={id:assetId};const before=structuredClone(d);expect(()=>applyLightObjectCommand(d,{type:'set-light-fixture',lightId:id,visual:visual()},{newAssetId:where==='room'?d.rooms[0]!.id:assetId})).toThrow('LIGHT_OBJECT_ID_COLLISION');expect(d).toEqual(before);}
+});
+
+it.each(['intensity','small-area','large-area'])('preserves base-Spec-valid broad manual %s light during same-light and unrelated edits',kind=>{
+ const d=fixture();if(kind==='intensity')d.lights[0]!.intensity=1e12;else{d.lights[0]!.type='area';d.lights[0]!.unit='lumen';delete d.lights[0]!.beamAngle;d.lights[0]!.dimensions=kind==='small-area'?{width:.001,height:.002}:{width:1000,height:2000};}
+ expect(validateExhibition(d).errors).toEqual([]);const originalLight=structuredClone(d.lights[0]!);
+ const edited=applyLightObjectCommand(d,set(d,{fixture:'none'})).candidate;expect(edited.lights[0]).toEqual(originalLight);valid(edited);
+ const other={...structuredClone(originalLight),id:cloneId};d.lights.push(other);const cmd=set(d,{fixture:'none'});if(cmd.type!=='set-light-object')throw Error('test');cmd.light.color=[.1,.2,.3];
+ const changed=applyLightObjectCommand(d,cmd).candidate;expect(changed.lights[1]).toEqual(other);expect(changed.lights[0]!.unit).toBe(originalLight.unit);expect(changed.lights[0]!.transform.scale).toEqual(originalLight.transform.scale);expect(validateExhibition(changed).errors).toEqual([]);
+});
+it.each(['wrong-unit','nonrigid-scale','wide-beam'])('retains exact base Spec semantic rejection for %s',kind=>{
+ const d=fixture();if(kind==='wrong-unit')d.lights[0]!.unit='lux';if(kind==='nonrigid-scale')d.lights[0]!.transform.scale=[2,1,1];if(kind==='wide-beam')d.lights[0]!.beamAngle=Math.PI;
+ expect(validateExhibition(d).valid).toBe(false);const before=structuredClone(d);expect(()=>applyLightObjectCommand(d,{type:'remove-light-object',lightId:id})).toThrow();expect(d).toEqual(before);
 });

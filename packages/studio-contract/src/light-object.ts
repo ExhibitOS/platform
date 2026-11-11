@@ -38,13 +38,15 @@ function identityCount(value:unknown,id:string):number {
 }
 function assertFreshId(document:Exhibition,id:unknown){if(!uuid(id)||hasReference(document,id))fail('LIGHT_OBJECT_ID_COLLISION');}
 function assertLight(document:Exhibition,light:ExhibitionLight){
+ // Base OES has no intensity/area-size cap. Presentation policy remains with
+ // the caller; unrelated admitted manual lights are never converted here.
  if(!closed(light,['id','roomId','type','transform','color','intensity','unit','castsShadow'],['beamAngle','dimensions','targetPlacementId'])||!uuid(light.id)||!uuid(light.roomId)||!['point','spot','directional','area'].includes(light.type)||
-  !closed(light.transform,['position','rotation','scale'])||!Array.isArray(light.color)||light.color.length!==3||!light.color.every(n=>finite(n,0,1))||!finite(light.intensity,0,1e6)||typeof light.castsShadow!=='boolean')fail();
+  !closed(light.transform,['position','rotation','scale'])||!Array.isArray(light.color)||light.color.length!==3||!light.color.every(n=>finite(n,0,1))||!finite(light.intensity,0,Number.MAX_VALUE)||typeof light.castsShadow!=='boolean')fail();
  validateArtifactPose(light.transform);
  if(light.transform.scale.some(n=>n!==1))fail();
  const units={point:'candela',spot:'candela',directional:'lux',area:'lumen'} as const;
  if(light.unit!==units[light.type]||(light.type==='spot')!==Object.hasOwn(light,'beamAngle')||(light.type==='area')!==Object.hasOwn(light,'dimensions')||light.type==='spot'&&(!finite(light.beamAngle,0,Math.PI/2)||light.beamAngle===0))fail();
- if(light.type==='area'&&(!closed(light.dimensions,['width','height'])||!finite(light.dimensions?.width,.01,100)||!finite(light.dimensions?.height,.01,100)))fail();
+ if(light.type==='area'&&(!closed(light.dimensions,['width','height'])||!finite(light.dimensions?.width,Number.MIN_VALUE,Number.MAX_VALUE)||!finite(light.dimensions?.height,Number.MIN_VALUE,Number.MAX_VALUE)))fail();
  const room=document.rooms.find(r=>same(r.id,light.roomId));if(!room) return fail('LIGHT_OBJECT_REFERENCE');
  const p=light.transform.position,d=room.dimensions;
  if(Math.abs(p[0])>d.width/2||p[1]<0||p[1]>d.height||Math.abs(p[2])>d.depth/2)fail();artifactPoint(p,room.transform);
