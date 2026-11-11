@@ -1,3 +1,4 @@
+import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
 import {nativeFixtureProposal,type NativeFixtureCommand} from './native-fixture-proposal.ts';
 import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
@@ -38,8 +39,9 @@ export interface StudioResponse {
 export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
 export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
+export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand;
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand;
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -346,7 +348,7 @@ export class Studio {
     const owner=this.nativeOexWorkspace;
     if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
     const {expectedRevision,request}=input;
-    const {version,epoch,sequence,tenantId,principalId,requestId}=request;
+    const {version,epoch,sequence,tenantId,principalId,requestId,...operation}=request;
     if(tenantId!==s.tenantId||principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
     await owner.assertDatabase(c);
     const row=await this.access(c,s,id);
@@ -359,7 +361,12 @@ export class Studio {
     try{
       if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
-      else if(request.type==='set-pedestal'||request.type==='add-light'||request.type==='set-light-details')result=nativeSceneProposal(draft.candidate,request);
+      else if(operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
+        const command:LightObjectCommand=operation.type==='set-light-details'?{type:'set-light-object',lightId:operation.lightId,light:operation.light,settings:operation.settings}:operation;
+        result=nativeLightObjectProposal(draft.candidate,command,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
+        checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});
+      }
+      else if(request.type==='set-pedestal'||request.type==='add-light')result=nativeSceneProposal(draft.candidate,request);
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch{
