@@ -9,6 +9,7 @@ import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/mo
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
+import {readInstalledFurnishing} from './furnishing-assets.ts';
 
 it('proposes only a checked change to the current saved draft through the installed owner session',async()=>{
  const draft=newDraft(),tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43);
@@ -120,6 +121,9 @@ it('proposes only a checked change to the current saved draft through the instal
    expect((await post(value)).json()).toEqual(reply.json());
   }
   expect((await post({...selectedPayload,request:{...selectedPayload.request,visual:null}})).statusCode).toBe(200);
+  const washerReply=await post({...selectedPayload,request:{...selectedPayload.request,visual:{catalogId:'museum-wallwasher',catalogVersion:1,pose:{position:[0,.106,.05],yaw:0,scale:1}}}});
+  expect((await post({...fixturePayload,request:{...fixturePayload.request,catalogId:'museum-wallwasher'}})).statusCode).toBe(400);
+  expect(washerReply.statusCode,washerReply.body).toBe(200);expect(washerReply.json().candidate.extensions['org.exhibitos.studio/furnishing-visuals'].assets[0]).toMatchObject({catalogId:'museum-wallwasher',bytes:201724,provenance:{recipe:'omit-unused-tangent-v1'},rights:{notice:{bytes:1115}}});
   expect((await post(clonePayload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...clonePayload,expectedRevision:revision-1})).statusCode).toBe(412);
   expect((await post(clonePayload,{'if-match':etag(revision-1,draft)})).statusCode).toBe(412);
@@ -132,7 +136,7 @@ it('proposes only a checked change to the current saved draft through the instal
    {...objectPayload.request,settings:{fixture:'none',lightId:originalId}},
    {...objectPayload.request,attachment:{...attachmentPayload.request.attachment,extra:1}},
    {...selectedPayload.request,visual:{...selectedPayload.request.visual,assetId:randomUUID()}},
-   {...selectedPayload.request,visual:{...selectedPayload.request.visual,catalogId:'museum-wallwasher'}},
+   {...selectedPayload.request,visual:{...selectedPayload.request.visual,catalogId:'unadmitted-light'}},
   ])expect((await post({...payload,request})).statusCode).toBe(400);
   const savedExtensions=draft.candidate.extensions;
   draft.candidate.extensions={...savedExtensions,'org.exhibitos.studio/furnishing-visuals':{version:1,assets:[],bindings:[{hostKind:'light',hostId:originalId,assetId:randomUUID(),pose:{position:[0,0,0],yaw:0,scale:1}}]}};
@@ -151,4 +155,10 @@ it('proposes only a checked change to the current saved draft through the instal
   expect(draft).toEqual(before);
   expect(queries.some(sql=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
  }finally{await app.close();await ordinary.close();}
+});
+
+it('keeps prepared custody paths private and never treats an absent or mismatched model as ready',async()=>{
+ const root='assets/furnishings/exhibitos-authored-20261111/museum-wallwasher/';
+ for(const path of [root+'source.glb',root+'producer-receipt.json',root+'../model.glb',root.replace('museum-wallwasher/','unadmitted-light/')+'model.glb'])await expect(readInstalledFurnishing(path,1,'0'.repeat(64))).rejects.toMatchObject({status:404,code:'FURNISHING_UNAVAILABLE'});
+ await expect(readInstalledFurnishing(root+'model.glb',1,'0'.repeat(64))).rejects.toMatchObject({status:409,code:'FURNISHING_INTEGRITY'});
 });

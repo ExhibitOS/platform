@@ -9,9 +9,10 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
-import {copyNativeFurnishings,verifyDefaultFurnishingsManifest,checkedDefaultFurnishingsRoot} from './package-native-runtime.mjs';
+import {copyNativeFurnishings,verifyDefaultFurnishingsManifest,checkedDefaultFurnishingsRoot,requireCurrentFurnishingsRelease} from './package-native-runtime.mjs';
 
-test('native package includes only the four exact approved model and notice pairs', async t => {
+const producer18Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_18_TEST_ROOT;
+test('native package includes exactly five current functional pairs and all declared custody files', {skip:!producer18Root},async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'exhibitos-native-furnishing-')));
   t.after(() => rm(root, {recursive:true, force:true}));
   const source = join(root, 'source'), output = join(root, 'output');
@@ -19,12 +20,12 @@ test('native package includes only the four exact approved model and notice pair
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const paths = Object.keys(SUPPORTED_FURNISHINGS).flatMap(id => {
     const entry = furnishingCatalogueEntry(id);
-    return [entry.path, entry.rights.noticePath];
+    return [entry.path, entry.rights.noticePath,...(entry.preparation?.files??[]).map(file=>file.path)];
   });
-  assert.equal(paths.length, 8);
+  assert.equal(paths.length, 14);
   for (const path of paths) {
     await mkdir(dirname(join(source,path)), {recursive:true});
-    await cp(join(repository,path), join(source,path));
+    await cp(join(path.includes('/museum-wallwasher/')?producer18Root:repository,path), join(source,path));
   }
   await copyNativeFurnishings(source, output);
   for (const path of paths) {
@@ -114,7 +115,7 @@ test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and
   assert.deepEqual(next.assets.slice(0,-1),previous.assets);
   assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
   assert.equal(next.assets.at(-1).hostKind,'info-stand');
-  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,4);
+  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,5);
   await writeFile(join(root,'manifest.json'),manifest16());
   assert.equal(manifest16().length,11855);
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);
@@ -163,4 +164,61 @@ test('1.7 copies the new pair and all inherited rows, refuses corruption/missing
   assert.deepEqual(await readFile(join(output16,'assets/furnishings/default-manifest.json')),manifest16());
   for(const item of manifest.assets.slice(0,-1))for(const path of [item.model.path,item.rights.notice.path])assert.deepEqual(await readFile(join(output16,path)),await readFile(join(source,path)));
   await assert.rejects(lstat(join(output16,compactPrefix+'model.glb')),{code:'ENOENT'});
+});
+
+// Exact public manifest at normal merge0522167/treeb8ce88a; no private assets.
+const release18Manifest=gunzipSync(Buffer.from(
+ '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','base64'));
+const release18={commit:'0522167c8ffecf6e3b109a2c293c1a337f5264ae',manifestSHA256:'4a37d140dd33144da38536fb49d3142f2f1d0b54c9fe265d55095c809baf19ee'};
+test('1.8 adds the prepared washer without changing any previous row or weakening current runtime selection',async t=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'furnishings18-manifest-')));t.after(()=>rm(root,{recursive:true,force:true}));
+ assert.equal(release18Manifest.length,13631);assert.equal(createHash('sha256').update(release18Manifest).digest('hex'),release18.manifestSHA256);const current=JSON.parse(release18Manifest),old=JSON.parse(release17Manifest);assert.equal(current.assets.length,15);assert.deepEqual(current.assets.slice(0,14),old.assets);
+ await writeFile(join(root,'manifest.json'),release18Manifest);assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release18);
+ await assert.rejects(requireCurrentFurnishingsRelease(undefined),/NATIVE_PACKAGE_FURNISHING_UNSUPPORTED/);
+ await assert.rejects(requireCurrentFurnishingsRelease(root)); // Valid bytes cannot stand in for the exact release Git commit.
+ await writeFile(join(root,'manifest.json'),release17Manifest);assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release17);await assert.rejects(requireCurrentFurnishingsRelease(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+});
+test('1.8 copies the full release and exact prepared source/notice/receipt/integrity, rejecting every altered or missing washer file',{skip:!producer18Root},async t=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'furnishings18-copy-')));t.after(()=>rm(root,{recursive:true,force:true}));const source=join(root,'source');await mkdir(source);assert.deepEqual(await verifyDefaultFurnishingsManifest(producer18Root),release18);
+ const e=furnishingCatalogueEntry('museum-wallwasher'),washer=[e.path,e.rights.noticePath,...e.preparation.files.map(f=>f.path)],manifest=JSON.parse(release18Manifest);
+ const paths=[...new Set([...manifest.assets.flatMap(item=>[item.model.path,item.rights.notice.path,...(item.provenance.source?[item.provenance.source.path]:[])]),'assets/furnishings/user-authored-20261027/black-aluminum-frame/source.glb',...washer])];
+ for(const path of paths){await mkdir(dirname(join(source,path)),{recursive:true});await cp(join(producer18Root,path),join(source,path));}await writeFile(join(source,'manifest.json'),release18Manifest);
+ const output=join(root,'output');await mkdir(output);await copyNativeFurnishings(source,output,release18);for(const path of paths)assert.deepEqual(await readFile(join(output,path)),await readFile(join(source,path)));assert.deepEqual(await readFile(join(output,'assets/furnishings/default-manifest.json')),release18Manifest);
+ for(const [index,path]of washer.entries()){
+  const original=await readFile(join(source,path)),changed=Buffer.from(original);changed[0]^=1;await writeFile(join(source,path),changed);const corrupt=join(root,'corrupt'+index);await mkdir(corrupt);await assert.rejects(copyNativeFurnishings(source,corrupt,release18),/NATIVE_PACKAGE_FURNISHING_INVALID/);
+  await rm(join(source,path));const missing=join(root,'missing'+index);await mkdir(missing);await assert.rejects(copyNativeFurnishings(source,missing,release18),{code:'ENOENT'});await writeFile(join(source,path),original);
+ }
 });

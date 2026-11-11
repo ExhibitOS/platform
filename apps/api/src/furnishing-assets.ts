@@ -22,7 +22,7 @@ export async function readFurnishingBytes(asset:Pick<FurnishingAsset,'id'|'catal
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal):Promise<Buffer>;
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal:AbortSignal|undefined,optional:true):Promise<Buffer|undefined>;
 export async function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal,optional=false):Promise<Buffer|undefined>{
- if(!/^assets\/furnishings\/user-authored-20261027\/[a-z-]+\/(model\.glb|LICENSE-NOTICE\.txt)$/.test(relative))throw new ApiError(404,'FURNISHING_UNAVAILABLE');
+ if(!/^assets\/furnishings\/(?:user-authored-20261027\/[a-z-]+|exhibitos-authored-20261111\/museum-wallwasher)\/(model\.glb|LICENSE-NOTICE\.txt)$/.test(relative))throw new ApiError(404,'FURNISHING_UNAVAILABLE');
  let directory=fileURLToPath(new URL('../../../',import.meta.url));
  try{
   for(const part of relative.split('/').slice(0,-1)){signal?.throwIfAborted();directory=join(directory,part);const stat=await lstat(directory);if(stat.isSymbolicLink()||!stat.isDirectory())throw Error('UNSAFE_SOURCE');}
