@@ -231,7 +231,16 @@ const r69Wheat:QualifiedDetailImage=Object.freeze({...r67Wheat,
  artworkRevisionId:'94f8e281-e8dd-4b41-9d00-9b507e7dabb1',
  sourceBindingSha256:'67defef3611f269d8ab478ff21010a1f94bd110ae0ed6f12241045b2cae685bb',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat,r57Wheat,r61Wheat,r62Wheat,r64Wheat,r65Wheat,r67Wheat,r69Wheat]);
+// Placement prose changed; the original bytes and measured constraints did not.
+const r85Wheat:QualifiedDetailImage=Object.freeze({...r69Wheat,
+ staticIndexSha256:'345c7240f0e59e54222f9de16c389b069ef3ee72a5c98b10255b4809b2cd9627',
+ publicationSha256:'f37bc5e38a12812142755a4ab469fa50e112694176283200eb3aa4eb5fc35360',
+ candidateId:'d84d454a-d23a-4d33-a7df-c91e1f5f6abc',
+ revisionSha256:'87c4e4509b0a00c7b577e094ce2d24d0b60b1c7167c5401c506bb79e46ce7541',
+ artworkRevisionId:'504f589b-80fe-4695-a671-8412fdfb5e59',
+ sourceBindingSha256:'a540fa8305d9fd1ba2d6958926a96410d3a9758869d10b189363ff2185a65886',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat,r57Wheat,r61Wheat,r62Wheat,r64Wheat,r65Wheat,r67Wheat,r69Wheat,r85Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
