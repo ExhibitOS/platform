@@ -8,9 +8,9 @@ import {loadWorkspaceFurnishingModel,type WorkspaceModelSource} from './model-lo
 import {ownerWorkspaceModelSource} from './owner-source';
 import {OwnerPreviewBudget} from './owner-preview-budget';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from './frame-pose';
-import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artworkFrameFit,artworkFrameModel,portalFinishModel} from '@exhibitos/studio-contract';
-import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
+import {biasPairedPortalWalls,fitModularPortal,fitRectangularPortal} from './portal-pose';
 
 /** Validate the loaded original in model coordinates, before applying the room pose. */
 function backedBenchFits(three:typeof Three,model:Three.Object3D,bounds:Three.Box3,seat:StudioBench['dimensions']){
@@ -71,7 +71,17 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   if(openingAttachment){
    const doc=candidate as unknown as Exhibition,opening=doc.openings.find(o=>o.id.toLowerCase()===openingAttachment.openingId.toLowerCase()),wall=doc.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase()&&s.roomId.toLowerCase()===options.roomId.toLowerCase());if(!opening||!wall)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const measured=workspaceFitGeometry(descriptor);
+   const rectangular=measured?.profile==='rectangular-portal-v1'?qualifiedRectangularPortalTarget(measured,doc,opening.id):undefined;
    const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id):undefined;
+   if(measured?.profile==='rectangular-portal-v1'){
+    if(!rectangular)throw Error('WORKSPACE_PLACEMENT_INVALID');
+    fitRectangularPortal(three,loaded.object,measured,rectangular);
+    if(opening.connectsToOpeningId!==undefined){
+     const mate=doc.openings.find(other=>other.id.toLowerCase()===opening.connectsToOpeningId!.toLowerCase());
+     if(!mate)throw Error('WORKSPACE_PLACEMENT_INVALID');
+     releaseWallBias=biasPairedPortalWalls(three,room,new Set([wall.id.toLowerCase(),mate.surfaceId.toLowerCase()]));
+    }
+   }
    if(measured?.profile==='modular-portal-v1'){
     if(!modular)throw Error('WORKSPACE_PLACEMENT_INVALID');
     fitModularPortal(three,loaded.object,measured,modular);
@@ -81,7 +91,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
      releaseWallBias=biasPairedPortalWalls(three,room,new Set([wall.id.toLowerCase(),mate.surfaceId.toLowerCase()]));
     }
    }
-   const height=modular?.height??(measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height);
+   const height=rectangular?.height??modular?.height??(measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height);
    if(height===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const p=wall.transform.position,q=wall.transform.rotation,wallMatrix=new three.Matrix4().compose(new three.Vector3(...p),new three.Quaternion(...q),new three.Vector3(1,1,1));
    loaded.object.matrix.copy(wallMatrix.multiply(new three.Matrix4().makeTranslation(opening.offset[0],opening.offset[1]-height/2,0)));loaded.object.matrixAutoUpdate=false;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artifactCorners,type ArtifactPose} from './artifact-affine.js';
 import {USER_ASSET_CATALOGUE} from './user-asset-catalogue.js';
 import type {WorkspaceFitProfile,WorkspaceFitReceipt} from './workspace-fit-receipt.js';
@@ -39,7 +39,7 @@ export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allow
  const fields=['requestId','kind','name','rights','provenance','model'];
  if(Object.hasOwn(value,'fitProfile')){
   if(!options.allowReusableFit||Object.hasOwn(value,'preparationPolicy')||
-   !(value.kind==='artwork-frame'&&value.fitProfile==='straight-ring-v1'||value.kind==='portal-finish'&&(value.fitProfile==='continuous-portal-v1'||value.fitProfile==='modular-portal-v1')))return false;
+   !(value.kind==='artwork-frame'&&value.fitProfile==='straight-ring-v1'||value.kind==='portal-finish'&&(value.fitProfile==='continuous-portal-v1'||value.fitProfile==='modular-portal-v1'||value.fitProfile==='rectangular-portal-v1')))return false;
   fields.push('fitProfile');
  }
  if(Object.hasOwn(value,'preparationPolicy')){
@@ -95,7 +95,7 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
   const failPortal=(code:string)=>({valid:false,errors:[{code,path:'/extensions/org.exhibitos.studio~1workspace-furnishings/openingAttachments'}]});
   if(openingSeen.has(attachment.openingId)||opens.length!==1||!object(opening)||opening.type!=='door'||walls.length!==1||!object(wall)||wall.type!=='wall'||roomRows.length!==1||!object(room))return failPortal('PORTAL_TARGET_STALE');openingSeen.add(attachment.openingId);
   const fit=fits.get(attachment.furnishingId);
-  const model=fit?.profile==='modular-portal-v1'&&object(opening.dimensions)?{width:opening.dimensions.width,height:opening.dimensions.height,paired:false}:fit?.profile==='continuous-portal-v1'?{width:fit.openingWidth,height:fit.openingHeight,paired:false}:source&&portalFinishModel(source.model.sha256,source.model.bytes);
+  const model=(fit?.profile==='modular-portal-v1'||fit?.profile==='rectangular-portal-v1')&&object(opening.dimensions)?{width:opening.dimensions.width,height:opening.dimensions.height,paired:false}:fit?.profile==='continuous-portal-v1'?{width:fit.openingWidth,height:fit.openingHeight,paired:false}:source&&portalFinishModel(source.model.sha256,source.model.bytes);
   if(!source||source.kind!=='portal-finish'||!model||attachment.modelSha256!==source.model.sha256)return failPortal('PORTAL_ASSET_UNSUPPORTED');used.add(attachment.furnishingId);
   const d=opening.dimensions;if(!object(d)||typeof model.width!=='number'||typeof model.height!=='number'||typeof d.width!=='number'||typeof d.height!=='number'||![d.width,d.height].every(Number.isFinite)||Math.abs(d.width-model.width)>1e-6||Math.abs(d.height-model.height)>1e-6)return failPortal('PORTAL_SIZE_UNSUPPORTED');
   const level=(t:unknown)=>object(t)&&Array.isArray(t.scale)&&t.scale.length===3&&t.scale.every(n=>n===1)&&Array.isArray(t.rotation)&&t.rotation.length===4&&t.rotation.every(n=>typeof n==='number'&&Number.isFinite(n))&&t.rotation[0]===0&&t.rotation[2]===0&&Math.abs(t.rotation[1]**2+t.rotation[3]**2-1)<=1e-6;
@@ -105,7 +105,7 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
    if(!object(architectural)||!exact(architectural,['version','walls'])||architectural.version!==1||!Array.isArray(architectural.walls)||architectural.walls.length>8)return failPortal('PORTAL_WALL_DEPTH_UNSUPPORTED');
    const seen=new Set<string>();for(const f of architectural.walls){if(!object(f)||!exact(f,['surfaceId','depth','preset','trimWidth','baseboardHeight','ceilingBand'])||typeof f.surfaceId!=='string'||!uuid(f.surfaceId.toLowerCase())||seen.has(f.surfaceId.toLowerCase())||typeof f.depth!=='number'||typeof f.trimWidth!=='number'||typeof f.baseboardHeight!=='number'||![f.depth,f.trimWidth,f.baseboardHeight].every(Number.isFinite)||f.depth<.02||f.depth>.2||f.trimWidth<.02||f.trimWidth>.08||f.baseboardHeight<.04||f.baseboardHeight>.15||!['plain','painted-edge','dark-edge'].includes(String(f.preset))||typeof f.ceilingBand!=='boolean')return failPortal('PORTAL_WALL_DEPTH_UNSUPPORTED');seen.add(f.surfaceId.toLowerCase());if(same(f.surfaceId,wall.id))finish={depth:f.depth,preset:String(f.preset)};}
   }
-  if(fit?.profile==='modular-portal-v1'?!qualifiedModularPortalTarget(fit,candidate,attachment.openingId):fit?.profile==='continuous-portal-v1'? !qualifiedPortalWallFit(fit,opening,wall,finish,candidate.openings):model.paired? !pairedPortalFit(candidate,attachment.openingId):!!finish&&Math.abs(finish.depth-.2)>1e-6)return failPortal('PORTAL_WALL_DEPTH_UNSUPPORTED');
+  if(fit?.profile==='rectangular-portal-v1'?!qualifiedRectangularPortalTarget(fit,candidate,attachment.openingId):fit?.profile==='modular-portal-v1'?!qualifiedModularPortalTarget(fit,candidate,attachment.openingId):fit?.profile==='continuous-portal-v1'? !qualifiedPortalWallFit(fit,opening,wall,finish,candidate.openings):model.paired? !pairedPortalFit(candidate,attachment.openingId):!!finish&&Math.abs(finish.depth-.2)>1e-6)return failPortal('PORTAL_WALL_DEPTH_UNSUPPORTED');
  }
  const attached=new Set<string>(),errors:{code:string;path:string}[]=[];
  const fail=(code:string,index:number)=>errors.push({code,path:`/extensions/org.exhibitos.studio~1workspace-furnishings/frameAttachments/${index}`});

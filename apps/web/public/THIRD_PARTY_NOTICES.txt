@@ -801,7 +801,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.26 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.29 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation and exact furnishing inventory validator; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing
@@ -1198,3 +1198,23 @@ express Statement of Purpose.
 
 For more information, please see
 https://creativecommons.org/publicdomain/zero/1.0/
+
+
+--- Reusable portal original (independent CC0 license) ---
+portal-pale-mineral — distribution license
+Creator: ExhibitOS. Generated in the personal account using Blender MCP; original source and provenance are retained separately.
+CC0 1.0 Universal applies to the creator-controlled asset.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+No third-party inputs were recorded in the source provenance. This notice does not grant trademark, patent, personality or other third-party rights and does not license application code. Original model bytes are preserved unchanged.
+
+
+--- Reusable portal original (independent CC0 license) ---
+portal-warm-oak — distribution license
+Creator: ExhibitOS. Generated in the personal account using Blender MCP; original source and provenance are retained separately.
+CC0 1.0 Universal applies to the creator-controlled asset.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+No third-party inputs were recorded in the source provenance. This notice does not grant trademark, patent, personality or other third-party rights and does not license application code. Original model bytes are preserved unchanged.

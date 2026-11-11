@@ -204,6 +204,40 @@ The selected `workspace-portal-finish-v1` profile permits the exact double-width
 
 The finish is visual: the existing opening, collision and navigation remain authoritative. Room and wall transforms must be level and unit scale, the opening bottom must be at floor level, and an explicitly supplied wall finish must have the supported 0.2 metre depth. Invalid host edits require detaching the finish first. This profile does not establish physical fit or alter the door geometry.
 
+### Reusable rectangular doorframe originals
+
+The explicit `rectangular-portal-v1` fit declaration reuses ordinary owner-scoped
+furnishing intake, bounded upload, worker completion, immutable registration and
+version readback. It does not use a new source-hash allowlist. The binary worker
+accepts only the measured closed, untextured 45 mm continuous U-section with no
+sill; unsupported geometry and textured originals are refused. The original GLB,
+PBR material and rights stay unchanged. Workspace furnishings v7/OEX draft.19
+carry its existing source-bound v1 receipt and one opening attachment.
+
+The live session advertises `workspacePortalRectangularFitProfile` only with the
+existing reusable-fit writer and portal capability. Clients must require that
+specific marker; older runtime capability markers do not admit the new profile.
+Keep the same request ID, intake ID and original bytes for continuation after
+restart, upload/completion uncertainty, cancellation or review. A successful
+registration is not an authored placement. Review the returned furnishing and
+fit, prepare one current-CAS portal attachment, then use ordinary Save/reopen.
+
+Supported targets are .9–3 m wide, 2–3.2 m high, floor-aligned doors with enough
+solid surrounding wall and no neighbouring opening intersection. An independent
+host has a plain .03–.2 m wall finish. The reciprocal target is the existing
+measured 2.4 × 3 m Arrival–Painting pair with both .120 m structures, plain Arrival
+face and the retained opposite edge finish. Its checked finished reveal is
+[-.082,+.060] m relative to the Arrival host. Use one attachment on Arrival, not
+two physical models. The renderer adapts only its owned geometry copy, preserving
+the 45 mm section, corners and clear hole; it adds no sill or full-box collider.
+Existing wall/opening collision remains authoritative.
+
+The pale-mineral and warm-oak originals use the same supported geometry and retain
+their independent CC0 notices. Source eligibility and CPU fit tests do not claim
+installed Native UI admission, ordinary clean installation, visual contact or
+actual route traversal. Those checks must use the resulting current artifact;
+no arbitrary curved, textured, bevelled or decorated doorframe support is implied.
+
 
 ### Current provisional-display import
 
