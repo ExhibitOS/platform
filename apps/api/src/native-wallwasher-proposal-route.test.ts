@@ -28,7 +28,7 @@ it('proposes the checked mounted painting fixture through the existing owner rou
   const before=structuredClone(draft),response=await post(request);expect(response.statusCode,response.body).toBe(200);
   const reply=response.json();expect(reply).toMatchObject({...binding,lightId});expect(validateFurnishings(reply.candidate).valid).toBe(true);
   const f=furnishingsFor(reply.candidate)!,resolved=resolveFurnishing(reply.candidate,f.bindings[0]!,f.assets[0]!);
-  if(!('wallwasher' in resolved))throw Error('WASHER_RESULT_REQUIRED');expect(resolved.wallwasher.headPitch).toBe(-57.892880597116964*Math.PI/180);expect(reply.candidate.lights).toEqual(before.candidate.lights);expect(draft).toEqual(before);
+  if(!('wallwasher' in resolved))throw Error('WASHER_RESULT_REQUIRED');expect(resolved.wallwasher.headPitch).toBe(-57.892880597116964*Math.PI/180);expect(reply.candidate.lights).toEqual(JSON.parse(JSON.stringify(before.candidate.lights)));expect(draft).toEqual(before);
   expect((await post({...request,visual:{...request.visual,headPitch:0}})).statusCode).toBe(400);
   expect((await post({...request,visual:{...request.visual,pose:{...request.visual.pose,scale:2}}})).statusCode).toBe(422);
   draft.candidate.lights[0]!.transform.position[1]-=.01;expect((await post(request)).statusCode).toBe(422);
