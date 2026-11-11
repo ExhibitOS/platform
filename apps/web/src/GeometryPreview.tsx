@@ -51,7 +51,7 @@ import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
-import {supportContactFits,supportContacts} from './viewer/support-contacts';
+import {reclaimSupportContactCache,supportContactFits,supportContacts} from './viewer/support-contacts';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -3558,7 +3558,7 @@ export function GeometryPreview({
           const used=peak.total(),limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
           retireContactForBudget(used);
           if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
-          if(!supportContactFits(used,limit)){renderer.domElement.dataset.supportContactShadows='budget';return;}
+          if(!reclaimSupportContactCache({used:()=>peak.total(),limit,keys:arts.flatMap(art=>art.assets.map(asset=>asset.id)),evict:key=>byteCache.delete(key)})){renderer.domElement.dataset.supportContactShadows='budget';return;}
           try{
             contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);});
             contactShadows.setRoom(shadowRoom);render();

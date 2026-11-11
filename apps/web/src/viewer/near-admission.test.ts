@@ -10,7 +10,7 @@ import {stagingHayesDetailBudget,modelDecodeReserve,deviceBudget,selectedDeviceB
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('auto',{viewportWidth:1400,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
+ expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:160000});
  expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toMatchObject({...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024});
  expect(selectedDeviceBudget('desktop',{viewportWidth:1400,deviceMemory:4})).toEqual(DEVICE_BUDGETS.desktop);
  const near=selectedDeviceBudget('desktop',{viewportWidth:1400});expect(near.maxTriangles).toBe(250000);expect(near.maxTextureSize).toBe(2048);expect(near.maxCacheBytes).toBe(192*1024*1024);expect(near.maxTransitionBytes).toBe(256*1024*1024);
@@ -26,7 +26,7 @@ test('automatic headroom uses bounded residency and transition limits in known m
  expect(selectedDeviceBudget('compact',{deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  for(const memory of [undefined,2,3,Infinity,NaN])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toEqual(DEVICE_BUDGETS.compact);
  for(const memory of [4,6])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
- for(const memory of [8,16])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*mib,maxTransitionBytes:160*mib,maxSceneTriangles:100000});
+ for(const memory of [8,16])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*mib,maxTransitionBytes:160*mib,maxSceneTriangles:160000});
 });
 test('known-memory Compact can admit the measured model phase without enlarging model quality limits',()=>{
  const compact=selectedDeviceBudget('compact',{deviceMemory:8});
@@ -58,7 +58,7 @@ test('a narrow canvas cannot classify the same capacity as a lower-memory device
  }
  expect(deviceBudget({deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({})).toEqual(DEVICE_BUDGETS.desktop);
- expect(selectedDeviceBudget('compact',{deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
+ expect(selectedDeviceBudget('compact',{deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:160000});
 });
 test('an explicit image allowance never lifts ordinary budgets or unknown/constrained memory',()=>{
  for(const deviceMemory of [undefined,2,4,Infinity,NaN]){
@@ -66,7 +66,7 @@ test('an explicit image allowance never lifts ordinary budgets or unknown/constr
   expect(selectedDeviceBudget('compact',{deviceMemory}).selectedImage).toBeUndefined();
  }
  const {selectedImage,...ordinary}=selectedDeviceBudget('compact',{deviceMemory:8});
- expect(ordinary).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:100000});
+ expect(ordinary).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:160000});
  expect(selectedImage).toEqual({maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024});
  const near=selectedDeviceBudget('desktop',{deviceMemory:8});
  expect(near.selectedImage?.maxCacheBytes).toBe(near.maxCacheBytes);
@@ -191,6 +191,6 @@ test('known high-memory Compact leaves headroom after observed reservations whil
  expect(live.total()).toBe(residentAtAdmission+required);
  expect(()=>live.reserve('over-pressure',candidate.maxTransitionBytes!)).toThrow('ASSET_TRANSITION_PEAK');
  expect(live.total()).toBe(residentAtAdmission+required);
- expect(candidate).toMatchObject({maxTriangles:20000,maxSceneTriangles:100000,maxTextureSize:512,maxPixelRatio:1,concurrency:2});
+ expect(candidate).toMatchObject({maxTriangles:20000,maxSceneTriangles:160000,maxTextureSize:512,maxPixelRatio:1,concurrency:2});
  for(const memory of [undefined,2,4,6,NaN,Infinity])expect(selectedDeviceBudget('compact',{deviceMemory:memory}).maxSceneTriangles).toBeUndefined();
 });

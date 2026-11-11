@@ -65,10 +65,13 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  // GiB branch leaves room after scene/material reservations and a required
  // model swap. Aggregate scene geometry is separate from the 20k/model
  // limit, so loading other approved artworks does not retire furnishings.
+ // Five admitted 20k sculptures plus the observed 14.5k architecture/furnishing
+ // scene require a separate aggregate allowance with useful remaining headroom.
+ // This does not raise per-model, texture, draw, byte or concurrency limits.
  // Other branches retain their current policy.
  if(profile==='compact'&&input.deviceMemory!==undefined&&Number.isFinite(input.deviceMemory)&&input.deviceMemory>4){
   const capable=input.deviceMemory>=8;
-  return selectedImageCapacity({...DEVICE_BUDGETS.compact,maxCacheBytes:(capable?128:48)*1024*1024,maxTransitionBytes:(capable?160:64)*1024*1024,...(capable?{maxSceneTriangles:100000}:{})},input.deviceMemory);
+  return selectedImageCapacity({...DEVICE_BUDGETS.compact,maxCacheBytes:(capable?128:48)*1024*1024,maxTransitionBytes:(capable?160:64)*1024*1024,...(capable?{maxSceneTriangles:160000}:{})},input.deviceMemory);
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
