@@ -223,7 +223,20 @@ export const R97_MOBILE_REFERENCE=Object.freeze({...R97_REFERENCE,
  viewerBuildId:'776bfe96635d1251ba49a405f458e72954551bc187a2cd398387fba48e84b71f',
  viewerInventorySha256:'be3e36e385d100e18676350243d52fc4331127b42c1bd96c9a394011e3068c20',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+// One exact Manager-produced Hayes-thumbnail publication, retaining both originals
+// and the already qualified mobile web target. No R101 lighting trial is admitted.
+export const HAYES_MOBILE_REFERENCE=Object.freeze({...R97_MOBILE_REFERENCE,
+ indexSha256:'4072e5df4e44b0a760711612f5fbae6c0c01c134650b5062cba370e7360d2211',
+ publicationSha256:'65f54ad7a5759079412710b05356f110b77bde1b8096756c3d9d1ff3bf1a6224',
+ publicationId:'094e0295-1dba-4d3c-8ebc-d534c1f7b347',
+ revisionSha256:'0bbbf3897d6396561e3239c1063a20af38e964850091c9d52bf0f8db94cb7b52',
+ candidateId:'78b20e90-baea-41d2-93bd-2966e75b17d9',
+ modelCandidateId:'5712f28f-a740-4386-af53-c63e9478a2b7',
+ modelSourceBindingSha256:'7eeb8cef444425131f3d3efa5f32521643861bc4ea2c1e0ecb6898836868a711',
+ nativeManifestSha256:'917192929b0885d69861b759316fbffcc443f04e617d3cab7a784170a0453231',
+ nativeFiles:141,
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
@@ -237,13 +250,13 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE;
+ const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE;
  const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal);
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
+ const assetCount=reference===HAYES_MOBILE_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
  if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==(dualOriginal?2:1))fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||

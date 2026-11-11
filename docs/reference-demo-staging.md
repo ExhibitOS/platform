@@ -56,3 +56,20 @@ catalogue/spec resource bytes as separate pinned inputs before invoking the
 packager. An incomplete shell-only input must fail rather than become a runtime
 whose exporter fails after writing a partial publication. This does not modify
 existing runtime packets, failed stages, original grants or publication records.
+
+## Exact Hayes content continuation
+
+The Native closure also admits one exact publication `094e0295-1dba-4d3c-8ebc-d534c1f7b347`
+with index `4072e5df4e44b0a760711612f5fbae6c0c01c134650b5062cba370e7360d2211`
+and native manifest `917192929b0885d69861b759316fbffcc443f04e617d3cab7a784170a0453231`.
+It retains both original detail tuples and adds the selected Hayes thumbnail.
+Only the already qualified mobile Viewer build `776bfe96635d1251ba49a405f458e72954551bc187a2cd398387fba48e84b71f`
+is admitted for this content. The earlier R97 publication and both of its exact web targets remain supported.
+
+This bundle contains 141 source files plus 36 web files and two control files
+(179 integrity rows, 180 physical files including `integrity.json`). The deterministic
+session hosting output contains 142 files. Cache directives are unchanged, while
+the content-addressed publication JSON and Hayes PNG paths change the header hash.
+No editable-head lighting trial, caller-selected publication, new original grant,
+experimental Viewer build or arbitrary combination gains admission. Production
+transport and actual Viewer acceptance remain separate from local composition.

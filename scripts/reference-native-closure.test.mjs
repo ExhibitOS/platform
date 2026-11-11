@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,readdir,realpath,rm,symlink,writeFile} from 'node:fs/promises';
+import {cp,mkdtemp,mkdir,readFile,readdir,realpath,rm,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {readNativeReferenceClosure,exportNativeReferenceClosure,inspectNativeReferenceClosure} from './reference-native-closure.mjs';
@@ -60,10 +60,10 @@ test('export refuses overlap/existing output and removes only its own failed sta
 });
 
 const actual=process.env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE,pin=process.env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256;
-test('preserves R97 content and applies exact session-only hosting configuration from the public closure',{skip:!actual||!pin},async t=>{
+test('preserves qualified publication content and applies exact session-only hosting configuration from the public closure',{skip:!actual||!pin},async t=>{
  const inputRoot=await realpath(resolve(actual)),source=await readNativeReferenceClosure({inputRoot,inventorySha256:pin}),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-integration-')));t.after(()=>rm(parent,{recursive:true,force:true}));
  const outputDir=join(parent,'output'),result=await exportNativeReferenceClosure({inputRoot,inventorySha256:pin,outputDir});
- assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,140);assert.equal(result.outputFiles,141);assert.equal(result.files,141);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
+ assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,source.sourceEntries.size);assert.equal(result.outputFiles,source.sourceEntries.size+1);assert.equal(result.files,source.sourceEntries.size+1);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
  for(const path of ['index.html','studio.html']){
   const original=await readFile(join(source.sourceRoot,path),'utf8'),html=await readFile(join(outputDir,path),'utf8');
   if(source.reference.viewerBuildId==='b54b543b7b9f5d14a3e0ed750240c087d50baa0302209e6dd4f71a93680f27a1'){
@@ -96,4 +96,18 @@ test('preserves R97 content and applies exact session-only hosting configuration
  await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
  await writeFile(join(outputDir,'studio.html'),studio);
  await writeFile(join(outputDir,'_headers'),'foreign headers');await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
+});
+
+
+test('rejects mixing a qualified content publication with another qualified web tuple',{skip:!actual||!pin},async t=>{
+ const inputRoot=await realpath(resolve(actual)),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-mix-')));t.after(()=>rm(parent,{recursive:true,force:true}));
+ const root=join(parent,'bundle');await cp(inputRoot,root,{recursive:true});
+ const closure=JSON.parse(await readFile(join(root,'closure.json'),'utf8'));
+ const {R97_REFERENCE,R97_MOBILE_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ const other=closure.viewer.buildId===R97_REFERENCE.viewerBuildId?R97_MOBILE_REFERENCE:R97_REFERENCE;
+ closure.viewer={sourceCommit:other.viewerSourceCommit,sourceTree:other.viewerSourceTree,lockSha256:other.viewerLockSha256,buildId:other.viewerBuildId,inventorySha256:other.viewerInventorySha256};
+ const bytes=Buffer.from(JSON.stringify(closure));await writeFile(join(root,'closure.json'),bytes);
+ const inventory=JSON.parse(await readFile(join(root,'integrity.json'),'utf8')),row=inventory.files.find(item=>item.path==='closure.json');row.bytes=bytes.length;row.sha256=hash(bytes);
+ const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
+ await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/);
 });

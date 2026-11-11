@@ -42,20 +42,22 @@ export async function readNativeReferenceClosure(input){
  if(!exact(input,['inputRoot','inventorySha256'])||!hex.test(input.inventorySha256??''))fail('REFERENCE_NATIVE_REQUEST');
  const {inputRoot,inventorySha256}=input;await canonicalDirectory(inputRoot);
  const bytes=await regular(inputRoot,'integrity.json',2*1024*1024);if(hash(bytes)!==inventorySha256)fail('REFERENCE_NATIVE_INTEGRITY');const inventory=parseStaticJson(bytes);
- if(!exact(inventory,['format','indexSha256','files'])||inventory.format!=='exhibitos-reference-native-input-v1'||!hex.test(inventory.indexSha256)||!Array.isArray(inventory.files)||inventory.files.length!==178)fail('REFERENCE_NATIVE_INTEGRITY');
+ if(!exact(inventory,['format','indexSha256','files'])||inventory.format!=='exhibitos-reference-native-input-v1'||!hex.test(inventory.indexSha256)||!Array.isArray(inventory.files)||![178,179].includes(inventory.files.length))fail('REFERENCE_NATIVE_INTEGRITY');
  const entries=new Map();let total=0;
  for(const item of inventory.files){if(!exact(item,['path','bytes','sha256'])||!safeStaticPath(item.path)||!inputPath(item.path)||entries.has(item.path)||!Number.isSafeInteger(item.bytes)||item.bytes<0||item.bytes>25*1024*1024||!hex.test(item.sha256))fail('REFERENCE_NATIVE_INTEGRITY');total+=item.bytes;if(total>512*1024*1024)fail('REFERENCE_NATIVE_INTEGRITY');entries.set(item.path,item);}
- if([...entries.keys()].filter(path=>path.startsWith('source/')).length!==140||[...entries.keys()].filter(path=>path.startsWith('web/')).length!==36||!entries.has('web-inventory.json')||!entries.has('closure.json'))fail('REFERENCE_NATIVE_INTEGRITY');
+ if(![140,141].includes([...entries.keys()].filter(path=>path.startsWith('source/')).length)||[...entries.keys()].filter(path=>path.startsWith('web/')).length!==36||!entries.has('web-inventory.json')||!entries.has('closure.json'))fail('REFERENCE_NATIVE_INTEGRITY');
  await completeInventory(inputRoot,entries,['integrity.json']);
  const closure=parseStaticJson(await regular(inputRoot,'closure.json',1048576));
  if(!exact(closure,['format','publication','viewer','paths'])||closure.format!=='exhibitos-reference-native-closure-v1'||!exact(closure.publication,['publicationId','revisionSha256','indexSha256','manifestSha256'])||!exact(closure.viewer,['sourceCommit','sourceTree','lockSha256','buildId','inventorySha256'])||!exact(closure.paths,['source','web','webInventory'])||closure.paths.source!=='source'||closure.paths.web!=='web'||closure.paths.webInventory!=='web-inventory.json')fail('REFERENCE_NATIVE_CLOSURE');
- const {R97_REFERENCE,R97_MOBILE_REFERENCE,verifiedQualifiedWheat}=await import('./qualified-wheat-reference.mjs');
- const reference=[R97_REFERENCE,R97_MOBILE_REFERENCE].find(item=>item.viewerBuildId===closure.viewer.buildId);
+ const {R97_REFERENCE,R97_MOBILE_REFERENCE,HAYES_MOBILE_REFERENCE,verifiedQualifiedWheat}=await import('./qualified-wheat-reference.mjs');
+ const reference=[R97_REFERENCE,R97_MOBILE_REFERENCE,HAYES_MOBILE_REFERENCE].find(item=>item.viewerBuildId===closure.viewer.buildId&&item.indexSha256===closure.publication.indexSha256);
  if(!reference||inventory.indexSha256!==reference.indexSha256||closure.publication.publicationId!==reference.publicationId||closure.publication.revisionSha256!==reference.revisionSha256||closure.publication.indexSha256!==reference.indexSha256||closure.publication.manifestSha256!==reference.nativeManifestSha256||closure.viewer.sourceCommit!==reference.viewerSourceCommit||closure.viewer.sourceTree!==reference.viewerSourceTree||closure.viewer.lockSha256!==reference.viewerLockSha256||closure.viewer.buildId!==reference.viewerBuildId||closure.viewer.inventorySha256!==reference.viewerInventorySha256)fail('REFERENCE_NATIVE_CLOSURE');
+ const nativeFiles=reference.nativeFiles??140;
+ if(inventory.files.length!==nativeFiles+38||[...entries.keys()].filter(path=>path.startsWith('source/')).length!==nativeFiles)fail('REFERENCE_NATIVE_INTEGRITY');
  const sourceRoot=join(inputRoot,'source'),webRoot=join(inputRoot,'web'),webInventoryPath=join(inputRoot,'web-inventory.json');
  const sourceManifestSha256=entries.get('source/static-export-manifest.json')?.sha256;if(sourceManifestSha256!==reference.nativeManifestSha256||entries.get('source/static-publication-index.json')?.sha256!==reference.indexSha256||entries.get('web-inventory.json')?.sha256!==reference.viewerInventorySha256)fail('REFERENCE_NATIVE_CLOSURE');
  const request={sourceDir:sourceRoot,sourceManifestSha256,indexSha256:reference.indexSha256,publicationId:reference.publicationId,revisionSha256:reference.revisionSha256};
- const local=await localStaticPublicationSource(request),qualified=await verifiedQualifiedWheat({root:sourceRoot});if(qualified.reference!==R97_REFERENCE||local.entries.size!==139)fail('REFERENCE_NATIVE_SOURCE');
+ const local=await localStaticPublicationSource(request),qualified=await verifiedQualifiedWheat({root:sourceRoot});if(qualified.reference!==(reference===HAYES_MOBILE_REFERENCE?HAYES_MOBILE_REFERENCE:R97_REFERENCE)||local.entries.size!==nativeFiles-1)fail('REFERENCE_NATIVE_SOURCE');
  const sourceEntries=new Map([...entries].filter(([path])=>path.startsWith('source/')).map(([path,item])=>[path.slice(7),{...item,path:path.slice(7)}]));
  for(const [path,item]of local.entries){const listed=sourceEntries.get(path);if(!listed||listed.bytes!==item.bytes||listed.sha256!==item.sha256)fail('REFERENCE_NATIVE_SOURCE');}
  const webInventory=parseStaticJson(await regular(inputRoot,'web-inventory.json',2*1024*1024));
@@ -122,7 +124,7 @@ export async function inspectNativeReferenceClosure(input){
  const closure=await readNativeReferenceClosure({inputRoot,inventorySha256}),raw=await referenceRawShell(closure),{entries,manifestSha256,headers}=await sessionHostingOverlay(raw.source,raw.read);
  await completeInventory(output,entries);
  const manifest=await regular(output,'static-export-manifest.json',2*1024*1024);if(hash(manifest)!==manifestSha256)fail('REFERENCE_NATIVE_OUTPUT');
- return {publicationId:closure.reference.publicationId,revisionSha256:closure.reference.revisionSha256,indexSha256:closure.reference.indexSha256,manifestSha256,nativeManifestSha256:closure.reference.nativeManifestSha256,refreshedManifestSha256:raw.manifestSha256,hostingMode:'session-v1',viewerBuildId:closure.webBuildId,viewerSourceCommit:closure.reference.viewerSourceCommit,inventorySha256,rawFiles:140,files:141,outputFiles:141,bytes:[...entries.values()].reduce((sum,item)=>sum+item.bytes,0),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:hash(headers)};
+ return {publicationId:closure.reference.publicationId,revisionSha256:closure.reference.revisionSha256,indexSha256:closure.reference.indexSha256,manifestSha256,nativeManifestSha256:closure.reference.nativeManifestSha256,refreshedManifestSha256:raw.manifestSha256,hostingMode:'session-v1',viewerBuildId:closure.webBuildId,viewerSourceCommit:closure.reference.viewerSourceCommit,inventorySha256,rawFiles:closure.sourceEntries.size,files:entries.size,outputFiles:entries.size,bytes:[...entries.values()].reduce((sum,item)=>sum+item.bytes,0),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:hash(headers)};
 }
 
 /** Compose the reviewed native shell deterministically from public inputs.
