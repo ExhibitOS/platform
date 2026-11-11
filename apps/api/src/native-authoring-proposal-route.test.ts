@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
+import {INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
+import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/model.ts';
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
@@ -12,6 +13,12 @@ import {etag} from './studio.ts';
 it('proposes only a checked change to the current saved draft through the installed owner session',async()=>{
  const draft=newDraft(),tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43);
  draft.candidate.surfaces=whiteCubeSurfaces(draft.candidate.rooms[0]!);
+ const artwork=syntheticArtwork(),placement=newPlacement(artwork,draft.candidate.rooms[0]!.id);
+ draft.candidate.artworks.push(artwork);draft.candidate.placements.push(placement);
+ draft.candidate.accessibility.artworkDescriptions.push({placementId:placement.id,text:'Synthetic sculpture'});
+ const originalLight=newLight(placement.roomId,'spot');originalLight.transform.position=[0,3,1];
+ draft.candidate.lights.push(originalLight);
+ draft.candidate.extensions={...draft.candidate.extensions,[INSTALLATION_NAMESPACE]:{version:1,placements:[{placementId:placement.id,frame:{kind:'none'}}]}};
  const revision=3,match=etag(revision,draft),queries:string[]=[];
  const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
  const client={query:async(sql:string)=>{
@@ -23,7 +30,8 @@ it('proposes only a checked change to the current saved draft through the instal
  const pool={connect:async()=>client} as unknown as Pool;
  const auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
  const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
- const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true}),ordinary=buildApp({pool,auth});
+ let live=true;
+ const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>live}),ordinary=buildApp({pool,auth});
  const url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`;
  const headers={host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf,'if-match':match};
  const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID()};
@@ -35,7 +43,7 @@ it('proposes only a checked change to the current saved draft through the instal
  const before=structuredClone(draft);
  try{
   const response=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1'});
+  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1'});
   expect((await ordinary.inject({method:'POST',url,headers,payload})).statusCode).toBe(404);
   expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...payload,expectedRevision:revision-1})).statusCode).toBe(412);
@@ -50,6 +58,45 @@ it('proposes only a checked change to the current saved draft through the instal
   const wallReply=await post({...payload,request:{...binding,...wall}});
   expect(wallReply.statusCode,wallReply.body).toBe(200);
   expect(wallReply.json()).toEqual({...binding,surfaceId:wall.wall.surfaceId,candidate:applyArchitecturalFinishCommand(before.candidate,wall)});
+  const pedestal={kind:'box' as const,position:[0,0,0] as [number,number,number],yaw:0,dimensions:{width:.65,depth:.65,height:.18},material:{preset:'paint' as const,color:'#F2F2F2',roughness:.7,metalness:0}};
+  const pedestalPayload={...payload,request:{...binding,type:'set-pedestal',placementId:placement.id,pedestal}};
+  const pedestalReply=await post(pedestalPayload);
+  expect(pedestalReply.statusCode,pedestalReply.body).toBe(200);
+  const pedestalCandidate=pedestalReply.json().candidate;
+  expect(installationFor(pedestalCandidate,placement.id)).toEqual({placementId:placement.id,frame:{kind:'none'},pedestal});
+  expect(pedestalReply.json()).toMatchObject({...binding,placementId:placement.id});
+  expect(pedestalCandidate.artworks).toEqual(before.candidate.artworks);
+  expect(pedestalCandidate.placements).toEqual(before.candidate.placements);
+  expect((await post(pedestalPayload)).json()).toEqual(pedestalReply.json());
+  expect((await post({...pedestalPayload,request:{...pedestalPayload.request,placementId:randomUUID()}})).statusCode).toBe(422);
+  expect((await post({...pedestalPayload,request:{...pedestalPayload.request,pedestal:{...pedestal,dimensions:{...pedestal.dimensions,height:-1}}}})).statusCode).toBe(422);
+  const createdLight=newLight(roomId,'spot');createdLight.transform.position=[1,3,1];createdLight.targetPlacementId=placement.id;
+  const settings={fixture:'none' as const,aim:{kind:'placement-center' as const},range:4.1,penumbra:.35};
+  const createPayload={...payload,request:{...binding,type:'add-light',light:createdLight,settings}};
+  const {id:createdId,...createdFields}=createdLight;
+  const createdReply=await post(createPayload);
+  expect(createdReply.statusCode,createdReply.body).toBe(200);
+  expect(createdReply.json()).toEqual({...binding,lightId:createdLight.id,candidate:setLightDetails({...before.candidate,lights:[...before.candidate.lights,createdLight]},createdId,createdFields,settings)});
+  expect((await post(createPayload)).json()).toEqual(createdReply.json());
+  expect(createdReply.json().candidate.lights).toHaveLength(before.candidate.lights.length+1);
+  expect((await post({...createPayload,request:{...createPayload.request,light:originalLight}})).statusCode).toBe(422);
+  expect((await post({...createPayload,request:{...createPayload.request,settings:{...settings,lightId:createdLight.id}}})).statusCode).toBe(422);
+  expect((await post({...createPayload,request:{...createPayload.request,light:{...createdLight,roomId:randomUUID()}}})).statusCode).toBe(422);
+  const {id:originalId,...originalFields}=originalLight;
+  const updatePayload={...payload,request:{...binding,type:'set-light-details',lightId:originalId,light:{...originalFields,intensity:100},settings:{fixture:'none'}}};
+  const updateReply=await post(updatePayload);
+  expect(updateReply.statusCode,updateReply.body).toBe(200);
+  expect(updateReply.json().candidate.lights).toEqual([{...originalLight,intensity:100}]);
+  expect(lightDetailsFor(updateReply.json().candidate)).toEqual([{lightId:originalId,fixture:'none'}]);
+  for(const fields of [{roomId:randomUUID()},{castsShadow:true},{transform:{...originalFields.transform,scale:[2,2,2]}},{id:originalId}]){
+   expect((await post({...updatePayload,request:{...updatePayload.request,light:{...updatePayload.request.light,...fields}}})).statusCode).toBe(422);
+  }
+  expect((await post({...updatePayload,request:{...updatePayload.request,unrelated:true}})).statusCode).toBe(400);
+  expect((await post(updatePayload,{'if-match':''})).statusCode).toBe(400);
+  live=false;
+  expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeSceneAuthoringProposalProfile');
+  expect((await post(updatePayload)).statusCode).toBe(503);
+  live=true;
   expect(draft).toEqual(before);
   expect(queries.some(sql=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
  }finally{await app.close();await ordinary.close();}

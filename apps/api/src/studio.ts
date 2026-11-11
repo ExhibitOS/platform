@@ -1,3 +1,4 @@
+import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
 import {applyFurnishingWalkingCollisionOverride,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
@@ -33,8 +34,9 @@ export interface StudioResponse {
   draft: Draft;
 }
 export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
+export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>;
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand;
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -348,16 +350,17 @@ export class Studio {
     if(expectedRevision!==row.revision||match!==head)throw new ApiError(412,'REMOTE_CONFLICT');
     const draft=row.metadata as Draft;
     checked({draft,requestId});
-    const wall=request.type==='set-wall-finish';
-    let candidate:Draft['candidate'];
+    let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string};
     try{
-      candidate=wall?applyArchitecturalFinishCommand(draft.candidate,request):applyPlaqueCommand(draft.candidate,request);
+      if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
+      else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
+      else if(request.type==='set-pedestal'||request.type==='add-light'||request.type==='set-light-details')result=nativeSceneProposal(draft.candidate,request);
+      else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch{
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
     }
-    checked({draft:{...draft,candidate} as Draft,requestId});
-    const target=wall?{surfaceId:request.wall.surfaceId}:{plaqueId:request.plaque.id};
-    return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...target,candidate}};
+    checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});
+    return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result}};
   }
 
   async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string,placementId?:string,mode?:'same-artwork-model'):Promise<StudioResponse>{
