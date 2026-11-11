@@ -29,9 +29,10 @@ try{
  const requestFile=await open(requestPath,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);let requestBytes;
  try{const stat=await requestFile.stat();if(!stat.isFile()||stat.size>65536)fail();requestBytes=await requestFile.readFile();}finally{await requestFile.close();}
  const request=parseStaticJson(requestBytes,65536);
- const fields=['sourcePath','sourceSHA256','sourceBytes','noticePath','noticeSHA256','noticeBytes','licenseId','outputDir'];
+ const fields=['sourcePath','sourceSHA256','sourceBytes','noticePath','noticeSHA256','noticeBytes','licenseId','outputDir','producerCommit'];
  if(!request||typeof request!=='object'||Array.isArray(request)||Object.keys(request).sort().join(',')!==fields.sort().join(',')||request.licenseId!=='CC0-1.0'||typeof request.outputDir!=='string'||!request.outputDir.startsWith('/')||resolve(request.outputDir)!==request.outputDir||request.noticeBytes>65536)fail();
  const repo=fileURLToPath(new URL('../',import.meta.url)),sourceCommit=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
+ if(request.producerCommit!==sourceCommit)fail();
  const implementation=[];
  for(const path of ['scripts/prepare-shared-fixture-catalogue.mjs','apps/api/src/shared-fixture-producer.ts','apps/api/src/light-fixture-preparation.ts','apps/api/src/light-fixture-preparation-process.ts','apps/api/src/light-fixture-preparation-worker.ts','apps/api/src/workspace-furnishing-glb.ts','apps/api/src/validation-worker.ts']){
   const bytes=execFileSync('git',['show',`${sourceCommit}:${path}`],{cwd:repo,maxBuffer:4*1024*1024});
