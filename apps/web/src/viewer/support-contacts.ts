@@ -14,6 +14,19 @@ export function supportContactFits(used:number,limit:number){
   return used<=limit-SUPPORT_CONTACT_BYTES;
 }
 
+/** Stable admission may discard only expendable encoded cache entries. Leave a
+ * modeled 1MiB working margin when reclaimable; keep all byte/pin guards and the
+ * actual 12KiB contact gate. Mounted model reservations remain counted. */
+export function reclaimSupportContactCache(input:{used:()=>number;limit:number;keys:Iterable<string>;evict:(key:string)=>unknown}){
+  if(supportContactFits(input.used(),input.limit))return true;
+  const target=input.limit-1024*1024;
+  for(const key of input.keys){
+    if(supportContactFits(input.used(),target))break;
+    input.evict(key);
+  }
+  return supportContactFits(input.used(),input.limit);
+}
+
 export function supportContacts(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,
   surfaces:ReadonlyMap<string,Three.Group>,rectangles:readonly (readonly Rectangle[])[],
   pedestals:ReadonlyMap<string,readonly Three.Object3D[]>,

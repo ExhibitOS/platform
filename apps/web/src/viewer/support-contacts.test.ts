@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import * as three from 'three';
+import {MemoryAssetCache} from './loading';
 import type {Exhibition} from '@exhibitos/spec';
 import {ARCHITECTURAL_FINISH_NAMESPACE,BENCH_NAMESPACE,INSTALLATION_NAMESPACE} from '@exhibitos/studio-contract';
-import {supportContactFits,supportContacts} from './support-contacts';
+import {reclaimSupportContactCache,supportContactFits,supportContacts} from './support-contacts';
 
 it('uses only visible geometry in the verified catalog legs',()=>{
   const room=new three.Group(),floor=new three.Group(),model=new three.Group();
@@ -91,4 +92,26 @@ it('places frame support on the visible wall face and still excludes openings',(
   document.extensions![ARCHITECTURAL_FINISH_NAMESPACE]=JSON.parse(before).extensions[ARCHITECTURAL_FINISH_NAMESPACE];
   expect(JSON.stringify(document)).toBe(before);
   geometry.dispose();material.dispose();
+});
+
+
+it('reclaims only unpinned encoded bytes for contact headroom without changing modeled limits',()=>{
+  const cache=new MemoryAssetCache<ArrayBuffer>(8*1024*1024),pinned=new ArrayBuffer(4),raw=new ArrayBuffer(4),spare=new ArrayBuffer(4);
+  cache.set('pinned',pinned,2*1024*1024);cache.acquire('pinned');
+  cache.set('raw',raw,2*1024*1024);cache.set('spare',spare,2*1024*1024);
+  const fixed=4*1024*1024,limit=10*1024*1024,used=()=>fixed+cache.stats().bytes;
+  expect(reclaimSupportContactCache({used,limit,keys:['pinned','raw','spare'],evict:key=>cache.delete(key)})).toBe(true);
+  expect(cache.get('pinned')).toBe(pinned);expect(cache.get('raw')).toBeUndefined();expect(cache.get('spare')).toBe(spare);
+  expect(supportContactFits(used(),limit-1024*1024)).toBe(true);
+  expect(cache.maxBytes).toBe(8*1024*1024);expect(raw.byteLength).toBe(4);
+  cache.release('pinned');cache.clear();
+});
+it('retains the budget denial when encoded bytes are pinned or insufficient and does nothing when already fitting',()=>{
+  const cache=new MemoryAssetCache<string>(4*1024*1024);cache.set('pinned','retained',2*1024*1024);cache.acquire('pinned');
+  const limit=3*1024*1024,used=()=>2*1024*1024+cache.stats().bytes;
+  expect(reclaimSupportContactCache({used,limit,keys:['pinned'],evict:key=>cache.delete(key)})).toBe(false);
+  expect(cache.get('pinned')).toBe('retained');expect(cache.stats().pinned).toBe(1);
+  let evictions=0;
+  expect(reclaimSupportContactCache({used:()=>1024,limit,keys:['pinned'],evict:()=>{evictions++;}})).toBe(true);
+  expect(evictions).toBe(0);cache.release('pinned');cache.clear();
 });

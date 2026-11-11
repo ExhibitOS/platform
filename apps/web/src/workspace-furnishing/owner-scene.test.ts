@@ -73,7 +73,7 @@ it('loads a public furnishing through the shared artwork ledger and removes it o
 
 it.each([
  {name:'desktop',budget:deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true}),initial:160000,grown:165101,limit:200000},
- {name:'known high-memory Compact',budget:selectedDeviceBudget('compact',{deviceMemory:8}),initial:2940,grown:34506,limit:100000},
+ {name:'known high-memory Compact',budget:selectedDeviceBudget('compact',{deviceMemory:8}),initial:2940,grown:114511,limit:160000},
 ])('keeps approved furnishings after $name artwork growth and still retires an over-limit scene',async({budget,initial,grown,limit})=>{
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9);
  const item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
