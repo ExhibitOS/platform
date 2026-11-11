@@ -1,3 +1,4 @@
+import {nativeFixtureProposal,type NativeFixtureCommand} from './native-fixture-proposal.ts';
 import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
 import {applyFurnishingWalkingCollisionOverride,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
@@ -35,8 +36,9 @@ export interface StudioResponse {
 }
 export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
 export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
+export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand;
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand;
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -355,6 +357,7 @@ export class Studio {
       if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
       else if(request.type==='set-pedestal'||request.type==='add-light'||request.type==='set-light-details')result=nativeSceneProposal(draft.candidate,request);
+      else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch{
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
