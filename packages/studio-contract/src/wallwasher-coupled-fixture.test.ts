@@ -7,7 +7,7 @@ import {lightAttachmentPose,lightAttachmentsFor,validateLightAttachments,LIGHT_A
 
 import {paintingWasherCandidate,lightId,emitter} from '../test-fixtures/wallwasher.js';
 
-function resolved(document:Exhibition){const f=furnishingsFor(document)!;return resolveFurnishing(document,f.bindings[0]!,f.assets[0]!);}
+function resolved(document:Exhibition){const f=furnishingsFor(document)!,result=resolveFurnishing(document,f.bindings[0]!,f.assets[0]!);if(!('wallwasher' in result))throw Error('WASHER_RESULT_REQUIRED');return result;}
 
 it('creates the required painting candidate through existing commands, retaining emitter attachment semantics',()=>{
  const {candidate}=paintingWasherCandidate(),before=structuredClone(candidate),result=resolved(candidate);

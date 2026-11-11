@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {newDraft} from '../../../apps/web/src/drafts/example.js';
-import {applyLightObjectCommand} from '../src/light-object.js';
-import {lightAttachmentPose} from '../src/room-envelope.js';
+import {applyLightObjectCommand,lightAttachmentPose} from '@exhibitos/studio-contract';
 
 export const lightId='a0000000-0000-4000-8000-000000000001',assetId='a0000000-0000-4000-8000-000000000002';
 export const emitter:[number,number,number]=[-2.457939962346657,3.8619541213603323,2.5];
