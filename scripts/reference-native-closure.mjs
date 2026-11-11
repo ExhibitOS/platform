@@ -64,22 +64,48 @@ export async function readNativeReferenceClosure(input){
  template(await regular(webRoot,'static.html',webEntries.get('static.html').bytes),reference.viewerBuildId,true);template(await regular(webRoot,'static-studio.html',webEntries.get('static-studio.html').bytes),reference.viewerBuildId,false);
  const manifest=parseStaticJson(await regular(sourceRoot,'static-export-manifest.json',2*1024*1024)),index=qualified.index,headers=staticCacheHeaders(index,manifest.files);
  if(!headers)fail('REFERENCE_NATIVE_SOURCE');
- return {inputRoot,inventorySha256,indexSha256:reference.indexSha256,closure,reference,sourceRoot,webRoot,webInventoryPath,sourceManifestSha256,webInventorySha256:reference.viewerInventorySha256,webBuildId:reference.viewerBuildId,sourceEntries,headers};
+ return {inputRoot,inventorySha256,indexSha256:reference.indexSha256,closure,reference,sourceRoot,webRoot,webInventoryPath,sourceManifestSha256,webInventorySha256:reference.viewerInventorySha256,webBuildId:reference.viewerBuildId,sourceEntries,headers,index};
 }
 
-/** Verify all raw R97 bytes and the separate trusted hosting-control overlay. */
+/** Apply only the established public-demo session configuration to reviewed
+ * native entry HTML. Native exports retain their ordinary browser-copy mode. */
+async function sessionHostingOverlay(source){
+ const overlays=new Map();
+ for(const path of ['index.html','studio.html']){
+  const entry=source.sourceEntries.get(path),bytes=await regular(source.sourceRoot,path,entry.bytes);
+  if(bytes.length!==entry.bytes||hash(bytes)!==entry.sha256)fail('REFERENCE_NATIVE_INTEGRITY');
+  const html=bytes.toString('utf8');
+  if(!Buffer.from(html).equals(bytes)||html.includes('exhibitos-demo-decoration')||html.split('</head>').length!==2)fail('REFERENCE_NATIVE_WEB');
+  overlays.set(path,Buffer.from(html.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>')));
+ }
+ const original=source.sourceEntries.get('static-export-manifest.json'),bytes=await regular(source.sourceRoot,original.path,original.bytes);
+ if(bytes.length!==original.bytes||hash(bytes)!==original.sha256)fail('REFERENCE_NATIVE_INTEGRITY');
+ const manifest=parseStaticJson(bytes);
+ manifest.files=manifest.files.map(entry=>{const bytes=overlays.get(entry.path);return bytes?{...entry,bytes:bytes.length,sha256:hash(bytes)}:entry;});
+ const manifestBytes=Buffer.from(JSON.stringify(manifest));
+ overlays.set('static-export-manifest.json',manifestBytes);
+ const entries=new Map(source.sourceEntries);
+ for(const [path,bytes]of overlays)entries.set(path,{path,bytes:bytes.length,sha256:hash(bytes)});
+ const headers=Buffer.from(staticCacheHeaders(source.index,manifest.files));
+ overlays.set('_headers',headers);entries.set('_headers',{path:'_headers',bytes:headers.length,sha256:hash(headers)});
+ return {overlays,entries,manifestSha256:hash(manifestBytes),headers};
+}
+
+/** Verify exact native content plus the deterministic public-demo session and
+ * hosting-control overlays. No caller-provided HTML or manifest is accepted. */
 export async function inspectNativeReferenceClosure(input){
  if(!exact(input,['output','inputRoot','inventorySha256']))fail('REFERENCE_NATIVE_REQUEST');
  const {output,inputRoot,inventorySha256}=input;if(typeof output!=='string')fail('REFERENCE_NATIVE_PATH');await canonicalDirectory(output);
  if(within(output,inputRoot)||within(inputRoot,output))fail('REFERENCE_NATIVE_PATH');
- const closure=await readNativeReferenceClosure({inputRoot,inventorySha256}),entries=new Map(closure.sourceEntries),headers=Buffer.from(closure.headers);entries.set('_headers',{path:'_headers',bytes:headers.length,sha256:hash(headers)});
+ const closure=await readNativeReferenceClosure({inputRoot,inventorySha256}),{entries,manifestSha256,headers}=await sessionHostingOverlay(closure);
  await completeInventory(output,entries);
- const manifest=await regular(output,'static-export-manifest.json',2*1024*1024);if(hash(manifest)!==closure.reference.nativeManifestSha256)fail('REFERENCE_NATIVE_OUTPUT');
- return {publicationId:closure.reference.publicationId,revisionSha256:closure.reference.revisionSha256,indexSha256:closure.reference.indexSha256,manifestSha256:closure.reference.nativeManifestSha256,viewerBuildId:closure.webBuildId,viewerSourceCommit:closure.reference.viewerSourceCommit,inventorySha256,rawFiles:140,files:141,outputFiles:141,bytes:[...entries.values()].reduce((sum,item)=>sum+item.bytes,0),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:hash(headers)};
+ const manifest=await regular(output,'static-export-manifest.json',2*1024*1024);if(hash(manifest)!==manifestSha256)fail('REFERENCE_NATIVE_OUTPUT');
+ return {publicationId:closure.reference.publicationId,revisionSha256:closure.reference.revisionSha256,indexSha256:closure.reference.indexSha256,manifestSha256,nativeManifestSha256:closure.reference.nativeManifestSha256,hostingMode:'session-v1',viewerBuildId:closure.webBuildId,viewerSourceCommit:closure.reference.viewerSourceCommit,inventorySha256,rawFiles:140,files:141,outputFiles:141,bytes:[...entries.values()].reduce((sum,item)=>sum+item.bytes,0),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:hash(headers)};
 }
 
-/** Compose the reviewed native shell deterministically from public inputs. No
- * network, web build, original approval, profile or publication export occurs. */
+/** Compose the reviewed native shell deterministically from public inputs.
+ * Add only the established Demo session marker and hosting cache headers.
+ * No network, web build, original approval, profile or publication export occurs. */
 export async function exportNativeReferenceClosure(input){
  if(!exact(input,['inputRoot','inventorySha256','outputDir']))fail('REFERENCE_NATIVE_REQUEST');
  const {inputRoot,inventorySha256,outputDir}=input;if(typeof outputDir!=='string'||!outputDir.startsWith('/')||resolve(outputDir)!==outputDir)fail('REFERENCE_NATIVE_PATH');
@@ -91,7 +117,8 @@ export async function exportNativeReferenceClosure(input){
   stage=await mkdtemp(join(parent,'.reference-native-closure-'));const candidate=join(stage,'output');
   const result=await refreshNativeDetailShell({sourceDir:source.sourceRoot,sourceManifestSha256:source.sourceManifestSha256,indexSha256:source.reference.indexSha256,publicationId:source.reference.publicationId,revisionSha256:source.reference.revisionSha256,webRoot:source.webRoot,webInventoryPath:source.webInventoryPath,webInventorySha256:source.webInventorySha256,webBuildId:source.webBuildId,outputDir:candidate});
   if(result.manifestSha256!==source.reference.nativeManifestSha256||result.files!==140)fail('REFERENCE_NATIVE_OUTPUT');
-  await writeFile(join(candidate,'_headers'),source.headers,{flag:'wx',mode:0o600});
+  const {overlays}=await sessionHostingOverlay(source);
+  for(const [path,bytes]of overlays)await writeFile(join(candidate,path),bytes,{flag:path==='_headers'?'wx':'w',mode:0o600});
   const proof=await inspectNativeReferenceClosure({output:candidate,inputRoot,inventorySha256});
   const currentParent=await canonicalDirectory(parent);if(currentParent.dev!==parentStat.dev||currentParent.ino!==parentStat.ino)fail('REFERENCE_NATIVE_PATH');
   try{await lstat(outputDir);fail('REFERENCE_NATIVE_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
