@@ -92,3 +92,21 @@ promotion, preserving newer qualified content if another release finished first.
 Source integration, bounded actual affected-consumer acceptance and provider
 deployment remain distinct scopes; no rebuild is needed solely to substitute
 a merge commit for the frozen build identity.
+
+## Exact R101 optical continuation
+
+The next named content target is publication `b9131ed0-d337-4150-b165-45eb5c7ef7ff`,
+index `8a9b441381e099f8d7c8018b3689d2d1a0d826ac5f9b8dbac146b67253a6ce8d`,
+native manifest `c16a17f1bee0858f7b6554cac5b53b95330d0f611d4233ea589b126fca85465d`.
+It accepts only the qualified `aa8d…` view-interest web tuple. The input retains
+141 source files (179 integrity rows, 180 physical files) and produces 142
+hosting files. Its new original candidate/binding identities are checked against
+its own immutable publication; no older publication IDs or grants are inserted.
+
+The accepted optical arrangement retains directional intensity 2 and the Greek
+spot intensity 100, with room base 16 and added spots 18/21/23. All 19 artworks,
+five model previews and two originals are retained. Existing Hayes and R97
+rollback targets remain supported. Local current-776 optical observations do
+not establish current-aa8d visual acceptance, public deployment, complete spill
+resolution or physical fit. Final exact-output consumer qualification and
+Delivery's current-tuple reconciliation precede any separate promotion.
