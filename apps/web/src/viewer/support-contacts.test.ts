@@ -5,6 +5,7 @@ import {AssetPeakBudget,MemoryAssetCache} from './loading';
 import type {Exhibition} from '@exhibitos/spec';
 import {ARCHITECTURAL_FINISH_NAMESPACE,BENCH_NAMESPACE,INSTALLATION_NAMESPACE} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContactFits,supportContacts} from './support-contacts';
+import {installSupportContactShadows} from './shadows';
 
 it('uses only visible geometry in the verified catalog legs',()=>{
   const room=new three.Group(),floor=new three.Group(),model=new three.Group();
@@ -63,7 +64,7 @@ it('uses actual mounted workspace feet, merges overlapping submeshes and never s
   geometry.dispose();material.dispose();
 });
 
-it('grounds the actual opaque plinth bottom and omits a floating or hidden base',()=>{
+it('grounds the actual opaque plinth bottom, preserves it after top-cue hooks, and omits unsupported bases',()=>{
   const room=new three.Group(),floor=new three.Group();floor.rotation.x=-Math.PI/2;room.add(floor);
   const geometry=new three.BoxGeometry(.65,.9,.65),material=new three.MeshStandardMaterial();
   const base=new three.Mesh(geometry,material);base.position.set(.3,.45,-.2);base.rotation.y=.4;room.add(base);
@@ -81,6 +82,20 @@ it('grounds the actual opaque plinth bottom and omits a floating or hidden base'
   expect(contacts[0]!.position).toEqual([expect.closeTo(.3),expect.closeTo(.002),expect.closeTo(-.2)]);
   base.position.y+=.02;expect(get()).toEqual([]);
   base.position.y-=.02;base.visible=false;expect(get()).toEqual([]);
+  base.visible=true;
+  document.placements[0]!.transform={...pose,position:[.3,1,-.2]} as typeof document.placements[number]['transform'];
+  const both=get();expect(both).toHaveLength(2);
+  const camera=new three.PerspectiveCamera(60,1,.1,20);camera.position.set(.3,1,2);camera.lookAt(.3,.45,-.2);
+  const before=material.onBeforeCompile;
+  const pass=installSupportContactShadows(three,both,false,()=>{});pass.setView(camera);
+  expect(material.onBeforeCompile).not.toBe(before);
+  expect(get()).toHaveLength(2);
+  expect(get().filter(row=>row.receiver===floor)).toHaveLength(1);
+  // A foreign hook can deform the source. It must not inherit the permission
+  // granted only to the current geometry-preserving contact pass hook.
+  material.onBeforeCompile=()=>{};
+  expect(get().filter(row=>row.receiver===floor)).toEqual([]);
+  pass.dispose();
   geometry.dispose();material.dispose();
 });
 

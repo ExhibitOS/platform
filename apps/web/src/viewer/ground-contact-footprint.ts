@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as THREE from 'three';
+import {hasSupportContactMaterialHook} from './shadows';
 
 type Point={x:number;z:number};
 export type RectangularGroundContact={position:[number,number,number];rotation:[number,number,number,number];width:number;depth:number};
@@ -24,7 +25,7 @@ export function rectangularGroundContact(three:typeof THREE,objects:readonly THR
       const geometry=node.geometry,materials=Array.isArray(node.material)?node.material:[node.material];
       if(Array.isArray(node.material)||node instanceof three.SkinnedMesh||node instanceof three.InstancedMesh||('isBatchedMesh'in node&&node.isBatchedMesh)||
         ('isInstancedBufferGeometry'in geometry&&geometry.isInstancedBufferGeometry)||Object.values(geometry.morphAttributes).some(v=>!Array.isArray(v)||v.length>0)||
-        materials.some(m=>!m.visible||!m.depthTest||m.transparent||m.opacity<1||m.alphaTest>0||m.alphaHash||!!m.clippingPlanes?.length||('wireframe'in m&&m.wireframe)||('alphaMap'in m&&m.alphaMap)||('displacementMap'in m&&m.displacementMap)||m instanceof three.ShaderMaterial||m.onBeforeCompile!==three.Material.prototype.onBeforeCompile)) {invalid=true;return;}
+        materials.some(m=>!m.visible||!m.depthTest||m.transparent||m.opacity<1||m.alphaTest>0||m.alphaHash||!!m.clippingPlanes?.length||('wireframe'in m&&m.wireframe)||('alphaMap'in m&&m.alphaMap)||('displacementMap'in m&&m.displacementMap)||m instanceof three.ShaderMaterial||m.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(m))) {invalid=true;return;}
       const positions=geometry.getAttribute('position'),index=geometry.index,count=index?.count??positions?.count??0;
       if(!positions||positions.itemSize!==3||count%3||geometry.drawRange.start!==0||geometry.drawRange.count<count){invalid=true;return;}
       const matrix=new three.Matrix4().multiplyMatrices(inverse,node.matrixWorld);

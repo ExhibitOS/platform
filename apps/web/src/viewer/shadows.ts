@@ -10,6 +10,10 @@ export function directionalNormalBias(width:number,height:number,radius:number){
   return Math.max(.01,Math.max(width,height)/512*(Math.sqrt(.9)*radius+Math.SQRT2));
 }
 const supportMaterialHooks=new WeakMap<THREE.Material,THREE.Material['onBeforeCompile']>();
+/** Only this pass's current hook preserves the source geometry. Never trust a
+ * material marker or another caller's shader with the same name. */
+export const hasSupportContactMaterialHook=(material:THREE.Material)=>
+  supportMaterialHooks.get(material)===material.onBeforeCompile;
 type Candidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D};
 export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number};
 
@@ -78,7 +82,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const installPlanarDepth=(mesh:THREE.Mesh)=>{
     const material=mesh.material;
     if(Array.isArray(material)||material.shadowSide!==null||material instanceof three.ShaderMaterial||
-      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&supportMaterialHooks.get(material)!==material.onBeforeCompile||
+      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)||
       mesh instanceof three.SkinnedMesh||mesh instanceof three.InstancedMesh||('isBatchedMesh'in mesh&&mesh.isBatchedMesh)||('isInstancedBufferGeometry'in mesh.geometry&&mesh.geometry.isInstancedBufferGeometry)||
       mesh.customDepthMaterial||mesh.customDistanceMaterial||
       mesh.onBeforeShadow!==three.Object3D.prototype.onBeforeShadow||mesh.onAfterShadow!==three.Object3D.prototype.onAfterShadow||
