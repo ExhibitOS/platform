@@ -4,6 +4,7 @@ import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/me
 import { embeddedPNGManager } from './embedded-glb.js';
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {ViewerIcon} from './viewer/ViewerIcon';
+import {DetailQualityControl,detailQualityLevel as qualityLevel,detailQualityName as qualityName} from './DetailQualityControl';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
@@ -16,14 +17,6 @@ import {flatImagePreview} from './viewer/flat-image-preview';
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
 import type {DetailQualityProgress,SharedDetailPreview,SharedDetailSession} from './viewer/borrowed-detail-preview';
 import {lodVariantsFor,type DetailTier} from '@exhibitos/studio-contract';
-
-const qualityLevel:Record<DetailTier,number>={'lightweight':1,'approved-full':2,'acquired-original':3};
-
-function qualityName(tier:DetailTier,flat:boolean){
-  if(tier==='acquired-original')return '원본 파일';
-  if(tier==='approved-full')return '승인된 고화질';
-  return flat?'경량 이미지':'경량 모델';
-}
 
 export interface DetailAnchor { id: string; position: [number, number, number]; text: string }
 export function ArtworkDetailPreview({ publication, artwork, anchors, placementId, sharedPreview, referenceTone = DEFAULT_REFERENCE_TONE }: {
@@ -506,20 +499,11 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
   const helpControl=<details className="detail-help"><summary className="detail-control-icon" style={actionSize} aria-label={flat?'이미지 조작 안내':'작품 조작 안내'} title={flat?'이미지 조작 안내':'작품 조작 안내'}><ViewerIcon name="help"/></summary>
       <p>{flat?'두 번 누르거나 확대·축소 버튼을 사용하세요. 두 손가락 확대, 휠·트랙패드와 방향키도 사용할 수 있습니다. 이미지 비율은 유지되며 확대 한도는 준비된 이미지 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'두 손가락으로 확대하거나 화면을 이동할 수 있습니다. 키보드는 방향키로 회전, Shift+방향키로 이동, +/−로 확대·축소, Home으로 초기화할 수 있습니다. 작품의 미터 단위 좌표를 유지하는 디지털 미리보기이며 화면의 물리적 크기와는 다릅니다.'}</p>
     </details>;
-  const qualityControl=renderedTier&&<details className="detail-help detail-quality">
-    <summary className="detail-control-icon" aria-label={`현재 표시 품질: ${qualityName(renderedTier,flat)}`} title={`현재 표시 품질: ${qualityName(renderedTier,flat)}`}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
-        <path d="M5 19v-4" />
-        <path d="M12 19v-9" opacity={qualityLevel[renderedTier]>=2?1:.3} />
-        <path d="M19 19V5" opacity={qualityLevel[renderedTier]>=3?1:.3} />
-      </svg>
-    </summary>
-    <p>현재 표시: {qualityName(renderedTier,flat)}</p>
-  </details>;
+  const qualityControl=renderedTier&&<DetailQualityControl tier={renderedTier} flat={flat} progress={progress}/>;
   return <section aria-label={flat?'작품 정면 이미지 확대':'작품 확대 및 회전'}>
     <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={error?-1:0} aria-disabled={!!error||undefined} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={error?undefined:hint} />
       <WatermarkOverlay candidate={publication.exhibition}/>
-      {!error&&progress&&<progress className="detail-quality-progress" aria-label={`${qualityName(progress.tier,flat)} 불러오는 중`}
+      {!error&&progress&&!renderedTier&&<progress className="detail-quality-progress" aria-label={`${qualityName(progress.tier,flat)} 불러오는 중`}
         max={progress.totalBytes??undefined} value={progress.totalBytes===null?undefined:progress.loadedBytes}/>}
     </div>
     {!error&&<p id={hint} className="detail-gesture-hint">{flat?'확대한 뒤 드래그해 살펴보세요.':'드래그해 회전하며 살펴보세요.'}</p>}
