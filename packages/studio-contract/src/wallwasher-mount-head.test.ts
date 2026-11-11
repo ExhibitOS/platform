@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {resolveWallwasherMountHead as resolve,resolveWallwasherAuthoredRest as rest,WALLWASHER_MOUNT_HEAD_MODEL_SHA256 as pin,type WallwasherMountHeadInput,type WasherVector} from './wallwasher-mount-head.js';
+import {resolveWallwasherMountHead as resolve,resolveWallwasherAuthoredRest as rest,WALLWASHER_MOUNT_HEAD_MODEL_SHA256 as pin,WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256 as reliefPin,type WallwasherMountHeadInput,type WasherVector} from './wallwasher-mount-head.js';
 
 // Synthetic part boxes qualify algebra only, never model travel or catalogue admission.
 function fixture():WallwasherMountHeadInput {
@@ -60,4 +60,30 @@ test('current authored-rest visual maps through the resolved optical frame, neve
  const q=Math.SQRT1_2;
  expect(()=>rest({...stored,opticalPose:{...stored.opticalPose,rotation:[0,q,q,0]}})).toThrow('WASHER_MOUNT_NOT_FLUSH');
  expect(()=>rest({...stored,visualPose:{...stored.visualPose,yaw:.1}})).toThrow('WASHER_REST_VISUAL_POSE_INVALID');
+});
+
+// Producer metadata, not this helper, owns admitted angles and actual part bounds.
+test('rear relief uses its exact profile/hash pair and preserves the shared pose algebra',()=>{
+ const original=fixture(),input=fixture();
+ input.profile.profileId='museum-wallwasher-rear-relief-fixed-head-v1';input.profile.modelSha256=reliefPin;
+ const theta=-57.892880597116964*Math.PI/180;
+ input.profile.headPitchIntervals=[[0,0],[theta,theta]];
+ original.profile.headPitchIntervals=input.profile.headPitchIntervals;
+ for(const headPitch of [0,theta]){
+  input.headPitch=headPitch;original.headPitch=headPitch;
+  expect(resolve(input)).toEqual(resolve(original));
+ }
+ const r=resolve(input);
+ expect(r.emitter[0]).toBeCloseTo(-2.457939962346657,12);
+ expect(r.emitter[1]).toBeCloseTo(3.8619541213603323,12);
+ expect(r.pivotWorld).toEqual([-2.45,3.916,2.5]);
+ for(const headPitch of [theta/2,theta-1e-9,1e-9]){
+  expect(()=>resolve({...input,headPitch})).toThrow('WASHER_PITCH_NOT_APPROVED');
+ }
+});
+test('profile identities cannot exchange model hashes',()=>{
+ const input=fixture();
+ expect(()=>resolve({...input,profile:{...input.profile,modelSha256:reliefPin}})).toThrow('WASHER_PROFILE_PIN_INVALID');
+ expect(()=>resolve({...input,profile:{...input.profile,profileId:'museum-wallwasher-rear-relief-fixed-head-v1'}})).toThrow('WASHER_PROFILE_PIN_INVALID');
+ expect(()=>resolve({...input,profile:{...input.profile,profileId:'museum-wallwasher-rear-relief-fixed-head-v1',modelSha256:'0'.repeat(64)}})).toThrow('WASHER_PROFILE_PIN_INVALID');
 });
