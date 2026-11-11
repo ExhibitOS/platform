@@ -4,6 +4,7 @@ import type {Exhibition} from '@exhibitos/spec';
 import type {PublicAsset} from '../publication-client';
 import {furnishingsFor,resolveFurnishing,validateFurnishings} from '@exhibitos/studio-contract';
 import {loadCatalogModel} from './catalog-furnishing-loader';
+import {applyWallwasherModelPose} from './wallwasher-model-pose';
 import {BENCH_CATALOG,BENCH_CATALOG_PATH,BENCH_RESERVE_BYTES} from './catalog-bench';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from '../viewer/furnishing-collision-mesh';
 
@@ -62,7 +63,11 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    visual=await loadCatalogModel(three,resolved.source,item.source,signal,()=>disposed||unavailable(),Math.max(0,maxTriangles-triangles),remaining);
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
-   const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);
+   const wallwasher='wallwasher' in resolved?resolved.wallwasher:undefined;
+   if(item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined){
+    if(item.asset.catalogId!=='museum-wallwasher-rear-relief'||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
+    applyWallwasherModelPose(three,visual.model,item.asset,wallwasher);
+   }else{const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);}
    visual.model.userData.editorSelection=binding.hostKind==='pedestal'?{kind:'placement',id:binding.hostId}:binding.hostKind==='opening'?{kind:'opening',id:binding.hostId}:undefined;
    parent.add(visual.model);target.add(parent);const disposeVisual=visual.dispose;visual.dispose=()=>{disposeVisual();parent.removeFromParent();};
    if((binding.hostKind==='light'||binding.hostKind==='opening')&&collisionPolicy?.enabled(binding.hostKind,binding.hostId)){
