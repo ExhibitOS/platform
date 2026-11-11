@@ -13,7 +13,7 @@ import {readBoundOriginalDetail} from './original-detail-binding.ts';
 import type {Studio} from './studio.ts';
 import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
-import {readBoundAdoptedModelOriginal} from './adopted-model-original-binding.ts';
+import {readBoundModelOriginal} from './required-model-original-binding.ts';
 import {ADOPTED_MODEL_DETAIL_INSPECTOR} from './adopted-model-detail-report.ts';
 
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
@@ -42,7 +42,7 @@ export async function reconstructNativeOriginalExport(c:PoolClient,s:Session,pub
  let retained:Buffer|undefined,handed=false;try{
   for(const item of candidates){if(selected&&item.candidate.assetId!==selected.assetId)continue;signal.throwIfAborted();
    if(item.artworkType==='sculpture'){
-    const bytes=await readBoundAdoptedModelOriginal(c,s,{workspaceId:owner.workspaceId,exhibitionId:row.exhibition_id,publicationId},revision,item.artworkId,item.artworkRevisionId,item.candidate,deps,signal);
+    const bytes=await readBoundModelOriginal(c,s,{workspaceId:owner.workspaceId,exhibitionId:row.exhibition_id,publicationId},revision,item.artworkId,item.artworkRevisionId,item.candidate,deps,signal);
     if(selected)retained=bytes;else bytes.fill(0);
     continue;
    }
