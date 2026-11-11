@@ -2,7 +2,7 @@
 import {afterEach,expect,test,vi} from 'vitest';
 import * as Three from 'three';
 import type {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {applyBenchCommand,PRESENTATION_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyBenchCommand,PRESENTATION_NAMESPACE,BENCH_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
 import {applyGeometryCommand,createGeometryState} from '../geometry/model';
 import {createWalkingCamera} from './navigation-camera';
@@ -96,4 +96,23 @@ test('sitting never interpolates the camera through an intervening wall, even wi
  const h=await harness(true,d=>{const wall=d.surfaces.find(s=>s.type==='wall')!;d.surfaces.push({...structuredClone(wall),id:crypto.randomUUID(),transform:{position:[0,1.5,1],rotation:[0,0,0,1],scale:[1,1,1]},dimensions:{width:2,height:3}});});
  try{h.adapter.actions.start();const before=h.camera.position.toArray();h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual(before);expect(h.state().walking).toBe(true);expect(h.state().seatTransition).toBeNull();expect(h.messages.at(-1)).toContain('안전');}
  finally{h.adapter.dispose();}
+});
+
+test('all stand candidates stay within the bounded neighborhood, including large bench edges',async()=>{
+ const h=await harness(true,d=>{const value=d.extensions![BENCH_NAMESPACE] as unknown as {benches:{dimensions:{width:number;depth:number}}[]};value.benches[0]!.dimensions.width=5;value.benches[0]!.dimensions.depth=5;});
+ try{h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);const before=h.camera.position.toArray();h.adapter.actions.stand!();expect(h.camera.position.toArray()).toEqual(before);expect(h.messages.at(-1)).toContain('유지');}
+ finally{h.adapter.dispose();}
+});
+for(const phase of ['sit','stand'] as const)for(const completion of ['frame','forced'] as const)test(`new head corridor obstruction cancels ${phase} on ${completion} completion`,async()=>{
+ const h=await harness(),group=new Three.Group();try{
+  h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);
+  if(phase==='stand'){h.advance(350);h.adapter.actions.stand!();}
+  // It blocks the remaining head path but neither certified start nor end.
+  const wall=new Three.Mesh(new Three.BoxGeometry(2,3,.02));wall.position.set(0,1.5,phase==='sit'?1:-.35);group.add(wall);
+  h.setSources([{id:'new-head-corridor',mesh:furnishingCollisionMesh(Three,group)!,active:()=>true}]);
+  if(completion==='frame')h.advance(h.time()+100);else h.adapter.actions.pause('user');
+  expect(h.frames.size).toBe(0);expect(h.state().seatTransition).toBeNull();expect(h.state().paused).toBe(true);
+  if(phase==='sit')expect(h.camera.position.z).toBeCloseTo(3);else expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);
+  const pose=h.camera.position.toArray();h.advance(2000);expect(h.camera.position.toArray()).toEqual(pose);
+ }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
 });

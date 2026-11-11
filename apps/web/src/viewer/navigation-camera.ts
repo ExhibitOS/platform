@@ -189,8 +189,50 @@ export async function createWalkingCamera({
     orbitChanged();
     render();
   };
+  const seatTransitionClear=(transition:NonNullable<typeof seatTransition>)=>{
+    try{
+      if(transition.phase==='sit'){
+        if(!seated)return false;
+        const destination=seatPose(seated.benchId);
+        if(destination.bench.workspaceVisual&&workspaceBenchAvailability?.(destination.bench.workspaceVisual)!=='ready')return false;
+      }else{
+        const standing=controller.qualifiedStandingEye(transition.to.toArray() as [number,number,number]);
+        if(!standing||new Vector3(...standing).distanceTo(transition.to)>.005)return false;
+      }
+      return controller.viewSegmentClear(camera.position.toArray() as [number,number,number],transition.to.toArray() as [number,number,number]);
+    }catch{return false;}
+  };
+  const abortSeatTransition=(transition:NonNullable<typeof seatTransition>)=>{
+    seatTransition=undefined;cancelAnimationFrame(frame);paused=true;controller.pause();
+    const saved=seated;if(!saved)return;
+    const fromAngles=new Euler().setFromQuaternion(transition.fromRotation,'YXZ');
+    const from=transition.from.toArray() as [number,number,number];
+    const rollback=transition.phase==='sit'?controller.qualifiedStandingEye(from):from;
+    let clear=!!rollback&&controller.viewSegmentClear(camera.position.toArray() as [number,number,number],rollback);
+    if(clear&&transition.phase==='stand'){try{seatPose(saved.benchId);}catch{clear=false;}}
+    if(clear&&rollback){
+      if(transition.phase==='sit'){
+        controller.reset({position:rollback,yaw:fromAngles.y});seated=undefined;walking=saved.returnWalking;
+        controls.enabled=!walking;canvas.style.touchAction=walking?'none':previousTouchAction;
+        onSeat?.(null);onMode(walking,true,saved.resumeInput?'bench-return':undefined);
+      }else{saved.eye=[...rollback];saved.yaw=fromAngles.y;saved.pitch=fromAngles.x;}
+      camera.position.fromArray(rollback);camera.quaternion.copy(transition.fromRotation);camera.fov=transition.fromFov;camera.updateProjectionMatrix();
+      pitch=fromAngles.x;targetPitch=pitch;targetYaw=fromAngles.y;
+      controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+      apply();
+    }else{
+      // No certified endpoint is reachable after a scene change: do not move
+      // through the obstruction or create standing eligibility at this point.
+      const current=new Euler().setFromQuaternion(camera.quaternion,'YXZ');
+      saved.eye=camera.position.toArray() as [number,number,number];saved.yaw=current.y;saved.pitch=current.x;
+      pitch=current.x;targetPitch=pitch;targetYaw=current.y;walking=false;controls.enabled=false;onMode(false,true);
+      publish();render();
+    }
+    onMessage('이동 경로가 바뀌어 안전한 위치에서 멈췄습니다.');
+  };
   const finishSeatTransition=()=>{
     const transition=seatTransition;if(!transition||disposed)return;
+    if(!seatTransitionClear(transition)){abortSeatTransition(transition);return;}
     seatTransition=undefined;cancelAnimationFrame(frame);
     try{transition.complete();}catch{
       // reset revalidates the standing capsule. Keep the qualified seat if a
@@ -212,11 +254,7 @@ export async function createWalkingCamera({
     if(settings.reducedMotion){finishSeatTransition();return;}
     const advance=(now:number)=>{
       if(disposed||seatTransition!==transition)return;
-      if(transition.phase==='stand'&&(!controller.qualifiedStandingEye(transition.to.toArray() as [number,number,number])||!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],transition.to.toArray() as [number,number,number]))){
-        seatTransition=undefined;cancelAnimationFrame(frame);
-        if(seated){camera.position.fromArray(seated.eye);camera.quaternion.copy(transition.fromRotation);camera.fov=transition.fromFov;camera.updateProjectionMatrix();pitch=new Euler().setFromQuaternion(camera.quaternion,'YXZ').x;targetPitch=pitch;targetYaw=seated.yaw;}
-        onMessage('주변 공간이 바뀌어 앉은 상태를 유지합니다.');apply();return;
-      }
+      if(!seatTransitionClear(transition)){abortSeatTransition(transition);return;}
       const t=Math.min(1,Math.max(0,(now-transition.startedAt)/350));transition.progress=t;
       if(t===1){finishSeatTransition();return;}
       const ease=t*t*(3-2*t);
@@ -244,7 +282,7 @@ export async function createWalkingCamera({
       return [Math.max(Math.min(...points.map(p=>p[0])),Math.min(Math.max(...points.map(p=>p[0])),current[0])),height,Math.max(Math.min(...points.map(p=>p[2])),Math.min(Math.max(...points.map(p=>p[2])),current[2]))] as [number,number,number];
     }).filter(p=>Math.hypot(p[0]-current[0],p[2]-current[2])<=2).sort((a,b)=>Math.hypot(a[0]-current[0],a[2]-current[2])-Math.hypot(b[0]-current[0],b[2]-current[2])).slice(0,32);
     candidates.push(...cells);
-    const ranked=candidates.map((seed,index)=>({seed,index,distance:Math.hypot(seed[0]-current[0],seed[2]-current[2])})).sort((a,b)=>Math.abs(a.distance-b.distance)>1e-7?a.distance-b.distance:a.index-b.index);
+    const ranked=candidates.map((seed,index)=>({seed,index,distance:Math.hypot(seed[0]-current[0],seed[2]-current[2])})).filter(candidate=>candidate.distance<=2).sort((a,b)=>Math.abs(a.distance-b.distance)>1e-7?a.distance-b.distance:a.index-b.index);
     for(const {seed}of ranked){const eye=qualify(seed[0],seed[2]);if(eye)return {eye,displaced:true};}
     return undefined;
   };
