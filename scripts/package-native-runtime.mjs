@@ -11,6 +11,7 @@ import {CATALOG045_PRE_READY_HAYES_MARKER,CATALOG045_PRE_READY_HAYES_CAPABILITY,
 import {ADOPTION_CAPABILITY,ADOPTION_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY,ADOPTION_CARRIED_TARGET_MARKER} from './native-model-adoption-owner-channel.mjs';
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
+import {assertNativeStaticResources} from './native-static-resource-closure.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 const fail = code => { throw Error(code); };
@@ -381,6 +382,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await command(nodeBinary, [npmCLI, 'run', 'build', '--workspace', '@exhibitos/studio-contract'], {
     cwd: source, env: {...process.env, PATH: dirname(nodeBinary) + ':' + (process.env.PATH ?? '')}
   });
+  await assertNativeStaticResources(join(source,'apps/web/dist-static'));
   const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
   if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   if(isDefaultRelease(furnishingsRelease,DEFAULT_WORKSPACE_RELEASES)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
@@ -477,6 +479,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID');
   }
   await copy(staticRoot,join(platform,'apps/web/dist-static'));
+  await assertNativeStaticResources(join(platform,'apps/web/dist-static'));
   // Authored entrance themes use this trusted build-time companion, never code
   // from a caller-provided runtime directory or a public exhibition payload.
   await copy(join(source,'apps/web/dist-cover-shell'),join(platform,'apps/web/dist-cover-shell'));
