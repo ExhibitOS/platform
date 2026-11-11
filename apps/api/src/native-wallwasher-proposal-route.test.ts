@@ -31,7 +31,7 @@ it('proposes the checked mounted painting fixture through the existing owner rou
   if(!('wallwasher' in resolved))throw Error('WASHER_RESULT_REQUIRED');expect(resolved.wallwasher.headPitch).toBe(-57.892880597116964*Math.PI/180);expect(reply.candidate.lights).toEqual(JSON.parse(JSON.stringify(before.candidate.lights)));expect(draft).toEqual(before);
   expect((await post({...request,visual:{...request.visual,headPitch:0}})).statusCode).toBe(400);
   expect((await post({...request,visual:{...request.visual,pose:{...request.visual.pose,scale:2}}})).statusCode).toBe(422);
-  draft.candidate.lights[0]!.transform.position[1]-=.01;expect((await post(request)).statusCode).toBe(422);
+  draft.candidate.lights[0]!.transform.position[1]-=.01;const corrupt=await post(request);expect(corrupt.statusCode,corrupt.body).toBe(409);expect(corrupt.json()).toMatchObject({code:'DRAFT_CORRUPT'});
   expect(queries.some(sql=>/^(UPDATE|INSERT|DELETE)/.test(sql))).toBe(false);
  }finally{await app.close();}
 });
