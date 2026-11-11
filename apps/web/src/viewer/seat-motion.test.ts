@@ -16,7 +16,7 @@ function fixture(){
  const benchId=crypto.randomUUID(),viewpointId=crypto.randomUUID();
  return {benchId,document:applyBenchCommand(d,{type:'add-bench',bench:{id:benchId,name:'Seat',roomId,position:[0,0,0],yaw:0,kind:'backed',dimensions:{width:1.5,depth:.7,height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat view',roomId,position:[0,1.15,-.08],target:[0,1,-3],fov:50}})};
 }
-async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixture>['document'])=>void){
+async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixture>['document'])=>void,hooks?:{onSeatTransition?:(active:boolean)=>void;onSeat?:(id:string|null)=>void}){
  const f=fixture();configure?.(f.document);
  const camera=new Three.PerspectiveCamera(63,1,.01,100);camera.position.set(0,1.65,3);camera.rotation.set(.1,Math.PI-.02,0,'YXZ');
  const doc=Object.assign(new EventTarget(),{hidden:false,activeElement:null as unknown,pointerLockElement:null,exitPointerLock:vi.fn()});
@@ -28,7 +28,7 @@ async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixtu
  const gate=createPanelResumeGate(),messages:string[]=[],rendered:{eye:number[];quaternion:number[];state:Record<string,unknown>}[]=[];
  const controls={enabled:true,target:new Three.Vector3(0,1.2,0),update(){}} as OrbitControls;
  let sources:MountedFurnishingCollision[]=[];
- const adapter=await createWalkingCamera({document:f.document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion},
+ const adapter=await createWalkingCamera({...hooks,document:f.document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion},
   render:()=>rendered.push({eye:camera.position.toArray(),quaternion:camera.quaternion.toArray(),state:JSON.parse(canvas.dataset.navigationState!)}),
   onMode:(walking,paused,reason)=>gate.mode(walking,paused,reason),onMessage:message=>messages.push(message),wasWalkingBeforeSeat:gate.wasWalkingBeforeSeat,furnishingCollisions:()=>sources});
  vi.spyOn(performance,'now').mockImplementation(()=>now);
@@ -124,4 +124,20 @@ for(const phase of ['sit','stand'] as const)for(const completion of ['frame','fo
   if(phase==='sit')expect(h.camera.position.z).toBeCloseTo(3);else expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);
   const pose=h.camera.position.toArray();h.advance(2000);expect(h.camera.position.toArray()).toEqual(pose);
  }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
+});
+
+test('embedding focus waits for the complete seat motion, while a real blur still stops at a valid pose',async()=>{
+ const events:{kind:'motion'|'seat';value:boolean}[]=[];
+ const h=await harness(false,undefined,{onSeatTransition:value=>events.push({kind:'motion',value}),onSeat:id=>events.push({kind:'seat',value:!!id})});
+ try{
+  h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);
+  expect(events).toEqual([{kind:'motion',value:false},{kind:'motion',value:true},{kind:'seat',value:true}]);
+  h.advance(175);expect(h.state().seatTransition).toMatchObject({phase:'sit',progress:.5});expect(events.at(-1)?.kind).toBe('seat');
+  h.advance(350);expect(events.at(-1)).toEqual({kind:'motion',value:false});expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);
+  // The automatic button focus happens only now, so its real canvas blur has
+  // no pending sit to finish. Explicit focus loss DURING a rise still stops it.
+  h.canvas.dispatchEvent(new Event('blur'));expect(h.frames.size).toBe(0);
+  h.adapter.actions.stand!();h.advance(450);expect(h.state().seatTransition.phase).toBe('stand');
+  h.canvas.dispatchEvent(new Event('blur'));expect(h.state().seatTransition).toBeNull();expect(h.state().paused).toBe(true);expect(h.camera.position.z).toBeCloseTo(-.61);expect(h.frames.size).toBe(0);expect(events.at(-1)).toEqual({kind:'motion',value:false});
+ }finally{h.adapter.dispose();}
 });
