@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {resolveWallwasherMountHead as resolve,WALLWASHER_MOUNT_HEAD_MODEL_SHA256 as pin,type WallwasherMountHeadInput,type WasherVector} from './wallwasher-mount-head.js';
+import {resolveWallwasherMountHead as resolve,resolveWallwasherAuthoredRest as rest,WALLWASHER_MOUNT_HEAD_MODEL_SHA256 as pin,type WallwasherMountHeadInput,type WasherVector} from './wallwasher-mount-head.js';
 
 // Synthetic part boxes qualify algebra only, never model travel or catalogue admission.
 function fixture():WallwasherMountHeadInput {
@@ -49,4 +49,15 @@ test('pins, partition, interval, rigid pose and bounded ceiling reject unsupport
   v=>{v.ceilingSurface.dimensions.width=.01;},
  ];
  for(const change of changes){const input=fixture();change(input);expect(()=>resolve(input)).toThrow();}
+});
+
+test('current authored-rest visual maps through the resolved optical frame, never the attachment base frame',()=>{
+ const input=fixture(),r=resolve(input),stored={profile:input.profile,opticalPose:{position:r.emitter,rotation:input.mountPose.rotation,scale:[1,1,1] as WasherVector},
+  visualPose:{position:[0,.106,.05] as WasherVector,yaw:0,scale:1},ceilingSurface:input.ceilingSurface};
+ expect(rest(stored)).toEqual(r);
+ expect(()=>rest({...stored,opticalPose:{...stored.opticalPose,position:[-2.45,3.8,2.5]}})).toThrow('WASHER_MOUNT_NOT_ON_CEILING');
+ // Existing ceiling attachment is S*Ry(pi): an optical base, not adapter-up.
+ const q=Math.SQRT1_2;
+ expect(()=>rest({...stored,opticalPose:{...stored.opticalPose,rotation:[0,q,q,0]}})).toThrow('WASHER_MOUNT_NOT_FLUSH');
+ expect(()=>rest({...stored,visualPose:{...stored.visualPose,yaw:.1}})).toThrow('WASHER_REST_VISUAL_POSE_INVALID');
 });
