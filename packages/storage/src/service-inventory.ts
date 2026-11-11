@@ -21,6 +21,22 @@ export function inventoryCanonical(value:unknown):string {
  return JSON.stringify(value);
 }
 const hash=(v:unknown)=>createHash('sha256').update(inventoryCanonical(v)).digest('hex');
+// Dedicated thumbnail wire canonical: UTF-16 code-unit key order (.sort()),
+// array order preserved. Never alter the existing service-inventory hash domain.
+function thumbnailHash(value:unknown):string|undefined {
+ const active=new Set<object>();
+ const canonical=(v:unknown):string=>{
+  if(v===null||typeof v==='string'||typeof v==='boolean')return JSON.stringify(v);
+  if(typeof v==='number'&&Number.isFinite(v)&&!Object.is(v,-0))return JSON.stringify(v);
+  if(!v||typeof v!=='object'||active.has(v)||!Array.isArray(v)&&Object.getPrototypeOf(v)!==Object.prototype)throw Error('INVALID_THUMBNAIL_JSON');
+  active.add(v);let result:string;
+  if(Array.isArray(v)){if(Object.keys(v).length!==v.length||Object.keys(v).some((key,i)=>key!==String(i)))throw Error('INVALID_THUMBNAIL_JSON');result='['+v.map(canonical).join(',')+']';}
+  else result='{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical((v as Record<string,unknown>)[k])).join(',')+'}';
+  active.delete(v);return result;
+ };
+ try{return createHash('sha256').update(canonical(value)).digest('hex');}catch{return undefined;}
+}
+
 const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const keyValid=(key:unknown):key is string=>typeof key==='string'&&key.length<=1024&&/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(key)&&!key.split('/').some(p=>p==='.'||p==='..');
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -149,6 +165,35 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(!obj(row.descriptor)||!obj(row.descriptor.model)||row.descriptor.model.mime!=='model/gltf-binary'||!bytes(row.descriptor.model.bytes)||!hex(row.descriptor.model.sha256)||row.descriptor.id!==row.id||row.descriptor.version!==row.version){issues.push({code:'INVALID_INVENTORY',binding});break;}
   add(row.object_key,true,row.descriptor.model.bytes,row.descriptor.model.sha256,':'+String(row.version)+':model');break;
  }
+ case 'workspace_furnishing_thumbnail_candidates':{
+  const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+  const exact=(v:unknown,names:string[])=>obj(v)&&Object.keys(v).length===names.length&&names.every(name=>Object.hasOwn(v,name));
+  const source=row.source,render=row.render_request;
+  const validOwner=[row.workspace_id,tenant,row.user_id,row.id,row.request_id,row.furnishing_id].every(uuid);
+  const validSource=exact(source,['furnishingId','furnishingVersion','modelSha256','modelBytes','descriptorSha256','rightsSha256'])&&obj(source)&&
+   source.furnishingId===row.furnishing_id&&source.furnishingVersion===1&&Number.isSafeInteger(source.modelBytes)&&Number(source.modelBytes)>=28&&Number(source.modelBytes)<=33554432&&
+   [source.modelSha256,source.descriptorSha256,source.rightsSha256].every(hex);
+  const validRender=exact(render,['version','epoch','sequence','tenantId','principalId','requestId','furnishingId','furnishingVersion','modelBytes','modelSha256','recipeId','toolId'])&&obj(render)&&obj(source)&&
+   render.version===1&&uuid(render.epoch)&&Number.isSafeInteger(render.sequence)&&Number(render.sequence)>=1&&render.tenantId===tenant&&render.principalId===row.user_id&&render.requestId===row.request_id&&
+   render.furnishingId===row.furnishing_id&&render.furnishingVersion===1&&render.modelBytes===source.modelBytes&&render.modelSha256===source.modelSha256&&
+   render.recipeId==='furnishing-glb-card-256-v1'&&render.toolId==='exhibitos-three-0.186.1-thumbnail-v1';
+  const expectedReceipt={version:1,purpose:'registered-furnishing-thumbnail',profile:'workspace-furnishing-thumbnail-v1',workspaceId:row.workspace_id,candidateId:row.id,requestId:row.request_id,
+   source,renderRequest:render,png:{mime:'image/png',width:256,height:256,sha256:row.png_sha256,bytes:row.png_bytes}};
+  const request={kind:'workspace-furnishing-thumbnail-v1',requestId:row.request_id,renderRequest:render,pngSha256:row.png_sha256,pngBytes:row.png_bytes};
+  if(!validOwner||row.furnishing_version!==1||!validSource||!validRender||!hex(row.png_sha256)||!Number.isSafeInteger(row.png_bytes)||Number(row.png_bytes)<1||Number(row.png_bytes)>524288||
+   !obj(row.receipt)||thumbnailHash(row.receipt)!==thumbnailHash(expectedReceipt)||!hex(row.receipt_sha256)||thumbnailHash(row.receipt)!==row.receipt_sha256||!hex(row.request_sha256)||thumbnailHash(request)!==row.request_sha256||
+   typeof row.created_at!=='string'||!Number.isFinite(Date.parse(row.created_at))||row.object_key!==`${tenant}/workspace-furnishing-thumbnail/${row.workspace_id}/${row.id}/${row.png_sha256}`){issues.push({code:'INVALID_FURNISHING_THUMBNAIL_CANDIDATE',binding});break;}
+  add(row.object_key,true,row.png_bytes,row.png_sha256,':png');break;
+ }
+ case 'workspace_furnishing_thumbnail_selections':{
+  const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+  const intent={furnishingId:row.furnishing_id,furnishingVersion:1,requestId:row.request_id,candidateId:row.candidate_id,receiptSha256:row.receipt_sha256,expectedSelectionVersion:Number(row.version)-1};
+  if(![row.workspace_id,tenant,row.user_id,row.furnishing_id,row.request_id,row.candidate_id].every(uuid)||row.furnishing_version!==1||!Number.isSafeInteger(row.version)||Number(row.version)<1||Number(row.version)>2147483647||
+   !hex(row.request_sha256)||thumbnailHash(intent)!==row.request_sha256||!hex(row.receipt_sha256)||typeof row.created_at!=='string'||!Number.isFinite(Date.parse(row.created_at)))issues.push({code:'INVALID_FURNISHING_THUMBNAIL_SELECTION',binding});
+  // Append-only selection history contains no object keys. All ready candidates
+  // are independently required, including never-selected and superseded PNGs.
+  break;
+ }
  case 'workspace_material_intakes':{
   if(!obj(row.received)||!['uploading','validating','cancelling','registered','failed','cancelled'].includes(String(row.phase))){issues.push({code:'INVALID_INVENTORY',binding});break;}
   if(row.phase==='cancelled')break;
@@ -196,7 +241,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','hayes_output_stages','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','workspace_furnishing_intakes','workspace_furnishing_versions','workspace_frame_preparations','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','hayes_output_stages','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','workspace_furnishing_intakes','workspace_furnishing_versions','workspace_furnishing_thumbnail_candidates','workspace_furnishing_thumbnail_selections','workspace_frame_preparations','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};
@@ -298,6 +343,23 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
     i.declaration->'rights'->>'ownership'='owner' AND v.object_key=i.received->>'key' AND v.descriptor=(i.declaration-'requestId'-'preparationPolicy')||jsonb_build_object('id',i.furnishing_id,'version',i.furnishing_version)
    ) IS NOT TRUE ${options.tenantId?'AND i.tenant_id=$1':''} LIMIT 1`,options.tenantId?[options.tenantId]:[]);
   if(mismatches.rowCount||missing.rowCount)report.issues.push({code:'FRAME_PREPARATION_BINDING_INVALID'});
+ }
+ // Receipt hashes bind rows internally; this typed join also binds the source
+ // to its actual immutable registered descriptor/rights and owner. Bounded cursor
+ // batches avoid retaining every historical thumbnail descriptor in memory.
+ if(tables.some(t=>t.name==='workspace_furnishing_thumbnail_candidates')){
+  const cursor='thumbnail_binding_'+randomUUID().replaceAll('-','');
+  await c.query(`DECLARE ${quote(cursor)} NO SCROLL CURSOR FOR SELECT c.id,c.workspace_id,c.tenant_id,c.user_id,c.furnishing_id,c.furnishing_version,c.source,
+   v.tenant_id AS registered_tenant_id,v.user_id AS registered_user_id,v.descriptor
+   FROM workspace_furnishing_thumbnail_candidates c LEFT JOIN workspace_furnishing_versions v
+    ON v.workspace_id=c.workspace_id AND v.id=c.furnishing_id AND v.version=c.furnishing_version
+   ${options.tenantId?'WHERE c.tenant_id=$1':''}`,options.tenantId?[options.tenantId]:[]);
+  try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const row of batch.rows){
+   const source=row.source,descriptor=row.descriptor;
+   if(!obj(source)||!obj(descriptor)||!obj(descriptor.model)||!obj(descriptor.rights)||row.registered_tenant_id!==row.tenant_id||row.registered_user_id!==row.user_id||descriptor.id!==row.furnishing_id||descriptor.version!==row.furnishing_version||
+    source.descriptorSha256!==thumbnailHash(descriptor)||source.rightsSha256!==thumbnailHash(descriptor.rights)||source.modelSha256!==descriptor.model.sha256||source.modelBytes!==descriptor.model.bytes)
+    report.issues.push({code:'FURNISHING_THUMBNAIL_SOURCE_BINDING_INVALID',binding:`workspace_furnishing_thumbnail_candidates:${row.tenant_id}:${row.id}`});
+  }}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
  }
  const listing=options.tenantId?await store.list(options.tenantId):store.listAll?await store.listAll():(()=>{throw Error('full store listing required');})();
  const actualKeys=new Set(listing);
