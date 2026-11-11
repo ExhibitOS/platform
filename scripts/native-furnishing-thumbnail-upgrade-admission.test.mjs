@@ -30,7 +30,8 @@ test('appends lease mode9 and admission kind8 without renumbering prior upgrade 
 });
 test('requires the sealed owner envelope and permits only the new fixed mode, not arbitrary upgrade authority',()=>{
  const ownerChannel={version:3,runtimeGeneration:id(4),secret:secret.toString('hex'),mode},workspace={id:id(1)},hayesOwnerChannel={version:1,runtimeGeneration:id(4),secret:'8'.repeat(64),nativeOwnerId:id(8),runtimeManifestSha256:'a'.repeat(64)};
- assert.equal(unpackNativeOwnerInput({workspace,ownerChannel}).ownerChannel.mode,mode);assert.equal(unpackNativeOwnerInput({workspace,ownerChannel,hayesOwnerChannel}).hayesOwnerChannel.runtimeManifestSha256,'a'.repeat(64));
+ assert.equal(unpackNativeOwnerInput({workspace,ownerChannel}).ownerChannel.mode,mode);assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel,hayesOwnerChannel}),/NATIVE_OWNER_INPUT/);
+ for(const oldMode of ['workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'])assert.equal(unpackNativeOwnerInput({workspace,ownerChannel:{...ownerChannel,mode:oldMode},hayesOwnerChannel}).hayesOwnerChannel.runtimeManifestSha256,'a'.repeat(64));
  for(const value of [{workspace,ownerChannel:{...ownerChannel,mode:'workspace-furnishing-arbitrary-upgrade-v1'}},{workspace,ownerChannel,sql:'anything'},{workspace,ownerChannel,hayesOwnerChannel:{...hayesOwnerChannel,runtimeGeneration:id(99)}}])assert.throws(()=>unpackNativeOwnerInput(value),/NATIVE_OWNER_INPUT/);
 });
 test('accepts only an actually issued temporary FD lease and preserves exact physical carried proof in all authenticated phases',async()=>{
