@@ -94,14 +94,23 @@ test('a newly loaded surrounding obstacle prevents an unqualified standing desti
 });
 test('sitting never interpolates the camera through an intervening wall, even with reduced motion',async()=>{
  const h=await harness(true,d=>{const wall=d.surfaces.find(s=>s.type==='wall')!;d.surfaces.push({...structuredClone(wall),id:crypto.randomUUID(),transform:{position:[0,1.5,1],rotation:[0,0,0,1],scale:[1,1,1]},dimensions:{width:2,height:3}});});
- try{h.adapter.actions.start();const before=h.camera.position.toArray();h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual(before);expect(h.state().walking).toBe(true);expect(h.state().seatTransition).toBeNull();expect(h.messages.at(-1)).toContain('안전');}
+ try{h.adapter.actions.start();const before=h.camera.position.toArray(),walking=h.state().walking;h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual(before);expect(h.state().walking).toBe(walking);expect(h.state().seatTransition).toBeNull();expect(h.messages.at(-1)).toContain('안전');}
  finally{h.adapter.dispose();}
 });
 
-test('all stand candidates stay within the bounded neighborhood, including large bench edges',async()=>{
- const h=await harness(true,d=>{const value=d.extensions![BENCH_NAMESPACE] as unknown as {benches:{dimensions:{width:number;depth:number}}[]};value.benches[0]!.dimensions.width=5;value.benches[0]!.dimensions.depth=5;});
- try{h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);const before=h.camera.position.toArray();h.adapter.actions.stand!();expect(h.camera.position.toArray()).toEqual(before);expect(h.messages.at(-1)).toContain('유지');}
+test('a valid wide bench chooses a nearby landing from an off-center seated eye',async()=>{
+ const h=await harness(true,d=>{const value=d.extensions![BENCH_NAMESPACE] as unknown as {benches:{dimensions:{width:number;depth:number}}[]};value.benches[0]!.dimensions.width=3;value.benches[0]!.dimensions.depth=1;const view=(d.extensions![PRESENTATION_NAMESPACE] as unknown as {viewpoints:{position:number[]}[]}).viewpoints[0]!;view.position=[-1.4,1.15,-.08];});
+ try{h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual([-1.4,1.15,-.08]);const before=h.camera.position.clone();h.adapter.actions.stand!();expect(Math.hypot(h.camera.position.x-before.x,h.camera.position.z-before.z)).toBeLessThanOrEqual(2);expect(h.state().grounded).toBe(true);}
  finally{h.adapter.dispose();}
+});
+test('stand during a newly obstructed sit retires the failed sit without starting another transition',async()=>{
+ const h=await harness(),group=new Three.Group();try{
+  h.adapter.actions.start();h.adapter.actions.sit!(h.benchId);
+  const wall=new Three.Mesh(new Three.BoxGeometry(2,3,.02));wall.position.set(0,1.5,1);group.add(wall);
+  h.setSources([{id:'stand-during-obstructed-sit',mesh:furnishingCollisionMesh(Three,group)!,active:()=>true}]);
+  expect(()=>h.adapter.actions.stand!()).not.toThrow();expect(h.camera.position.z).toBeCloseTo(3);expect(h.state().seatTransition).toBeNull();expect(h.state().paused).toBe(true);expect(h.frames.size).toBe(0);
+  const pose=h.camera.position.toArray();h.advance(1000);expect(h.camera.position.toArray()).toEqual(pose);
+ }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
 });
 for(const phase of ['sit','stand'] as const)for(const completion of ['frame','forced'] as const)test(`new head corridor obstruction cancels ${phase} on ${completion} completion`,async()=>{
  const h=await harness(),group=new Three.Group();try{

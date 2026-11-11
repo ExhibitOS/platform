@@ -231,20 +231,20 @@ export async function createWalkingCamera({
     onMessage('이동 경로가 바뀌어 안전한 위치에서 멈췄습니다.');
   };
   const finishSeatTransition=()=>{
-    const transition=seatTransition;if(!transition||disposed)return;
-    if(!seatTransitionClear(transition)){abortSeatTransition(transition);return;}
+    const transition=seatTransition;if(!transition||disposed)return !disposed;
+    if(!seatTransitionClear(transition)){abortSeatTransition(transition);return false;}
     seatTransition=undefined;cancelAnimationFrame(frame);
     try{transition.complete();}catch{
       // reset revalidates the standing capsule. Keep the qualified seat if a
       // newly active obstacle invalidates the landing before this completion.
       if(seated){camera.position.fromArray(seated.eye);camera.rotation.set(pitch,seated.yaw,0,'YXZ');camera.fov=transition.fromFov;camera.updateProjectionMatrix();}
-      onMessage('주변 공간이 바뀌어 앉은 상태를 유지합니다.');apply();return;
+      onMessage('주변 공간이 바뀌어 앉은 상태를 유지합니다.');apply();return false;
     }
     camera.position.copy(transition.to);camera.quaternion.copy(transition.toRotation);camera.fov=transition.toFov;camera.updateProjectionMatrix();
     const end=new Euler().setFromQuaternion(camera.quaternion,'YXZ');pitch=end.x;targetPitch=pitch;targetYaw=end.y;
     if(seated){seated.yaw=end.y;seated.pitch=end.x;}
     controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
-    apply();if(transition.phase==='stand')canvas.focus({preventScroll:true});
+    apply();if(transition.phase==='stand')canvas.focus({preventScroll:true});return true;
   };
   const animateSeat=(phase:'sit'|'stand',eye:[number,number,number],yaw:number,nextPitch:number,fov:number,complete:()=>void)=>{
     cancelAnimationFrame(frame);
@@ -437,7 +437,7 @@ export async function createWalkingCamera({
     },
     stand: () => {
       if(!seated||disposed||seatTransition?.phase==='stand')return;
-      finishSeatTransition();
+      if(!finishSeatTransition()||!seated)return;
       const saved=seated,angle=new Euler().setFromQuaternion(camera.quaternion,'YXZ'),landing=standLanding(saved);
       input.pause('panel');
       if(!landing){onMessage('주변에 안전하게 일어설 공간이 없어요. 앉은 상태를 유지합니다.');return;}
