@@ -15,7 +15,7 @@ function fixture(n=4){
  const receipt={version:1,purpose:'registered-furnishing-thumbnail',profile:'workspace-furnishing-thumbnail-v1',workspaceId:workspace,candidateId:id,requestId:request,source,renderRequest:render,png:{mime:'image/png',width:256,height:256,sha256:pngSha,bytes:png.length}};
  const requestWire={kind:'workspace-furnishing-thumbnail-v1',requestId:request,renderRequest:render,pngSha256:pngSha,pngBytes:png.length};
  const row={workspace_id:workspace,tenant_id:tenant,user_id:user,id,request_id:request,request_sha256:digest(requestWire),furnishing_id:furnishing,furnishing_version:1,source,render_request:render,png_sha256:pngSha,png_bytes:png.length,object_key:`${tenant}/workspace-furnishing-thumbnail/${workspace}/${id}/${pngSha}`,receipt,receipt_sha256:digest(receipt),created_at:'2026-11-11T18:00:00+00:00'};
- return {row,descriptor,selection:{workspace_id:workspace,tenant_id:tenant,user_id:user,furnishing_id:furnishing,furnishing_version:1,version:1,request_id:uuid(20),request_sha256:'b'.repeat(64),candidate_id:id,receipt_sha256:row.receipt_sha256,created_at:row.created_at}};
+ return {row,descriptor,selection:{workspace_id:workspace,tenant_id:tenant,user_id:user,furnishing_id:furnishing,furnishing_version:1,version:1,request_id:uuid(20),request_sha256:digest({furnishingId:furnishing,furnishingVersion:1,requestId:uuid(20),candidateId:id,receiptSha256:row.receipt_sha256,expectedSelectionVersion:0}),candidate_id:id,receipt_sha256:row.receipt_sha256,created_at:row.created_at}};
 }
 it('retains every ready candidate PNG by exact typed key/hash/bytes, independent from selection history',()=>{
  for(const n of[4,5]){const {row}=fixture(n),result=rowObjectReferences('workspace_furnishing_thumbnail_candidates',row);expect(result.issues).toEqual([]);expect(result.references).toEqual([{key:row.object_key,binding:`workspace_furnishing_thumbnail_candidates:${row.tenant_id}:${row.id}:png`,required:true,expectedBytes:png.length,expectedSha256:pngSha}]);}
@@ -77,4 +77,10 @@ it.each(['descriptor','owner','source-model','missing-object'] as const)('curren
 
 it('rejects noncanonical thumbnail receipt values rather than hashing undefined or negative zero',()=>{
  const {row}=fixture();for(const bad of[undefined,NaN,-0]){const value={...row,receipt:{...row.receipt,png:{...row.receipt.png,width:bad}}};expect(rowObjectReferences('workspace_furnishing_thumbnail_candidates',value).issues).toContainEqual(expect.objectContaining({code:'INVALID_FURNISHING_THUMBNAIL_CANDIDATE'}));}
+});
+
+it('binds stored selection request digest to exact candidate/model/receipt/request and previous event version',()=>{
+ const {selection}=fixture();for(const change of[{furnishing_id:uuid(30)},{candidate_id:uuid(31)},{receipt_sha256:'c'.repeat(64)},{request_id:uuid(32)},{version:2},{request_sha256:'d'.repeat(64)}])expect(rowObjectReferences('workspace_furnishing_thumbnail_selections',{...selection,...change}).issues).toContainEqual(expect.objectContaining({code:'INVALID_FURNISHING_THUMBNAIL_SELECTION'}));
+ for(const version of[1,2,2147483647]){const request={furnishingId:selection.furnishing_id,furnishingVersion:1,requestId:selection.request_id,candidateId:selection.candidate_id,receiptSha256:selection.receipt_sha256,expectedSelectionVersion:version-1};expect(rowObjectReferences('workspace_furnishing_thumbnail_selections',{...selection,version,request_sha256:digest(request)})).toEqual({references:[],issues:[]});}
+ for(const version of[0,1.5,2147483648,Number.MAX_SAFE_INTEGER+1])expect(rowObjectReferences('workspace_furnishing_thumbnail_selections',{...selection,version}).issues).toContainEqual(expect.objectContaining({code:'INVALID_FURNISHING_THUMBNAIL_SELECTION'}));
 });
