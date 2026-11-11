@@ -324,7 +324,7 @@ try {
     png(bytes);
   } else if (process.argv[2] === 'model/gltf-binary' && process.argv[3] === 'workspace-furnishing-fit'){
     const profile=process.argv[4];
-    if(profile!=='straight-ring-v1'&&profile!=='continuous-portal-v1'&&profile!=='modular-portal-v1')fail();
+    if(profile!=='straight-ring-v1'&&profile!=='continuous-portal-v1'&&profile!=='modular-portal-v1'&&profile!=='rectangular-portal-v1')fail();
     await glb(bytes);
     const geometry=qualifyWorkspaceFitGeometry(bytes,profile);
     if(!geometry)fail();

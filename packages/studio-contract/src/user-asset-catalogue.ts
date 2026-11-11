@@ -1275,5 +1275,135 @@ export const USER_ASSET_CATALOGUE = [
         -0.015000000479631126
       ]
     }
+  },
+  {
+    "id": "portal-pale-mineral",
+    "version": 1,
+    "mime": "model/gltf-binary",
+    "path": "assets/furnishings/exhibitos-authored-20261109/portal-pale-mineral/model.glb",
+    "bytes": 2468,
+    "sha256": "62fd3bc49e0e77ffde26f60dee7ddfbbac0939347d68ea53a94700de0695f1ae",
+    "triangles": 28,
+    "bounds": {
+      "min": [
+        -1.2450000047683716,
+        0,
+        -0.0820000022649765
+      ],
+      "max": [
+        1.2450000047683716,
+        3.0450000762939453,
+        0.05999999865889549
+      ]
+    },
+    "rights": {
+      "licenseId": "CC0-1.0",
+      "noticePath": "assets/furnishings/exhibitos-authored-20261109/portal-pale-mineral/LICENSE-NOTICE.txt",
+      "noticeBytes": 578,
+      "noticeSha256": "b1e5cf2cab59c23487abeee45fce9fb3d0a0e8e4e11c001fad02c0066c5448aa"
+    },
+    "provenance": {
+      "sourceSha256": "62fd3bc49e0e77ffde26f60dee7ddfbbac0939347d68ea53a94700de0695f1ae",
+      "recipe": "original-v1"
+    },
+    "functional": {
+      "kind": "portal",
+      "front": [
+        0,
+        0,
+        1
+      ],
+      "clearOpening": {
+        "width": 2.4,
+        "height": 3,
+        "depth": 0.142
+      },
+      "interiorTriangleIntersections": 0,
+      "parts": [
+        {
+          "name": "continuous-u",
+          "bounds": {
+            "min": [
+              -1.2450000047683716,
+              0,
+              -0.0820000022649765
+            ],
+            "max": [
+              1.2450000047683716,
+              3.0450000762939453,
+              0.05999999865889549
+            ]
+          }
+        }
+      ],
+      "collision": "unverified-preserve-opening",
+      "evidence": "actual-glb-geometry",
+      "consumerBehavior": "unverified"
+    }
+  },
+  {
+    "id": "portal-warm-oak",
+    "version": 1,
+    "mime": "model/gltf-binary",
+    "path": "assets/furnishings/exhibitos-authored-20261109/portal-warm-oak/model.glb",
+    "bytes": 2460,
+    "sha256": "90dca006e496c0e9766fc1ecfbb7aca66905ef29de451ed12e55e0511ad1bd04",
+    "triangles": 28,
+    "bounds": {
+      "min": [
+        -1.2450000047683716,
+        0,
+        -0.0820000022649765
+      ],
+      "max": [
+        1.2450000047683716,
+        3.0450000762939453,
+        0.05999999865889549
+      ]
+    },
+    "rights": {
+      "licenseId": "CC0-1.0",
+      "noticePath": "assets/furnishings/exhibitos-authored-20261109/portal-warm-oak/LICENSE-NOTICE.txt",
+      "noticeBytes": 574,
+      "noticeSha256": "a3fc65808424ef859c49b3bccc7d0cedfedefe8320cd7dc925270556e6340e1d"
+    },
+    "provenance": {
+      "sourceSha256": "90dca006e496c0e9766fc1ecfbb7aca66905ef29de451ed12e55e0511ad1bd04",
+      "recipe": "original-v1"
+    },
+    "functional": {
+      "kind": "portal",
+      "front": [
+        0,
+        0,
+        1
+      ],
+      "clearOpening": {
+        "width": 2.4,
+        "height": 3,
+        "depth": 0.142
+      },
+      "interiorTriangleIntersections": 0,
+      "parts": [
+        {
+          "name": "continuous-u",
+          "bounds": {
+            "min": [
+              -1.2450000047683716,
+              0,
+              -0.0820000022649765
+            ],
+            "max": [
+              1.2450000047683716,
+              3.0450000762939453,
+              0.05999999865889549
+            ]
+          }
+        }
+      ],
+      "collision": "unverified-preserve-opening",
+      "evidence": "actual-glb-geometry",
+      "consumerBehavior": "unverified"
+    }
   }
 ] as const satisfies readonly UserAssetCatalogueEntry[];

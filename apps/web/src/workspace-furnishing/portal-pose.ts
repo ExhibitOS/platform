@@ -1,9 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import type {ModularPortalFit,ModularPortalRole,qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models';
+import type {ModularPortalFit,ModularPortalRole,RectangularPortalFit,qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models';
 
 type Target=NonNullable<ReturnType<typeof qualifiedModularPortalTarget>>;
 const near=(a:number,b:number)=>Math.abs(a-b)<=1e-5;
+
+/** The binary worker admits only the closed, untextured 45 mm continuous
+ * U-section. Move its inner and outer corners together; never scale the trim
+ * width, grow a sill, or edit the registered original. The loader owns this
+ * geometry copy. Axis-aligned face normals remain unchanged. */
+export function fitRectangularPortal(three:typeof Three,object:Three.Object3D,source:RectangularPortalFit,target:Target){
+ const meshes:Three.Mesh[]=[];
+ object.traverse(child=>{if(child instanceof three.Mesh)meshes.push(child);});
+ if(meshes.length!==1)throw Error('WORKSPACE_PLACEMENT_INVALID');
+ const mesh=meshes[0]!,geometry=mesh.geometry,positions=geometry.getAttribute('position');
+ if(!positions||!mesh.position.equals(new three.Vector3())||!mesh.quaternion.equals(new three.Quaternion())||!mesh.scale.equals(new three.Vector3(1,1,1)))throw Error('WORKSPACE_PLACEMENT_INVALID');
+ const half=source.openingWidth/2,delta=(target.width-source.openingWidth)/2;
+ const depth=(target.maxZ-target.minZ)/(source.maxZ-source.minZ);
+ for(let i=0;i<positions.count;i++){
+  const x=positions.getX(i),y=positions.getY(i),z=positions.getZ(i);
+  if(![x,y,z].every(Number.isFinite)||Math.abs(x)<half-1e-5)throw Error('WORKSPACE_PLACEMENT_INVALID');
+  positions.setXYZ(i,x+Math.sign(x)*delta,y>=source.openingHeight-1e-5?y+target.height-source.openingHeight:y*target.height/source.openingHeight,target.minZ+(z-source.minZ)*depth);
+ }
+ positions.needsUpdate=true;
+ geometry.computeBoundingBox();geometry.computeBoundingSphere();
+}
 
 function axis(fromMin:number,fromMax:number,toMin:number,toMax:number){
  // Preserve the end bevels. The centre of each rail takes up the change.

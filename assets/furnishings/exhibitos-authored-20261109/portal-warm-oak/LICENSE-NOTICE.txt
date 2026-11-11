@@ -1,0 +1,7 @@
+portal-warm-oak — distribution license
+Creator: ExhibitOS. Generated in the personal account using Blender MCP; original source and provenance are retained separately.
+CC0 1.0 Universal applies to the creator-controlled asset.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+No third-party inputs were recorded in the source provenance. This notice does not grant trademark, patent, personality or other third-party rights and does not license application code. Original model bytes are preserved unchanged.

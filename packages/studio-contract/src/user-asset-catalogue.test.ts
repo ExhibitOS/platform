@@ -19,7 +19,8 @@ describe('user asset distribution source', () => {
       expect(item.id).toMatch(/^[a-z]+(?:-[a-z]+)*$/);
       expect(item.version).toBe(1);
       expect(item.mime).toBe('model/gltf-binary');
-      const prefix = `assets/furnishings/user-authored-20261027/${item.id}/`;
+      const directory = item.id.startsWith('portal-') ? 'exhibitos-authored-20261109' : 'user-authored-20261027';
+      const prefix = `assets/furnishings/${directory}/${item.id}/`;
       expect(item.path).toBe(`${prefix}model.glb`);
       expect(item.rights.noticePath).toBe(`${prefix}LICENSE-NOTICE.txt`);
       const payload = readFileSync(file(item.path));
@@ -51,8 +52,8 @@ describe('user asset distribution source', () => {
     expect(JSON.stringify(entries)).not.toMatch(/(?:\/Users\/|\/Volumes\/|\.blend|build\.py|verification\.json)/);
   });
 
-  it('selects nineteen originals and the reviewed wallwasher derivative without admitting its malformed original', () => {
-    expect(entries).toHaveLength(20);
+  it('selects twenty-one originals and the reviewed wallwasher derivative without admitting its malformed original', () => {
+    expect(entries).toHaveLength(22);
     const wallwasher = entry('museum-wallwasher');
     expect(wallwasher).toMatchObject({ bytes: 201724, sha256: 'a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d', provenance: { recipe: 'omit-unused-tangent-v1' } });
     expect(wallwasher.sha256).not.toBe(wallwasher.provenance.sourceSha256);

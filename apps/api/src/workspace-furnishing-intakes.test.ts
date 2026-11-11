@@ -102,6 +102,26 @@ it('registers a portable model only with its own writer-verified fit receipt',as
  expect(await service.model(f.client,f.session,id(14),1,'export')).toMatchObject({bytes:f.bytes,sha256:descriptor.model.sha256});
 });
 
+it('retains the rectangular portal declaration across restart and registers only the worker-bound original',async()=>{
+ const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const,workspacePortalFinish:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ const declaration={...f.declaration,kind:'portal-finish',fitProfile:'rectangular-portal-v1'};
+ const geometry={profile:'rectangular-portal-v1' as const,openingWidth:2.4,openingHeight:3,minZ:-.082,maxZ:.06};
+ const first=await service.create(f.client,f.session,declaration);
+ const resumed=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ expect(await resumed.create(f.client,f.session,declaration)).toEqual(first);
+ await expect(resumed.create(f.client,{...f.session,userId:id(9)},declaration)).rejects.toMatchObject({code:'FORBIDDEN'});
+ await resumed.upload(f.client,f.session,first.intakeId,f.bytes);
+ await resumed.complete(f.client,f.session,first.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);
+ expect(await resumed.work(f.pool)).toBe(true);
+ const done=await resumed.read(f.client,f.session,first.intakeId);
+ expect(done.fitProfile).toBe('rectangular-portal-v1');
+ expect(done.furnishing).toMatchObject({model:declaration.model,fit:{version:1,sourceSha256:declaration.model.sha256,sourceBytes:declaration.model.bytes,geometry}});
+ expect(await service.readVersion(f.client,f.session,done.furnishing!.id,1)).toEqual(done.furnishing);
+ expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_intakes'))).toHaveLength(1);
+});
+
 it('retains uploaded bytes across retryable validation failure and a new service instance',async()=>{
  const f=fixture(),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);
  vi.mocked(validateWorkspaceFurnishingGlb).mockRejectedValueOnce(new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE'));expect(await f.service.work(f.pool)).toBe(true);const failed=await f.service.read(f.client,f.session,first.intakeId);expect(failed).toMatchObject({phase:'failed',retryable:true,received:{bytes:f.bytes.length,sha256:f.declaration.model.sha256}});
