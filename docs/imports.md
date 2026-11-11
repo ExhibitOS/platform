@@ -212,3 +212,20 @@ revision. Compatible unchanged originals retain their existing revision. Current
 rights, receipt and source/approved snapshots are revalidated on replay and reopen.
 Known-unit required intake and approved-full compact variant preparation are
 separate unchanged paths.
+
+### Original-inclusive publication and selected thumbnail freshness
+
+A new `native-original-v1` publish request on the same saved draft revision may
+observe a newly selected, revision-scoped CMS thumbnail. A published snapshot is
+reused only when its immutable thumbnail bindings still match those current
+selection inputs. A changed selection creates a fresh immutable publication
+through the existing current-rights/byte preparation and original-custody
+producer; it does not edit the saved draft or historical publication.
+
+Exact request-ID replay still returns its original committed result. A withdrawn
+snapshot is not implicitly republished, and ordinary publication profiles retain
+their existing reuse behavior. The freshness detector observes the current
+selection in a read-only statement; overlapping selection changes can linearize
+after that read. Fresh projection retains the existing CMS lock order and final
+source, receipt, rights and original-byte checks. No new original approval is
+created by a thumbnail change.

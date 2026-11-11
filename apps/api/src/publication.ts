@@ -1,3 +1,4 @@
+import {publicationThumbnailsCurrent} from './publication-thumbnail-freshness.ts';
 import {FURNISHING_WALKING_COLLISION_NAMESPACE,remapFurnishingWalkingCollision,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionSettings} from '@exhibitos/studio-contract';
 import {modelReceiptDigest,type CompactVariantReceipt} from './model-preparation-intent.ts';
 import {COMPACT_MODEL_RECIPE_SHA256} from './oam-original-preparation.ts';
@@ -607,7 +608,11 @@ export class Publications {
         // READ COMMITTED transaction. Supported API writers therefore observe
         // a concurrent publication after waiting for the lock, before writing.
         const existing=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3 ORDER BY p.published_at DESC,p.id DESC LIMIT 1',[s.tenantId,id,row.revision])).rows[0];
-        if(existing){
+        // A new original-inclusive publication request may observe a newly
+        // selected CMS thumbnail without any saved-draft edit. Keep exact
+        // request replay and withdrawn-version behavior, but project a fresh
+        // immutable version when that external publication input has changed.
+        if(existing&&(!detail||existing.status!=='published'||await publicationThumbnailsCurrent(c,s.tenantId,existing.id,row.metadata.candidate))){
             if(detail)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
             await c.query('INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)',[s.tenantId,s.userId,requestId,payloadHash,existing.id]);
             // A lost response or a second publish click must not republish an
