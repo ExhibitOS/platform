@@ -24,10 +24,17 @@ const qualifiedPath=p=>['index.html','studio.html','static-publication-index.jso
  /^furnish-catalog\/backless-oak-bench\/1\/(?:model\.glb|LICENSE-NOTICE\.txt)$/.test(p);
 
 // The pin comes from deployment configuration, independently of repository content.
-export async function inspectDemo({output, pin, commit, approvedBases, runtimeRoot=join(root,'apps/web/dist-reference-demo-static')}){
+export async function inspectDemo({output, pin, commit, approvedBases, runtimeRoot=join(root,'apps/web/dist-reference-demo-static'),nativeClosure}){
  if(!/^[a-f0-9]{64}$/.test(pin??''))throw Error('DEMO_APPROVED_INDEX_REQUIRED');
  const indexBytes=await readFile(join(output,'static-publication-index.json'));
  if(sha256(indexBytes)!==pin)throw Error('DEMO_CONTENT_INDEX');
+ const {R97_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ if(pin===R97_REFERENCE.indexSha256){
+  const {inspectNativeReferenceClosure}=await import('./reference-native-closure.mjs');
+  if(!nativeClosure)throw Error('REFERENCE_NATIVE_REQUEST');
+  return {sourceCommit:commit,...await inspectNativeReferenceClosure({output,...nativeClosure})};
+ }
+ if(nativeClosure)throw Error('REFERENCE_NATIVE_REQUEST');
  const index=JSON.parse(indexBytes);
  let qualified;
  if(index.version===4){const {verifiedQualifiedWheat}=await import('./qualified-wheat-reference.mjs');qualified=await verifiedQualifiedWheat({root:output});}
@@ -119,7 +126,7 @@ export async function deployReferenceDemo({env=process.env,output=join(root,'dis
  const remote=await remoteHead();
  if(!/^[a-f0-9]{40}$/.test(remote??''))throw Error('DEMO_REMOTE_HEAD');
  if(commit!==remote){log(`Skipping superseded demo build ${commit} (main is ${remote})`);return 'skipped';}
- const proof=await inspectDemo({output,pin:env.EXHIBITOS_APPROVED_DEMO_INDEX_SHA256,commit,approvedBases});
+ const proof=await inspectDemo({output,pin:env.EXHIBITOS_APPROVED_DEMO_INDEX_SHA256,commit,approvedBases,...(env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE!==undefined||env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256!==undefined?{nativeClosure:{inputRoot:env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE,inventorySha256:env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256}}:{})});
  const finalHead=await remoteHead();
  if(!/^[a-f0-9]{40}$/.test(finalHead??''))throw Error('DEMO_REMOTE_HEAD');
  if(finalHead!==commit){log(`Skipping superseded demo build ${commit} (main is ${finalHead})`);return 'skipped';}

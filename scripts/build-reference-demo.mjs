@@ -95,11 +95,21 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
  if(!process.env.npm_config_user_agent?.startsWith('npm/11.19.0 '))throw Error('DEMO_NPM_VERSION');
  const npm=process.env.npm_execpath;
  if(!npm)throw Error('Run with npm run build:reference-demo');
- await run([npm,'run','notices']);
- for(const workspace of ['@exhibitos/studio-contract','@exhibitos/storage'])await run([npm,'run','build','--workspace',workspace]);
- await run([npm,'run','build:public-export','--workspace','@exhibitos/api']);
- await run(['scripts/build-web-schema-validators.mjs','--check']);
- await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts','--outDir','dist-reference-demo-static'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer',EXHIBITOS_PRIVATE_EDITOR:'1'}});
- await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.cover.config.ts','--outDir','dist-reference-demo-cover'],{cwd:join(root,'apps/web')});
- console.log(JSON.stringify(await exportReferenceDemo({runtimeRoot:join(root,'apps/web/dist-reference-demo-static'),privateEditor:true,coverCompanion:'reference-demo',...(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE?{qualifiedSourceRoot:resolve(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE)}:{})})));
+ const nativeRoot=process.env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE;
+ const nativeIntegrity=process.env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256;
+ if(nativeRoot!==undefined||nativeIntegrity!==undefined){
+  if(!nativeRoot||!nativeIntegrity||process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE!==undefined)throw Error('REFERENCE_NATIVE_REQUEST');
+  // Reuse the qualified immutable web input; the producer checkout is a separate identity.
+  await run([npm,'run','build','--workspace','@exhibitos/studio-contract']);
+  const {exportNativeReferenceClosure}=await import('./reference-native-closure.mjs');
+  console.log(JSON.stringify(await exportNativeReferenceClosure({inputRoot:nativeRoot,inventorySha256:nativeIntegrity,outputDir:join(root,'dist-demo')})));
+ }else{
+  await run([npm,'run','notices']);
+  for(const workspace of ['@exhibitos/studio-contract','@exhibitos/storage'])await run([npm,'run','build','--workspace',workspace]);
+  await run([npm,'run','build:public-export','--workspace','@exhibitos/api']);
+  await run(['scripts/build-web-schema-validators.mjs','--check']);
+  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts','--outDir','dist-reference-demo-static'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer',EXHIBITOS_PRIVATE_EDITOR:'1'}});
+  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.cover.config.ts','--outDir','dist-reference-demo-cover'],{cwd:join(root,'apps/web')});
+  console.log(JSON.stringify(await exportReferenceDemo({runtimeRoot:join(root,'apps/web/dist-reference-demo-static'),privateEditor:true,coverCompanion:'reference-demo',...(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE?{qualifiedSourceRoot:resolve(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE)}:{})})));
+ }
 }
