@@ -77,7 +77,10 @@ export async function refreshNativeDetailShell(request,{cancelled=()=>false}={})
  try{await lstat(output);fail('REFRESH_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
  const local=await localStaticPublicationSource(request,{cancelled}),pinned=await publication(local,request),inputs=await webSource(request,cancelled),editor=retainedPrivateEditor(local.entries);
  if(editor&&!inputs.entries.has('static-studio.html'))fail('REFRESH_WEB_INVALID');
- const oldIndex=(await regular(source,'index.html',25*1024*1024,cancelled)).toString('utf8');
+ const oldEntry=local.entries.get('index.html');if(!oldEntry)fail('REFRESH_SOURCE_INVALID');
+ const oldBytes=await regular(source,'index.html',oldEntry.bytes,cancelled);
+ if(oldBytes.length!==oldEntry.bytes||hash(oldBytes)!==oldEntry.sha256)fail('REFRESH_CONTENT_CHANGED');
+ const oldIndex=oldBytes.toString('utf8');
  const stage=await mkdtemp(join(parent,'.exhibitos-shell-refresh-')),candidate=join(stage,'candidate'),files=new Map();let committed=false,total=0;
  const put=async(path,bytes)=>{if(cancelled())fail('REFRESH_CANCELLED');if(!safeStaticPath(path)||files.has(path))fail('REFRESH_CONTENT_CHANGED');assertStaticBudget(path,bytes.length,files.size);total+=bytes.length;if(total>512*1024*1024)fail('REFRESH_CONTENT_CHANGED');await mkdir(dirname(join(candidate,path)),{recursive:true,mode:0o700});await writeFile(join(candidate,path),bytes,{flag:'wx',mode:0o600});files.set(path,{bytes:bytes.length,sha256:hash(bytes)});};
  try{

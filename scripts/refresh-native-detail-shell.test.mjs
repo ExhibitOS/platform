@@ -73,3 +73,18 @@ test('revalidates source at commit and removes incomplete successor after cancel
   assert(tampered);assert(!(await readdir(changed.root)).includes('successor'));assert(!(await readdir(changed.root)).some(name=>name.startsWith('.exhibitos-shell-refresh-')));
  }finally{await rm(changed.root,{recursive:true,force:true});}
 });
+
+
+test('pins retained title and cover bytes when consumed, even if a source change is later restored',async()=>{
+ const f=await fixture();try{
+  let tampered=false,restored=false;
+  await assert.rejects(refreshNativeDetailShell(f.request,{cancelled:()=>{
+   // Inject after the initial source inventory check while web validation is
+   // in progress; restore once staging begins, before final source recheck.
+   if(!tampered&&new Error().stack.includes('webSource')){writeFileSync(join(f.source,'index.html'),f.contents.get('index.html').toString().replace('Retained cover','Foreign cover'));tampered=true;}
+   if(tampered&&!restored&&readdirSync(f.root).some(name=>name.startsWith('.exhibitos-shell-refresh-'))){writeFileSync(join(f.source,'index.html'),f.contents.get('index.html'));restored=true;}
+   return false;
+  }}),/REFRESH_CONTENT_CHANGED/);
+  assert(tampered);assert(!existsSync(f.request.outputDir));
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
