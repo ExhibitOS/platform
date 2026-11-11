@@ -25,6 +25,14 @@ export function viewQueuePriority(view:ViewInterest|undefined,current:boolean,pi
 /** Keep an already attached eligible full tier during its existing detail grace.
  * Pressure reclamation always overrides this preference; this never promotes. */
 export function retainGalleryDetail(activeFull:boolean,want:boolean,reclaiming:boolean){return activeFull&&want&&!reclaiming;}
+/** A missing minimum blocks new detail work, not an already admitted tier.
+ * Explicit pressure remains allowed to retire that tier during its grace. */
+export function galleryDetailChoice(input:{current:boolean;activeFull:boolean;want:boolean;reclaiming:boolean;canPromote:boolean;minimumOutstanding:boolean}):'retain'|'full'|'minimum'|'other'{
+  if(input.reclaiming)return 'minimum';
+  if(retainGalleryDetail(input.activeFull,input.want,false))return 'retain';
+  if(input.current)return input.canPromote&&input.want&&!input.minimumOutstanding?'full':'minimum';
+  return 'other';
+}
 export type ResidentRetryWait={identity:string;bytes:number};
 /** A measured refusal is reusable only for the exact inventory/policy identity.
  * This caches allocation cost, never a successful authorization decision. */

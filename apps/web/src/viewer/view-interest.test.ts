@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {AssetScheduler,MemoryAssetCache,ArtworkAttention,detailDemand,nearbyPreparation} from './loading';
-import {optionalResidentRetryReady,retainGalleryDetail,viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,ownedWallFullPromotion,planDecodedReclamation,type DecodedReclamationRow,type ViewInterest} from './view-interest';
+import {AssetScheduler,MemoryAssetCache,ArtworkAttention,detailDemand,nearbyPreparation,DetailTransition,minimumDetailPending} from './loading';
+import {optionalResidentRetryReady,retainGalleryDetail,galleryDetailChoice,viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,ownedWallFullPromotion,planDecodedReclamation,type DecodedReclamationRow,type ViewInterest} from './view-interest';
 const cold:ViewInterest={visible:false,next:false,recent:false,connected:false,distance:20};
 it('connected rooms remain soft interest rather than visible or next-view entitlement',()=>{
   expect(viewInterestRank({...cold,connected:true})).toBeGreaterThan(viewInterestRank({...cold,next:true}));
@@ -108,4 +108,19 @@ it('ordinary full reclamation requires current wall ownership and the exact full
   expect(ownedWallFullPromotion(owned)).toBe(true);
   for(const change of [{prepareOnly:true},{detailPromotion:true},{full:false},{observeWall:false},{currentArtwork:'other'},{assetId:'coarse'},{fullAssetId:undefined}])
     expect(ownedWallFullPromotion({...owned,...change})).toBe(false);
+});
+
+it('a newly exposed pending minimum cannot demote current admitted full quality during a short turn',()=>{
+  const transition=new DetailTransition();transition.update(true,0);expect(transition.update(true,300)).toBe(true);
+  const minimumOutstanding=minimumDetailPending([{visible:true,eligible:true,active:false,pending:true,budgetBlocked:false}]);
+  expect(minimumOutstanding).toBe(true);
+  const input={current:true,activeFull:true,reclaiming:false,canPromote:true,minimumOutstanding};
+  expect(galleryDetailChoice({...input,want:transition.update(false,400)})).toBe('retain');
+  expect(galleryDetailChoice({...input,want:transition.update(false,1272)})).toBe('retain');
+  expect(galleryDetailChoice({...input,want:transition.update(true,1273)})).toBe('retain');
+  expect(galleryDetailChoice({...input,current:false,want:true})).toBe('retain');
+  expect(galleryDetailChoice({...input,activeFull:false,want:true})).toBe('minimum');
+  expect(galleryDetailChoice({...input,reclaiming:true,want:true})).toBe('minimum');
+  transition.update(false,1400);
+  expect(galleryDetailChoice({...input,want:transition.update(false,3200)})).toBe('minimum');
 });

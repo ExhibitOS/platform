@@ -52,7 +52,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
-import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,retainGalleryDetail,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
+import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -3062,13 +3062,13 @@ export function GeometryPreview({
             }else awaySince.delete(art.revisionId);
             const isCurrent=art.revisionId===currentArtwork,neighbor=preparing.has(art.revisionId);
             const canPromote=!immersive||galleryArtworkDrawn;
-            const wantFull=canPromote&&isCurrent&&want&&!minimumOutstanding;
             if((retryAfter.get(art.revisionId)??0)>now)continue;
-            if(isCurrent)request(art,wantFull);
-            else if(reclaiming.has(art.revisionId)){
-              if(active.has(art.revisionId))request(art,false);
+            const quality=galleryDetailChoice({current:isCurrent,activeFull:lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===active.get(art.revisionId)),want,reclaiming:reclaiming.has(art.revisionId),canPromote,minimumOutstanding});
+            if(quality==='retain')continue;
+            if(quality==='full')request(art,true);
+            else if(quality==='minimum'){
+              if(isCurrent||active.has(art.revisionId))request(art,false);
             }
-            else if(retainGalleryDetail(lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===active.get(art.revisionId)),want,reclaiming.has(art.revisionId)))continue;
             else if(shadowDependencies.has(art.revisionId))request(art,false);
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
