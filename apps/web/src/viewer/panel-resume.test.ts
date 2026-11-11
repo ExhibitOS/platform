@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { afterEach, expect, test, vi } from "vitest";
 import { createPanelResumeGate,createPanelDismissalGesture,installPanelResume,installPanelDismissal,panelEscapeFromControl } from "./panel-resume";
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 
 function panelPaused() {
   const gate = createPanelResumeGate();
@@ -82,6 +82,63 @@ test("bench return cannot consume input while a panel or modal is still open", (
  panel=false;modal=true;
  expect(handler.drag(true)).toBe(false);expect(handler.movement(true)).toBe(false);
  modal=false;expect(handler.drag(true)).toBe(true);expect(resume).toHaveBeenCalledOnce();
+ handler.dispose();
+});
+test("owns delayed null focus through same-gallery touch activation only", () => {
+ vi.useFakeTimers();
+ const root=Object.assign(new EventTarget(),{querySelectorAll:()=>[],querySelector:()=>null});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null};
+ const doc=Object.assign(new EventTarget(),{hidden:false});
+ vi.stubGlobal('document',doc);
+ const win=new EventTarget();
+ vi.stubGlobal('window',win);
+ class SitButton extends EventTarget {
+  constructor(private sameGallery:boolean){super();}
+  closest(selector:string){
+   if(selector==='button[data-bench-action][data-bench-seated="false"]')return this;
+   return selector==='.geometry-preview'?{contains:()=>this.sameGallery}:null;
+  }
+ }
+ vi.stubGlobal('Element',SitButton);
+ const pause=vi.fn(()=>handler.mode(true,true,'panel'));
+ const handler=installPanelResume(canvas as unknown as HTMLCanvasElement,pause,vi.fn());
+ const contact=(type:string,button:SitButton)=>{
+  const event=Object.assign(new Event(type),{pointerId:1,pointerType:'touch',isPrimary:true,button:0});
+  Object.defineProperties(event,{isTrusted:{value:true},target:{value:button}});
+  (type==='pointerdown'?doc:win).dispatchEvent(event);
+ };
+ const other=new SitButton(false),sit=new SitButton(true);
+ handler.mode(true,false);
+ contact('pointerdown',other);contact('pointerup',other);
+ expect(pause).not.toHaveBeenCalled();
+ for(let cycle=0;cycle<2;cycle++){
+  handler.mode(true,false);
+  contact('pointerdown',sit);
+  vi.advanceTimersByTime(145);
+  contact('pointerup',sit);
+  expect(pause).toHaveBeenCalledTimes(cycle+1);
+  expect(handler.isPanelFocus(null)).toBe(true);
+  expect(handler.isPanelFocus(other)).toBe(false);
+  // The canvas blur arrives after release, before the sit click.
+  handler.mode(true,true,handler.isPanelFocus(null)?'panel':'blur');
+  expect(handler.wasWalkingBeforeSeat()).toBe(true);
+  doc.dispatchEvent(new Event('click'));
+  expect(handler.isPanelFocus(null)).toBe(false);
+  handler.mode(false,true); // seated
+  handler.mode(true,true,'bench-return'); // standing, no held input replay
+  expect(handler.movement(false)).toBe(false);
+  expect(handler.movement(true)).toBe(true); // next deliberate joystick input
+  expect(handler.movement(true)).toBe(false);
+ }
+ contact('pointerdown',sit);contact('pointercancel',sit);
+ expect(handler.isPanelFocus(null)).toBe(false);
+ contact('pointerdown',sit);contact('pointerup',sit);
+ vi.advanceTimersByTime(501);
+ expect(handler.isPanelFocus(null)).toBe(false);
+ contact('pointerdown',sit);
+ handler.mode(true,true,'escape');
+ expect(handler.isPanelFocus(null)).toBe(false);
+ expect(handler.wasWalkingBeforeSeat()).toBe(false);
  handler.dispose();
 });
 test("drag returning to start, cancellation, and release outside canvas reject resume", () => {

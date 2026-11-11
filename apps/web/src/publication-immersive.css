@@ -12,6 +12,9 @@
 main.publication-shell button{background:transparent;color:var(--publication-ink);border:1px solid var(--publication-muted)}
 main.publication-shell .bench-return{background:var(--publication-paper);color:var(--publication-ink)}
 main.publication-shell .bench-return:focus-visible{outline-offset:-4px}
+/* Keep the seat/exit action on the same viewport edge as the touch joystick.
+   In-flow display warnings can displace the render stage without moving the HUD. */
+.publication-shell .geometry-immersive .bench-return{position:fixed}
 .geometry-immersive[data-input-mode=touch]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}
 @media (pointer:coarse){.geometry-immersive[data-input-mode=auto]{--bench-action-bottom:calc(124px + max(1rem,env(safe-area-inset-bottom)))}}
 @media (max-width:480px), (max-height:480px) and (max-width:950px) {
