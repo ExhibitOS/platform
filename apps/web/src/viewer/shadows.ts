@@ -161,20 +161,29 @@ export type SupportContact = {
   position:readonly [number,number,number];rotation:readonly [number,number,number,number];
   width:number;height:number;
 };
-const CONTACT_LIMIT=16,ROOM_CONTACT_LIMIT=8;
+const ROOM_CONTACT_LIMIT=8;
 /** Shallow receiver shading adds no geometry, depth target, texture or draw.
  * Uniform byte counts are upload estimates; compiled program storage is unknown. */
 export function installSupportContactShadows(three:typeof THREE,contacts:readonly SupportContact[],
   compact:boolean,report:(value:{activeContacts:number;activeTriangles:number;drawCalls:number;textureBytes:number;uniformBytes:number;materials:number;programBytes:null})=>void){
-  const byRoom=new Map<THREE.Group,SupportContact[]>();let admitted=0;
-  for(const row of contacts){
-    if(admitted>=CONTACT_LIMIT)break;
-    if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
-      Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||
-      ![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
-    const rows=byRoom.get(row.room)??[];if(rows.length>=ROOM_CONTACT_LIMIT)continue;
-    rows.push(row);byRoom.set(row.room,rows);admitted++;
-  }
+  // The caller already retains the scene's descriptors. Admit only the current
+  // room on activation: an earlier room must not consume another room's slots.
+  // At most eight descriptor references/material masks are active at one time.
+  const contactsForRoom=(room:THREE.Group)=>{
+    const rows:SupportContact[]=[];
+    for(const row of contacts){
+      if(row.room!==room)continue;
+      if(!row.position.every(Number.isFinite)||!row.rotation.every(Number.isFinite)||
+        Math.abs(row.rotation.reduce((sum,n)=>sum+n*n,0)-1)>.001||
+        ![row.width,row.height].every(n=>n>0&&n<=1.8))continue;
+      let ancestor:THREE.Object3D|null=row.receiver;
+      while(ancestor&&ancestor!==room)ancestor=ancestor.parent;
+      if(!ancestor)continue;
+      rows.push(row);
+      if(rows.length===ROOM_CONTACT_LIMIT)break;
+    }
+    return rows;
+  };
   const uniforms={
     exhibitosContactMatrices:{value:Array.from({length:ROOM_CONTACT_LIMIT},()=>new three.Matrix4())},
     exhibitosContactCount:{value:0},exhibitosContactOpacity:{value:compact?.18:.14},
@@ -244,7 +253,7 @@ export function installSupportContactShadows(three:typeof THREE,contacts:readonl
   };
   const setRoom=(room:THREE.Group|undefined)=>{
     if(disposed||room===active)return;restore();active=room;
-    const rows=room&&byRoom.get(room);
+    const rows=room&&contactsForRoom(room);
     if(rows&&room){
       room.updateWorldMatrix(true,false);
       rows.forEach((row,index)=>{
