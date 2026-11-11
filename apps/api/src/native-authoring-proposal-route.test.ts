@@ -9,6 +9,7 @@ import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/mo
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
+import {readInstalledFurnishing} from './furnishing-assets.ts';
 
 it('proposes only a checked change to the current saved draft through the installed owner session',async()=>{
  const draft=newDraft(),tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43);
@@ -43,7 +44,7 @@ it('proposes only a checked change to the current saved draft through the instal
  const before=structuredClone(draft);
  try{
   const response=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1'});
+  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1',nativeLightObjectAuthoringProposalProfile:'saved-head-light-object-v1'});
   expect((await ordinary.inject({method:'POST',url,headers,payload})).statusCode).toBe(404);
   expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...payload,expectedRevision:revision-1})).statusCode).toBe(412);
@@ -108,14 +109,56 @@ it('proposes only a checked change to the current saved draft through the instal
   expect((await post(attachmentPayload)).json()).toEqual(attachmentReply.json());
   expect((await post({...attachmentPayload,request:{...attachmentPayload.request,attachment:{...attachmentPayload.request.attachment,surfaceId:wall.wall.surfaceId}}})).statusCode).toBe(422);
   for(const request of [{...fixturePayload.request,assetId:randomUUID()},{...fixturePayload.request,catalogId:'backless-oak-bench'},{...fixturePayload.request,hostKind:'bench'},{...attachmentPayload.request,attachment:null},{...attachmentPayload.request,attachment:{...attachmentPayload.request.attachment,extra:1}}])expect((await post({...payload,request})).statusCode).toBe(400);
+  const objectPayload={...payload,request:{...binding,type:'set-light-object',lightId:originalId,light:originalFields,settings:{fixture:'none'},attachment:null}};
+  const selectedPayload={...payload,request:{...binding,type:'set-light-fixture',lightId:originalId,visual:{catalogId:'museum-track-spot',catalogVersion:1,pose:fixturePayload.request.pose}}};
+  const clonePayload={...payload,request:{...binding,type:'duplicate-light-object',lightId:originalId}};
+  const removePayload={...payload,request:{...binding,type:'remove-light-object',lightId:originalId}};
+  for(const value of [objectPayload,selectedPayload,clonePayload,removePayload]){
+   const reply=await post(value);expect(reply.statusCode,reply.body).toBe(200);
+   expect(Object.keys(reply.json()).sort()).toEqual([...Object.keys(binding),'lightId','candidate'].sort());
+   expect(reply.headers.etag).toBe(match);expect(reply.json()).toMatchObject(binding);
+   expect(reply.json().lightId===originalId).toBe(value!==clonePayload);
+   expect((await post(value)).json()).toEqual(reply.json());
+  }
+  expect((await post({...selectedPayload,request:{...selectedPayload.request,visual:null}})).statusCode).toBe(200);
+  const washerReply=await post({...selectedPayload,request:{...selectedPayload.request,visual:{catalogId:'museum-wallwasher',catalogVersion:1,pose:{position:[0,.106,.05],yaw:0,scale:1}}}});
+  expect((await post({...fixturePayload,request:{...fixturePayload.request,catalogId:'museum-wallwasher'}})).statusCode).toBe(400);
+  expect(washerReply.statusCode,washerReply.body).toBe(200);expect(washerReply.json().candidate.extensions['org.exhibitos.studio/furnishing-visuals'].assets[0]).toMatchObject({catalogId:'museum-wallwasher',bytes:201724,provenance:{recipe:'omit-unused-tangent-v1'},rights:{notice:{bytes:1115}}});
+  expect((await post(clonePayload,{'x-csrf-token':''})).statusCode).toBe(403);
+  expect((await post({...clonePayload,expectedRevision:revision-1})).statusCode).toBe(412);
+  expect((await post(clonePayload,{'if-match':etag(revision-1,draft)})).statusCode).toBe(412);
+  expect((await post({...clonePayload,request:{...clonePayload.request,principalId:randomUUID()}})).statusCode).toBe(403);
+  expect((await post({...clonePayload,request:{...clonePayload.request,lightId:randomUUID()}})).statusCode).toBe(422);
+  for(const request of [
+   {...clonePayload.request,newLightId:randomUUID()},
+   {...removePayload.request,sourceId:originalId},
+   {...objectPayload.request,light:{...originalFields,id:originalId}},
+   {...objectPayload.request,settings:{fixture:'none',lightId:originalId}},
+   {...objectPayload.request,attachment:{...attachmentPayload.request.attachment,extra:1}},
+   {...selectedPayload.request,visual:{...selectedPayload.request.visual,assetId:randomUUID()}},
+   {...selectedPayload.request,visual:{...selectedPayload.request.visual,catalogId:'unadmitted-light'}},
+  ])expect((await post({...payload,request})).statusCode).toBe(400);
+  const savedExtensions=draft.candidate.extensions;
+  draft.candidate.extensions={...savedExtensions,'org.exhibitos.studio/furnishing-visuals':{version:1,assets:[],bindings:[{hostKind:'light',hostId:originalId,assetId:randomUUID(),pose:{position:[0,0,0],yaw:0,scale:1}}]}};
+  const corruptReply=await post(clonePayload,{'if-match':etag(revision,draft)});
+  expect(corruptReply.statusCode,corruptReply.body).toBe(409);expect(corruptReply.json()).toMatchObject({code:'DRAFT_CORRUPT'});
+  draft.candidate.extensions=savedExtensions;
   live=false;
   expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeSceneAuthoringProposalProfile');
   expect((await post(updatePayload)).statusCode).toBe(503);
   expect((await post(fixturePayload)).statusCode).toBe(503);
   expect((await post(attachmentPayload)).statusCode).toBe(503);
+  for(const value of [objectPayload,selectedPayload,clonePayload,removePayload])expect((await post(value)).statusCode).toBe(503);
+  expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeLightObjectAuthoringProposalProfile');
   expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeFixtureAuthoringProposalProfile');
   live=true;
   expect(draft).toEqual(before);
   expect(queries.some(sql=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
  }finally{await app.close();await ordinary.close();}
+});
+
+it('keeps prepared custody paths private and never treats an absent or mismatched model as ready',async()=>{
+ const root='assets/furnishings/exhibitos-authored-20261111/museum-wallwasher/';
+ for(const path of [root+'source.glb',root+'producer-receipt.json',root+'../model.glb',root.replace('museum-wallwasher/','unadmitted-light/')+'model.glb'])await expect(readInstalledFurnishing(path,1,'0'.repeat(64))).rejects.toMatchObject({status:404,code:'FURNISHING_UNAVAILABLE'});
+ await expect(readInstalledFurnishing(root+'model.glb',1,'0'.repeat(64))).rejects.toMatchObject({status:409,code:'FURNISHING_INTEGRITY'});
 });

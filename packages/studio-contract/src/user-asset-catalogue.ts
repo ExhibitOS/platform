@@ -37,10 +37,9 @@ export type UserAssetCatalogueEntry = {
   readonly triangles: number;
   readonly bounds: Bounds;
   readonly rights: { readonly licenseId: 'CC0-1.0'; readonly noticePath: string; readonly noticeBytes: number; readonly noticeSha256: string };
-  readonly provenance:
-    | { readonly sourceSha256: string; readonly recipe: 'original-v1' }
-    | { readonly sourceSha256: 'd85d9d1823c49bef412a23a59e238104f5b8ad342d8e8149efaf8d1110dc3290';
-        readonly recipe: 'omit-unused-tangent-v1' };
+  readonly provenance: { readonly sourceSha256: string; readonly recipe: 'original-v1' | 'omit-unused-tangent-v1' | 'omit-unused-invalid-tangent-r1' };
+  /** Internal distribution custody only; never serialized as a FurnishingAsset. */
+  readonly preparation?: { readonly files: readonly { readonly path:string; readonly bytes:number; readonly sha256:string }[] };
   readonly functional?: Functional;
 };
 

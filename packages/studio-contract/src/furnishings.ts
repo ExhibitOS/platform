@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
+import {PREPARED_SHARED_FIXTURES} from './prepared-shared-fixture.js';
 import {USER_ASSET_CATALOGUE,type UserAssetCatalogueEntry} from './user-asset-catalogue.js';
 import {artifactPoint,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
 import {BENCH_NAMESPACE,benchesFor,validateStudioBenches,type StudioBenches} from './benches.js';
@@ -14,6 +15,7 @@ export const FURNISHING_LIMITS=Object.freeze({assets:8,bindings:32,bytes:32768})
 export const SUPPORTED_FURNISHINGS=Object.freeze({
  'backless-oak-bench':'bench',
  'museum-track-spot':'light',
+ 'museum-wallwasher':'light',
  'gallery-open-portal':'opening',
  'rectangular-plinth':'pedestal',
 } as const);
@@ -23,7 +25,7 @@ export interface FurnishingPose {position:AffinePoint;yaw:number;scale:number}
 export interface FurnishingAsset {
  id:string;catalogId:FurnishingCatalogId;catalogVersion:1;mime:'model/gltf-binary';path:string;bytes:number;sha256:string;
  rights:{licenseId:'CC0-1.0';notice:{path:string;bytes:number;sha256:string}};
- provenance:UserAssetCatalogueEntry['provenance'];
+ provenance:{sourceSha256:string;recipe:'original-v1'|'omit-unused-tangent-v1'};
 }
 export interface FurnishingBinding {hostKind:FurnishingHostKind;hostId:string;assetId:string;pose:FurnishingPose}
 export interface StudioFurnishings {version:1;assets:FurnishingAsset[];bindings:FurnishingBinding[]}
@@ -38,12 +40,12 @@ const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):object(v)
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 export function furnishingCatalogueEntry(id:unknown):UserAssetCatalogueEntry {
  if(typeof id!=='string'||!Object.hasOwn(SUPPORTED_FURNISHINGS,id))throw Error('FURNISHING_UNSUPPORTED');
- const entry=USER_ASSET_CATALOGUE.find(e=>e.id===id);if(!entry)throw Error('FURNISHING_UNSUPPORTED');return entry;
+ const entry=PREPARED_SHARED_FIXTURES[id]??USER_ASSET_CATALOGUE.find(e=>e.id===id);if(!entry)throw Error('FURNISHING_UNSUPPORTED');return entry;
 }
 export function furnishingAsset(id:string,catalogId:FurnishingCatalogId):FurnishingAsset {
  if(!uuid(id))throw Error('FURNISHING_REFERENCE');const e=furnishingCatalogueEntry(catalogId);
  return {id,catalogId,catalogVersion:1,mime:e.mime,path:`furnishings/${id}/model.glb`,bytes:e.bytes,sha256:e.sha256,
-  rights:{licenseId:'CC0-1.0',notice:{path:`furnishings/${id}/LICENSE-NOTICE.txt`,bytes:e.rights.noticeBytes,sha256:e.rights.noticeSha256}},provenance:structuredClone(e.provenance)};
+  rights:{licenseId:'CC0-1.0',notice:{path:`furnishings/${id}/LICENSE-NOTICE.txt`,bytes:e.rights.noticeBytes,sha256:e.rights.noticeSha256}},provenance:{sourceSha256:e.provenance.sourceSha256,recipe:e.provenance.recipe==='omit-unused-invalid-tangent-r1'?'omit-unused-tangent-v1':e.provenance.recipe}};
 }
 export function furnishingsFor(e:Pick<Exhibition,'extensions'>):StudioFurnishings|undefined {return e.extensions?.[FURNISHING_NAMESPACE]===undefined?undefined:structuredClone(e.extensions[FURNISHING_NAMESPACE]) as unknown as StudioFurnishings;}
 export function furnishingFor(e:Pick<Exhibition,'extensions'>,kind:FurnishingHostKind,id:string){return furnishingsFor(e)?.bindings.find(b=>b.hostKind===kind&&same(b.hostId,id));}

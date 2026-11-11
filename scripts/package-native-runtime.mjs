@@ -146,18 +146,19 @@ const DEFAULT_FURNISHINGS_RELEASES={
   '1.4.0':{commit:'84882f581d7e1d568aea27d7409c8c5c31b44a13',manifestSHA256:'7073f8f6dfd7a1c44e8e2b7206b503a35fa1a59eb992d08191dde5f6c6e86e6e',bytes:9246},
   '1.5.0':{commit:'9209dca9cf60088508eafbf51c113ff8d307212f',manifestSHA256:'c62c8e910e7f2920e989b2d1d76d37ab959d04c2c443dc5631d4478ed5056b0f',bytes:10119},
   '1.6.0':{commit:'1a82192232f56b442ddf7443a7b67f8095f00701',manifestSHA256:'3c9dc8c1a32d9f2a59d7e62ed8da62a700cfcd6c87ab473987a1980ab1e75864',bytes:11855},
+  '1.8.0':{commit:'0522167c8ffecf6e3b109a2c293c1a337f5264ae',manifestSHA256:'4a37d140dd33144da38536fb49d3142f2f1d0b54c9fe265d55095c809baf19ee',bytes:13631},
   '1.7.0':{commit:'5a542ec9312624967681018e6a37e213711580df',manifestSHA256:'eeffc547ee6ffa4d7d6db5656c09703b8dadda00699da6d89b483d5cc7ebecb6',bytes:12743},
 };
 const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
 const DEFAULT_WORKSPACE_ORIGINALS={'freestanding-info-stand':'info-stand','gallery-stool':'stool','upholstered-gallery-bench':'bench'};
 const DEFAULT_EXIT_ORIGINALS={'closed-exit-door':'barrier','exit-pictogram-sign':'info-stand'};
-const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0','1.5.0','1.6.0','1.7.0'];
+const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0','1.5.0','1.6.0','1.7.0','1.8.0'];
 const DEFAULT_PORTAL_ORIGINALS={'portal-pale-mineral':'opening','portal-warm-oak':'opening'};
 const DEFAULT_COMPACT_STAND_ID='compact-caption-stand';
 const DEFAULT_SCULPTURE_BENCH_ID='sculpture-gallery-bench';
-const defaultFurnishingDirectory=id=>id===DEFAULT_COMPACT_STAND_ID?'exhibitos-authored-20261111':Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
+const defaultFurnishingDirectory=id=>id===DEFAULT_COMPACT_STAND_ID||id==='museum-wallwasher'?'exhibitos-authored-20261111':Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
   Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)?'generated-20261109':'user-authored-20261027';
-const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0';
+const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0'||version==='1.8.0';
 const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
 const DEFAULT_EXIT_SIGN_SOURCE={
   path:'assets/furnishings/generated-20261109/exit-pictogram-sign/source.glb',
@@ -189,9 +190,10 @@ async function readDefaultFurnishingsManifest(root){
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
     ...(DEFAULT_WORKSPACE_RELEASES.includes(version)?DEFAULT_WORKSPACE_ORIGINALS:{}),
     ...(DEFAULT_EXIT_RELEASES.includes(version)?DEFAULT_EXIT_ORIGINALS:{}),
-    ...(['1.5.0','1.6.0','1.7.0'].includes(version)?{[DEFAULT_SCULPTURE_BENCH_ID]:'bench'}:{}),
-    ...(['1.6.0','1.7.0'].includes(version)?DEFAULT_PORTAL_ORIGINALS:{}),
-    ...(version==='1.7.0'?{[DEFAULT_COMPACT_STAND_ID]:'info-stand'}:{}),
+    ...(['1.5.0','1.6.0','1.7.0','1.8.0'].includes(version)?{[DEFAULT_SCULPTURE_BENCH_ID]:'bench'}:{}),
+    ...(['1.6.0','1.7.0','1.8.0'].includes(version)?DEFAULT_PORTAL_ORIGINALS:{}),
+    ...(['1.7.0','1.8.0'].includes(version)?{[DEFAULT_COMPACT_STAND_ID]:'info-stand'}:{}),
+    ...(version==='1.8.0'?{'museum-wallwasher':'light'}:{}),
   };
   if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!==version||!Array.isArray(manifest.assets)||manifest.assets.length!==Object.keys(hosts).length)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const seen=new Set();
@@ -240,10 +242,22 @@ export async function checkedDefaultFurnishingsRoot(root){
   if(top!==root||commit!==release.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   return {root:canonical,...release};
 }
+/** A new five-entry runtime must select the matched1.8 release before any
+ * build. Older release verification/copy remains available for immutable audits. */
+export async function requireCurrentFurnishingsRelease(root){
+  const expected=DEFAULT_FURNISHINGS_RELEASES['1.8.0'];
+  if(typeof root!=='string'||!isAbsolute(root)||resolve(root)!==root)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if(await checkedSource(root,'directory')!==root)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const path=join(root,'manifest.json');if(await checkedSource(path,'file')!==path||(await lstat(path)).size!==expected.bytes||await hash(path)!==expected.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('GIT_')));
+  const top=await command('/usr/bin/git',['--no-replace-objects','rev-parse','--show-toplevel'],{cwd:root,capture:true,env}),commit=await command('/usr/bin/git',['--no-replace-objects','rev-parse','HEAD^{commit}'],{cwd:root,capture:true,env});
+  if(top!==root||commit!==expected.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+}
 export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
-  const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
-  if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher'];
+  if (Object.keys(SUPPORTED_FURNISHINGS).length !== functionalIds.length || functionalIds.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  const ids=release&&!isDefaultRelease(release,['1.8.0'])?functionalIds.slice(0,-1):[...functionalIds];
   const includesExitOriginals=isDefaultRelease(release,DEFAULT_EXIT_RELEASES);
   const includesWorkspaceOriginals=isDefaultRelease(release,DEFAULT_WORKSPACE_RELEASES);
   const bundled=includesWorkspaceOriginals?await readDefaultFurnishingsManifest(sourceRoot):undefined;
@@ -251,9 +265,9 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
   if(includesExitOriginals)ids.push(...Object.keys(DEFAULT_EXIT_ORIGINALS));
-  if(['1.5.0','1.6.0','1.7.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_SCULPTURE_BENCH_ID);
-  if(['1.6.0','1.7.0'].includes(bundled?.manifest.bundleVersion))ids.push(...Object.keys(DEFAULT_PORTAL_ORIGINALS));
-  if(bundled?.manifest.bundleVersion==='1.7.0')ids.push(DEFAULT_COMPACT_STAND_ID);
+  if(['1.5.0','1.6.0','1.7.0','1.8.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_SCULPTURE_BENCH_ID);
+  if(['1.6.0','1.7.0','1.8.0'].includes(bundled?.manifest.bundleVersion))ids.push(...Object.keys(DEFAULT_PORTAL_ORIGINALS));
+  if(['1.7.0','1.8.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_COMPACT_STAND_ID);
   const seen = new Set();
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
@@ -263,14 +277,15 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
     }}:id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
     if (entry.rights.licenseId !== 'CC0-1.0') fail('NATIVE_PACKAGE_FURNISHING_INVALID');
-    const files = [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256]];
+    const custody=entry.preparation?.files??[],extraPaths=new Set(custody.map(file=>file.path));
+    const files = [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256],...custody.map(file=>[file.path,file.bytes,file.sha256])];
     // Seal the acquired source separately. The frame API resolves model.glb only.
     const preparedSign=id==='exit-pictogram-sign'&&hasPreparedExitSign(bundled?.manifest.bundleVersion);
     if(id===DEFAULT_FRAME_ID)files.push([DEFAULT_FRAME_ROOT+'/source.glb',101768,entry.provenance.sourceSha256]);
     if(preparedSign)files.push([DEFAULT_EXIT_SIGN_SOURCE.path,DEFAULT_EXIT_SIGN_SOURCE.bytes,DEFAULT_EXIT_SIGN_SOURCE.sha256]);
     for (const [path, bytes, sha256] of files) {
       if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`)
-          || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)) || path.includes('..') || path.includes('\\')
+          || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)&&!extraPaths.has(path)) || path.includes('..') || path.includes('\\')
           || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
       seen.add(path);
       const input = join(sourceRoot, path), canonical = await checkedSource(input, 'file');
@@ -381,6 +396,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if (await command(nodeBinary, ['--version'], {capture:true}) !== 'v24.21.0') fail('NATIVE_PACKAGE_NODE_INVALID');
   if (await command(nodeBinary, [npmCLI, '--version'], {capture:true}) !== '11.19.0') fail('NATIVE_PACKAGE_NPM_INVALID');
   if (!/^postgres \(PostgreSQL\) 18\.6 \(Postgres\.app\)$/.test(await command(join(postgresRoot, 'bin/postgres'), ['--version'], {capture:true,env:{PATH:'/usr/bin:/bin',LANG:'C'}}))) fail('NATIVE_PACKAGE_POSTGRES_INVALID');
+  await requireCurrentFurnishingsRelease(defaultFurnishingsRoot);
   // Rebuild the contract before reading its catalogue or copying its dist.
   // A Git pin alone cannot identify an ignored build directory.
   await command(nodeBinary, [npmCLI, 'run', 'build', '--workspace', '@exhibitos/studio-contract'], {
