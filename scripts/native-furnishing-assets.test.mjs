@@ -17,6 +17,7 @@ test('native package includes exactly six current functional pairs and all decla
   const root = await realpath(await mkdtemp(join(tmpdir(), 'exhibitos-native-furnishing-')));
   t.after(() => rm(root, {recursive:true, force:true}));
   const source = join(root, 'source'), output = join(root, 'output');
+  const repository = fileURLToPath(new URL('../', import.meta.url));
   await mkdir(source); await mkdir(output);
   const paths = Object.keys(SUPPORTED_FURNISHINGS).flatMap(id => {
     const entry = furnishingCatalogueEntry(id);
@@ -115,7 +116,7 @@ test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and
   assert.deepEqual(next.assets.slice(0,-1),previous.assets);
   assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
   assert.equal(next.assets.at(-1).hostKind,'info-stand');
-  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,5);
+  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,6);
   await writeFile(join(root,'manifest.json'),manifest16());
   assert.equal(manifest16().length,11855);
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);
