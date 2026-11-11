@@ -2,6 +2,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
 import * as three from 'three';
 import {isVerifiedStaticDetailAccess,loadStaticPublication,staticDetailAttestation} from '../static-publication-source';
 import {createDetailImageSlot,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './detail-image-attempt';
@@ -25,16 +26,17 @@ const hints={platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[{
 
 afterEach(()=>vi.unstubAllGlobals());
 
-it.each(['qualified-wheat-v4-index.json','qualified-r19-v4-index.json','qualified-r20-v4-index.json','qualified-r21-v4-index.json','qualified-r22-v4-index.json','qualified-r23-v4-index.json','qualified-r24-v4-index.json','qualified-r26-v4-index.json','qualified-r27-v4-index.json','qualified-r41-v4-index.json','qualified-r44-v4-index.json','qualified-r46-v4-index.json','qualified-r52-v4-index.json','qualified-r53-v4-index.json','qualified-r57-v4-index.json','qualified-r61-v4-index.json','qualified-r62-v4-index.json','qualified-r64-v4-index.json','qualified-r65-v4-index.json','qualified-r67-v4-index.json'])(
+it.each(['qualified-wheat-v4-index.json','qualified-r19-v4-index.json','qualified-r20-v4-index.json','qualified-r21-v4-index.json','qualified-r22-v4-index.json','qualified-r23-v4-index.json','qualified-r24-v4-index.json','qualified-r26-v4-index.json','qualified-r27-v4-index.json','qualified-r41-v4-index.json','qualified-r44-v4-index.json','qualified-r46-v4-index.json','qualified-r52-v4-index.json','qualified-r53-v4-index.json','qualified-r57-v4-index.json','qualified-r61-v4-index.json','qualified-r62-v4-index.json','qualified-r64-v4-index.json','qualified-r65-v4-index.json','qualified-r67-v4-index.json',...(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE?['static-publication-index.json']:[])])(
  'admits the exact reference original through loader, cover, measured runtime and owned fetch for %s',async filename=>{
- const indexBytes=await readFile(new URL(filename,root));
- const index=JSON.parse(indexBytes.toString('utf8')) as {detailAssets:{path:string;sha256:string}[]};
- const detail=index.detailAssets[0]!;
+ const sourceRoot=filename==='static-publication-index.json'?pathToFileURL(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE!.replace(/\/$/,'')+'/'):root;
+ const indexBytes=await readFile(new URL(filename,sourceRoot));
+ const index=JSON.parse(indexBytes.toString('utf8')) as {detailAssets:{path:string;sha256:string;mime:string}[]};
+ const detail=index.detailAssets.find(entry=>entry.mime==='image/jpeg')!;
  const requests:string[]=[];
  vi.stubGlobal('document',{querySelector:()=>({content:sha256(indexBytes)})});
  vi.stubGlobal('fetch',async(input:string)=>{
   requests.push(input);
-  const bytes=input==='/static-publication-index.json'?indexBytes:await readFile(new URL(input.slice(1),root));
+  const bytes=input==='/static-publication-index.json'?indexBytes:await readFile(new URL(input.slice(1),sourceRoot));
   return new Response(new Uint8Array(bytes));
  });
  const publication=await loadStaticPublication();

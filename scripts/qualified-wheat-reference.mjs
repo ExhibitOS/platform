@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {revisionHash,validateExhibition} from '@exhibitos/spec';
 import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 import {buildNativeDetailPlan} from './native-detail-plan.mjs';
+import {artworkThumbnailFor} from '@exhibitos/studio-contract';
 
 export const WHEAT_REFERENCE=Object.freeze({
  indexSha256:'50888213fc0ccbf37164ff0a1b14fc21c7bb8443aaab4a292e211efaae97a726',
@@ -168,12 +169,25 @@ export const R67_REFERENCE=Object.freeze({
  candidateId:'af6737e3-c558-4ba3-baaa-cfb435477b72',
  assetSha256:WHEAT_REFERENCE.assetSha256,
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R69_REFERENCE=Object.freeze({
+ indexSha256:'7d77d80637fbd1e3354ad142fdedee5a6f7af0f08c6a4daaec96bb253c90e475',
+ publicationSha256:'7a5c8f875fc1e2b9e766c1b531fbddd8fd1da1d38bf84415efc1649b5a971f3e',
+ publicationId:'3b9c2dd5-66c7-484e-a995-e57fb19c9310',
+ revisionSha256:'f318e2401a74dd179408cbb6be288368ee92b84fb96f7e8910c8332750d7f55c',
+ candidateId:'e6a4904f-4288-4ef6-8b95-9906ac2ef70f',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+ modelCandidateId:'496f1911-1d43-44df-a995-d17254bcf607',
+ modelOriginalSha256:'b79822fc08c007120de51cbaebf1caf71bd7387ac27c43b5bf9326c93540b0b3',
+ modelSourceBindingSha256:'d5dee71cc0ba79b2934e83e39c8a7547bc9eb699baecc125bffb18ae2936d184',
+ modelDisplaySha256:'b9957bf0931550477e636ea64619f755e1056b124fb5f730dd8b6035c99d275c',
+ modelThumbnailSha256:'f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596',
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53|r57|r61|r62|r64|r65|r67)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26|r27|r41|r44|r46|r52|r53|r57|r61|r62|r64|r65|r67|r69)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -182,13 +196,13 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE;
+ const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE);
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE)+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE)+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE);
- if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
+ const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE))+Number(reference===R69_REFERENCE);
+ if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==(reference===R69_REFERENCE?2:1))fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||
     notices[0]?.sha256!=='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5'||
@@ -197,8 +211,8 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
  if(charcoalFloor&&!index.assets.some(asset=>asset.sha256==='4684fcb53dbc376f563a7c8bba97d48f660968198401fad0bdff143a14a2f909'&&asset.bytes===2154063&&asset.mime==='image/png'))fail();
  if(terrazzoFloor&&(!index.assets.some(asset=>asset.sha256==='afa5635491e8a7875fe3ca8dfdd6651dc197ab8e648492c98907ec7d07750f90'&&asset.mime==='image/png')||
    !['e77d9970fecdbe384cb6b973ebafea4284a70912eed71ccf88496ec5875ed9b5','865d1556595dfad9278fdd92e2227a8a5decd9e5c34f3d8de2f584e1a012e536'].every(sha256=>index.resources.some(asset=>asset.sha256===sha256&&asset.mime==='image/png'))))fail();
- if((reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE)&&!index.assets.some(asset=>asset.sha256==='4e26824b897af85e781c102cf7f01e404e4266b4d5299088c2b29940facaccba'&&asset.bytes===112044&&asset.mime==='model/gltf-binary'))fail();
- if((reference===R64_REFERENCE||reference===R65_REFERENCE||reference===R67_REFERENCE)&&!index.assets.some(asset=>asset.sha256==='6cb111d9baf50d355c18b8e94b9cff78eeeb9679f02ebf490d7093e2c32c59d0'&&asset.bytes===85876&&asset.mime==='model/gltf-binary'))fail();
+ if((reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE))&&!index.assets.some(asset=>asset.sha256==='4e26824b897af85e781c102cf7f01e404e4266b4d5299088c2b29940facaccba'&&asset.bytes===112044&&asset.mime==='model/gltf-binary'))fail();
+ if((reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||reference===R69_REFERENCE))&&!index.assets.some(asset=>asset.sha256==='6cb111d9baf50d355c18b8e94b9cff78eeeb9679f02ebf490d7093e2c32c59d0'&&asset.bytes===85876&&asset.mime==='model/gltf-binary'))fail();
  const entries=[index.publication,...index.assets,...index.resources,...notices,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
@@ -210,9 +224,17 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
  const publication=parseStaticJson(data.get(index.publication.path));
  if(publication.publication?.id!==reference.publicationId||publication.publication?.status!=='published'||publication.publication?.revisionSha256!==reference.revisionSha256||revisionHash(publication.exhibition)!==reference.revisionSha256||!validateExhibition(publication.exhibition,{publicationTime:new Date().toISOString()}).valid)fail();
  const plan=await buildNativeDetailPlan(reference.publicationId,publication.exhibition,publication.assets,publication.detailAssets);
- if(plan.entries.length!==1||plan.entries[0].sha256!==reference.assetSha256||plan.entries[0].bytes!==8291194||plan.entries[0].mime!=='image/jpeg'||plan.entries[0].assetId!==index.detailAssets[0].assetId||index.detailAssets[0].sha256!==reference.assetSha256)fail();
+ const wheat=plan.entries.find(entry=>entry.sha256===reference.assetSha256);
+ if(!wheat||wheat.bytes!==8291194||wheat.mime!=='image/jpeg'||!index.detailAssets.some(entry=>entry.assetId===wheat.assetId&&entry.sha256===reference.assetSha256))fail();
+ if(reference===R69_REFERENCE){
+  const model=plan.entries.find(entry=>entry.sha256===reference.modelOriginalSha256);
+  if(plan.entries.length!==2||!model||model.mime!=='model/gltf-binary'||model.bytes!==8285292||model.sourceBindingSha256!==reference.modelSourceBindingSha256||!index.detailAssets.some(entry=>entry.assetId===model.assetId&&entry.sha256===reference.modelOriginalSha256))fail();
+  const artwork=publication.exhibition.artworks.find(art=>art.assets.find(asset=>asset.id===art.primaryAssetId)?.sha256===reference.modelDisplaySha256),thumbnail=artworkThumbnailFor(artwork);
+  if(!artwork||!thumbnail||thumbnail.sha256!==reference.modelThumbnailSha256||thumbnail.bytes!==39340||!index.assets.some(entry=>entry.assetId===thumbnail.id&&entry.sha256===thumbnail.sha256&&entry.bytes===thumbnail.bytes&&entry.mime==='image/png'))fail();
+ }else if(plan.entries.length!==1)fail();
  const candidates=publication.exhibition.artworks.flatMap(a=>(a.extensions?.['org.exhibitos.viewer/artwork-detail-quality']?.candidates??[]).map(candidate=>({candidate,rights:a.rights})));
- if(candidates.length!==1||candidates[0].candidate.candidateId!==reference.candidateId||!candidates[0].rights?.permissions?.display||!candidates[0].rights?.permissions?.export||!candidates[0].rights?.permissions?.download||candidates[0].rights.licenseId!=='CC0-1.0')fail();
+ const expectedCandidates=reference===R69_REFERENCE?[reference.candidateId,reference.modelCandidateId]:[reference.candidateId];
+ if(candidates.length!==expectedCandidates.length||expectedCandidates.some(id=>candidates.filter(item=>item.candidate.candidateId===id).length!==1)||candidates.some(item=>!item.rights?.permissions?.display||!item.rights?.permissions?.export||!item.rights?.permissions?.download||item.rights.licenseId!=='CC0-1.0'))fail();
  return {index,bytes,publication,data,reference};
 }
 
@@ -237,10 +259,10 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
 
 /** Rebind a newly created, normal reference-demo staging output to the exact
  * verified native publication. No caller-supplied publication is accepted. */
-export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor}){
+export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor,indexPath='qualified-r67-v4-index.json'}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
- const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r67-v4-index.json'});
- if(source.reference!==R67_REFERENCE)fail();
+ const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath});
+ if(![R67_REFERENCE,R69_REFERENCE].includes(source.reference))fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();

@@ -84,3 +84,30 @@ trigger and provider-specific rollback are verified. Existing Cloudflare
 trigger update documentation does not establish that changing a Git repository
 source is atomic; the provider owner must verify the actual connection and
 rollback path before any cutover.
+
+## Exact r69 dual-original source
+
+The existing reference assembler also recognizes the reviewed r69 v4 index
+`7d77d80637fbd1e3354ad142fdedee5a6f7af0f08c6a4daaec96bb253c90e475`.
+It retains both typed acquired-original candidates (Wheat JPEG and Old Arrow
+Maker GLB), the canonical model and its explicitly selected PNG thumbnail.
+Every referenced file is verified against the closed index and immutable
+publication pins, including both original hashes, candidate bindings and rights.
+This does not authorize an arbitrary caller-supplied v4 publication.
+
+An approved external source bundle can be supplied with
+`EXHIBITOS_QUALIFIED_REFERENCE_SOURCE=/absolute/qualified-static-bundle npm run build:reference-demo`.
+Its `static-publication-index.json` must match an admitted immutable reference;
+the source remains read only. Without this explicit input the existing r67
+fixture remains the default. The build uses the current trusted runtime and
+reconstructs the official session-only editor decoration, rather than copying
+the native bundle's persistent private-editor HTML. Museum media can remain in
+the separately approved complete asset bundle instead of the Platform code
+commit. Keep that bundle and source/configuration pins with the delivery record
+so the same local or approved CI build is reproducible.
+
+The r69 Wheat binding reuses the same previously measured image bytes, cost,
+viewport and runtime constraints. Its new publication/candidate/source binding
+identities do not broaden device qualification. Native output qualification,
+current Viewer/gallery/thumbnail consumption and actual public deployment are
+separate stages.

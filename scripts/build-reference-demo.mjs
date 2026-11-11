@@ -27,7 +27,7 @@ export function localPublicationFetch(sourceRoot){
  };
 }
 
-async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion}){
+async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion,qualifiedSourceRoot}){
  const {createPagesPublicationSource}=await import('./pages-publication-source.mjs');
  const {exportStaticPublication}=await import('./export-static-publication.mjs');
  const pinned=JSON.parse(await readFile(join(root,'demos/reference-exhibition/publication.json'),'utf8'));
@@ -50,7 +50,7 @@ async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverC
  const demoRoot=join(root,'demos/reference-exhibition');
  if(coverCompanion==='reference-demo'){
   const {assembleQualifiedWheat}=await import('./qualified-wheat-reference.mjs');
-  await assembleQualifiedWheat({output:result.output,sourceRoot:join(demoRoot,'source'),runtimeRoot,privateEditor});
+  await assembleQualifiedWheat({output:result.output,sourceRoot:qualifiedSourceRoot??join(demoRoot,'source'),runtimeRoot,privateEditor,...(qualifiedSourceRoot?{indexPath:'static-publication-index.json'}:{})});
  }else{
   const bases=await readApprovedCopyBases(join(demoRoot,'previous-copy-bases.json'));
   if(bases.length&&!privateEditor)throw Error('DEMO_COPY_BASE');
@@ -65,15 +65,15 @@ async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverC
 
 
 /** Build and inspect in an owned sibling directory before publishing output. */
-export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo'),privateEditor=false,coverCompanion='native'}={}){
- if(coverCompanion!=='reference-demo')return exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion});
+export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo'),privateEditor=false,coverCompanion='native',qualifiedSourceRoot}={}){
+ if(coverCompanion!=='reference-demo')return exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion,qualifiedSourceRoot});
  const target=resolve(output),lockPath=join(dirname(target),`.${basename(target)}.reference-build.lock`);
  // Cooperating reference-demo writers must hold this exclusive sibling lock.
  const lock=await open(lockPath,'wx',0o600);let stage;
  try{
   try{await lstat(target);throw Error('DEMO_OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}
   stage=await mkdtemp(join(dirname(target),'.reference-demo-'));const candidate=join(stage,'output');
-  const result=await exportReferenceDemoStage({runtimeRoot,output:candidate,privateEditor,coverCompanion});
+  const result=await exportReferenceDemoStage({runtimeRoot,output:candidate,privateEditor,coverCompanion,qualifiedSourceRoot});
   const {inspectDemo}=await import('./deploy-reference-demo.mjs');
   await inspectDemo({output:candidate,pin:result.indexSha256,commit:'local-build',runtimeRoot});
   try{await lstat(target);throw Error('DEMO_OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -101,5 +101,5 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
  await run(['scripts/build-web-schema-validators.mjs','--check']);
  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts','--outDir','dist-reference-demo-static'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer',EXHIBITOS_PRIVATE_EDITOR:'1'}});
  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.cover.config.ts','--outDir','dist-reference-demo-cover'],{cwd:join(root,'apps/web')});
- console.log(JSON.stringify(await exportReferenceDemo({runtimeRoot:join(root,'apps/web/dist-reference-demo-static'),privateEditor:true,coverCompanion:'reference-demo'})));
+ console.log(JSON.stringify(await exportReferenceDemo({runtimeRoot:join(root,'apps/web/dist-reference-demo-static'),privateEditor:true,coverCompanion:'reference-demo',...(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE?{qualifiedSourceRoot:resolve(process.env.EXHIBITOS_QUALIFIED_REFERENCE_SOURCE)}:{})})));
 }
