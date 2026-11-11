@@ -20,7 +20,7 @@ async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixtu
  const f=fixture();configure?.(f.document);
  const camera=new Three.PerspectiveCamera(63,1,.01,100);camera.position.set(0,1.65,3);camera.rotation.set(.1,Math.PI-.02,0,'YXZ');
  const doc=Object.assign(new EventTarget(),{hidden:false,activeElement:null as unknown,pointerLockElement:null,exitPointerLock:vi.fn()});
- const win=new EventTarget(),frames=new Map<number,FrameRequestCallback>();let now=0,id=0;
+ const win=Object.assign(new EventTarget(),{performance}),frames=new Map<number,FrameRequestCallback>();let now=0,id=0;
  const canvas=Object.assign(new EventTarget(),{dataset:{} as Record<string,string>,style:{touchAction:''},focus:vi.fn(()=>{doc.activeElement=canvas;}),setPointerCapture:vi.fn(),hasPointerCapture:()=>false,getBoundingClientRect:()=>({left:0,width:100})}) as unknown as HTMLCanvasElement;
  vi.stubGlobal('document',doc);vi.stubGlobal('window',win);
  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{frames.set(++id,callback);return id;});
