@@ -52,6 +52,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
+import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainGalleryDetail,optionalResidentRetryReady,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -2047,6 +2048,11 @@ export function GeometryPreview({
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
+        const viewInterests=new Map<string,ViewInterest>(),optionalResidentWaits=new Map<string,ResidentRetryWait>(),coldQueuedSince=new Map<string,{key:string;since:number}>();
+        const assetArt=new Map(arts.flatMap(art=>art.assets.map(asset=>[asset.id,art.revisionId] as const)));
+        const interestRank=(id:string)=>viewInterestRank(viewInterests.get(id),id===currentArtwork,
+          mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||id===detailPinnedArtwork);
+        const reclaimEncoded=(deficit:()=>number)=>byteCache.reclaim(deficit,key=>interestRank(assetArt.get(key)??''),key=>assetArt.has(key));
         const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>(),materialBudgetDeferred=new Map<string,{full:boolean;prepareOnly:boolean;detailPromotion:boolean;manual:boolean}>();
         // Remember the measured resident requirement so an unchanged budget
         // does not decode and discard the same visible minimum every five seconds.
@@ -2054,7 +2060,7 @@ export function GeometryPreview({
         let residentRecoveryCancelled=false;
         const retryWaitingMinimum=(id:string,required:number,needed:boolean)=>retryResidentMinimum({required,needed,pending:pending.has(id),used:()=>peak.total(),limit:()=>assetBudgetBytes,reclaim:deficit=>reclaimOffroom(id,deficit)});
         let materialRetryEpoch=0;
-        let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
+        let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set(),requiredMinimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
@@ -2165,7 +2171,7 @@ export function GeometryPreview({
             (objects.get(id)?.userData.viewer?.decodedBytes??0)+
             (minimumObjects.get(id)?.object.userData.viewer?.decodedBytes??0),0);
           if(reclaimable<deficit())return;
-          candidates.sort((a,b)=>(lastAttended.get(a)??0)-(lastAttended.get(b)??0));
+          candidates.sort((a,b)=>interestRank(b)-interestRank(a)||(lastAttended.get(a)??0)-(lastAttended.get(b)??0));
           let changed=false;
           for(const id of candidates){
             if(deficit()<=0)break;
@@ -2180,7 +2186,7 @@ export function GeometryPreview({
         };
         const preparedBytes=()=>[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
         const evictPrepared=(deficit:()=>number)=>{
-          for(const [id,value] of prepared){
+          for(const [id,value] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
             if(deficit()<=0)break;
             prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
           }
@@ -2189,7 +2195,7 @@ export function GeometryPreview({
           const task=tasks.get(key),limit=requestLimits(task).transition;
           if(peak.total(key)+bytes>limit)releaseCachedOriginal();
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
-          for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
+          reclaimEncoded(()=>peak.total(key)+bytes-limit);
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
@@ -2361,7 +2367,7 @@ export function GeometryPreview({
           // Its expendable encoded cache must also fit the current steady scope.
           const residentLimit=selectedLimits?.resident??assetBudgetBytes;
           if(resident()>residentLimit)releaseCachedOriginal();
-          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=residentLimit)break;byteCache.delete(asset.id);}
+          reclaimEncoded(()=>resident()-residentLimit);
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
@@ -2407,7 +2413,7 @@ export function GeometryPreview({
             transitionPeakBytes: peak.total(),
             selectedDetailBudgetBytes:selectedLimits?.resident,selectedDetailTransitionBytes:selectedLimits?.transition,
             automaticDetail:automatic,
-            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],materialBudgetDeferred:[...materialBudgetDeferred.keys()],minimumBudgetBytes:assetBudgetBytes,transitionBudgetBytes,
+            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...requiredMinimumRooms],minimumBudgetBlocked:[...minimumBlocked],materialBudgetDeferred:[...materialBudgetDeferred.keys()],minimumBudgetBytes:assetBudgetBytes,transitionBudgetBytes,
             currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:stages.snapshot(),
             allocationEstimateOnly:true,
             cache: byteCache.stats(),
@@ -2440,7 +2446,7 @@ export function GeometryPreview({
         };
         const syncPinnedPriority=(artId:string)=>{
           const key=pending.get(artId);
-          if(key)scheduler.setPriorityOverride(key,mapPins.has(artId)||viewingPins.has(artId)?-200:undefined);
+          if(key)scheduler.setPriorityOverride(key,viewQueuePriority(viewInterests.get(artId),artId===currentArtwork,mapPins.has(artId)||viewingPins.has(artId)||artId===viewingCurrentArt||artId===detailPinnedArtwork,tasks.get(key)?.prepareOnly));
         };
         const entranceAssets=new Map<string,(typeof arts)[number]['assets'][number]>();
         let entrancePlanUnavailable=false;
@@ -2478,6 +2484,17 @@ export function GeometryPreview({
             if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))return;
             detailBudgetWait=undefined;
           }
+          const residentIdentity=JSON.stringify([inventory.id,inventory.sha256,inventory.bytes,viewerBudget.maxTriangles,viewerBudget.maxTextureSize,viewerBudget.maxSceneTriangles,requestLimits().resident,prepareOnly]);
+          const residentWait=optionalResidentWaits.get(art.revisionId);
+          const requiredMinimum=!active.has(art.revisionId)&&(observedVisible.get(art.revisionId)||observedEligible.get(art.revisionId)||mapPins.has(art.revisionId)||viewingPins.has(art.revisionId));
+          if(residentWait&&!detailPromotion&&!requiredMinimum){
+            const reclaimable=!prepareOnly&&art.revisionId===currentArtwork?preparedBytes():0;
+            if(!optionalResidentRetryReady(residentWait,residentIdentity,peak.total(),requestLimits().resident,reclaimable)){
+              releaseCachedOriginal();reclaimEncoded(()=>peak.total()+residentWait.bytes-reclaimable-requestLimits().resident);
+              if(!optionalResidentRetryReady(residentWait,residentIdentity,peak.total(),requestLimits().resident,reclaimable))return;
+            }
+          }
+          optionalResidentWaits.delete(art.revisionId);
           if(prepareOnly&&minimumObjects.get(art.revisionId)?.assetId===inventory.id)return;
           if (active.get(art.revisionId) === inventory.id) {
             const prior=pending.get(art.revisionId);
@@ -2543,7 +2560,7 @@ export function GeometryPreview({
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
               if(deficit()>0)releaseCachedOriginal();
-              for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
+              reclaimEncoded(deficit);
               // An owned selected promotion can use the same speculative
               // capacity as a wall promotion. Keep every displayed object.
               const wallPromotion=!task.prepareOnly&&!task.detailPromotion&&demandContext().observeWall&&art.revisionId===currentArtwork&&
@@ -2567,6 +2584,9 @@ export function GeometryPreview({
                   detailBudgetWait={assetId:inventory.id,bytes:required,phase:'resident'};
                   // Keep the coarse model mounted while optional surfaces yield capacity.
                   if(art.artworkType==='sculpture')reduceSurfaceForCurrent(art.revisionId);
+                }else if(Number.isSafeInteger(required)&&required>0){
+                  optionalResidentWaits.set(art.revisionId,{identity:JSON.stringify([inventory.id,inventory.sha256,inventory.bytes,viewerBudget.maxTriangles,viewerBudget.maxTextureSize,viewerBudget.maxSceneTriangles,steady,task.prepareOnly]),bytes:required});
+                  setArtworkRetry(art.revisionId,0,inventory.id,'retry-origin-optional-resident-wait');
                 }else setArtworkRetry(art.revisionId,performance.now()+5000,inventory.id,'retry-origin-resident-deferred');
                 update();return;
               }
@@ -2875,12 +2895,16 @@ export function GeometryPreview({
             }
           });
         };
+        const demandWalls=document.surfaces.filter(value=>value.type==='wall').map(value=>surfaces.get(value.id.toLowerCase())!).filter(Boolean);
+        const demandBounds=new Map<string,{matrix:InstanceType<typeof three.Matrix4>;points:InstanceType<typeof three.Vector3>[];box:InstanceType<typeof three.Box3>;center:InstanceType<typeof three.Vector3>}>();
         const automaticDemand=()=>{
           if(entranceOptional&&(renderer.domElement.ownerDocument.hidden||suspendedRef.current||publicDisplayStopped||entranceOptional.coverCurrent?.()===false))cancelIncompatibleOptional();
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-          const wallMeshes=document.surfaces.filter(v=>v.type==='wall').map(v=>surfaces.get(v.id.toLowerCase())!).filter(Boolean);
+          const wallMeshes=demandWalls;
+          const expandedProjection=camera.projectionMatrix.clone();expandedProjection.elements[0]!*=.75;expandedProjection.elements[5]!*=.75;
+          const nextFrustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(expandedProjection,camera.matrixWorldInverse));
           const clearPath=(from:InstanceType<typeof three.Vector3>,to:InstanceType<typeof three.Vector3>)=>{
             const direction=to.clone().sub(from),length=direction.length();if(length<.2)return true;
             const ray=new three.Raycaster(from,direction.normalize(),.05,Math.max(.05,length-.15));
@@ -2896,26 +2920,32 @@ export function GeometryPreview({
             const surface=document.surfaces.find(v=>v.id.toLowerCase()===door.surfaceId.toLowerCase()),group=surfaces.get(door.surfaceId.toLowerCase());
             if(!surface||!group)return [];
             const point=group.localToWorld(new three.Vector3(door.offset[0],door.offset[1],0));
-            return camera.position.distanceTo(point)<=3&&clearPath(camera.position,point)?[{point,roomId:surface.roomId}]:[];
+            return camera.position.distanceTo(point)<=3&&nextFrustum.intersectsSphere(new three.Sphere(point,.75))&&clearPath(camera.position,point)?[{point,roomId:surface.roomId}]:[];
           });
           const observations=arts.map(art=>{
-            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false,minimumEligible=false;
+            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false,connected=false;
             const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
             for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){
               const group=placements.get(p.id.toLowerCase());if(!group||!group.visible)continue;
               let shown=true;for(let parent=group.parent;parent;parent=parent.parent)shown=shown&&parent.visible;
               if(!shown)continue;
-              const points=artifactCorners(art.dimensions,[art.transform]).map(v=>group.localToWorld(new three.Vector3(...v)));
-              const box=new three.Box3().setFromPoints(points),center=box.getCenter(new three.Vector3());
+              let bounds=demandBounds.get(p.id);
+              if(!bounds||!bounds.matrix.equals(group.matrixWorld)){
+                const points=artifactCorners(art.dimensions,[art.transform]).map(value=>group.localToWorld(new three.Vector3(...value)));
+                const box=new three.Box3().setFromPoints(points);bounds={matrix:group.matrixWorld.clone(),points,box,center:box.getCenter(new three.Vector3())};demandBounds.set(p.id,bounds);
+              }
+              const {points,box,center}=bounds;
               const d=box.distanceToPoint(camera.position);distance=Math.min(distance,d);
               const room=document.rooms.find(v=>v.id.toLowerCase()===p.roomId.toLowerCase());
               const sameRoom=cameraRoom?.id.toLowerCase()===p.roomId.toLowerCase();
-              minimumEligible=minimumEligible||minimumRooms.has(p.roomId.toLowerCase());
+              connected=connected||minimumRooms.has(p.roomId.toLowerCase());
+              const inView=frustum.intersectsBox(box),inNext=nextFrustum.intersectsBox(box);
+              if(!inView&&(!inNext||d>6))continue;
               const unobstructed=clearPath(camera.position,center);
               const viaDoor=room&&doors.some(door=>(sameRoom||contains(room,door.point,.4))&&door.point.distanceTo(center)<=6&&clearPath(door.point,center));
               const plausible=!!((sameRoom&&unobstructed)||viaDoor);
-              eligible=eligible||plausible;
-              const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
+              eligible=eligible||viewAttentionEligible(plausible,inView,inNext,d);
+              const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:inView,width:renderer.domElement.width,height:renderer.domElement.height});
               if(!screen.visible||!minimumFootprintVisible(points,unobstructed,point=>clearPath(camera.position,point)))continue;
               visible=true;
               if(!automatic)break;
@@ -2933,8 +2963,11 @@ export function GeometryPreview({
               if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
               want=transition.update(screenDemand,now);
             }
-            return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible};
+            const minimumEligible=visible||mapPins.has(art.revisionId)||viewingPins.has(art.revisionId)||art.revisionId===viewingCurrentArt;
+            return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible,connected};
           });
+          const requiredRevisionIds=new Set(observations.filter(item=>item.minimumEligible).map(item=>item.art.revisionId));
+          requiredMinimumRooms=new Set(ordered.filter(item=>requiredRevisionIds.has(item.artworkRevisionId)).map(item=>item.roomId.toLowerCase()));
           if(entranceReadiness&&!entranceFrameReported){
             if(!entranceNavigationReady)return;
             if(!entrancePlanReady){
@@ -2981,20 +3014,29 @@ export function GeometryPreview({
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
+          for(const item of observations)viewInterests.set(item.art.revisionId,{visible:item.visible,next:preparing.has(item.art.revisionId),recent:item.want,connected:item.connected,distance:item.distance});
+          for(const id of pending.keys())syncPinnedPriority(id);
           // Cancel obsolete preparation without releasing its unsettled reservation.
           for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
+          for(const [id,key]of pending){
+            const task=tasks.get(key),pinned=mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||id===detailPinnedArtwork;
+            if(active.has(id)||task?.manual||task?.detailPromotion||hasViewDemand(viewInterests.get(id),id===currentArtwork,pinned)||!scheduler.isQueued(key)){coldQueuedSince.delete(id);continue;}
+            const prior=coldQueuedSince.get(id),since=prior?.key===key?prior.since:now;coldQueuedSince.set(id,{key,since});
+            if(now-since>=1800){scheduler.cancel(key);pending.delete(id);desired.delete(id);requested.delete(id);coldQueuedSince.delete(id);}
+          }
+          for(const id of coldQueuedSince.keys())if(!pending.has(id))coldQueuedSince.delete(id);
           for(const [id,value] of prepared){
             if(preparing.has(value.artId)||value.artId===currentArtwork)value.lastUseful=now;
             else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
           }
-          const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
+          const sorted=[...observations].sort((a,b)=>viewQueuePriority(viewInterests.get(a.art.revisionId),a.art.revisionId===currentArtwork,false)-viewQueuePriority(viewInterests.get(b.art.revisionId),b.art.revisionId===currentArtwork,false));
           const missingMinimum=sorted.filter(({art,visible,minimumEligible})=>(visible||minimumEligible)&&
             !active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now);
-          // Current/connected-room minima get the serial slot before speculative or attended detail.
+          // Visible footprints and explicit pins take the serial slot; topology alone never blocks visible detail.
           for(const {art} of missingMinimum)request(art,false);
           const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)||materialBudgetDeferred.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
-            if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
+            if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!preparing.has(art.revisionId)&&!want&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
@@ -3015,11 +3057,12 @@ export function GeometryPreview({
             else if(reclaiming.has(art.revisionId)){
               if(active.has(art.revisionId))request(art,false);
             }
+            else if(retainGalleryDetail(lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===active.get(art.revisionId)),want,reclaiming.has(art.revisionId)))continue;
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
               else if(!entranceReadiness&&canPromote&&!minimumOutstanding)request(art,true,true);
             }
-            else if(requested.has(art.revisionId)||visible)request(art,false);
+            else if(active.has(art.revisionId)||visible||minimumEligible)request(art,false);
           }
           const optional=entranceOptional;
           if(optional&&optional.artId!==currentArtwork&&!preparing.has(optional.artId)&&
@@ -3223,7 +3266,7 @@ export function GeometryPreview({
             // Only encoded bytes can remain above the ordinary scene budget
             // after a selected-only allocation is returned. Retain warm bytes
             // when they fit; never discard a displayed object to trim the cache.
-            if(input.flatImage)for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=assetBudgetBytes)break;byteCache.delete(asset.id);}
+            if(input.flatImage)reclaimEncoded(()=>resident()-assetBudgetBytes);
             if(originalDrain&&deferredCanvasRestore){
               // Keep the returned canvas hidden and its drawing buffer unchanged
               // until original-owned work, texture deletion and fence settle.
@@ -3374,7 +3417,7 @@ export function GeometryPreview({
                     const sceneLimit=Math.min(profile.maxSceneBytes,profile.transitionCapBytes-profile.reservationBytes);
                     const deficit=()=>peak.total()-sceneLimit;
                     if(current()&&deficit()>0){
-                      for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
+                      reclaimEncoded(deficit);
                       evictPrepared(deficit);
                       if(deficit()>0)releaseCachedOriginal();
                     }
@@ -3488,7 +3531,7 @@ export function GeometryPreview({
                   const optionalDrain=entranceOptional?.drain;
                   cancelIncompatibleOptional();await optionalDrain;
                   if(!current())return;
-                  for(const item of arts)for(const asset of item.assets){if(reclaim()<=0)break;byteCache.delete(asset.id);}
+                  reclaimEncoded(reclaim);
                   evictPrepared(reclaim);
                   peak.reserve(key,profile.cost.peakAdditionalBytes,limit);
                   const transfer=beginDetailTransfer?.('acquired-original',candidate.bytes);
@@ -3548,7 +3591,7 @@ export function GeometryPreview({
           if(!contactFurnishingsSettled||!contactReceivers?.length||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled)return;
           const limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
           if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
-          if(!reclaimSupportContactCache({used:()=>peak.total(),limit,keys:arts.flatMap(art=>art.assets.map(asset=>asset.id)),evict:key=>byteCache.delete(key)})){renderer.domElement.dataset.supportContactShadows='budget';return;}
+          if(!reclaimSupportContactCache({used:()=>peak.total(),limit,keys:byteCache.reclamationKeys(key=>interestRank(assetArt.get(key)??''),key=>assetArt.has(key)),evict:key=>byteCache.delete(key)})){renderer.domElement.dataset.supportContactShadows='budget';return;}
           try{
             const key='viewer:support-contact';peak.reserve(key,SUPPORT_CONTACT_RESERVE_BYTES,limit);
             releaseContactReservation=()=>peak.release(key);
