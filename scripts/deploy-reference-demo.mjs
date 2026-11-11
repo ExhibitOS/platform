@@ -28,8 +28,8 @@ export async function inspectDemo({output, pin, commit, approvedBases, runtimeRo
  if(!/^[a-f0-9]{64}$/.test(pin??''))throw Error('DEMO_APPROVED_INDEX_REQUIRED');
  const indexBytes=await readFile(join(output,'static-publication-index.json'));
  if(sha256(indexBytes)!==pin)throw Error('DEMO_CONTENT_INDEX');
- const {R97_REFERENCE}=await import('./qualified-wheat-reference.mjs');
- if(pin===R97_REFERENCE.indexSha256){
+ const {R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ if([R97_REFERENCE.indexSha256,HAYES_MOBILE_REFERENCE.indexSha256,R101_VIEW_INTEREST_REFERENCE.indexSha256].includes(pin)){
   const {inspectNativeReferenceClosure}=await import('./reference-native-closure.mjs');
   if(!nativeClosure)throw Error('REFERENCE_NATIVE_REQUEST');
   return {sourceCommit:commit,...await inspectNativeReferenceClosure({output,...nativeClosure})};

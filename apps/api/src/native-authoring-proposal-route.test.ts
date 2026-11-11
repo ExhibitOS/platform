@@ -43,7 +43,7 @@ it('proposes only a checked change to the current saved draft through the instal
  const before=structuredClone(draft);
  try{
   const response=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1'});
+  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1'});
   expect((await ordinary.inject({method:'POST',url,headers,payload})).statusCode).toBe(404);
   expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...payload,expectedRevision:revision-1})).statusCode).toBe(412);
@@ -93,9 +93,27 @@ it('proposes only a checked change to the current saved draft through the instal
   }
   expect((await post({...updatePayload,request:{...updatePayload.request,unrelated:true}})).statusCode).toBe(400);
   expect((await post(updatePayload,{'if-match':''})).statusCode).toBe(400);
+  const fixturePayload={...payload,request:{...binding,type:'set-furnishing-visual',hostKind:'light',hostId:originalId,catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}}};
+  const fixtureReply=await post(fixturePayload);
+  expect(fixtureReply.statusCode,fixtureReply.body).toBe(200);
+  expect(Object.keys(fixtureReply.json()).sort()).toEqual([...Object.keys(binding),'candidate'].sort());
+  expect(fixtureReply.json().candidate.lights).toEqual(before.candidate.lights);
+  expect((await post(fixturePayload)).json()).toEqual(fixtureReply.json());
+  const ceiling=draft.candidate.surfaces.find(surface=>surface.type==='ceiling')!;
+  const attachmentPayload={...payload,request:{...binding,type:'set-light-attachment',lightId:originalId,attachment:{surfaceId:ceiling.id,anchor:[0,0],gap:.5}}};
+  const attachmentReply=await post(attachmentPayload);
+  expect(attachmentReply.statusCode,attachmentReply.body).toBe(200);
+  expect(Object.keys(attachmentReply.json()).sort()).toEqual([...Object.keys(binding),'lightId','candidate'].sort());
+  expect(attachmentReply.json().lightId).toBe(originalId);
+  expect((await post(attachmentPayload)).json()).toEqual(attachmentReply.json());
+  expect((await post({...attachmentPayload,request:{...attachmentPayload.request,attachment:{...attachmentPayload.request.attachment,surfaceId:wall.wall.surfaceId}}})).statusCode).toBe(422);
+  for(const request of [{...fixturePayload.request,assetId:randomUUID()},{...fixturePayload.request,catalogId:'backless-oak-bench'},{...fixturePayload.request,hostKind:'bench'},{...attachmentPayload.request,attachment:null},{...attachmentPayload.request,attachment:{...attachmentPayload.request.attachment,extra:1}}])expect((await post({...payload,request})).statusCode).toBe(400);
   live=false;
   expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeSceneAuthoringProposalProfile');
   expect((await post(updatePayload)).statusCode).toBe(503);
+  expect((await post(fixturePayload)).statusCode).toBe(503);
+  expect((await post(attachmentPayload)).statusCode).toBe(503);
+  expect((await app.inject({method:'GET',url:'/api/v1/auth/session',headers})).json()).not.toHaveProperty('nativeFixtureAuthoringProposalProfile');
   live=true;
   expect(draft).toEqual(before);
   expect(queries.some(sql=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);

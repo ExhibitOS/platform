@@ -38,6 +38,8 @@ async function webSource(request,cancelled){
  return {entries,read};
 }
 
+export {html as refreshedEntryHtml,outputShell as isRefreshedShellPath};
+
 async function publication(local,request){
  const read=async path=>Buffer.from(await (await local.fetch(local.origin+'/'+path)).arrayBuffer());
  const indexBytes=await read('static-publication-index.json'),index=JSON.parse(indexBytes);

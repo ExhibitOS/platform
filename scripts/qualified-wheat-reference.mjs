@@ -215,7 +215,68 @@ export const R97_REFERENCE=Object.freeze({...R86_REFERENCE,
  viewerInventorySha256:'84bc824f08eebe006509f8f065507aa29dc6c3793d4219937202c4eb78e39ec8',
  viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+// A second exact production web target for the same approved R97 content.
+// Source publication/detail authority and the original b54b rollback stay fixed.
+export const R97_MOBILE_REFERENCE=Object.freeze({...R97_REFERENCE,
+ viewerSourceCommit:'cdf4728c0e568b2852f95fc4b2542b28e7cf2068',
+ viewerSourceTree:'9fa86180ffddf3d810fbc9266626f8c7e22d15a2',
+ viewerBuildId:'776bfe96635d1251ba49a405f458e72954551bc187a2cd398387fba48e84b71f',
+ viewerInventorySha256:'be3e36e385d100e18676350243d52fc4331127b42c1bd96c9a394011e3068c20',
+});
+// One exact Manager-produced Hayes-thumbnail publication, retaining both originals
+// and the already qualified mobile web target. No R101 lighting trial is admitted.
+export const HAYES_MOBILE_REFERENCE=Object.freeze({...R97_MOBILE_REFERENCE,
+ indexSha256:'4072e5df4e44b0a760711612f5fbae6c0c01c134650b5062cba370e7360d2211',
+ publicationSha256:'65f54ad7a5759079412710b05356f110b77bde1b8096756c3d9d1ff3bf1a6224',
+ publicationId:'094e0295-1dba-4d3c-8ebc-d534c1f7b347',
+ revisionSha256:'0bbbf3897d6396561e3239c1063a20af38e964850091c9d52bf0f8db94cb7b52',
+ candidateId:'78b20e90-baea-41d2-93bd-2966e75b17d9',
+ modelCandidateId:'5712f28f-a740-4386-af53-c63e9478a2b7',
+ modelSourceBindingSha256:'7eeb8cef444425131f3d3efa5f32521643861bc4ea2c1e0ecb6898836868a711',
+ nativeManifestSha256:'917192929b0885d69861b759316fbffcc443f04e617d3cab7a784170a0453231',
+ nativeFiles:141,
+});
+// The selected follow-on release preserves the new Hayes content; this is an
+// exact additional pair, not arbitrary web authority or an old-content upgrade.
+export const HAYES_VIEW_INTEREST_REFERENCE=Object.freeze({...HAYES_MOBILE_REFERENCE,
+ viewerSourceCommit:'8de6622192f0e5f8708f4f9106a7c03dedda6b8e',
+ viewerSourceTree:'236a582e4c53ed84754fb2fcf0e4b9e8fd501b01',
+ viewerBuildId:'aa8d46a1574db261c49d95d801514992005574ad1389d323305dbc5ca6901996',
+ viewerInventorySha256:'739d60f280e4f677f9b644e193df475bbb97f5e3846f901996aad5aff2886f33',
+});
+// One exact accepted R101 optical arrangement with the qualified view-interest
+// web. Original bindings are its own immutable publication records, not copies.
+export const R101_VIEW_INTEREST_REFERENCE=Object.freeze({...HAYES_VIEW_INTEREST_REFERENCE,
+ indexSha256:'8a9b441381e099f8d7c8018b3689d2d1a0d826ac5f9b8dbac146b67253a6ce8d',
+ publicationSha256:'c78d53c9324598f7f3ef5ad0685239d25c5afa8077df6023b3961d36da13d386',
+ publicationId:'b9131ed0-d337-4150-b165-45eb5c7ef7ff',
+ revisionSha256:'3e2bf2eccf920ec72d569ca7b5c1230bec3824488d1bfdf301cdcdc0ae1ef034',
+ candidateId:'72ee7ebd-7678-46a0-90de-d0987aa59f16',
+ modelCandidateId:'428423f9-470d-463d-8d47-e835c767916a',
+ modelSourceBindingSha256:'cca860b8ab3a2125b3e85adff66d6aa105ca1935a013d971164a4ea6bc9459f3',
+ nativeManifestSha256:'c16a17f1bee0858f7b6554cac5b53b95330d0f611d4233ea589b126fca85465d',
+});
+// One additional exact web/content pair for accepted world-shadow continuity.
+// The original R101 view-interest pair remains the unchanged rollback target.
+export const R101_WORLD_CONTINUITY_REFERENCE=Object.freeze({...R101_VIEW_INTEREST_REFERENCE,
+ viewerSourceCommit:'280c8bd5847fac9d1c317484343fed45114d8cbb',
+ viewerSourceTree:'31e3b9db0912ea07e35386b8125d00becd7e8a4d',
+ viewerBuildId:'62d96a59ffb851828f248ceefc36a53782d6bf281b3b9327e6b9339a892225fa',
+ viewerInventorySha256:'93f4446f7c932847941a9ab24a034c06899de08cf7b44834552d3a49836ed6d2',
+});
+// Exact accepted corrected-west content with the current world-continuity web.
+// Previous R101 pairs remain independently admitted rollback targets.
+export const R107_WORLD_CONTINUITY_REFERENCE=Object.freeze({...R101_WORLD_CONTINUITY_REFERENCE,
+ indexSha256:'72453f66d75857408a9123c772871130b1415a2ebeba0160f1372f2f17e717c3',
+ publicationSha256:'e07ac361a8f9959f9bff1dfd59a105277cab954559b86f6d09ca7aaef6830fd7',
+ publicationId:'53652c90-35ea-47fa-ad75-9fb3df8ad6a0',
+ revisionSha256:'0f1d749d1d129390b525dc7061a91dcb60f01a38211d1061560374a8333b0f5d',
+ candidateId:'7d031566-00cf-421c-a5e5-dd6a5269a384',
+ modelCandidateId:'d3d4b132-40f2-40bb-8988-9ada440ae5d9',
+ modelSourceBindingSha256:'cb1469661971addfc1f381defbdf3d7a572aacafba6f6505a81dcc0421bcfbeb',
+ nativeManifestSha256:'8c9fdc18321b6554686abf2d067e3849f4b74cdec82f98e02d01a03ab2d8f38b',
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
@@ -229,13 +290,13 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE;
+ const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE;
  const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal);
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
+ const assetCount=reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
  if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==(dualOriginal?2:1))fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||

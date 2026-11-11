@@ -41,3 +41,72 @@ Malformed requests, production scope, same production build ID, modified input,
 extra or linked files, overlap, existing output and writer collisions fail. Only
 the invocation's own staging and lock are removed on failure. Existing public
 R97 output, original immutable inputs and earlier evidence are preserved.
+
+## Native runtime inputs are a different closure
+
+The 36-file immutable web input above is the HTML/JavaScript shell used when
+refreshing an already complete static publication. It is not the full Native
+runtime `dist-static` directory used to create a new export. Native export also
+needs the declared floor maps, footstep samples/notices, surface maps/notices and
+catalogue previews. The packager verifies all 43 current declared resource files
+before creating a runtime destination and rechecks the copied runtime directory.
+
+When reusing an immutable shell, the producer must supply these unchanged
+catalogue/spec resource bytes as separate pinned inputs before invoking the
+packager. An incomplete shell-only input must fail rather than become a runtime
+whose exporter fails after writing a partial publication. This does not modify
+existing runtime packets, failed stages, original grants or publication records.
+
+## Exact Hayes content continuation
+
+The Native closure also admits one exact publication `094e0295-1dba-4d3c-8ebc-d534c1f7b347`
+with index `4072e5df4e44b0a760711612f5fbae6c0c01c134650b5062cba370e7360d2211`
+and native manifest `917192929b0885d69861b759316fbffcc443f04e617d3cab7a784170a0453231`.
+It retains both original detail tuples and adds the selected Hayes thumbnail.
+Only the already qualified mobile Viewer build `776bfe96635d1251ba49a405f458e72954551bc187a2cd398387fba48e84b71f`
+is admitted for this content. The earlier R97 publication and both of its exact web targets remain supported.
+
+This bundle contains 141 source files plus 36 web files and two control files
+(179 integrity rows, 180 physical files including `integrity.json`). The deterministic
+session hosting output contains 142 files. Cache directives are unchanged, while
+the content-addressed publication JSON and Hayes PNG paths change the header hash.
+No editable-head lighting trial, caller-selected publication, new original grant,
+experimental Viewer build or arbitrary combination gains admission. Production
+transport and actual Viewer acceptance remain separate from local composition.
+
+## Exact Hayes view-interest continuation
+
+The selected follow-on web target for the Hayes publication is build
+`aa8d46a1574db261c49d95d801514992005574ad1389d323305dbc5ca6901996`,
+source `8de6622192f0e5f8708f4f9106a7c03dedda6b8e`, tree
+`236a582e4c53ed84754fb2fcf0e4b9e8fd501b01`, inventory
+`739d60f280e4f677f9b644e193df475bbb97f5e3846f901996aad5aff2886f33`.
+It uses the same 141-file Hayes Native source and 179-row integrity format and
+produces 142 hosting files. The Hayes mobile `776…` target and both previous
+R97 targets remain supported. The new `aa8d…` target does not admit the old R97
+content or any arbitrary publication/web combination. An earlier R97 experimental
+output remains historical consumer evidence, not a deployable source substitution.
+
+Delivery must reconcile the actual approved content/web tuple immediately before
+promotion, preserving newer qualified content if another release finished first.
+Source integration, bounded actual affected-consumer acceptance and provider
+deployment remain distinct scopes; no rebuild is needed solely to substitute
+a merge commit for the frozen build identity.
+
+## Exact R101 optical continuation
+
+The next named content target is publication `b9131ed0-d337-4150-b165-45eb5c7ef7ff`,
+index `8a9b441381e099f8d7c8018b3689d2d1a0d826ac5f9b8dbac146b67253a6ce8d`,
+native manifest `c16a17f1bee0858f7b6554cac5b53b95330d0f611d4233ea589b126fca85465d`.
+It accepts only the qualified `aa8d…` view-interest web tuple. The input retains
+141 source files (179 integrity rows, 180 physical files) and produces 142
+hosting files. Its new original candidate/binding identities are checked against
+its own immutable publication; no older publication IDs or grants are inserted.
+
+The accepted optical arrangement retains directional intensity 2 and the Greek
+spot intensity 100, with room base 16 and added spots 18/21/23. All 19 artworks,
+five model previews and two originals are retained. Existing Hayes and R97
+rollback targets remain supported. Local current-776 optical observations do
+not establish current-aa8d visual acceptance, public deployment, complete spill
+resolution or physical fit. Final exact-output consumer qualification and
+Delivery's current-tuple reconciliation precede any separate promotion.

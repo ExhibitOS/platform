@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test} from 'node:test';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {gunzipSync} from 'node:zlib';
 import assert from 'node:assert/strict';
 import {cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -51,4 +54,113 @@ test('pinned release manifest uses the existing catalogue and rejects substituti
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),{commit:'90fb64d44b9c9fd91bb5c09045f92077484d1030',manifestSHA256:'b0173c3e8c5e0b85b66ca2e4a1f569fc1f5ca811d501b35cccd70739e5c6588f'});
   await assert.rejects(checkedDefaultFurnishingsRoot(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
 
+});
+
+// Exact public producer manifest from default-furnishings merge 5a542ec9312624967681018e6a37e213711580df,
+// tree f785da150c5e6b112bb4d4c5f7ba03f70d345fb7. Gzip keeps the pinned fixture local
+// without adding a second catalogue authority or an external checkout dependency.
+const release17Manifest=gunzipSync(Buffer.from(
+  'H4sIAAAAAAAC/82aW3MbxxGF3/UrUHw2xLlf8mYrcuJKbKlMJ3lI5aGnpwdECQRQi4UtxeX/nrOAKAEU4CLFdUSViqKwO5ftnm/6'+
+  'nMH++mwyudjwtdzQxZ8mF6tu9lzeXs/LvF9tnldptF3007btlvPN9Xw521z+rC++GtqU7bIu5J/Sbear5dBUP4/P1f4abTbSb/Dh'+
+  'v/G/yeTX3U98ztTTYjX7rg73F+I3C9lspit6My2y5Otd48MbP/auP1xa0o0Mzb9533zyit5Mvjlufr3a9H+bL/fDHF+6WVVZ4PPb'+
+  'OeGjNfXXw537WV8ePux2I92Utv31qpM6NcoErUy8/HTql7t+n88W5cNQw2Dz/Vx3Fy9ni75Ny3xJ3bvDm8q7XoZYGeVDSAcXNtdk'+
+  'fBja2+CaNo2jZuejqc3jr5AuMRZXIitVY6y42fksrNm44GMp2ZBnJaZcvO/0tw9h6Oaz612GDuKwmLMsN7LPzosXaqrf5/M28qse'+
+  'dxy1GSt6f//uxcsfrl5Of3j1E3573r/tDwY+iJH2IR9d+BgjEopEnIyxTnxz2ifKSktyFL0tMXP0lYwq0Ujy2WWblK6tCZHYKv7i'+
+  'Q7e/fRKtdbf6WZa0vPP0F5vVtmO5Gi9PB9HuhOdr2TM5n2HVLKZA79nhFN9P8DReN4j+9mbad4j2dLNe9Q+i6/td68lPQ+vJFVov'+
+  'hgVzmrA7l0Yh7JPZjwGYjyGGk4A5mzxX5ZOxmpxSRYkurVXdtIpMtiiOJuGSDlFTSj611ChKtdHoltXTAuzT4D2Ar3SGr8oqa+Uc'+
+  'O8YgCEcxlpu1zhiHQFldvFM61VhaRHQc28K6qqSMStlbGYOvR6dpRL5mtFhI9266Wstyul51uPQgwv6ybz95hfaT13faH+I1DIBs'+
+  'jwzYiemPgJgOwRp3ErHitI4tV5eQHey6zZumY0oZ60N5JS5LTq7FXAO3lFmLrhKVs6YEwc+nhdip8N0fsqjOQKajMxSxqkNWIZbg'+
+  'LJVKMaQYEaqmi04IXiGrbKitaMblUI1t1Udp0Y4B2aMTNSJkaN/TcrZdUDddL+bL/mEa8cePzSev7zQ/RGwtVTZHAI7C2KezHwEx'+
+  'i7SYk4SFWEuCtrDRm+wKUsg14cPsGvnoHQcuLK2EyF4gOXywJDXFgFyyemoq8UTwRlCJeGIRz2yhDZW14MmkaNhlFDZKJWQUGJWB'+
+  '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','base64'));
+const release17={commit:'5a542ec9312624967681018e6a37e213711580df',manifestSHA256:'eeffc547ee6ffa4d7d6db5656c09703b8dadda00699da6d89b483d5cc7ebecb6'};
+const release16={commit:'1a82192232f56b442ddf7443a7b67f8095f00701',manifestSHA256:'3c9dc8c1a32d9f2a59d7e62ed8da62a700cfcd6c87ab473987a1980ab1e75864'};
+const manifest16=()=>{
+  const manifest=JSON.parse(release17Manifest);manifest.bundleVersion='1.6.0';manifest.assets.pop();
+  return Buffer.from(JSON.stringify(manifest,null,2)+'\n');
+};
+const compactPrefix='assets/furnishings/exhibitos-authored-20261111/compact-caption-stand/';
+
+test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and its rollback pin',async t=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-furnishings-17-')));t.after(()=>rm(root,{recursive:true,force:true}));
+  assert.equal(release17Manifest.length,12743);
+  assert.equal(createHash('sha256').update(release17Manifest).digest('hex'),release17.manifestSHA256);
+  await writeFile(join(root,'manifest.json'),release17Manifest);
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release17);
+  const next=JSON.parse(release17Manifest),previous=JSON.parse(manifest16());
+  assert.equal(next.assets.length,14);assert.equal(previous.assets.length,13);
+  assert.deepEqual(next.assets.slice(0,-1),previous.assets);
+  assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
+  assert.equal(next.assets.at(-1).hostKind,'info-stand');
+  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,4);
+  await writeFile(join(root,'manifest.json'),manifest16());
+  assert.equal(manifest16().length,11855);
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);
+  const substituted=JSON.parse(release17Manifest);substituted.assets.at(-1).model.sha256='0'.repeat(64);
+  await writeFile(join(root,'manifest.json'),JSON.stringify(substituted,null,2)+'\n');
+  await assert.rejects(verifyDefaultFurnishingsManifest(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+});
+
+test('a valid 1.7 manifest does not authorize a different Git HEAD',async t=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-furnishings-head-')));t.after(()=>rm(root,{recursive:true,force:true}));
+  await writeFile(join(root,'manifest.json'),release17Manifest);
+  // Isolated synthetic Git identity; no global configuration or producer changes.
+  const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('GIT_')));
+  const git=args=>execFileSync('/usr/bin/git',args,{cwd:root,env,stdio:'pipe'});
+  git(['init','--quiet']);git(['-c','user.name=Synthetic Test','-c','user.email=test@example.invalid','-c','commit.gpgsign=false','commit','--quiet','--allow-empty','-m','Synthetic wrong HEAD']);
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release17);
+  await assert.rejects(checkedDefaultFurnishingsRoot(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+});
+
+// Optional exact redistributable producer payloads, never a private operations
+// dependency. Ordinary tests above need no separate repository or original art.
+const producerTestRoot=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_TEST_ROOT;
+test('1.7 copies the new pair and all inherited rows, refuses corruption/missing bytes, and rolls back to 1.6',
+  {skip:!producerTestRoot},async t=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-furnishings-copy17-')));t.after(()=>rm(root,{recursive:true,force:true}));
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(producerTestRoot),release17);
+  const source=join(root,'source');await mkdir(source);
+  const manifest=JSON.parse(release17Manifest);
+  const paths=manifest.assets.flatMap(item=>[item.model.path,item.rights.notice.path,...(item.provenance.source?[item.provenance.source.path]:[]),...(item.catalogId==='black-aluminum-frame'?['assets/furnishings/user-authored-20261027/black-aluminum-frame/source.glb']:[])]);
+  for(const path of paths){await mkdir(dirname(join(source,path)),{recursive:true});await cp(join(producerTestRoot,path),join(source,path));}
+  await writeFile(join(source,'manifest.json'),release17Manifest);
+  const output=join(root,'output17');await mkdir(output);await copyNativeFurnishings(source,output,release17);
+  assert.deepEqual(await readFile(join(output,'assets/furnishings/default-manifest.json')),release17Manifest);
+  // Includes the preserved frame/sign originals as well as every model/notice.
+  for(const path of paths)assert.deepEqual(await readFile(join(output,path)),await readFile(join(source,path)));
+  for(const filename of ['model.glb','LICENSE-NOTICE.txt']){
+    const path=join(source,compactPrefix+filename),original=await readFile(path),changed=Buffer.from(original);changed[0]^=1;await writeFile(path,changed);
+    const corrupt=join(root,'corrupt-'+filename);await mkdir(corrupt);
+    await assert.rejects(copyNativeFurnishings(source,corrupt,release17),/NATIVE_PACKAGE_FURNISHING_INVALID/);
+    await rm(path);const missing=join(root,'missing-'+filename);await mkdir(missing);
+    await assert.rejects(copyNativeFurnishings(source,missing,release17),{code:'ENOENT'});
+    await writeFile(path,original);
+  }
+  await writeFile(join(source,'manifest.json'),manifest16());
+  const output16=join(root,'output16');await mkdir(output16);await copyNativeFurnishings(source,output16,release16);
+  assert.deepEqual(await readFile(join(output16,'assets/furnishings/default-manifest.json')),manifest16());
+  for(const item of manifest.assets.slice(0,-1))for(const path of [item.model.path,item.rights.notice.path])assert.deepEqual(await readFile(join(output16,path)),await readFile(join(source,path)));
+  await assert.rejects(lstat(join(output16,compactPrefix+'model.glb')),{code:'ENOENT'});
 });

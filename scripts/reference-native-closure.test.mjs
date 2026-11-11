@@ -2,10 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,readdir,realpath,rm,symlink,writeFile} from 'node:fs/promises';
+import {cp,mkdtemp,mkdir,readFile,readdir,realpath,rm,symlink,writeFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {readNativeReferenceClosure,exportNativeReferenceClosure,inspectNativeReferenceClosure} from './reference-native-closure.mjs';
+import {isRefreshedShellPath} from './refresh-native-detail-shell.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -59,21 +60,33 @@ test('export refuses overlap/existing output and removes only its own failed sta
 });
 
 const actual=process.env.EXHIBITOS_REFERENCE_NATIVE_CLOSURE,pin=process.env.EXHIBITOS_REFERENCE_NATIVE_INTEGRITY_SHA256;
-test('preserves R97 content and applies exact session-only hosting configuration from the public closure',{skip:!actual||!pin},async t=>{
+test('preserves qualified publication content and applies exact session-only hosting configuration from the public closure',{skip:!actual||!pin},async t=>{
  const inputRoot=await realpath(resolve(actual)),source=await readNativeReferenceClosure({inputRoot,inventorySha256:pin}),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-integration-')));t.after(()=>rm(parent,{recursive:true,force:true}));
  const outputDir=join(parent,'output'),result=await exportNativeReferenceClosure({inputRoot,inventorySha256:pin,outputDir});
- assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,140);assert.equal(result.outputFiles,141);assert.equal(result.files,141);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
+ assert.equal(result.nativeManifestSha256,source.reference.nativeManifestSha256);assert.notEqual(result.manifestSha256,source.reference.nativeManifestSha256);assert.equal(result.hostingMode,'session-v1');assert.equal(result.rawFiles,source.sourceEntries.size);assert.equal(result.outputFiles,source.sourceEntries.size+1);assert.equal(result.files,source.sourceEntries.size+1);assert.equal(result.viewerBuildId,source.reference.viewerBuildId);
  for(const path of ['index.html','studio.html']){
   const original=await readFile(join(source.sourceRoot,path),'utf8'),html=await readFile(join(outputDir,path),'utf8');
-  assert.equal(html,original.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>'));
+  if(source.reference.viewerBuildId==='b54b543b7b9f5d14a3e0ed750240c087d50baa0302209e6dd4f71a93680f27a1'){
+   assert.equal(html,original.replace('</head>','<meta name="exhibitos-demo-decoration" content="session-v1"></head>'));
+   assert.equal(result.manifestSha256,'b6c1bd0277e2f453646d0f0640f91889e17fb4b10e31c5b8fa45bb95879613a6');
+  }
+  assert(html.includes(`<meta name="exhibitos-viewer-build-id" content="${source.reference.viewerBuildId}">`));
+  if(path==='index.html'){
+   assert.equal(html.match(/<title>[^<]*<\/title>/)?.[0],original.match(/<title>[^<]*<\/title>/)?.[0]);
+   assert.equal(html.match(/<body>[\s\S]*<\/body>/)?.[0],original.match(/<body>[\s\S]*<\/body>/)?.[0]);
+  }
   assert.equal(html.split('exhibitos-demo-decoration').length,2);
  }
  for(const path of source.sourceEntries.keys()){
-  if(['index.html','studio.html','static-export-manifest.json'].includes(path))continue;
+  if(path==='static-export-manifest.json'||isRefreshedShellPath(path))continue;
   assert.deepEqual(await readFile(join(outputDir,path)),await readFile(join(source.sourceRoot,path)));
  }
  assert.deepEqual(await readFile(join(outputDir,'static-publication-index.json')),await readFile(join(source.sourceRoot,'static-publication-index.json')));
  await inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin});
+ for(const [path]of source.webEntries){
+  if(['static.html','static-studio.html'].includes(path))continue;
+  assert.deepEqual(await readFile(join(outputDir,path)),await readFile(join(source.webRoot,path)));
+ }
  const {inspectDemo}=await import('./deploy-reference-demo.mjs');
  const proof=await inspectDemo({output:outputDir,pin:source.reference.indexSha256,commit:'tool-producer',nativeClosure:{inputRoot,inventorySha256:pin}});
  assert.equal(proof.sourceCommit,'tool-producer');assert.equal(proof.viewerSourceCommit,source.reference.viewerSourceCommit);
@@ -83,4 +96,48 @@ test('preserves R97 content and applies exact session-only hosting configuration
  await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
  await writeFile(join(outputDir,'studio.html'),studio);
  await writeFile(join(outputDir,'_headers'),'foreign headers');await assert.rejects(inspectNativeReferenceClosure({output:outputDir,inputRoot,inventorySha256:pin}),/REFERENCE_NATIVE_INTEGRITY/);
+});
+
+
+test('rejects mixing a qualified content publication with another qualified web tuple',{skip:!actual||!pin},async t=>{
+ const inputRoot=await realpath(resolve(actual)),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-mix-')));t.after(()=>rm(parent,{recursive:true,force:true}));
+ const root=join(parent,'bundle');await cp(inputRoot,root,{recursive:true});
+ const closure=JSON.parse(await readFile(join(root,'closure.json'),'utf8'));
+ const {R97_REFERENCE,R97_MOBILE_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ const other=closure.viewer.buildId===R97_REFERENCE.viewerBuildId?R97_MOBILE_REFERENCE:R97_REFERENCE;
+ closure.viewer={sourceCommit:other.viewerSourceCommit,sourceTree:other.viewerSourceTree,lockSha256:other.viewerLockSha256,buildId:other.viewerBuildId,inventorySha256:other.viewerInventorySha256};
+ const bytes=Buffer.from(JSON.stringify(closure));await writeFile(join(root,'closure.json'),bytes);
+ const inventory=JSON.parse(await readFile(join(root,'integrity.json'),'utf8')),row=inventory.files.find(item=>item.path==='closure.json');row.bytes=bytes.length;row.sha256=hash(bytes);
+ const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
+ await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/);
+});
+
+// Re-pinning the outer inventory cannot authorize a changed field in the
+// admitted web tuple, even when all source/content bytes remain unchanged.
+test('rejects independently re-pinned web identity mutations',{skip:!actual||!pin},async t=>{
+ const inputRoot=await realpath(resolve(actual)),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-tuple-')));t.after(()=>rm(parent,{recursive:true,force:true}));
+ const root=join(parent,'bundle');await cp(inputRoot,root,{recursive:true});
+ const original=JSON.parse(await readFile(join(root,'closure.json'),'utf8'));
+ for(const field of ['sourceCommit','sourceTree','lockSha256','buildId','inventorySha256']){
+  const closure=structuredClone(original);closure.viewer[field]='0'.repeat(closure.viewer[field].length);
+  const bytes=Buffer.from(JSON.stringify(closure));await writeFile(join(root,'closure.json'),bytes);
+  const inventory=JSON.parse(await readFile(join(root,'integrity.json'),'utf8')),row=inventory.files.find(item=>item.path==='closure.json');row.bytes=bytes.length;row.sha256=hash(bytes);
+  const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
+  await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/,field);
+ }
+});
+
+// A freshly qualified content revision still requires its own complete frozen
+// publication tuple; re-pinning the envelope cannot substitute another one.
+test('rejects independently re-pinned publication identity mutations',{skip:!actual||!pin},async t=>{
+ const inputRoot=await realpath(resolve(actual)),parent=await realpath(await mkdtemp(join(dirname(inputRoot),'.reference-native-publication-')));t.after(()=>rm(parent,{recursive:true,force:true}));
+ const root=join(parent,'bundle');await cp(inputRoot,root,{recursive:true});
+ const original=JSON.parse(await readFile(join(root,'closure.json'),'utf8'));
+ for(const field of ['publicationId','revisionSha256','indexSha256','manifestSha256']){
+  const closure=structuredClone(original);closure.publication[field]='0'.repeat(closure.publication[field].length);
+  const bytes=Buffer.from(JSON.stringify(closure));await writeFile(join(root,'closure.json'),bytes);
+  const inventory=JSON.parse(await readFile(join(root,'integrity.json'),'utf8')),row=inventory.files.find(item=>item.path==='closure.json');row.bytes=bytes.length;row.sha256=hash(bytes);
+  const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
+  await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/,field);
+ }
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
-import {spawn} from 'node:child_process';
+import {spawn,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {createInterface} from 'node:readline';
@@ -35,13 +35,50 @@ it('owner-pipe EOF prevents success after stdin EOF',async()=>{
  try{await once(child,'spawn',{signal:AbortSignal.timeout(3000)});const pid=child.pid!;console.log('jpeg-owner-eof-group',pid);child.kill('SIGSTOP');stopped=true;const written=once(child.stdin!,'finish',{signal:AbortSignal.timeout(3000)});child.stdin!.end(bytes);await written;child.stdio[3]!.destroy();child.kill('SIGCONT');stopped=false;expect(await bounded(closed)).toEqual([70,null]);expect(output).toBe('');expect(()=>process.kill(-pid,0)).toThrow(expect.objectContaining({code:'ESRCH'}));}
  finally{child.stdio[3]?.destroy();child.stdin?.destroy();if(stopped&&child.exitCode===null&&child.signalCode===null)child.kill('SIGCONT');const drained=await Promise.race([closed.then(()=>true,()=>true),new Promise<boolean>(r=>{const t=setTimeout(()=>r(false),3000);t.unref();})]);if(!drained&&child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await bounded(closed);}}
 },10000);
+// A detached orphan can pass through an exited-but-not-yet-reaped process
+// group. EPERM is unknown, never proof of absence; require ESRCH within the
+// same bounded drain deadline. Never send another signal to the group.
+async function waitForOwnedGroupAbsence(pid:number,timeoutMs:number,phase:string){
+ const start=Date.now();let probes=0,eperm=0,identity:string|null=null,lastError:unknown;
+ while(Date.now()-start<timeoutMs){
+  probes++;
+  try{process.kill(-pid,0);}catch(error){
+   const code=(error as NodeJS.ErrnoException).code;
+   if(code==='ESRCH'){console.log('jpeg-parent-loss-drain',{phase,pid,probes,eperm,identity,elapsedMs:Date.now()-start,terminal:'ESRCH'});return;}
+   if(code!=='EPERM')throw error;
+   lastError=error;eperm++;
+   if(identity===null&&process.platform==='darwin')try{identity=execFileSync('/bin/ps',['-p',String(pid),'-o','pid=,ppid=,pgid=,uid=,stat='],{encoding:'utf8',timeout:1000,stdio:['ignore','pipe','ignore']}).trim();}catch{identity='unavailable';}
+  }
+  await new Promise(resolve=>setTimeout(resolve,20));
+ }
+ console.log('jpeg-parent-loss-drain',{phase,pid,probes,eperm,identity,elapsedMs:Date.now()-start,terminal:'UNKNOWN'});
+ throw new Error('FIXTURE_GROUP_DRAIN_UNCONFIRMED',{cause:lastError});
+}
 it('owned worker exits after parent death even after stdin EOF',async()=>{
  const bytes=await sharp({create:{width:4,height:3,channels:3,background:'#456789'}}).jpeg().toBuffer(),worker=fileURLToPath(new URL('./jpeg-inspection-worker.ts',import.meta.url));
  const script=`import {spawn} from 'node:child_process';const c=spawn(process.execPath,[process.argv[1]],{detached:true,stdio:['pipe','ignore','ignore','pipe']});c.stdin.on('error',()=>{});c.stdio[3].on('error',()=>{});c.once('spawn',()=>{console.log('START '+c.pid);process.stdin.once('data',()=>{c.stdin.once('finish',()=>console.log('READY'));c.stdin.end(Buffer.from(process.argv[2],'base64'));});});setInterval(()=>{},1000);`;
- const parent=spawn(process.execPath,['--input-type=module','-e',script,worker,bytes.toString('base64')],{stdio:['pipe','pipe','pipe']}),closed=once(parent,'close'),lines=createInterface({input:parent.stdout!})[Symbol.asyncIterator]();parent.stdin!.on('error',()=>{});parent.stderr!.resume();let workerPid=0,stopped=false;
+ const parent=spawn(process.execPath,['--input-type=module','-e',script,worker,bytes.toString('base64')],{stdio:['pipe','pipe','pipe']}),closed=once(parent,'close'),lines=createInterface({input:parent.stdout!})[Symbol.asyncIterator]();parent.stdin!.on('error',()=>{});parent.stderr!.resume();
+ let workerPid=0,stopped=false,phase='start',bodyFailed=false,cleanupFailed=false,bodyError:unknown,cleanupError:unknown;
  const nextLine=()=>Promise.race([lines.next(),new Promise<never>((_,reject)=>{const timer=setTimeout(()=>reject(Error('OWNER_FIXTURE_TIMEOUT')),3000);timer.unref();})]);
- try{const first=await nextLine();workerPid=Number(first.value?.replace('START ',''));expect(workerPid).toBeGreaterThan(0);console.log('jpeg-parent-loss-group',workerPid);process.kill(workerPid,'SIGSTOP');stopped=true;parent.stdin!.write('go\n');expect((await nextLine()).value).toBe('READY');parent.kill('SIGKILL');await bounded(closed);process.kill(workerPid,'SIGCONT');stopped=false;const until=Date.now()+3000;let alive=true;while(alive&&Date.now()<until){try{process.kill(-workerPid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')alive=false;else throw error;}if(alive)await new Promise(resolve=>setTimeout(resolve,20));}expect(alive).toBe(false);workerPid=0;
- // A cleanup failure must fail the fixture even when the test body failed.
- // eslint-disable-next-line no-unsafe-finally
- }finally{const parentAlive=parent.exitCode===null&&parent.signalCode===null;if(parentAlive)parent.kill('SIGKILL');if(workerPid&&stopped)try{process.kill(workerPid,'SIGCONT');}catch{/* The owned child may already be gone. */}if(parentAlive)await bounded(closed);if(workerPid){const deadline=Date.now()+11000;while(Date.now()<deadline){try{process.kill(-workerPid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')break;throw error;}await new Promise(resolve=>setTimeout(resolve,50));}}}
+ try{
+  const first=await nextLine();workerPid=Number(first.value?.replace('START ',''));expect(workerPid).toBeGreaterThan(0);console.log('jpeg-parent-loss-group',workerPid);
+  phase='stop-owned-child';process.kill(workerPid,'SIGSTOP');stopped=true;
+  parent.stdin!.write('go\n');phase='stdin-finish';expect((await nextLine()).value).toBe('READY');
+  phase='parent-close';parent.kill('SIGKILL');await bounded(closed);
+  phase='resume-owned-child';process.kill(workerPid,'SIGCONT');stopped=false;
+  phase='body-drain';await waitForOwnedGroupAbsence(workerPid,3000,phase);workerPid=0;
+ }catch(error){bodyFailed=true;bodyError=error;console.log('jpeg-parent-loss-body-error',{phase,workerPid,code:(error as NodeJS.ErrnoException).code??null,message:error instanceof Error?error.message:'unknown'});}
+ finally{
+  try{
+   const parentAlive=parent.exitCode===null&&parent.signalCode===null;
+   if(parentAlive)parent.kill('SIGKILL');
+   if(workerPid&&stopped)try{process.kill(workerPid,'SIGCONT');}catch{/* Preserve the body error; the bounded group probe still must prove absence. */}
+   if(parentAlive)await bounded(closed);
+   if(workerPid)await waitForOwnedGroupAbsence(workerPid,11000,'cleanup-drain');
+  }catch(error){cleanupFailed=true;cleanupError=error;}
+ }
+ // A cleanup failure must still fail; it must not discard the original cause.
+ if(bodyFailed&&cleanupFailed)throw new AggregateError([bodyError,cleanupError],'JPEG_PARENT_DEATH_BODY_AND_CLEANUP_FAILED');
+ if(bodyFailed)throw bodyError;
+ if(cleanupFailed)throw cleanupError;
 },20000);
