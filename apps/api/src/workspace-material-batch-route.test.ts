@@ -65,3 +65,20 @@ it('stops before starting the next pack when its policy fence is withdrawn',asyn
  const app=buildApp({pool:{} as never,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'}});
  try{const origin=await app.listen({port:0,host:'127.0.0.1'}),response=await fetch(`${origin}/api/v1/publications/${publication}/material-maps`),batch=await openWorkspaceMaterialBatch(response,records,revision);expect(await batch.next(records[0]!)).toEqual(new Uint8Array([1,2,3]));await ready;unblock();await expect(batch.next(records[1]!)).rejects.toThrow();await batch.cancel();}finally{unblock();await app.close();vi.restoreAllMocks();}
 });
+
+it('retains one native batch terminal policy category without raw exception or client fields',async()=>{
+ const {openWorkspaceMaterialBatch}=await import('../../web/src/workspace-material-batch.mjs');
+ const other='33333333-3333-4333-8333-333333333333',records=[{materialId,version:1,role:'color' as const,sha256:'b'.repeat(64),bytes:3},{materialId:other,version:1,role:'color' as const,sha256:'c'.repeat(64),bytes:2}],header=Buffer.from(JSON.stringify({version:1,records})),prefix=Buffer.alloc(4);prefix.writeUInt32BE(header.length);
+ vi.spyOn(Publications.prototype,'materialMapBatch').mockResolvedValue({chunks:[prefix,header,Buffer.from([1,2,3]),Buffer.from([4,5])],records,revisionSha256:revision});
+ let calls=0,unblock!:()=>void,entered!:()=>void;const ready=new Promise<void>(resolve=>{entered=resolve;}),wait=new Promise<void>(resolve=>{unblock=resolve;});
+ vi.spyOn(Publications.prototype,'materialMapPolicy').mockImplementation(async(_id,_revision,_records,_signal,start)=>{if(++calls===2){entered();await wait;throw Object.assign(Error('SECRET token URL body'),{code:'55P03'});}start?.();return {revisionSha256:revision};});
+ const log=vi.spyOn(console,'error').mockImplementation(()=>{}),app=buildApp({pool:{} as never,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},nativeOexWorkspace:{} as never,nativeBoundedEditing:true});
+ try{
+  const origin=await app.listen({port:0,host:'127.0.0.1'}),response=await fetch(`${origin}/api/v1/publications/${publication}/material-maps`),batch=await openWorkspaceMaterialBatch(response,records,revision);
+  expect(await batch.next(records[0]!)).toEqual(new Uint8Array([1,2,3]));await ready;unblock();await expect(batch.next(records[1]!)).rejects.toThrow();await batch.cancel();
+  const lines=log.mock.calls.map(call=>String(call[0])).filter(line=>line.startsWith('WORKSPACE_MATERIAL_BATCH ')),events=lines.map(line=>JSON.parse(line.slice('WORKSPACE_MATERIAL_BATCH '.length)));
+  expect(events).toHaveLength(2);expect(events[0]).toMatchObject({event:'begin',publicationId:publication,phase:'prepare'});
+  expect(events[1]).toMatchObject({event:'terminal',publicationId:publication,materialId:other,phase:'policy',category:'lock-unavailable'});expect(events[0].requestId).toBe(events[1].requestId);
+  expect(lines.join('')).not.toMatch(/SECRET|token|URL|body|headers/);expect(calls).toBe(2);
+ }finally{unblock();await app.close();vi.restoreAllMocks();}
+});
