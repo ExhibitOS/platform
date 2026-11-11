@@ -53,7 +53,11 @@ peak ledger for the controller's entire lifetime. Initial admission may evict
 only expendable encoded cache; existing artwork/furnishing holds and pin guards
 remain. Concurrent decoding accounts for the live allowance instead of
 repeatedly retiring and reconstructing support shading at transition peaks.
-Descriptor/receiver replacement and scene disposal can still retire it.
+Descriptor/receiver refresh updates masks within the same controller. Periodic
+furnishing authority checks still hide unverified geometry and remove its contact
+descriptors, then restore masks after successful verification; these transitions
+do not retire material programs or release the working hold. Scene disposal and
+bounded inactive material-cache eviction can still retire owned hooks.
 
 ## Scope and verification
 

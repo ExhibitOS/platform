@@ -200,7 +200,7 @@ export type SupportContact = {
 const VIEW_CONTACT_LIMIT=8,CONTACT_MATERIAL_LIMIT=16;
 /** Receiver shading owns bounded material-scoped uniforms for its lifetime.
  * View changes update masks without retiring programs, meshes or textures. */
-export function installSupportContactShadows(three:typeof THREE,contacts:readonly SupportContact[],
+export function installSupportContactShadows(three:typeof THREE,initialContacts:readonly SupportContact[],
   compact:boolean,report:(value:{activeContacts:number;activeTriangles:number;drawCalls:number;textureBytes:number;uniformBytes:number;materials:number;programBytes:null})=>void){
   // Share eight owned world matrices; each material has its own reference mask.
   const matrixPool=Array.from({length:VIEW_CONTACT_LIMIT},()=>new three.Matrix4());
@@ -210,7 +210,7 @@ export function installSupportContactShadows(three:typeof THREE,contacts:readonl
   });
   type Uniforms=ReturnType<typeof makeUniforms>;
   type Hook={before:THREE.Material['onBeforeCompile'];key:THREE.Material['customProgramCacheKey'];owned:THREE.Material['onBeforeCompile'];ownedKey:THREE.Material['customProgramCacheKey'];hadMarker:boolean;marker:unknown;uniforms:Uniforms};
-  const hooks=new Map<THREE.Material,Hook>();let disposed=false,active:SupportContact[]=[];
+  const hooks=new Map<THREE.Material,Hook>();let contacts=initialContacts,disposed=false,active:SupportContact[]=[];
   let lastPosition:THREE.Vector3|undefined,lastRotation:THREE.Quaternion|undefined,lastProjection:THREE.Matrix4|undefined;
   const publish=()=>report({activeContacts:active.length,activeTriangles:0,drawCalls:0,textureBytes:0,
     uniformBytes:hooks.size*(VIEW_CONTACT_LIMIT*16*4+8),materials:hooks.size,programBytes:null});
@@ -318,6 +318,16 @@ export function installSupportContactShadows(three:typeof THREE,contacts:readonl
     }
     active=selected.map(row=>row.row).filter(row=>admitted.has(row));publish();
   };
-  const dispose=()=>{if(disposed)return;disposed=true;for(const [material,h]of hooks)retire(material,h);active=[];publish();};
-  publish();return {setView,dispose};
+  const setContacts=(next:readonly SupportContact[])=>{
+    if(disposed)return;
+    const same=contacts.length===next.length&&contacts.every((row,index)=>{
+      const other=next[index]!;
+      return row.room===other.room&&row.receiver===other.receiver&&row.width===other.width&&row.height===other.height&&
+        row.position.every((value,i)=>value===other.position[i])&&row.rotation.every((value,i)=>value===other.rotation[i]);
+    });
+    if(same)return;
+    contacts=next;active=[];lastPosition=undefined;
+  };
+  const dispose=()=>{if(disposed)return;disposed=true;for(const [material,h]of hooks)retire(material,h);active=[];contacts=[];publish();};
+  publish();return {setView,setContacts,dispose};
 }

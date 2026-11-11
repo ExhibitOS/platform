@@ -2087,8 +2087,8 @@ export function GeometryPreview({
           let ready=false;
           refreshContactReceivers=()=>{
             if(!ready||disposed||gpuLost)return;
-            releaseContact();
             contactReceivers=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,contactBench,ownerFurnishings?.seatVisuals());
+            if(contactShadows){contactShadows.setContacts(contactReceivers);contactShadows.setView(camera);}
           };
           void Promise.allSettled(catalogSettled).then(()=>{ready=true;refreshContactReceivers();})
             .catch(()=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';});

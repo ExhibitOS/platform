@@ -287,3 +287,17 @@ test('a saturated material cache admits all newly visible masks on the first vie
   pass.setView(contactView(400));expect(retired).toBe(8);
   pass.dispose();expect(retired).toBe(24);h.pass.dispose();
 });
+
+test('authority visibility descriptor refresh removes and restores masks without retiring material programs at a stationary view',()=>{
+  const h=setup(),row=contactRow(h.room,h.mesh),camera=contactView(),reports:unknown[]=[];
+  const pass=installSupportContactShadows(three,[row],false,r=>reports.push(r));pass.setView(camera);
+  const owned=h.mesh.material.onBeforeCompile,key=h.mesh.material.customProgramCacheKey,version=h.mesh.material.version;
+  const uniforms=h.mesh.material.userData.exhibitosSupportContact;let retired=0;h.mesh.material.addEventListener('dispose',()=>retired++);
+  pass.setContacts([]);pass.setView(camera);expect(uniforms.exhibitosContactCount.value).toBe(0);
+  expect(reports.at(-1)).toMatchObject({activeContacts:0,materials:1});
+  pass.setContacts([{...row,position:[.1,.002,0]}]);pass.setView(camera);
+  expect(uniforms.exhibitosContactCount.value).toBe(1);expect(uniforms.exhibitosContactMatrices.value[0].elements[12]).toBeCloseTo(-.5);
+  expect(h.mesh.material.onBeforeCompile).toBe(owned);expect(h.mesh.material.customProgramCacheKey).toBe(key);
+  expect(h.mesh.material.version).toBe(version);expect(retired).toBe(0);
+  pass.setContacts([]);pass.setView(camera);pass.dispose();expect(retired).toBe(1);h.pass.dispose();
+});
