@@ -41,3 +41,15 @@ export function focusRestoredDetailCanvas(canvas:HTMLCanvasElement,current:()=>b
   canvas.focus({preventScroll:true});return doc.activeElement===canvas;
  }catch{return false;}
 }
+
+/** Scene retirement joins visual restoration without requiring a stale canvas
+ * to reveal. Actual child cleanup and every submitted draw fence still succeed
+ * before its transferred reservation is retired. */
+export async function retireDetailCanvas(input:{cleanup:Promise<unknown>;restoration:Promise<unknown>;commands:()=>Promise<void>|undefined;drawAttempted:()=>boolean;complete:()=>Promise<void>;retire:()=>void}){
+ await input.cleanup;
+ await Promise.allSettled([input.restoration]);
+ const commands=input.commands();
+ if(commands)await commands;
+ else if(input.drawAttempted())await input.complete();
+ input.retire();
+}

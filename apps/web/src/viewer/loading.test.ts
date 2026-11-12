@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import * as Three from "three";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, selectedImageDetail, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, AssetReleaseUnconfirmedError, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, selectedImageDetail, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
 import {createFlatDetailRetry} from "./borrowed-detail-preview";
 import { newPlacement,syntheticArtwork } from "../placement/model";
 import { newDraft } from "../drafts/example";
@@ -414,4 +414,91 @@ it('retained decoder backing remains charged across cache eviction without count
  const second=retainEncodedBuffer(cache,'original',original);same.dispose();same.dispose();expect(cache.delete('original')).toBe(false);second.dispose();expect(cache.delete('original')).toBe(true);
  const uncached=retainEncodedBuffer(cache,'original',original);expect(uncached.retainedBytes+cache.stats().bytes).toBe(4);uncached.dispose();
  cache.set('original',original,4);const independent=retainEncodedBuffer(cache,'original',rewritten);expect(independent.retainedBytes+cache.stats().bytes).toBe(8);expect(cache.delete('original')).toBe(true);expect(independent.retainedBytes+cache.stats().bytes).toBe(4);independent.dispose();
+});
+
+
+describe('underlying scheduler drainage',()=>{
+ const deferred=<T,>()=>{let resolve!:(value:T)=>void,reject!:(error:unknown)=>void;const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
+ it('rejects cancellation immediately but drains delayed load and async discard before the same-key retry',async()=>{
+  const first=deferred<string>(),cleanup=deferred<void>(),started:string[]=[],discarded:string[]=[];
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:key=>{started.push(key);return started.length===1?first.promise:Promise.resolve('successor');},onDiscard:async value=>{discarded.push(value);await cleanup.promise;}});
+  const old=scheduler.request('same'),rejected=expect(old).rejects.toMatchObject({name:'AbortError'});await tick();
+  scheduler.cancel('same');await rejected;
+  const retry=scheduler.request('same',-100);let drained=false;const drain=scheduler.drain().then(()=>{drained=true;});
+  await tick();expect(started).toEqual(['same']);expect(scheduler.stats().active).toBe(1);expect(drained).toBe(false);
+  first.resolve('late-owned');await tick();expect(discarded).toEqual(['late-owned']);expect(started).toEqual(['same']);expect(scheduler.stats().active).toBe(1);expect(drained).toBe(false);
+  cleanup.resolve();expect(await retry).toBe('successor');await drain;
+  expect(drained).toBe(true);expect(started).toEqual(['same','same']);expect(scheduler.stats()).toMatchObject({active:0,completed:1,cancelled:1,failed:0});
+  scheduler.dispose();await scheduler.drain();
+ });
+ it('disposes synchronously but acknowledges drained only after the active discard finishes',async()=>{
+  const work=deferred<number>(),cleanup=deferred<void>();let loads=0,discardStarted=false,drained=false;
+  const scheduler=new AssetScheduler<number>({concurrency:1,load:()=>{loads++;return work.promise;},onDiscard:async()=>{discardStarted=true;await cleanup.promise;}});
+  const active=scheduler.request('active'),a=expect(active).rejects.toMatchObject({name:'AbortError'});await tick();
+  const queued=scheduler.request('queued'),q=expect(queued).rejects.toMatchObject({name:'AbortError'});
+  expect(scheduler.dispose()).toBeUndefined();await Promise.all([a,q]);
+  const drain=scheduler.drain().then(()=>{drained=true;});
+  expect(scheduler.stats()).toMatchObject({active:1,queued:0,cancelled:2});expect(loads).toBe(1);
+  work.resolve(1);await tick();expect(discardStarted).toBe(true);expect(drained).toBe(false);
+  cleanup.resolve();await drain;expect(scheduler.stats().active).toBe(0);await scheduler.drain();
+  await expect(scheduler.request('after-dispose')).rejects.toMatchObject({name:'AbortError'});
+ });
+ it('cancels a queued-only request without starting load or discard',async()=>{
+  let loads=0,discards=0;const scheduler=new AssetScheduler({concurrency:1,load:async()=>{loads++;return 1;},onDiscard:()=>{discards++;}});
+  const queued=scheduler.request('queued'),rejected=expect(queued).rejects.toMatchObject({name:'AbortError'}),drain=scheduler.drain();
+  scheduler.cancel('queued');await rejected;await drain;await tick();
+  expect(loads).toBe(0);expect(discards).toBe(0);expect(scheduler.stats()).toMatchObject({active:0,queued:0,cancelled:1});
+ });
+ it('unconfirmed load cleanup rejects drain and prevents queued and future admission',async()=>{
+  const work=deferred<string>(),started:string[]=[],failure=new AssetReleaseUnconfirmedError({cause:Error('child still owns bytes')});
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:key=>{started.push(key);return work.promise;}});
+  const active=scheduler.request('active'),a=expect(active).rejects.toBe(failure);await tick();
+  const queued=scheduler.request('queued'),q=expect(queued).rejects.toMatchObject({name:'AbortError'}),drain=expect(scheduler.drain()).rejects.toBe(failure);
+  work.reject(failure);await Promise.all([a,q,drain]);
+  expect(failure.code).toBe('ASSET_RELEASE_UNCONFIRMED');expect(failure.message).toBe('ASSET_RELEASE_UNCONFIRMED');
+  expect(started).toEqual(['active']);expect(scheduler.stats()).toMatchObject({active:0,queued:0,failed:1,cancelled:1});
+  await expect(scheduler.request('future')).rejects.toBe(failure);scheduler.dispose();await expect(scheduler.drain()).rejects.toBe(failure);
+ });
+ it('async discard rejection latches failure even after the cancelled request already settled',async()=>{
+  const work=deferred<string>(),cleanup=deferred<void>(),started:string[]=[];
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:key=>{started.push(key);return work.promise;},onDiscard:()=>cleanup.promise});
+  const active=scheduler.request('old'),a=expect(active).rejects.toMatchObject({name:'AbortError'});await tick();scheduler.cancel('old');await a;
+  const next=scheduler.request('next'),n=expect(next).rejects.toMatchObject({name:'AbortError'}),drain=expect(scheduler.drain()).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+  work.resolve('late');await tick();expect(scheduler.stats().active).toBe(1);cleanup.reject(Error('bitmap close unconfirmed'));await Promise.all([n,drain]);
+  expect(started).toEqual(['old']);await expect(scheduler.request('future')).rejects.toThrow('ASSET_RELEASE_UNCONFIRMED');
+  await expect(scheduler.drain()).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);expect(scheduler.stats()).toMatchObject({active:0,failed:0,cancelled:2});
+ });
+ it('does not poison clean ordinary network or decode failures',async()=>{
+  const started:string[]=[],clean=Error('ASSET_INTEGRITY');
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:async key=>{started.push(key);if(key==='bad')throw clean;return key;}});
+  const bad=scheduler.request('bad'),rejected=expect(bad).rejects.toBe(clean),good=scheduler.request('good');
+  await rejected;expect(await good).toBe('good');await scheduler.drain();
+  expect(await scheduler.retry('bad').catch(error=>error)).toBe(clean);expect(await scheduler.request('later')).toBe('later');await scheduler.drain();
+  expect(started).toEqual(['bad','good','bad','later']);expect(scheduler.stats()).toMatchObject({active:0,failed:2,completed:2,cancelled:0});
+ });
+});
+
+
+describe('verified artwork wait attribution',()=>{
+ it('separates authority, response, body and integrity while retaining both rights checks',async()=>{
+  const inventory=syntheticArtwork('image').assets[0]!,payload=new Uint8Array([1,2,3]);
+  inventory.bytes=payload.length;inventory.sha256=createHash('sha256').update(payload).digest('hex');
+  const publicationId='a0000000-0000-4000-8000-000000000001',revisionSha256='1'.repeat(64),events:string[]=[];
+  const input={publicationId,revisionSha256,asset:{assetId:inventory.id,mime:inventory.mime,url:`/api/v1/publications/${publicationId}/assets/${inventory.id}`},inventory,signal:new AbortController().signal,
+   stage:(phase:string)=>events.push(phase),check:async()=>{events.push('authority');},
+   fetcher:(async()=>{events.push('fetch');return new Response(payload,{headers:{'content-type':inventory.mime,'x-exhibitos-publication-revision':revisionSha256}});}) as typeof fetch};
+  expect(new Uint8Array(await fetchVerifiedAsset(input))).toEqual(payload);
+  expect(events).toEqual(['availability-precheck','authority','asset-response-wait','fetch','asset-body','asset-integrity','availability-recheck','authority']);
+  events.length=0;inventory.sha256='0'.repeat(64);
+  await expect(fetchVerifiedAsset(input)).rejects.toThrow('ASSET_INTEGRITY');
+  expect(events).toEqual(['availability-precheck','authority','asset-response-wait','fetch','asset-body','asset-integrity']);
+ });
+});
+
+it('retains the serial slot through ownership admission and stops before a successor on failed release',async()=>{
+ const started:string[]=[],admitted:string[]=[];
+ const scheduler=new AssetScheduler<string>({concurrency:1,load:async key=>{started.push(key);return key;},onLoad:value=>{admitted.push(value);if(value==='first')throw new AssetReleaseUnconfirmedError();}});
+ const first=scheduler.request('first'),next=scheduler.request('next');
+ await expect(first).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);await expect(next).rejects.toMatchObject({name:'AbortError'});
+ expect(started).toEqual(['first']);expect(admitted).toEqual(['first']);await expect(scheduler.drain()).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
 });

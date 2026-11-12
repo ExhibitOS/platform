@@ -385,22 +385,61 @@ export interface LoadingEvent {key:string;status:LoadingStatus;error?:unknown}
 export interface SchedulerStats {active:number;queued:number;completed:number;failed:number;cancelled:number}
 interface Task<T> {key:string;priority:number;priorityOverride?:number;order:number;controller:AbortController;promise:Promise<T>;resolve:(v:T)=>void;reject:(e:unknown)=>void;status:LoadingStatus;settled:boolean}
 const cancelled=()=>new DOMException("Asset loading cancelled","AbortError");
+/** Cleanup failed or child work may still own allocations. This marker never
+ * means an ordinary clean network/decode refusal. Callers retain its hold. */
+export class AssetReleaseUnconfirmedError extends Error {
+ readonly code='ASSET_RELEASE_UNCONFIRMED';
+ constructor(options?:ErrorOptions){super('ASSET_RELEASE_UNCONFIRMED',options);this.name='AssetReleaseUnconfirmedError';}
+}
 export class AssetScheduler<T> {
  private readonly tasks=new Map<string,Task<T>>();private active=0;private order=0;private completed=0;private failed=0;private cancelled=0;private stopped=false;
- constructor(private readonly options:{concurrency:number;load:(key:string,signal:AbortSignal)=>Promise<T>;onState?:(event:LoadingEvent)=>void;onDiscard?:(value:T)=>void}){if(!Number.isInteger(options.concurrency)||options.concurrency<1||options.concurrency>8)throw Error("CONCURRENCY_INVALID");}
- request(key:string,priority=0):Promise<T>{if(this.stopped)return Promise.reject(cancelled());if(!Number.isFinite(priority))return Promise.reject(Error("PRIORITY_INVALID"));const existing=this.tasks.get(key);if(existing){if(existing.status==="queued")existing.priority=Math.min(existing.priority,priority);return existing.promise;}
- let resolve!:(v:T)=>void,reject!:(e:unknown)=>void;const promise=new Promise<T>((r,j)=>{resolve=r;reject=j;});const task:Task<T>={key,priority,order:this.order++,controller:new AbortController(),promise,resolve,reject,status:"queued",settled:false};this.tasks.set(key,task);this.emit(task,"queued");queueMicrotask(()=>this.drain());return promise;}
+ private releaseError:AssetReleaseUnconfirmedError|undefined;
+ private readonly drainWaiters=new Set<{resolve:()=>void;reject:(error:AssetReleaseUnconfirmedError)=>void}>();
+ constructor(private readonly options:{concurrency:number;load:(key:string,signal:AbortSignal)=>Promise<T>;onState?:(event:LoadingEvent)=>void;onDiscard?:((value:T)=>void)|((value:T)=>Promise<void>);onLoad?:(value:T)=>void}){if(!Number.isInteger(options.concurrency)||options.concurrency<1||options.concurrency>8)throw Error("CONCURRENCY_INVALID");}
+ request(key:string,priority=0):Promise<T>{if(this.releaseError)return Promise.reject(this.releaseError);if(this.stopped)return Promise.reject(cancelled());if(!Number.isFinite(priority))return Promise.reject(Error("PRIORITY_INVALID"));const existing=this.tasks.get(key);if(existing){if(existing.status==="queued")existing.priority=Math.min(existing.priority,priority);return existing.promise;}
+ let resolve!:(v:T)=>void,reject!:(e:unknown)=>void;const promise=new Promise<T>((r,j)=>{resolve=r;reject=j;});const task:Task<T>={key,priority,order:this.order++,controller:new AbortController(),promise,resolve,reject,status:"queued",settled:false};this.tasks.set(key,task);this.emit(task,"queued");queueMicrotask(()=>this.pump());return promise;}
  /** Override only a queued request; clearing it restores the ordinary priority. */
  setPriorityOverride(key:string,priority?:number){if(priority!==undefined&&!Number.isFinite(priority))throw Error('PRIORITY_INVALID');const task=this.tasks.get(key);if(task?.status==='queued')task.priorityOverride=priority;}
  retry(key:string,priority=0){this.cancel(key);return this.request(key,priority);}
- cancel(key:string){const task=this.tasks.get(key);if(!task||task.settled)return;task.settled=true;task.controller.abort();task.reject(cancelled());this.cancelled++;this.emit(task,"cancelled");this.tasks.delete(key);queueMicrotask(()=>this.drain());}
+ cancel(key:string){const task=this.tasks.get(key);if(!task||task.settled)return;task.settled=true;task.controller.abort();task.reject(cancelled());this.cancelled++;this.emit(task,"cancelled");this.tasks.delete(key);this.settleDrainers();queueMicrotask(()=>this.pump());}
  cancelAll(){for(const key of this.tasks.keys())this.cancel(key);}
  dispose(){this.stopped=true;this.cancelAll();}
+ /** Cancellation rejects a request immediately; this waits for underlying load
+  * and discarded-value cleanup. A failed release never acknowledges drainage. */
+ drain():Promise<void>{
+  if(this.releaseError)return Promise.reject(this.releaseError);
+  if(!this.active&&!this.tasks.size)return Promise.resolve();
+  return new Promise<void>((resolve,reject)=>{this.drainWaiters.add({resolve,reject});});
+ }
  isQueued(key:string){return this.tasks.get(key)?.status==='queued';}
  stats():SchedulerStats{return {active:this.active,queued:[...this.tasks.values()].filter(t=>t.status==="queued").length,completed:this.completed,failed:this.failed,cancelled:this.cancelled};}
  private emit(task:Task<T>,status:LoadingStatus,error?:unknown){task.status=status;this.options.onState?.({key:task.key,status,...(error===undefined?{}:{error})});}
- private drain(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>(a.priorityOverride??a.priority)-(b.priorityOverride??b.priority)||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
- private async run(task:Task<T>){try{const value=await this.options.load(task.key,task.controller.signal);if(task.settled||this.stopped){this.options.onDiscard?.(value);return;}task.settled=true;this.completed++;this.emit(task,"loaded");task.resolve(value);}catch(error){if(!task.settled){task.settled=true;this.failed++;this.emit(task,"error",error);task.reject(error);}}finally{this.active--;if(this.tasks.get(task.key)===task)this.tasks.delete(task.key);this.drain();}}
+ private settleDrainers(){
+  if(!this.releaseError&&(this.active||this.tasks.size))return;
+  for(const waiter of this.drainWaiters){if(this.releaseError)waiter.reject(this.releaseError);else waiter.resolve();}
+  this.drainWaiters.clear();
+ }
+ stopUnconfirmed(error:AssetReleaseUnconfirmedError){this.releaseError??=error;this.stopped=true;this.cancelAll();this.settleDrainers();}
+ private pump(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>(a.priorityOverride??a.priority)-(b.priorityOverride??b.priority)||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
+ private async run(task:Task<T>){
+  try{
+   const value=await this.options.load(task.key,task.controller.signal);
+   if(task.settled||this.stopped){
+    try{await this.options.onDiscard?.(value);}catch(error){throw error instanceof AssetReleaseUnconfirmedError?error:new AssetReleaseUnconfirmedError({cause:error});}
+    return;
+   }
+   this.options.onLoad?.(value);
+   task.settled=true;this.completed++;this.emit(task,"loaded");task.resolve(value);
+  }catch(error){
+   // A cancelled caller already received AbortError, but its underlying cleanup
+   // failure still poisons this scheduler and every drainage acknowledgement.
+   if(!task.settled){task.settled=true;this.failed++;this.emit(task,"error",error);task.reject(error);}
+   if(error instanceof AssetReleaseUnconfirmedError)this.stopUnconfirmed(error);
+  }finally{
+   this.active--;if(this.tasks.get(task.key)===task)this.tasks.delete(task.key);
+   this.pump();this.settleDrainers();
+  }
+ }
 }
 interface Cached<T> {value:T;bytes:number;pins:number;order:number}
 export class MemoryAssetCache<T> {
@@ -437,16 +476,20 @@ export function retainEncodedBuffer(cache:MemoryAssetCache<ArrayBuffer>,key:stri
  if(cached!==undefined)cache.release(key);
  return {retainedBytes:retained.byteLength,dispose(){}};
 }
-export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;assetFetcher?:PublicationAssetFetcher;check?:()=>Promise<void>;maxBytes?:number;progress?:(loadedBytes:number)=>void}):Promise<ArrayBuffer> {
+export type VerifiedAssetPhase='availability-precheck'|'asset-response-wait'|'asset-body'|'asset-integrity'|'availability-recheck';
+export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;assetFetcher?:PublicationAssetFetcher;check?:()=>Promise<void>;maxBytes?:number;progress?:(loadedBytes:number)=>void;stage?:(phase:VerifiedAssetPhase)=>void}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!uuid.test(publicationId)||!uuid.test(asset.assetId)||asset.assetId!==inventory.id||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||asset.mime!==inventory.mime||!/^[a-f0-9]{64}$/.test(revisionSha256)||!/^[a-f0-9]{64}$/.test(inventory.sha256)||!Number.isSafeInteger(inventory.bytes)||inventory.bytes<1||inventory.bytes>Math.min(input.maxBytes??33554432,33554432))throw Error("ASSET_CONTRACT_INVALID");
- await input.check?.();
+ input.stage?.('availability-precheck');await input.check?.();
  const init={credentials:"omit",cache:"no-store",signal} as const;
  const stream=input.progress&&input.assetFetcher?{fetch:input.assetFetcher,progress:input.progress}:undefined;
+ input.stage?.('asset-response-wait');
  const response=stream?await stream.fetch(asset.url,init,stream.progress):await (input.fetcher??fetch)(asset.url,init);
  if(!response.ok)throw Error(`ASSET_HTTP_${response.status}`);if(response.headers.get("x-exhibitos-publication-revision")!==revisionSha256||response.headers.get("content-type")?.split(";")[0]!==inventory.mime)throw Error("ASSET_RESPONSE_INVALID");
+ input.stage?.('asset-body');
  const reader=response.body?.getReader();if(!reader)throw Error("ASSET_BODY_MISSING");const chunks:Uint8Array[]=[];let length=0;const onAbort=()=>{void reader.cancel(signal.reason).catch(()=>{});};signal.addEventListener("abort",onAbort,{once:true});
  try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>inventory.bytes)throw Error("ASSET_INTEGRITY");chunks.push(value);if(!stream)input.progress?.(length);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{signal.removeEventListener("abort",onAbort);reader.releaseLock();}
  signal.throwIfAborted();if(length!==inventory.bytes)throw Error("ASSET_INTEGRITY");const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
- const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");await input.check?.();return bytes.buffer;
+ input.stage?.('asset-integrity');
+ const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");input.stage?.('availability-recheck');await input.check?.();return bytes.buffer;
 }

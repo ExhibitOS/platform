@@ -6,6 +6,6 @@ import {basisLoader} from '../basis-loader';
 export async function prepareArtworkGlb(renderer:WebGLRenderer,bytes:ArrayBuffer,signal:AbortSignal,potentialAsync:(value:boolean)=>void,loaderImport:()=>Promise<typeof import('three/addons/loaders/GLTFLoader.js')>=()=>import('three/addons/loaders/GLTFLoader.js')){
  const {GLTFLoader}=await loaderImport();signal.throwIfAborted();potentialAsync(true);
  const basis=await basisLoader(renderer,bytes);if(!basis)potentialAsync(false);
- if(signal.aborted){basis?.dispose();signal.throwIfAborted();}
+ if(signal.aborted){basis?.dispose();potentialAsync(false);signal.throwIfAborted();}
  return {GLTFLoader,basis};
 }

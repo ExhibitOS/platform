@@ -37,7 +37,7 @@ import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfi
 import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
-import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {retireDetailCanvas,completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
 import {acquiredModelRuntime,acquiredModelTransitionCap,checkAcquiredModelGeometry,eligibleAcquiredModel} from './viewer/detail-model-admission';
@@ -52,7 +52,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
-import {viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
+import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -75,12 +75,13 @@ import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import {prepareArtwork} from './viewer/artwork-preparation';
+import {claimPreparedArtwork,retireArtworkResources,waitForArtworkRetirement,joinArtworkRetirement,retireArtworkEntry,disposeArtworkResources} from './viewer/artwork-ownership';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
-  materialPlanningCapacity, AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
+  materialPlanningCapacity, AssetScheduler, AssetReleaseUnconfirmedError, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
   fetchVerifiedAsset,
   checkImageDecode,
@@ -468,7 +469,9 @@ export function GeometryPreview({
     frame.canvas.height=0;
   },[]);
   useEffect(()=>clearQualityFrame,[clearQualityFrame]);
+  const artworkRetirement=useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
+    const previousArtworkRetirement=artworkRetirement.current;
     const document=sceneDocument;
     qualityRebuildReady.current=false;
     if(qualityFrame.current?.scope!==qualityScope)clearQualityFrame();
@@ -478,14 +481,16 @@ export function GeometryPreview({
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
     let gpuLost = false;
     let disposed = false,
-      release = () => {};
+      release:()=>void|Promise<void> = () => {};
+    let drainArtworkWork=()=>Promise.resolve(),disposeArtworkWork:()=>void=()=>{};
+    let materialWork:Promise<unknown>=Promise.resolve(),environmentWork:Promise<unknown>=Promise.resolve(),buildSettled:Promise<void>=Promise.resolve();
     let walkingRelease = () => {};
     let placementRelease = () => {};
     let nearPlacement: string | undefined;
     let sharedDetail:ReturnType<typeof borrowedDetailPreview>|undefined;
     let sharedDetailUnavailable:((reason:'rights'|'graphics')=>void)|undefined;
     let cancelSharedDetail=()=>{},guardOriginalDetail=()=>{},canvasReturnEpoch=0,detailMountEpoch=0,deferredCanvasRestore=false;
-    let canvasRestorePromise:Promise<void>=Promise.resolve();
+    let canvasRestorePromise:Promise<void>=Promise.resolve(),detailRetirementWork:()=>Promise<void>=()=>Promise.resolve();
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);setSeatTransitioning(false);
     setReadyWorkspaceBenches(null);
@@ -508,6 +513,8 @@ export function GeometryPreview({
     setSceneIssue("");
     setArtworkNotice(undefined);
     const build = async () => {
+      await waitForArtworkRetirement(previousArtworkRetirement,abort.signal);
+      if(disposed)return;
       if (
         document.rooms.length > 32 ||
         document.surfaces.length > 256 ||
@@ -1339,14 +1346,21 @@ export function GeometryPreview({
         observer.disconnect();
         controls.dispose();
         renderer.domElement.removeEventListener("webglcontextlost", lost);
-        for (const resource of owned) resource.dispose();
-        renderer.dispose();
-        renderer.forceContextLoss();
         renderer.domElement.remove();
+        // Stop input/publication immediately; retire CPU decoders before their
+        // renderer, encoded pins or a successor generation can be released.
+        const draining=drainArtworkWork();
+        return Promise.all([buildSettled,draining]).then(async()=>{
+          await drainArtworkWork();
+          await Promise.allSettled([materialWork,environmentWork,...catalogSettled]);
+          disposeArtworkWork();
+          await retireArtworkResources(owned);
+          renderer.dispose();renderer.forceContextLoss();
+        });
       };
       mapPoseRefresh.current=publishMapPose;
       if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
-      void loadMaterialPhases(
+      materialWork=loadMaterialPhases(
         async()=>{const changed=()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}};const status=await floorTextures.start(changed),workspaceStatus=workspaceTextures?await workspaceTextures.start(changed):{};if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status:{...status,...workspaceStatus},maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
         async()=>{const status=await surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}},
         (kind,error)=>{
@@ -1360,7 +1374,7 @@ export function GeometryPreview({
       );
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
-      void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
+      environmentWork=installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
         if(!environment)return;
         if(disposed||gpuLost){environment.dispose();return;}
         owned.push(environment);scene.environmentIntensity=spaceLighting?.reflectionIntensity ?? .45;
@@ -1658,7 +1672,7 @@ export function GeometryPreview({
       };
       const entranceOptionalBodies=new Map<string,Promise<ArrayBuffer>>();
       const readArtworkBytes = async (
-        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void, reuseEntranceOptional=true,
+        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void, reuseEntranceOptional=true, phase?:(value:string)=>void,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
         const report=(received:number)=>{entranceReadiness?.receive(inventory,received);progress?.(received);};
@@ -1672,21 +1686,22 @@ export function GeometryPreview({
           const cached = byteCache.get(inventory.id);
           if (cached) {
             // Reuse still checks authoritative availability.
-            await checkPublicAvailability(signal);
+            phase?.('availability-cache-reuse');await checkPublicAvailability(signal);
             bytes = cached;
             cacheHits++;report(bytes.byteLength);
             if(entranceReadiness)entranceVerifiedAssets.add(inventory.id);
           } else {
             const pendingBytes=entranceReadiness?.coverBytes(inventory)??(reuseEntranceOptional?entranceOptionalBodies.get(inventory.id):undefined);
+            if(pendingBytes)phase?.('shared-body-wait');
             const shared=pendingBytes?await pendingBytes.catch(()=>undefined):undefined;
             signal.throwIfAborted();
             if(shared){
-              await checkPublicAvailability(signal);
+              phase?.('availability-cache-reuse');await checkPublicAvailability(signal);
               bytes=shared;
               report(bytes.byteLength);
             }else{
               entranceReadiness?.receive(inventory,0);
-              bytes=await fetchVerifiedAsset({...publicSource,asset:source,inventory,signal,progress:entranceReadiness?report:progress});
+              bytes=await fetchVerifiedAsset({...publicSource,asset:source,inventory,signal,progress:entranceReadiness?report:progress,stage:phase});
             }
             byteCache.set(inventory.id, bytes, bytes.byteLength);
             if(entranceReadiness)entranceVerifiedAssets.add(inventory.id);
@@ -1756,12 +1771,12 @@ export function GeometryPreview({
         },
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
-        const bytes=await (acquiredModel?acquiredModel.read(signal):readArtworkBytes(artwork,inventory,signal,progress));
+        const bytes=await (acquiredModel?acquiredModel.read(signal):readArtworkBytes(artwork,inventory,signal,progress,true,stage));
         stage?.('verified-download');
         reserveDecode?.(bytes!);
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
         const resources: Array<{ dispose: () => void }> = [];let glbMayOwnAsync=false;
-        let acquiredBacking:ReturnType<typeof embeddedPNGManager>|undefined;
+        let acquiredBacking:ReturnType<typeof embeddedPNGManager>|undefined,ordinaryBacking:ReturnType<typeof embeddedPNGManager>|undefined;
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
@@ -1799,7 +1814,7 @@ export function GeometryPreview({
             if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
             if(acquiredModel)checkAcquiredModelGeometry(bytes,acquiredModel.media);
             const protectedBytes = embeddedPNGManager(manager,bytes,basis,acquiredModel?.media.textures);
-            if(acquiredModel)acquiredBacking=protectedBytes;
+            if(acquiredModel)acquiredBacking=protectedBytes;else ordinaryBacking=protectedBytes;
             resources.push(protectedBytes);
             if(acquiredModel)resources.push({dispose:()=>{
               protectedBytes.retire();
@@ -1810,7 +1825,7 @@ export function GeometryPreview({
             const backing=retainEncodedBuffer(byteCache,inventory.id,protectedBytes.bytes);
             resources.push(backing);retainedModelBytes=backing.retainedBytes;
             const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
-            glbMayOwnAsync=true;let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
+            glbMayOwnAsync=true;let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");stage?.('glb-children-settling');await protectedBytes.drain();}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);
@@ -1903,7 +1918,14 @@ export function GeometryPreview({
           decodedResources.set(object, resources);
           return object;
         } catch (error) {
+          if(ordinaryBacking){
+            stage?.('glb-child-drain');
+            await retireArtworkResources(resources,ordinaryBacking);
+            onCleanDecodeFailure?.();
+            throw error;
+          }
           let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
+          if(!acquiredModel&&(!clean||error instanceof ArtworkBitmapCleanupError||glbMayOwnAsync))throw new AssetReleaseUnconfirmedError({cause:error});
           if(acquiredBacking){
             await acquiredBacking.drain();acquiredBacking.retire();
             if(!clean||!acquiredBacking.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN',{cause:error});
@@ -2026,10 +2048,14 @@ export function GeometryPreview({
         renderer.domElement.ownerDocument.addEventListener('scroll',stopSculptureOrbit,true);
         renderer.domElement.ownerDocument.addEventListener('contextmenu',stopSculptureOrbit,true);
         orbitRoot?.addEventListener('toggle',orbitPanel,true);
+        let artworkReleaseFailure:AssetReleaseUnconfirmedError|undefined;
+        const failedArtworkRetirements=new Set<InstanceType<typeof three.Object3D>>();
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
-          for (const resource of decodedResources.get(object) ?? [])
-            resource.dispose();
+          try{disposeArtworkResources(decodedResources.get(object)??[]);}catch(cause){
+            const failure=cause instanceof AssetReleaseUnconfirmedError?cause:new AssetReleaseUnconfirmedError({cause});
+            failedArtworkRetirements.add(object);artworkReleaseFailure??=failure;scheduler.stopUnconfirmed(failure);throw failure;
+          }
           decodedResources.delete(object);
         };
         const active = new Map<string, string>(),
@@ -2075,7 +2101,11 @@ export function GeometryPreview({
         let sequence=0, automatic=true, manualFull=false;
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
-        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
+        const resident=()=>{
+          const sceneObjects=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+          const charged=new Set([...sceneObjects,detailPinned,detailImageCandidate]);
+          return sceneObjects.reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+[...failedArtworkRetirements].filter(value=>!charged.has(value)).reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        };
         const selectedBudget=(art:(typeof arts)[number],asset?:typeof art.assets[number])=>{
           const image=selectedImageDetail(art,viewerBudget)?.budget;
           if(image||art.artworkType!=='sculpture')return image;
@@ -2192,9 +2222,9 @@ export function GeometryPreview({
         };
         const preparedBytes=()=>[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
         const evictPrepared=(deficit:()=>number)=>{
-          for(const [id,value] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
+          for(const [id] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
             if(deficit()<=0)break;
-            prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
+            retireArtworkEntry(prepared,id,value=>destroy(value.object));stage(id,'evicted-preparation');
           }
         };
         const reserve=(key:string,bytes:number,probe=false)=>{
@@ -2203,7 +2233,7 @@ export function GeometryPreview({
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           reclaimEncoded(()=>peak.total(key)+bytes-limit);
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
-          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
+          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;retireArtworkEntry(minimumObjects,id,value=>destroy(value.object));stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           if(probe){peak.assertFits(key,bytes,limit);return;}
           try{peak.reserve(key,bytes,limit);}catch(error){
@@ -2221,7 +2251,7 @@ export function GeometryPreview({
             inventory: Document["artworks"][number]["assets"][number];
             prepareOnly:boolean; downloadOnly:boolean;full?:boolean;manual?:boolean;
             detailBudget?:DeviceBudget;detailPromotion?:boolean;detailTransfer?:DetailTransfer;
-            thumbnailWork?:(signal:AbortSignal)=>Promise<void>;
+            thumbnailWork?:(signal:AbortSignal)=>Promise<void>;started?:boolean;accept?:(result:LoadResult)=>void;
           }
         >();
         type LoadResult={object?:InstanceType<typeof three.Object3D>;key:string;borrowedMinimum?:{artId:string;assetId:string}};
@@ -2241,7 +2271,7 @@ export function GeometryPreview({
           // Fetch, decode/parse and texture/shader preparation share this serial slot.
           concurrency: 1,
           load: async (key, signal) => {
-            const t = tasks.get(key)!;
+            const t = tasks.get(key)!;t.started=true;
             try {
               if(t.thumbnailWork){await t.thumbnailWork(signal);signal.throwIfAborted();return {key};}
               const minimum=minimumObjects.get(t.art.revisionId);
@@ -2252,15 +2282,11 @@ export function GeometryPreview({
                 try{reserve(key,minimum.object.userData.viewer?.decodedBytes??0);await checkPublicAvailability(signal);signal.throwIfAborted();minimum.object.userData.loadKey=key;return result;}
                 catch(error){discardResult(result);throw error;}
               }
-              const ready=prepared.get(t.inventory.id);
-              if(ready&&!t.prepareOnly){
-                // Recheck current rights/revision before displaying a retained object.
-                await checkPublicAvailability(signal);
-                signal.throwIfAborted();
-                prepared.delete(t.inventory.id);
-                try{reserve(key,ready.object.userData.viewer?.decodedBytes??0);}catch(error){prepared.set(t.inventory.id,ready);throw error;}
-                ready.object.userData.loadKey=key;
-                return {object:ready.object,key};
+              if(!t.prepareOnly){
+                const ready=await claimPreparedArtwork({pool:prepared,assetId:t.inventory.id,
+                  reserve:value=>reserve(key,value.object.userData.viewer?.decodedBytes??0),
+                  authorize:()=>checkPublicAvailability(signal),check:()=>signal.throwIfAborted(),dispose:value=>destroy(value.object)});
+                if(ready){ready.object.userData.loadKey=key;return {object:ready.object,key};}
               }
               // Retry the same verified model against live headroom before
               // reading its body again. The probe can reclaim expendable data
@@ -2270,7 +2296,7 @@ export function GeometryPreview({
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
-                const bytes=await readArtworkBytes(t.art,t.inventory,signal,t.detailTransfer?.loaded),budget=t.detailBudget??viewerBudget;
+                const bytes=await readArtworkBytes(t.art,t.inventory,signal,t.detailTransfer?.loaded,true,value=>stage(t.inventory.id,value,undefined,key)),budget=t.detailBudget??viewerBudget;
                 signal.throwIfAborted();
                 stage(t.inventory.id,'verified-download',undefined,key);
                 checkImageDecode(bytes,t.art,t.inventory,budget);
@@ -2306,11 +2332,16 @@ export function GeometryPreview({
                 return {object,key};
               }catch(error){destroy(object);throw error;}
             } catch(error){
+              if(error instanceof AssetReleaseUnconfirmedError){
+                if(!t.thumbnailWork)stage(t.inventory.id,'release-unconfirmed',error,key);
+                throw error; // Keep the charged hold; the scheduler refuses successors.
+              }
               if(!t.thumbnailWork)stage(t.inventory.id,signal.aborted?'cancelled-settled':error instanceof Error&&error.message==='ASSET_TRANSITION_PEAK'?'deferred-budget':'failed',signal.aborted?undefined:error,key);
               peak.release(key);tasks.delete(key);throw error;
             }
           },
-          onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);discardResult(result);},
+          onLoad:result=>tasks.get(result.key)?.accept?.(result),
+          onDiscard: result=>{const task=tasks.get(result.key);discardResult(result);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);},
         });
         type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;coverCurrent?:()=>boolean;drain?:Promise<void>};
         let entranceOptional:OptionalArtwork|undefined;
@@ -2547,24 +2578,20 @@ export function GeometryPreview({
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
           const detailTransfer=detailPromotion?beginDetailTransfer?.('approved-full',inventory.bytes):undefined;
-          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,detailBudget,detailPromotion,detailTransfer };
+          const task:NonNullable<ReturnType<typeof tasks.get>>={ art, inventory, prepareOnly, downloadOnly,full,manual,detailBudget,detailPromotion,detailTransfer };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
-          const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
-          syncPinnedPriority(art.revisionId);
-          void scheduled
-            .then(result => {
+          task.accept=result=>{
+            try{
               const {object}=result;
-              peak.release(key);
               const current=settleAssetGeneration(pending,art.revisionId,key);
-              tasks.delete(key);
               if(!object){update();return;}
               if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
                 discardResult(result);
                 return;
               }
               const steady=requestLimits(task).resident;
-              const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
+              const deficit=()=>peak.total(key)+(object.userData.viewer?.decodedBytes??0)-steady;
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
               if(deficit()>0)releaseCachedOriginal();
@@ -2651,17 +2678,29 @@ export function GeometryPreview({
               render();
               stage(inventory.id,'display-attached-render-requested',undefined,key);
               update();
-            })
+
+            }catch(cause){
+              // Admission itself still owns the result and reservation. Unknown
+              // cleanup/attachment failure cannot open headroom for a successor.
+              if(result.object)failedArtworkRetirements.add(result.object);
+              const failure=cause instanceof AssetReleaseUnconfirmedError?cause:new AssetReleaseUnconfirmedError({cause});
+              artworkReleaseFailure??=failure;throw failure;
+            }finally{if(!artworkReleaseFailure){peak.release(key);tasks.delete(key);}}
+          };
+          const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
+          syncPinnedPriority(art.revisionId);
+          void scheduled
             .catch((error) => {
+              if(error instanceof AssetReleaseUnconfirmedError){artworkReleaseFailure??=error;stage(inventory.id,'release-unconfirmed',error,key);if(!disposed)update();return;}
               const current=settleAssetGeneration(pending,art.revisionId,key);
               // A late non-abort failure belongs to its old request, not its successor.
-              if(!current){if(error?.name==='AbortError')tasks.delete(key);if(!disposed)update();return;}
+              if(!current){if(error?.name==='AbortError'&&!task.started)tasks.delete(key);if(!disposed)update();return;}
               if (!disposed) {
-                if(error?.name === 'AbortError'){stage(inventory.id,'cancelled-settled',undefined,key);tasks.delete(key);update();return;}
+                if(error?.name === 'AbortError'){stage(inventory.id,task.started?'cancel-requested':'cancelled-settled',undefined,key);if(!task.started)tasks.delete(key);update();return;}
                 if(deferredByMaterialLoad(error?.message,floorSettled,surfaceSettled)){
                   // The material decode hold will be released after its serial phase.
                   // Retry under the settled limits before reporting a real failure.
-                  materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
+                  materialBudgetDeferred.set(art.revisionId,{full:!!task.full,prepareOnly:task.prepareOnly,detailPromotion:!!task.detailPromotion,manual:!!task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
                 const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
@@ -2958,6 +2997,9 @@ export function GeometryPreview({
               const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:inView,width:renderer.domElement.width,height:renderer.domElement.height});
               if(!screen.visible||!minimumFootprintVisible(points,unobstructed,point=>clearPath(camera.position,point)))continue;
               visible=true;
+              // Actual sight is not speculative doorway proximity. Pixel/dwell
+              // and centre-clear detail checks below still govern promotion.
+              eligible=eligible||actualViewAttentionEligible(inView,screen.visible,unobstructed);
               if(!automatic)break;
               // Partial footprints protect the minimum; detail keeps its center-clear requirement.
               if(!unobstructed)continue;
@@ -3033,14 +3075,15 @@ export function GeometryPreview({
           for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&!retainPreparationDemand(artId===currentArtwork,preparing.has(artId),shadowDependencies.has(artId))){scheduler.cancel(key);pending.delete(artId);}}
           for(const [id,key]of pending){
             const task=tasks.get(key),pinned=mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||id===detailPinnedArtwork;
-            if(active.has(id)||task?.manual||task?.detailPromotion||hasViewDemand(viewInterests.get(id),id===currentArtwork,pinned)||!scheduler.isQueued(key)){coldQueuedSince.delete(id);continue;}
-            const prior=coldQueuedSince.get(id),since=prior?.key===key?prior.since:now;coldQueuedSince.set(id,{key,since});
-            if(now-since>=1800){scheduler.cancel(key);pending.delete(id);desired.delete(id);requested.delete(id);coldQueuedSince.delete(id);}
+            const decision=coldArtworkWorkDecision({key,now,previous:coldQueuedSince.get(id),ordinary:!!task&&!task.prepareOnly&&!task.thumbnailWork,
+              attached:active.has(id),manual:!!task?.manual,detailPromotion:!!task?.detailPromotion,pinned,current:id===currentArtwork,view:viewInterests.get(id)});
+            if(decision.coldSince)coldQueuedSince.set(id,decision.coldSince);else coldQueuedSince.delete(id);
+            if(decision.cancel){scheduler.cancel(key);pending.delete(id);desired.delete(id);requested.delete(id);coldQueuedSince.delete(id);}
           }
           for(const id of coldQueuedSince.keys())if(!pending.has(id))coldQueuedSince.delete(id);
           for(const [id,value] of prepared){
             if(preparing.has(value.artId)||value.artId===currentArtwork)value.lastUseful=now;
-            else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+            else if(now-value.lastUseful>=1800){retireArtworkEntry(prepared,id,value=>destroy(value.object));stage(id,'evicted-preparation');}
           }
           const sorted=[...observations].sort((a,b)=>viewQueuePriority(viewInterests.get(a.art.revisionId),a.art.revisionId===currentArtwork,false)-viewQueuePriority(viewInterests.get(b.art.revisionId),b.art.revisionId===currentArtwork,false));
           const missingMinimum=sorted.filter(({art,visible,minimumEligible})=>(visible||minimumEligible)&&
@@ -3258,6 +3301,8 @@ export function GeometryPreview({
           let recheckAcquiredModel=async()=>{};
           const previousCanvasVisibility=renderer.domElement.style.visibility;
           let guardOriginalDraw=()=>true,resumeLegacy=()=>{},restoreHold:{key:string;bytes:number}|undefined;
+          let restoreDrawAttempted=false,restoreCommandDrain:Promise<void>|undefined;
+          detailRetirementWork=()=>retireDetailCanvas({cleanup:originalAttempt?.close()??Promise.resolve(),restoration:canvasRestorePromise,commands:()=>restoreCommandDrain,drawAttempted:()=>restoreDrawAttempted,complete:()=>completeDetailCommands(renderer.getContext() as WebGL2RenderingContext),retire:()=>{if(restoreHold){peak.release(restoreHold.key);restoreHold=undefined;}}});
           const retireOriginal=()=>{if(originalAttempt)void originalAttempt.close().then(()=>{originalSettled=true;if(originalDrawSuppressed){originalDrawSuppressed=false;redrawSettledBaseline();}},()=>{if(alive&&!signal.aborted&&!disposed)input.unavailable('recovery');});};
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
@@ -3286,14 +3331,15 @@ export function GeometryPreview({
               // until original-owned work, texture deletion and fence settle.
               deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('restoring');
               canvasRestorePromise=originalDrain.then(async()=>{
-                if(disposed||gpuLost||publicDisplayStopped||sharedDetail)throw Error('DETAIL_RESTORE_UNAVAILABLE');
+                if(disposed)return;
+                if(gpuLost||publicDisplayStopped||sharedDetail)throw Error('DETAIL_RESTORE_UNAVAILABLE');
                 try{
                   const context=renderer.getContext();
                   if(!imageProfile||typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))throw Error('DETAIL_FENCE_UNAVAILABLE');
                   const hold=restoreHold;if(!hold)throw Error('DETAIL_RESTORE_BUDGET');
                   const restoreFits=()=>!!host.current&&host.current.clientWidth>0&&host.current.clientHeight>0&&host.current.clientWidth<=imageProfile.maxRestoreWidth&&host.current.clientHeight<=imageProfile.maxRestoreHeight&&globalThis.devicePixelRatio===imageProfile.devicePixelRatio;
                   let drawnWidth=0,drawnHeight=0;
-                  await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
+                  await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{restoreDrawAttempted=true;if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>restoreCommandDrain=completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
                   if(!disposed&&!gpuLost&&!publicDisplayStopped){setDetailRestoreStatus(null);try{requestAnimationFrame(()=>{focusRestoredDetailCanvas(renderer.domElement,()=>returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!deferredCanvasRestore&&!suspendedRef.current&&!xrActive.current&&!!host.current?.contains(renderer.domElement));});}catch{/* Focus recovery must not undo a completed canvas restoration. */}}
                 }catch(error){deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';throw error;}
               });
@@ -3614,6 +3660,21 @@ export function GeometryPreview({
           }catch{releaseContact();contactReceivers=undefined;renderer.domElement.dataset.supportContactShadows='unavailable';}
         };
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        drainArtworkWork=()=>{
+          scheduler.dispose();
+          if(artworkReleaseFailure)return Promise.reject(artworkReleaseFailure);
+          renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-draining',...scheduler.stats(),chargedBytes:peak.total()});
+          return Promise.all([scheduler.drain(),acquiredModelDrain,detailRetirementWork(),originalDetailSlot.whenAvailable(new AbortController().signal)]).then(()=>{
+            renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-drained',...scheduler.stats(),chargedBytes:peak.total()});
+          },error=>{renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-unconfirmed',...scheduler.stats(),chargedBytes:peak.total()});throw error;});
+        };
+        disposeArtworkWork=()=>{
+          for(const object of objects.values())destroy(object);objects.clear();
+          for(const value of prepared.values())destroy(value.object);prepared.clear();
+          for(const value of minimumObjects.values())destroy(value.object);minimumObjects.clear();minimumBlocked.clear();residentMinimumWait.clear();
+          byteCache.clear();
+          renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'artwork-resources-released',artworkResidentBytes:resident(),remainingSceneReservations:peak.total()});
+        };
         const originalRelease = release;
         release = () => {
           unregisterDiagnostic();
@@ -3638,13 +3699,8 @@ export function GeometryPreview({
           clearInterval(statsTimer);
           cancelPublicThumbnail();
           scheduler.dispose();
-          originalRelease();
-          for (const object of objects.values()) destroy(object);
-          for(const value of prepared.values())destroy(value.object);
-          prepared.clear();
-          for(const value of minimumObjects.values())destroy(value.object);minimumObjects.clear();minimumBlocked.clear();residentMinimumWait.clear();
-          byteCache.clear();
           renderer.domElement.dataset.disposed = "true";
+          return originalRelease();
         };
         const applyEntrancePhase=()=>{
           if(entranceModeRef.current==='cover')entranceFrameReported=false;
@@ -3734,7 +3790,7 @@ export function GeometryPreview({
         const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
     };
-    void build().catch((error) => {
+    const building=build().catch((error) => {
       if (!disposed) {
         clearQualityFrame();
         setReady(false);
@@ -3754,6 +3810,7 @@ export function GeometryPreview({
               : "3D 미리보기를 표시할 수 없습니다. WebGL 지원을 확인하세요. 숫자 편집과 JSON 백업은 계속 사용할 수 있습니다.",
         );
     });
+    buildSettled=building.then(()=>{},()=>{});
     return () => {
       navigationCallbacks.current.onPresenceSceneReady?.(null);
       navigationCallbacks.current.onScriptSceneReady?.(null);
@@ -3763,7 +3820,7 @@ export function GeometryPreview({
       benchAction.current=null;
       resizeAction.current = null;
       abort.abort();
-      release();
+      artworkRetirement.current=joinArtworkRetirement(previousArtworkRetirement,release);
     };
   }, [referenceTone,
     sceneDocument,

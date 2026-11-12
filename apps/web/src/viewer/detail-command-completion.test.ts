@@ -41,3 +41,23 @@ it('only attempts the focus fallback after a positive restore fence and reveal',
 it('does not steal focus deliberately moved while the restore fence is pending',async()=>{
  const {restoreDetailCanvas,focusRestoredDetailCanvas}=await import('./detail-command-completion'),{AssetPeakBudget}=await import('./loading');let done!:()=>void;const fence=new Promise<void>(resolve=>{done=resolve}),peak=new AssetPeakBudget(100,()=>20),f=focusFixture();peak.reserve('held',70);const work=restoreDetailCanvas({peak,key:'held',heldBytes:70,requiredBytes:30,limit:100,draw:()=>true,complete:()=>fence,current:()=>true,reveal:()=>{}}).then(()=>focusRestoredDetailCanvas(f.canvas,f.current));f.doc.activeElement=f.other;done();expect(await work).toBe(false);expect(f.focus).not.toHaveBeenCalled();expect(peak.reservationBytes('held')).toBeUndefined();
 });
+
+it('retires a disposed canvas after real cleanup without requiring a visual reveal',async()=>{
+ const {retireDetailCanvas}=await import('./detail-command-completion');const retire=vi.fn();
+ await retireDetailCanvas({cleanup:Promise.resolve(),restoration:Promise.reject(Error('DETAIL_RESTORE_UNAVAILABLE')),commands:()=>undefined,drawAttempted:()=>false,complete:vi.fn(),retire});
+ expect(retire).toHaveBeenCalledOnce();
+});
+it('retirement joins a stale visual result but strictly retains ownership on a failed command fence',async()=>{
+ const {retireDetailCanvas}=await import('./detail-command-completion');let done!:()=>void;
+ const commands=new Promise<void>(resolve=>{done=resolve;}),retire=vi.fn();
+ const restoration=commands.then(()=>{throw Error('DETAIL_RESTORE_UNAVAILABLE');});
+ const work=retireDetailCanvas({cleanup:Promise.resolve(),restoration,commands:()=>commands,drawAttempted:()=>true,complete:vi.fn(),retire});
+ await Promise.resolve();expect(retire).not.toHaveBeenCalled();done();await work;expect(retire).toHaveBeenCalledOnce();
+ const failed=Promise.reject(Error('DETAIL_FENCE_UNCONFIRMED'));void failed.catch(()=>{});retire.mockClear();
+ await expect(retireDetailCanvas({cleanup:Promise.resolve(),restoration:failed,commands:()=>failed,drawAttempted:()=>true,complete:vi.fn(),retire})).rejects.toThrow('DETAIL_FENCE_UNCONFIRMED');expect(retire).not.toHaveBeenCalled();
+});
+it('retirement fences a partly submitted draw if visual restoration failed before registering completion',async()=>{
+ const {retireDetailCanvas}=await import('./detail-command-completion');const events:string[]=[];
+ await retireDetailCanvas({cleanup:Promise.resolve(),restoration:Promise.reject(Error('draw')),commands:()=>undefined,drawAttempted:()=>true,complete:async()=>{events.push('fence');},retire:()=>{events.push('release');}});
+ expect(events).toEqual(['fence','release']);
+});
