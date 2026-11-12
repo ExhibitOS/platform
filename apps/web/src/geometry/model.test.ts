@@ -257,7 +257,7 @@ describe('atomic explicit room-base placement lifecycle',()=>{
     const light=roomBaseLight(state.present,roomId)!,{id,...fields}=light;state=applyGeometryCommand(state,{type:'set-light',id,light:{...fields,intensity:0,color:[.1,.2,.3]}});
     const ceiling=state.present.surfaces.find(v=>v.type==='ceiling')!;state=applyGeometryCommand(state,{type:'set-light-attachment',lightId:id,attachment:{surfaceId:ceiling.id,anchor:[1,1],gap:.5}});
     expect(lightDetailsFor(state.present).find(v=>v.lightId===id)?.basePlacement).toBe('manual');expect(lightAttachmentsFor(state.present)).toHaveLength(1);
-    const before=state,restored=applyGeometryCommand(state,{type:'set-room-base-light-placement',lightId:id,placement:'auto'});
+    const before=state,restored=applyGeometryCommand(state,{type:'set-room-base-light-placement',lightId:id,basePlacement:'auto'});
     expect(roomBaseLight(restored.present,roomId)).toMatchObject({intensity:0,color:[.1,.2,.3],transform:{position:[0,3.6,0]}});expect(lightAttachmentsFor(restored.present)).toEqual([]);
     expect(lightDetailsFor(restored.present).find(v=>v.lightId===id)?.basePlacement).toBe('auto');expect(undoGeometry(restored).present).toEqual(before.present);expect(redoGeometry(undoGeometry(restored)).present).toEqual(restored.present);
   });
