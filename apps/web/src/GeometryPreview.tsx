@@ -1,3 +1,7 @@
+import {gpuModelCapability} from './viewer/gpu-model-capability';
+import {loadGpuModel} from './viewer/gpu-model-loader';
+import {resolveDisplayRepresentation,logicalSourceAssetId,sourceVariantForInventory} from './viewer/gpu-model-representation';
+import {publicGpuCandidate,publicDisplayDecodeReserve,fallbackPublicGpuAsset,retirePublicGpuProbeRenderer} from './viewer/gpu-model-public-selection';
 import {guardedXrFrame} from './viewer/xr-frame-fence';
 import type {EntranceReadiness} from './viewer/entrance-readiness';
 import type {PublicationAssetFetcher} from './publication-client';
@@ -564,6 +568,18 @@ export function GeometryPreview({
         Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
       );
       applyReferenceOutput(three,renderer,referenceTone);
+      const publicGpuEnabled=!!publicSource&&!!viewerBudget&&!session;
+      const failedGpuIds=new Set<string>();
+      const hasGpuCandidate=publicGpuEnabled&&document.artworks.some(art=>art.assets.some(asset=>!!publicGpuCandidate(art,asset)));
+      // A source change during the capability import must still own this
+      // already-created renderer until the in-flight build has returned.
+      if(hasGpuCandidate)release=()=>retirePublicGpuProbeRenderer(renderer,buildSettled,()=>completeDetailCommands(renderer.getContext() as WebGL2RenderingContext));
+      const gpuCaps=hasGpuCandidate?await gpuModelCapability(renderer).catch(()=>({astcSupported:false,bptcSupported:false})):{astcSupported:false,bptcSupported:false};
+      if(disposed||abort.signal.aborted||gpuLost)return;
+      const logicalAsset=(art:Document['artworks'][number],id:string)=>publicGpuEnabled?logicalSourceAssetId(art,id):id;
+      const displayVariant=(art:Document['artworks'][number],id:string)=>publicGpuEnabled?sourceVariantForInventory(art,id):lodVariantsFor(art).find(v=>v.assetId.toLowerCase()===id.toLowerCase());
+      const displayInventory=(art:Document['artworks'][number],source:Document['artworks'][number]['assets'][number])=>publicGpuEnabled?resolveDisplayRepresentation(art,source,viewerBudget!,gpuCaps,failedGpuIds,true).inventory:source;
+      const selectDisplayAsset=(art:Document['artworks'][number],distance:number,budget:DeviceBudget,preferCoarse=false)=>displayInventory(art,selectAssetVariant(art,distance,budget,preferCoarse));
       const resources=viewerBudget??resourceBudget;
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
@@ -1777,6 +1793,7 @@ export function GeometryPreview({
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
         const resources: Array<{ dispose: () => void }> = [];let glbMayOwnAsync=false;
         let acquiredBacking:ReturnType<typeof embeddedPNGManager>|undefined,ordinaryBacking:ReturnType<typeof embeddedPNGManager>|undefined;
+        const gpuRepresentation=publicGpuEnabled&&!acquiredModel?publicGpuCandidate(artwork,inventory):undefined;
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
@@ -1807,6 +1824,14 @@ export function GeometryPreview({
             resources.push(geometry, material);
             object = new three.Mesh(geometry, material);
             decodeBackingReleased=true;
+          } else if(gpuRepresentation){
+            const variant=displayVariant(artwork,inventory.id);
+            const loaded=await loadGpuModel(three,renderer,bytes,signal,imageBudget!,variant?.triangles);
+            ordinaryBacking=loaded.backing;resources.push(...loaded.resources);
+            resources.push({dispose:()=>{loaded.backing.retire();if(!loaded.backing.cleanupOK())throw new AssetReleaseUnconfirmedError();}});
+            const backing=retainEncodedBuffer(byteCache,inventory.id,loaded.backing.bytes);
+            resources.push(backing);retainedModelBytes=backing.retainedBytes;
+            object=loaded.object;
           } else {
             const {GLTFLoader,basis}=await prepareArtworkGlb(renderer,bytes!,signal,value=>{glbMayOwnAsync=value;});
             const manager = new three.LoadingManager();
@@ -1892,11 +1917,9 @@ export function GeometryPreview({
             disposed ||
             (viewerBudget && triangles > viewerBudget.maxTriangles) ||
             (publicSource &&
-              (lodVariantsFor(artwork).find(
-                (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
-              )?.triangles ?? Infinity) < triangles)
+              (displayVariant(artwork,inventory.id)?.triangles ?? Infinity) < triangles)
           ) {
-            for (const resource of resources) resource.dispose();
+            if(!gpuRepresentation)for (const resource of resources) resource.dispose();
             throw Error("DECODE_BUDGET_EXCEEDED");
           }
           if(artwork.artworkType!=="image"){const centered=centerMetricModel(three,object);object=centered.object;object.userData.metricGeometry=centered.measured;}
@@ -1921,7 +1944,7 @@ export function GeometryPreview({
           if(ordinaryBacking){
             stage?.('glb-child-drain');
             await retireArtworkResources(resources,ordinaryBacking);
-            onCleanDecodeFailure?.();
+            if(!(error instanceof AssetReleaseUnconfirmedError))onCleanDecodeFailure?.();
             throw error;
           }
           let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
@@ -1930,7 +1953,7 @@ export function GeometryPreview({
             await acquiredBacking.drain();acquiredBacking.retire();
             if(!clean||!acquiredBacking.cleanupOK())throw Error('DETAIL_MODEL_DRAIN_UNCERTAIN',{cause:error});
           }
-          if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
+          if(clean&&!(error instanceof AssetReleaseUnconfirmedError)&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
           throw error;
         }
       };
@@ -2307,7 +2330,7 @@ export function GeometryPreview({
               }
               const object=await loadArtwork(t.art,t.inventory,signal,bytes=>{
                 const limits=requestLimits(t);
-                const required=assetDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:limits.resident},bytes,'cpu');
+                const required=publicDisplayDecodeReserve(t.art,t.inventory,{...(t.detailBudget??viewerBudget),maxCacheBytes:limits.resident},bytes,'cpu');
                 try{reserve(key,required);}catch(error){
                   if(error instanceof Error&&error.message==='ASSET_TRANSITION_PEAK'&&t.art.artworkType==='sculpture'&&!t.detailPromotion){
                     blockedModelDecodeBytes.set(t.inventory.id,required);
@@ -2487,7 +2510,7 @@ export function GeometryPreview({
         };
         const entranceAssets=new Map<string,(typeof arts)[number]['assets'][number]>();
         let entrancePlanUnavailable=false;
-        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
+        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false, sourceFallback?:(typeof art.assets)[number]):void => {
           if(publicDisplayStopped)return;
           const ownsDetail=art.revisionId===detailPinnedArtwork;
           if(detailPromotion?(!sharedDetail||!ownsDetail):ownsDetail)return;
@@ -2502,11 +2525,11 @@ export function GeometryPreview({
             imageBudget=imageTarget?.budget??viewerBudget;
             const preferCoarse=!detailPromotion&&(detailMinimumArtwork===art.revisionId||preferModelCoarse(art.revisionId,manual&&full));
             const entranceAsset=entranceReadiness&&!entranceFrameReported&&!full&&!detailPromotion?entranceAssets.get(art.revisionId):undefined;
-            inventory = entranceAsset??imageTarget?.inventory??selectAssetVariant(art,full?0:Infinity,viewerBudget,preferCoarse);
+            inventory = sourceFallback??entranceAsset??imageTarget?.inventory??selectDisplayAsset(art,full?0:Infinity,viewerBudget,preferCoarse);
             const lod = art.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
-            if (!entranceAsset && immersive && !galleryArtworkDrawn && !full && !detailPromotion && !active.has(art.revisionId) && !prepared.has(inventory.id)
+            if (!sourceFallback && !entranceAsset && immersive && !galleryArtworkDrawn && !full && !detailPromotion && !active.has(art.revisionId) && !prepared.has(inventory.id)
               && lod?.profile === BUDGET_GEOMETRY_PAIR_PROFILE) {
-              inventory = selectAssetVariant(art,Infinity,viewerBudget,true);
+              inventory = selectDisplayAsset(art,Infinity,viewerBudget,true);
             }
           } catch (error) {
             if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:art.primaryAssetId,artworkRevisionId:art.revisionId,stage:'variant-admission-refused',errorCode:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null});
@@ -2662,8 +2685,8 @@ export function GeometryPreview({
                 xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
                 // Preserve the qualified textured/silhouette minimum through a full-detail swap.
                 const oldId=active.get(art.revisionId);let minimumId:string|undefined;
-                try{minimumId=selectAssetVariant(art,Infinity,viewerBudget).id;}catch{/* No unsupported minimum identity is inferred. */}
-                if(oldId===minimumId){const prior=minimumObjects.get(art.revisionId);if(prior&&prior.object!==old)destroy(prior.object);minimumObjects.set(art.revisionId,{assetId:oldId!,object:old});}
+                try{minimumId=selectDisplayAsset(art,Infinity,viewerBudget).id;}catch{/* No unsupported minimum identity is inferred. */}
+                if(oldId&&minimumId&&logicalAsset(art,oldId)===logicalAsset(art,minimumId)){const prior=minimumObjects.get(art.revisionId);if(prior&&prior.object!==old)destroy(prior.object);minimumObjects.set(art.revisionId,{assetId:oldId!,object:old});}
                 else destroy(old);
               }
               objects.set(art.revisionId, object);
@@ -2703,6 +2726,13 @@ export function GeometryPreview({
                   materialBudgetDeferred.set(art.revisionId,{full:!!task.full,prepareOnly:task.prepareOnly,detailPromotion:!!task.detailPromotion,manual:!!task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
+                const gpuFallback=publicGpuEnabled?fallbackPublicGpuAsset(art,inventory,error,abort.signal.aborted,failedGpuIds,entranceAssets,assets=>entranceReadiness?.setRequiredAssets(assets)):undefined;
+                if(gpuFallback){
+                  byteCache.delete(inventory.id);blockedModelDecodeBytes.delete(inventory.id);
+                  optionalResidentWaits.delete(art.revisionId);residentMinimumWait.delete(art.revisionId);minimumBlocked.delete(art.revisionId);detailBudgetWait=undefined;
+                  failed.delete(art.revisionId);retryAfter.delete(art.revisionId);
+                  request(art,!!task.full,task.prepareOnly,!!task.detailPromotion,!!task.manual,gpuFallback);return;
+                }
                 const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
                 const requiredEntranceAsset=entranceReadiness&&!entranceFrameReported&&entranceAssets.get(art.revisionId)?.id===inventory.id;
                 const settledEntranceRefusal=requiredEntranceAsset&&transitionDeferred&&floorSettled&&surfaceSettled;
@@ -2717,8 +2747,8 @@ export function GeometryPreview({
                   // Retain the authored coarse model choice until the effective
                   // resident budget increases. A repeat at the same limit cannot fit.
                   try{
-                    const fallback=selectAssetVariant(art,Infinity,viewerBudget,true);
-                    if(fallback.id!==inventory.id&&lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId.toLowerCase()===fallback.id.toLowerCase())){
+                    const fallback=selectDisplayAsset(art,Infinity,viewerBudget,true);
+                    if(fallback.id!==inventory.id&&lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId.toLowerCase()===logicalAsset(art,fallback.id).toLowerCase())){
                       modelFallbackLimits.set(art.revisionId,assetBudgetBytes);
                       retryAfter.delete(art.revisionId);
                       request(art,false,task.prepareOnly,false,manual);
@@ -2729,7 +2759,7 @@ export function GeometryPreview({
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (!requiredEntranceAsset && detailMinimumArtwork!==art.revisionId && error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
-                    const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
+                    const fallback = selectDisplayAsset(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
                       request(art, true,false,false,manual);
                       return;
@@ -2748,7 +2778,7 @@ export function GeometryPreview({
           // Let one ready-before-swap downgrade settle before reclaiming another.
           if([...reclaiming].some(id=>pending.has(id)))return;
           const candidate=displayedDetailReclamation(arts.filter(art=>!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
-            id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
+            id:art.revisionId,artwork:art,assetId:logicalAsset(art,active.get(art.revisionId)!),visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
           })),demandContext().owner,performance.now(),viewerBudget);
           if(!candidate)return;
           const art=arts.find(v=>v.revisionId===candidate.id)!;
@@ -2815,7 +2845,7 @@ export function GeometryPreview({
             const residentWait=residentMinimumWait.get(art.revisionId);
             if(residentWait!==undefined){
               let selectedId:string|undefined;
-              try{selectedId=selectAssetVariant(art,kind==='full'||kind==='next'&&!automatic&&manualFull?0:Infinity,viewerBudget).id;}catch{/* Let normal admission report an unsupported target. */}
+              try{selectedId=selectDisplayAsset(art,kind==='full'||kind==='next'&&!automatic&&manualFull?0:Infinity,viewerBudget).id;}catch{/* Let normal admission report an unsupported target. */}
               if(sameResidentMinimumAsset(residentWait.assetId,selectedId)&&!retryWaitingMinimum(art.revisionId,residentWait.bytes,true)){reduceSurfaceForCurrent(art.revisionId);continue;}
               residentMinimumWait.delete(art.revisionId);minimumBlocked.delete(art.revisionId);
             }
@@ -2912,13 +2942,13 @@ export function GeometryPreview({
           const higher: typeof light=[];
           for(const {art} of candidates){
             try{
-              const coarse=selectAssetVariant(art,Infinity,viewerBudget,true);
-              const ordinary=selectAssetVariant(art,Infinity,viewerBudget);
-              const full=selectAssetVariant(art,0,viewerBudget);
+              const coarse=selectDisplayAsset(art,Infinity,viewerBudget,true);
+              const ordinary=selectDisplayAsset(art,Infinity,viewerBudget);
+              const full=selectDisplayAsset(art,0,viewerBudget);
               if(!(cover?entranceAssets.has(art.revisionId):active.has(art.revisionId))&&
-                 lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId===coarse.id))
+                 lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId===logicalAsset(art,coarse.id)))
                 light.push({art,inventory:coarse,compatibleOnEnter:ordinary.id===coarse.id});
-              if(lodVariantsFor(art).some(variant=>variant.detail==='full'&&variant.assetId===full.id)&&full.id!==coarse.id)
+              if(lodVariantsFor(art).some(variant=>variant.detail==='full'&&variant.assetId===logicalAsset(art,full.id))&&full.id!==coarse.id)
                 higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
             }catch{/* No optional derivative fits the current admission policy. */}
           }
@@ -3037,7 +3067,7 @@ export function GeometryPreview({
                 .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
               const candidates=[...visible,...movement];
               for(const {art} of candidates){
-                try{entranceAssets.set(art.revisionId,selectAssetVariant(art,Infinity,viewerBudget,true));}
+                try{entranceAssets.set(art.revisionId,selectDisplayAsset(art,Infinity,viewerBudget,true));}
                 catch{entrancePlanUnavailable=true;}
               }
               entranceNeedsArtwork=visible.length>0;
@@ -3114,7 +3144,7 @@ export function GeometryPreview({
             const isCurrent=art.revisionId===currentArtwork,neighbor=preparing.has(art.revisionId);
             const canPromote=!immersive||galleryArtworkDrawn;
             if((retryAfter.get(art.revisionId)??0)>now)continue;
-            const quality=galleryDetailChoice({current:isCurrent,activeFull:lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===active.get(art.revisionId)),want,reclaiming:reclaiming.has(art.revisionId),canPromote,minimumOutstanding});
+            const quality=galleryDetailChoice({current:isCurrent,activeFull:lodVariantsFor(art).some(value=>value.detail==='full'&&value.assetId===logicalAsset(art,active.get(art.revisionId)??'')),want,reclaiming:reclaiming.has(art.revisionId),canPromote,minimumOutstanding});
             if(quality==='retain')continue;
             if(quality==='full')request(art,true);
             else if(quality==='minimum'){
@@ -3255,7 +3285,7 @@ export function GeometryPreview({
           assertMount();
           let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
-          const tiers=new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail]));
+          const tiers=new Map(art.assets.flatMap(asset=>{const variant=displayVariant(art,asset.id);return variant?[[asset.id.toLowerCase(),variant.detail] as const]:[];}));
           const returnEpoch=++canvasReturnEpoch;
           const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
@@ -3276,7 +3306,7 @@ export function GeometryPreview({
           let preparedOwned=false;
           if((input.flatImage||art.artworkType==='sculpture'&&!input.anchors.length)&&tiers.get(String(object.userData.viewerAssetId).toLowerCase())==='coarse'){
             let higher:ReturnType<typeof selectAssetVariant>|undefined;
-            try{higher=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{/* Keep the qualified wall asset. */}
+            try{higher=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectDisplayAsset(art,0,viewerBudget);}catch{/* Keep the qualified wall asset. */}
             const ready=higher&&tiers.get(higher.id.toLowerCase())==='full'?prepared.get(higher.id):undefined;
             // Availability was verified before mount. Both objects already count
             // toward the resident budget. The wall retains its own coarse object.
@@ -3411,13 +3441,13 @@ export function GeometryPreview({
               if(approvedStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;
               approvedStarted=true;
               let target:ReturnType<typeof selectAssetVariant>;
-              try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{promotionDecision('promotion-skipped-variant-unavailable');return;}
+              try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectDisplayAsset(art,0,viewerBudget);}catch{promotionDecision('promotion-skipped-variant-unavailable');return;}
               if(tiers.get(target.id.toLowerCase())!=='full'){promotionDecision('promotion-skipped-target-not-full',target.id);return;}
-              if(target.id===object?.userData.viewerAssetId){promotionDecision('promotion-skipped-already-full',target.id);return;}
+              if(logicalAsset(art,target.id)===logicalAsset(art,String(object?.userData.viewerAssetId))){promotionDecision('promotion-skipped-already-full',target.id);return;}
               promoteImage=()=>{
                 const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
                 try{if(input.flatImage)scope.replaceImage(next);else scope.replaceModel(next);}
-                catch{diagnosticEvents.record({atMs:performance.now(),assetId:target.id,artworkRevisionId:art.revisionId,stage:'promotion-replacement-failed',errorCode:null});detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
+                catch{diagnosticEvents.record({atMs:performance.now(),assetId:String(next.userData.viewerAssetId),artworkRevisionId:art.revisionId,stage:'promotion-replacement-failed',errorCode:null});detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
                 const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
                 if(retired&&previous)destroy(previous);
               };
@@ -3432,7 +3462,7 @@ export function GeometryPreview({
               };
               const retry=createFlatDetailRetry({
                 valid,pending:()=>pending.has(art.revisionId),retryAfter:retryDeadline,now:()=>performance.now(),
-                ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===target.id,
+                ready:()=>{try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectDisplayAsset(art,0,viewerBudget);return (detailImageCandidate??detailPinned)?.userData.viewerAssetId===target.id;}catch{return false;}},
                 request:()=>request(art,true,false,true),
               });
               if(retryOrigins){
