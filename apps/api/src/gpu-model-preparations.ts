@@ -11,7 +11,7 @@ import {assertModelPreparationExecution,type ModelPreparationExecution} from './
 import {parseGpuModelPreparationInput,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
 import {storedGpuModelPreparation,gpuModelDigest,gpuModelJobView,gpuModelReceipt,gpuModelPreparationDrained,createGpuModelReceipt} from './gpu-model-preparation-state.ts';
 import {parseGpuModelSource} from './gpu-source-preservation.ts';
-import {inspectGpuModelSource,assembleGpuModelDerivative} from './gpu-model-producer.ts';
+import {assertGpuModelOutputCapacity,assembleGpuModelDerivative} from './gpu-model-producer.ts';
 import {assertGpuModelEncoderReady,encodeGpuModelBaseColor,GpuModelEncoderError} from './gpu-model-encoder.ts';
 import {revisionIdentity,type Cms} from './cms.ts';
 
@@ -105,7 +105,7 @@ export class GpuModelPreparations {
   const bytes=Buffer.from(await this.base.blobs.getBounded!(String(row.approved_key),receipt.candidate.bytes)),source=Buffer.from(await this.base.blobs.getBounded!(String(row.object_key),receipt.source.bytes));
   if(bytes.length!==receipt.candidate.bytes||sha256(bytes)!==receipt.candidate.sha256||source.length!==receipt.source.bytes||sha256(source)!==receipt.source.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
   try{
-   const parsed=parseGpuModelSource(bytes,41943040),doc=parsed.doc as unknown as {images?:{bufferView?:number}[];bufferViews?:{byteOffset?:number;byteLength?:number}[]};
+   const parsed=parseGpuModelSource(bytes,33554432),doc=parsed.doc as unknown as {images?:{bufferView?:number}[];bufferViews?:{byteOffset?:number;byteLength?:number}[]};
    const image=doc.images?.[receipt.producer.ktx.imageIndex],view=image?.bufferView===undefined?undefined:doc.bufferViews?.[image.bufferView];
    if(!view||!Number.isSafeInteger(view.byteOffset)||!Number.isSafeInteger(view.byteLength))throw Error();
    const reconstructed=assembleGpuModelDerivative(source,{sha256:receipt.source.sha256,bytes:receipt.source.bytes},parsed.bin.subarray(view.byteOffset!,view.byteOffset!+view.byteLength!));
@@ -200,7 +200,7 @@ export class GpuModelPreparations {
     const live=(await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() AND $3::uuid=ANY(png_worker_tokens) FOR UPDATE",[row.tenant_id,row.id,lease])).rows[0];
     if(!live||!isDeepStrictEqual(live.gpu_preparation,row.gpu_preparation))throw changed();await this.context(c,live);
    });assertActive();};
-   await check();const source=Buffer.from(await this.base.blobs.getBounded!(String(row.object_key),Number(row.expected_bytes))),identity={sha256:String(row.expected_hash),bytes:Number(row.expected_bytes)},inspection=inspectGpuModelSource(source,identity);
+   await check();const source=Buffer.from(await this.base.blobs.getBounded!(String(row.object_key),Number(row.expected_bytes))),identity={sha256:String(row.expected_hash),bytes:Number(row.expected_bytes)},inspection=assertGpuModelOutputCapacity(source,identity);
    directory=await mkdtemp(join(this.jobRoot,`${row.id}-${lease}-`));
    const encoded=await encodeGpuModelBaseColor(inspection.colourPNG,{managedPrefix:this.managedPrefix,jobDirectory:directory,signal:controller.signal,writerFd:this.base.writer?.writerFd,assertCurrent:check,onSpawn:()=>{spawned=true;drained=false;}});drained=encoded.workerDrained;
    const output=assembleGpuModelDerivative(source,identity,encoded.ktx);await hooks?.beforeCommit?.();

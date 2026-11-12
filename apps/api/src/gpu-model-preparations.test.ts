@@ -27,14 +27,14 @@ vi.mock('./gpu-model-encoder.ts',()=>({
  encodeGpuModelBaseColor:async(_png:Buffer,context:EncoderContext)=>{const f=mocked.fixture;f.events.push('spawn');f.encoderContext=context;context.onSpawn();if(f.encode)return f.encode(context);await context.assertCurrent();return {ktx:Buffer.from('ktx'),workerDrained:true};},
 }));
 vi.mock('./gpu-model-producer.ts',()=>({
- inspectGpuModelSource:(source:Buffer,identity:{sha256:string;bytes:number})=>{if(hash(source)!==identity.sha256||source.length!==identity.bytes)throw new ApiError(422,'GPU_SOURCE_INVALID');return {colourPNG:Buffer.from('synthetic-png')};},
+ assertGpuModelOutputCapacity:(source:Buffer,identity:{sha256:string;bytes:number})=>{if(hash(source)!==identity.sha256||source.length!==identity.bytes)throw new ApiError(422,'GPU_SOURCE_INVALID');mocked.fixture.events.push('capacity-preflight');if(mocked.fixture.capacityFailure)throw new ApiError(422,'GPU_MODEL_OUTPUT_CAPACITY');return {colourPNG:Buffer.from('synthetic-png')};},
  assembleGpuModelDerivative:(source:Buffer,_identity:unknown,ktx:Buffer)=>({bytes:Buffer.concat([source,ktx]),producer:producer()}),
 }));
 vi.mock('./gpu-source-preservation.ts',()=>({parseGpuModelSource:(bytes:Buffer)=>({doc:{images:[{bufferView:0}],bufferViews:[{byteOffset:0,byteLength:3}]},bin:bytes.subarray(bytes.length-3)})}));
 import {GpuModelPreparations,GPU_MODEL_MIGRATION_SHA256} from './gpu-model-preparations.ts';
 import {GpuModelEncoderError} from './gpu-model-encoder.ts';
 import {GPU_MODEL_PREPARATION_PROFILE,GPU_MODEL_PREPARATION_RECIPE as recipe,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
-import {gpuModelDigest} from './gpu-model-preparation-state.ts';
+import {gpuModelDigest,createGpuModelReceipt} from './gpu-model-preparation-state.ts';
 const tenant='11111111-1111-4111-8111-111111111111',principal='22222222-2222-4222-8222-222222222222',artworkId='33333333-3333-4333-8333-333333333333',sourceId='44444444-4444-4444-8444-444444444444',jobId='55555555-5555-4555-8555-555555555555';
 const hash=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex'),actor={tenantId:tenant,userId:principal};
 const source=Buffer.alloc(32,42),rights={display:true,export:true};
@@ -47,7 +47,7 @@ function producer(){return {version:1,tool:{name:'toktx',version:'4.4.2',executa
 function deferred<T=void>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 class Fixture{
  row:Row;artwork:Row;snapshots:Map<number,Row>;assets=new Map<string,Row>();lineage:Row[]=[];events:string[]=[];objects=new Map<string,Buffer>([['source',Buffer.from(source)]]);
- active=true;authorized=true;encoderReady=true;supported=true;onCommit?:()=>Promise<void>;encoderContext?:EncoderContext;encode?: (context:EncoderContext)=>Promise<{ktx:Buffer;workerDrained:true}>;
+ capacityFailure=false;active=true;authorized=true;encoderReady=true;supported=true;onCommit?:()=>Promise<void>;encoderContext?:EncoderContext;encode?: (context:EncoderContext)=>Promise<{ktx:Buffer;workerDrained:true}>;
  query=vi.fn(async(sql:string,args:unknown[]=[]):Promise<{rows:Row[];rowCount:number}>=>{
   const rows=(items:Row[])=>({rows:structuredClone(items),rowCount:items.length});
   if(sql.includes('AS supported')){expect(args).toEqual(['049_gpu_model_preparation.sql',GPU_MODEL_MIGRATION_SHA256]);return rows([{supported:this.supported}]);}
@@ -89,6 +89,31 @@ let root:string,f:Fixture,jobs:GpuModelPreparations;
 beforeEach(async()=>{root=await mkdtemp(join(await import('node:fs/promises').then(m=>m.realpath(tmpdir())),'gpu-job-unit-'));f=new Fixture();mocked.fixture=f;jobs=new GpuModelPreparations({} as Pool,f.base,'/synthetic-managed-encoder',root);});
 afterEach(async()=>{await jobs.close();await rm(root,{recursive:true});vi.restoreAllMocks();});
 describe('ordinary GPU producer job lifecycle (mocked encoder, no conversion)',()=>{
+ it('keeps immutable candidate receipts within the same 32 MiB read/write boundary',()=>{
+  const candidate={assetId:jobId,mime:'model/gltf-binary' as const,sha256:'c'.repeat(64),bytes:32*1024*1024};
+  expect(createGpuModelReceipt(f.row,candidate,producer() as never).candidate.bytes).toBe(32*1024*1024);
+  expect(()=>createGpuModelReceipt(f.row,{...candidate,bytes:candidate.bytes+1},producer() as never)).toThrow('GPU_MODEL_PREPARATION_STATE_INVALID');
+ });
+ it('rejects output capacity before encoder dispatch and never publishes durable candidate bytes or receipt',async()=>{
+  // The real producer boundary is exercised separately with structurally valid
+  // near-limit GLB. Here the job seam receives its explicit preflight rejection.
+  const {FileBlobStore}=await vi.importActual<typeof import('@exhibitos/storage')>('@exhibitos/storage');
+  const root=await mkdtemp(join(tmpdir(),'gpu-job-capacity-')),store=new FileBlobStore(root),input=Buffer.alloc(32*1024*1024,42);
+  try{
+   await store.putDurable('synthetic/source',input);const durable=vi.spyOn(store,'putDurable');
+   f.row.object_key='synthetic/source';f.assets.get(sourceId)!.object_key='synthetic/source';f.row.expected_hash=hash(input);f.row.expected_bytes=input.length;
+   Object.assign(f.assets.get(sourceId)!,{sha256:hash(input),bytes:input.length});
+   Object.assign(f.snapshots.get(7)!.asset,{sha256:hash(input),bytes:input.length});
+   const previous=f.row.gpu_preparation.intent;
+   f.row.gpu_preparation.intent=bindGpuModelPreparationIntent({...previous.request,sha256:hash(input),bytes:input.length},{...previous.binding,approvalSHA256:gpuModelDigest(f.snapshots.get(7))});
+   Object.assign(f.base,{blobs:store});f.capacityFailure=true;
+   expect(await jobs.work()).toBe(true);
+   expect(f.events).toContain('capacity-preflight');expect(f.events).not.toContain('spawn');expect(durable).not.toHaveBeenCalled();
+   expect(f.row).toMatchObject({state:'failed',error_code:'GPU_MODEL_OUTPUT_CAPACITY',lease_id:null,png_worker_tokens:[]});
+   expect(f.row.gpu_preparation).not.toHaveProperty('result');expect(f.assets.size).toBe(1);expect(f.lineage).toEqual([]);
+   expect(Buffer.from(await store.getBounded('synthetic/source',input.length)).equals(input)).toBe(true);expect(await store.listAll()).toEqual(['synthetic/source']);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
  it('commits a separate durable candidate/lineage before readiness and never changes source or primary approval',async()=>{
   const original=structuredClone(f.snapshots.get(7));expect(await jobs.work()).toBe(true);
   expect(f.events.indexOf('durable')).toBeLessThan(f.events.indexOf('asset'));expect(f.events.indexOf('asset')).toBeLessThan(f.events.indexOf('approved'));expect(f.events.at(-1)).toBe('drained');

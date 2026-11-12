@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {FileBlobStore} from '@exhibitos/storage';
 import {createHash} from 'node:crypto';
 import {deflateSync} from 'node:zlib';
 import {expect,it} from 'vitest';
-import {inspectGpuModelSource,assembleGpuModelDerivative} from './gpu-model-producer.ts';
+import {assertGpuModelOutputCapacity,GPU_MODEL_OUTPUT_MAX_BYTES,inspectGpuModelSource,assembleGpuModelDerivative} from './gpu-model-producer.ts';
 import {verifyGpuSourcePreservation} from './gpu-source-preservation.ts';
 import {pngCrc} from './png-pixels.ts';
 
@@ -82,4 +86,33 @@ it('rejects mismatched source identity and KTX structural corruption without mod
 it('whole-output hash recomputation cannot hide mutation of original padding or PNG bytes',()=>{
  const f=fixture(),encoded=ktx(),r=assembleGpuModelDerivative(f.source,identity(f.source),encoded),at=28+r.bytes.readUInt32LE(12);
  for(const offset of [f.bin.length-1,f.doc.bufferViews[4]!.byteOffset]){const b=Buffer.from(r.bytes);b[at+offset]=b[at+offset]!^1;expect(()=>verifyGpuSourcePreservation(f.source,b,{source:identity(f.source),candidate:identity(b),textureIndex:2,ktx:identity(encoded)})).toThrow('GPU_SOURCE_PRESERVATION_INVALID');}
+});
+
+function paddedSource(binBytes:number){
+ const f=fixture(),bin=Buffer.alloc(binBytes,17);f.bin.copy(bin);f.doc.buffers[0]!.byteLength=bin.length-3;
+ return glb(JSON.stringify(f.doc),bin);
+}
+it('reserves the managed encoder ceiling before encoding, conservatively without shrinking admitted sources',()=>{
+ const fitting=paddedSource(23*1024*1024),conservative=paddedSource(25*1024*1024);
+ expect(assertGpuModelOutputCapacity(fitting,identity(fitting)).metrics).toEqual({triangles:1,vertices:3});
+ expect(inspectGpuModelSource(conservative,identity(conservative)).metrics).toEqual({triangles:1,vertices:3});
+ // This actual small structural container would fit; the preflight intentionally
+ // reserves the encoder 8 MiB ceiling rather than promising a physical output size.
+ expect(assembleGpuModelDerivative(conservative,identity(conservative),ktx()).bytes.length).toBeLessThan(GPU_MODEL_OUTPUT_MAX_BYTES);
+ expect(()=>assertGpuModelOutputCapacity(conservative,identity(conservative))).toThrow('GPU_MODEL_OUTPUT_CAPACITY');
+});
+it('rejects near-store-limit source capacity before output allocation while real durable source custody stays intact',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'gpu-output-capacity-')),store=new FileBlobStore(root),source=paddedSource(GPU_MODEL_OUTPUT_MAX_BYTES-4096),before=Buffer.from(source);
+ try{
+  expect(source.length).toBeLessThanOrEqual(32*1024*1024);
+  await store.putDurable('synthetic/source',source);
+  expect(Buffer.from(await store.getBounded('synthetic/source',source.length)).equals(before)).toBe(true);
+  expect(inspectGpuModelSource(source,identity(source)).metrics.triangles).toBe(1);
+  expect(()=>assertGpuModelOutputCapacity(source,identity(source))).toThrow('GPU_MODEL_OUTPUT_CAPACITY');
+  expect(()=>assembleGpuModelDerivative(source,identity(source),ktx())).toThrow('GPU_MODEL_OUTPUT_CAPACITY');
+  expect(Buffer.from(await store.getBounded('synthetic/source',source.length)).equals(before)).toBe(true);
+  await expect(store.putDurable('synthetic/over-limit',Buffer.alloc(GPU_MODEL_OUTPUT_MAX_BYTES+1))).rejects.toThrow('size');
+  await expect(store.getBounded('synthetic/source',GPU_MODEL_OUTPUT_MAX_BYTES+1)).rejects.toThrow('size');
+  expect(await store.listAll()).toEqual(['synthetic/source']);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
