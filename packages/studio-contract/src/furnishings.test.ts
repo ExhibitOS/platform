@@ -70,6 +70,7 @@ test('refined backed collision uses its actual thirteen component bounds and pre
  const next=applyFurnishingCommand(fixture(),{type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'sculpture-bench-refined',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}}),before=structuredClone(next);
  const solids=benchSolids(next);expect(solids).toHaveLength(13);
  const back=solids[0]!;expect(Math.max(...back.vertices.map(v=>v[2]))).toBeLessThan(0);
+ const mixedCase=structuredClone(next),mixed=furnishingsFor(mixedCase)!;mixed.bindings[0]!.assetId=mixed.bindings[0]!.assetId.toUpperCase();mixedCase.extensions![FURNISHING_NAMESPACE]=mixed as never;expect(validateFurnishings(mixedCase).valid).toBe(true);expect(benchSolids(mixedCase)).toHaveLength(13);
  const floorPads=solids.filter(s=>Math.min(...s.vertices.map(v=>v[1]))<1e-8);expect(floorPads).toHaveLength(4);
  expect(REFINED_BENCH.functional).toMatchObject({benchKind:'backed',front:[0,0,1],seatEnvelopeY:.45,consumerBehavior:'unverified',collision:{kind:'component-aabbs',qualification:'proxy-only'}});
  if(REFINED_BENCH.functional?.kind!=='bench')throw Error('fixture');expect(REFINED_BENCH.functional.seats[0]).not.toHaveProperty('measuredVerticalContactY');expect(next).toEqual(before);

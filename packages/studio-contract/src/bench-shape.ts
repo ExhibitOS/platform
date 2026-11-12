@@ -10,7 +10,7 @@ export function benchBoxes(bench: StudioBench, scale=1,document?:Pick<Exhibition
   // Fixed catalogue proxies only; no caller-defined shapes or model inference.
   const value=document?.extensions?.['org.exhibitos.studio/furnishing-visuals'] as unknown as StudioFurnishings|undefined;
   const binding=value?.bindings?.find(row=>row.hostKind==='bench'&&row.hostId.toLowerCase()===bench.id.toLowerCase());
-  const asset=binding&&value?.assets?.find(row=>row.id===binding.assetId&&row.catalogId===REFINED_BENCH.id&&row.sha256===REFINED_BENCH.sha256);
+  const asset=binding&&value?.assets?.find(row=>row.id.toLowerCase()===binding.assetId.toLowerCase()&&row.catalogId===REFINED_BENCH.id&&row.sha256===REFINED_BENCH.sha256);
   if(asset&&binding&&Number.isFinite(binding.pose.scale)&&binding.pose.scale>=.1&&binding.pose.scale<=4){
     const s=binding.pose.scale;return REFINED_BENCH_COLLISION_BOXES.map(box=>({position:box.position.map(n=>n*s) as AffinePoint,dimensions:{width:box.dimensions.width*s,height:box.dimensions.height*s,depth:box.dimensions.depth*s}}));
   }
