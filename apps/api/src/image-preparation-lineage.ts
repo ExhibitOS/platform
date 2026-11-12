@@ -1,3 +1,4 @@
+import {storedCurrentImageThumbnail,currentImageThumbnailView} from './current-image-thumbnail.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
@@ -37,6 +38,15 @@ export async function imagePreparationLineage(c:PoolClient,s:Session,artworkId:s
  for(const entry of page.rows.slice(0,20)){
   const row=await imports.access(c,s,String(entry.id));
   if(row.id!==entry.id||row.tenant_id!==s.tenantId||row.user_id!==s.userId||row.artwork_id!==artworkId||row.asset_id!==approvedAssetId)throw new ApiError(409,'IMAGE_PREPARATION_CONTEXT_CHANGED');
+  const thumbnail=storedCurrentImageThumbnail(row);
+  if(thumbnail){
+   if(thumbnail.workspaceId!==owner.workspaceId)throw new ApiError(403,'FORBIDDEN');
+   if(thumbnail.source.assetId!==approvedAssetId||thumbnail.source.sha256!==full.sha256||thumbnail.source.bytes!==full.bytes)throw new ApiError(409,'ASSET_INTEGRITY');
+   const view=currentImageThumbnailView(row)!;
+   const disposition=!isDeepStrictEqual(row.rights,art.metadata.rights)?'rights-changed':selected.rowCount?'thumbnail-already-selected':view.status==='ready'?'reviewable-thumbnail-selection':'not-ready';
+   items.push({jobId:row.id,kind:thumbnail.kind,state:row.state,workerDrained:view.workerDrained,disposition,thumbnailPreparation:view,repair:null});
+   continue;
+  }
   const prepared=storedPreparedImage(row),coarse=storedImageCoarse(row);
   if(prepared&&prepared.workspaceId!==owner.workspaceId||coarse&&coarse.workspaceId!==owner.workspaceId)throw new ApiError(403,'FORBIDDEN');
   const kind=prepared?.kind??(coarse?'client-declared-image-with-coarse':row.derived?'client-declared-image':'image-import');

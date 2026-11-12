@@ -512,6 +512,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   (req.body as {kind?:unknown}|null)?.kind===RENDERED_ARTWORK_THUMBNAIL_PROFILE?renderedThumbnailMutation(req,reply):existingThumbnailMutation(req,reply));
  const imports=store?new Imports(pool,store,nativeOexWorkspace,modelPreparationExecution):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
+ if(nativeOexWorkspace&&nativeBoundedEditing&&!freshOexTest&&store&&modelPreparationExecution)app.post(`${cp}/artworks/:id/image-thumbnail-preparations`,{bodyLimit:4096,schema:{body:object({requestId:id,expectedRevision:{type:'integer',minimum:1,maximum:2147483647}})}},nativeMutation(async(c,s,req,reply)=>{const result=await importer().createCurrentThumbnail(c,s,cmsId(req),req.body);reply.code(201);return result;}));
  if(nativeOexWorkspace&&nativeBoundedEditing&&!freshOexTest&&store)app.get(`${cp}/artworks/:id/image-preparation-lineage`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},approvedAssetId:id,cursor:id},['expectedRevision','approvedAssetId'])}},call(false,async(c,s,req,reply)=>{
   reply.header('cache-control','no-store');
   const q=req.query as {expectedRevision:string;approvedAssetId:string;cursor?:string};
