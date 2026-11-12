@@ -26,7 +26,9 @@ export interface StudioBench {
   viewpointId: string;
   workspaceVisual?: WorkspaceBenchVisual;
 }
-export interface WorkspaceBenchVisual {placementId:string;modelSha256:string}
+export type WorkspaceBenchModelForward='positive-z'|'negative-z';
+export const WORKSPACE_BENCH_MODEL_FORWARD_PROFILE='workspace-bench-model-forward-v1' as const;
+export interface WorkspaceBenchVisual {placementId:string;modelSha256:string;modelForward?:WorkspaceBenchModelForward}
 export interface StudioBenches { version: 1; benches: StudioBench[] }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const closed = (v: Record<string, unknown>, keys: string[]) => keys.length === Object.keys(v).length && keys.every(k => Object.hasOwn(v, k));
@@ -76,7 +78,8 @@ export function validateStudioBenches(candidate: unknown) {
     let geometryScale=1;
     if (Object.hasOwn(b,'workspaceVisual')) {
       const link=b.workspaceVisual;
-      if (!validWorkspace||!workspace||!object(link)||!closed(link,['placementId','modelSha256'])||!uuid(link.placementId)
+      if (!validWorkspace||!workspace||!object(link)||!closed(link,['placementId','modelSha256',...(Object.hasOwn(link,'modelForward')?['modelForward']:[])])||!uuid(link.placementId)
+        ||Object.hasOwn(link,'modelForward')&&(b.kind!=='backed'||link.modelForward!=='positive-z'&&link.modelForward!=='negative-z')
         ||typeof link.modelSha256!=='string'||! /^[a-f0-9]{64}$/.test(link.modelSha256)) {
         add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Expected one registered bench visual and exact model digest');return;
       }
@@ -146,4 +149,34 @@ export function applyBenchCommand(candidate: Exhibition, command: BenchCommand):
   next.extensions={...next.extensions,[BENCH_NAMESPACE]:{version:1,benches} as unknown as NonNullable<Exhibition['extensions']>[string]};
   if(!validateStudioBenches(next).valid||!validateStudioPresentation(next).valid)throw Error('BENCH_INVALID');
   return next;
+}
+
+
+export interface WorkspaceBenchModelForwardCommand {
+ benchId:string;placementId:string;furnishingId:string;furnishingVersion:1;modelSha256:string;
+ expectedModelForward:WorkspaceBenchModelForward;modelForward:WorkspaceBenchModelForward;
+}
+/** A declaration, not a fit or rendering certificate. Missing legacy metadata
+ * means negative-Z/identity. A no-op preserves its original omission exactly.
+ * Authentication, current registry/bytes, If-Match and Save belong to callers. */
+export function applyWorkspaceBenchModelForward(document:Exhibition,command:WorkspaceBenchModelForwardCommand):Exhibition {
+ if(!object(command)||!closed(command,['benchId','placementId','furnishingId','furnishingVersion','modelSha256','expectedModelForward','modelForward'])
+  ||![command.benchId,command.placementId,command.furnishingId].every(uuid)||command.furnishingVersion!==1
+  ||typeof command.modelSha256!=='string'||! /^[a-f0-9]{64}$/.test(command.modelSha256)
+  ||!['positive-z','negative-z'].includes(command.expectedModelForward)||!['positive-z','negative-z'].includes(command.modelForward)
+  ||!validateStudioBenches(document).valid||!validateWorkspaceFurnishings(document).valid)throw Error('BENCH_MODEL_FORWARD_INVALID');
+ const bench=benchesFor(document).find(row=>equal(row.id,command.benchId));
+ const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+ const placement=workspace?.placements.find(row=>equal(row.id,command.placementId)),item=workspace?.furnishings.find(row=>equal(row.id,command.furnishingId)&&row.version===command.furnishingVersion);
+ if(!bench||bench.kind!=='backed'||!bench.workspaceVisual||!equal(bench.workspaceVisual.placementId,command.placementId)
+  ||!placement||placement.scale!==1||!equal(placement.furnishingId,command.furnishingId)||placement.furnishingVersion!==command.furnishingVersion
+  ||item?.kind!=='bench'||item.model.sha256!==command.modelSha256||bench.workspaceVisual.modelSha256!==command.modelSha256)throw Error('BENCH_MODEL_FORWARD_REFERENCE');
+ const prior=bench.workspaceVisual.modelForward??'negative-z';
+ if(prior!==command.expectedModelForward)throw Error('BENCH_MODEL_FORWARD_STALE');
+ const next=structuredClone(document);
+ if(prior===command.modelForward)return next;
+ const value=next.extensions![BENCH_NAMESPACE] as unknown as StudioBenches;
+ value.benches.find(row=>equal(row.id,bench.id))!.workspaceVisual!.modelForward=command.modelForward;
+ if(!validateStudioBenches(next).valid||!validateWorkspaceFurnishings(next).valid)throw Error('BENCH_MODEL_FORWARD_INVALID');
+ return next;
 }

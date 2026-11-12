@@ -71,3 +71,45 @@ it('mounts an in-envelope backed bench and rejects a taller back or raised seat'
   }finally{geometry.dispose();material.dispose();}
  }
 });
+
+it('uses an explicitly positive-Z model basis for fit and display while preserving every original node and outer placement',async()=>{
+ vi.useFakeTimers();const f=setup(),geometry=new three.BoxGeometry(1,1,1),material=new three.MeshBasicMaterial();
+ const box=(dimensions:[number,number,number],position:[number,number,number])=>{const mesh=new three.Mesh(geometry,material);mesh.scale.set(...dimensions);mesh.position.set(...position);f.object.add(mesh);};
+ box([1.5,.06,.56],[0,.42,0]);box([1.4,.15,.05],[0,.745,-.28]);box([.06,.39,.06],[-.55,.195,-.20]);box([.06,.39,.06],[.55,.195,.20]);
+ const nodeTransforms=()=>{const values:unknown[]=[];f.object.traverse(node=>values.push([node.uuid,node.position.toArray(),node.quaternion.toArray(),node.scale.toArray()]));return values;},before=nodeTransforms(),candidate=structuredClone(f.options.candidate);
+ try{
+  const mounted=await mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45,modelForward:'positive-z'}});
+  expect(mounted.seatFootprintMatches).toBe(true);expect(mounted.object).not.toBe(f.object);expect(f.room.children).toEqual([mounted.object]);
+  expect(mounted.object.position.toArray()).toEqual([1,0,2]);expect(mounted.object.rotation.y).toBe(.5);expect(mounted.object.scale.toArray()).toEqual([1.5,1.5,1.5]);
+  expect(f.object.parent!.rotation.y).toBe(Math.PI);expect(nodeTransforms()).toEqual(before);expect(f.options.candidate).toEqual(candidate);
+  // All consumers receive the same aligned root; revocation hides and detaches it.
+  f.check.mockRejectedValueOnce(Error('OWNER_REVOKED'));await vi.advanceTimersByTimeAsync(5000);
+  expect(mounted.object.visible).toBe(false);expect(f.room.children).toHaveLength(0);expect(mounted.object.children).toHaveLength(0);expect(f.dispose).toHaveBeenCalledOnce();expect(f.onRevoked).toHaveBeenCalledOnce();mounted.dispose();expect(f.dispose).toHaveBeenCalledOnce();
+ }finally{geometry.dispose();material.dispose();}
+});
+
+it.each([undefined,'negative-z'] as const)('does not infer a reversed model basis when declaration is %s',async modelForward=>{
+ const f=setup(),geometry=new three.BoxGeometry(1,1,1),material=new three.MeshBasicMaterial();
+ for(const [size,point] of [[[1.5,.06,.56],[0,.42,0]],[[1.4,.15,.05],[0,.745,-.28]],[[.06,.39,.06],[-.55,.195,-.20]]] as const){const mesh=new three.Mesh(geometry,material);mesh.scale.fromArray(size);mesh.position.fromArray(point);f.object.add(mesh);}
+ try{await expect(mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45,...(modelForward?{modelForward}:{})}})).rejects.toThrow('WORKSPACE_BACKED_BENCH_FIT');expect(f.room.children).toHaveLength(0);expect(f.dispose).toHaveBeenCalledOnce();}finally{geometry.dispose();material.dispose();}
+});
+
+it.each([[.51,.82],[.45,.92]] as const)('keeps incompatible seat/back geometry rejected despite explicit facing (%s/%s)',async(seatY,backTop)=>{
+ const f=setup(),geometry=new three.BoxGeometry(1,1,1),material=new three.MeshBasicMaterial();
+ for(const [size,point] of [[[1.5,.06,.56],[0,seatY-.03,0]],[[1.4,.15,.05],[0,backTop-.075,-.28]],[[.06,.39,.06],[-.55,.195,-.20]]] as const){const mesh=new three.Mesh(geometry,material);mesh.scale.fromArray(size);mesh.position.fromArray(point);f.object.add(mesh);}
+ try{await expect(mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45,modelForward:'positive-z'}})).rejects.toThrow('WORKSPACE_BACKED_BENCH_FIT');expect(f.room.children).toHaveLength(0);expect(f.object.parent).toBeNull();expect(f.dispose).toHaveBeenCalledOnce();}finally{geometry.dispose();material.dispose();}
+});
+
+it('rejects an unsupported facing declaration and cleans the loaded model',async()=>{
+ const f=setup();await expect(mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45,modelForward:'sideways' as never}})).rejects.toThrow('WORKSPACE_BENCH_MODEL_FORWARD');expect(f.dispose).toHaveBeenCalledOnce();expect(f.room.children).toHaveLength(0);
+});
+
+it('detaches and hides the aligned wrapper without releasing its draw reservation after uncertain cleanup',async()=>{
+ const f=setup(),geometry=new three.BoxGeometry(1,1,1),material=new three.MeshBasicMaterial();
+ for(const [size,point] of [[[1.5,.06,.56],[0,.42,0]],[[1.4,.15,.05],[0,.745,-.28]],[[.06,.39,.06],[-.55,.195,-.20]]] as const){const mesh=new three.Mesh(geometry,material);mesh.scale.fromArray(size);mesh.position.fromArray(point);f.object.add(mesh);}
+ const release=vi.fn();vi.spyOn(f.options.scope,'reserve').mockReturnValue(release);
+ try{
+  const mounted=await mountOwnerWorkspacePlacement({...f.options,seatDimensions:{kind:'backed',width:1.5,depth:.7,height:.45,modelForward:'positive-z'}});f.dispose.mockImplementation(()=>{throw Error('CLEANUP_UNCERTAIN');});
+  expect(()=>mounted.dispose()).toThrow('CLEANUP_UNCERTAIN');expect(mounted.object.visible).toBe(false);expect(f.room.children).toHaveLength(0);expect(f.object.parent).toBeNull();expect(release).not.toHaveBeenCalled();mounted.dispose();expect(f.dispose).toHaveBeenCalledOnce();
+ }finally{geometry.dispose();material.dispose();}
+});
