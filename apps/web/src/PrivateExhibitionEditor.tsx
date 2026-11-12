@@ -25,16 +25,18 @@ import {assertPreparedRoom} from './private-editor/attached-room';
 import {safePrivateView,type PrivateView} from './viewer/private-view';
 import {readActiveCopy,rememberActiveCopy} from './private-editor/active-copy';
 import {demoDecorationNotice} from './private-editor/demo-decoration';
+import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import './private-editor.css';
 
-function Thumbnail({art,seed}:{art:Artwork;seed:PrivateSeed}){
- const [url,setUrl]=useState<string>();
+function Thumbnail({art,seed,modelPreview}:{art:Artwork;seed:PrivateSeed;modelPreview?:string}){
+ const [image,setImage]=useState<{art:Artwork;seed:PrivateSeed;url:string}>();
  useEffect(()=>{
   const abort=new AbortController();let owned:string|undefined;
   const id=lodVariantsFor(art).find(v=>v.detail==='coarse')?.assetId??art.primaryAssetId,asset=seed.source.assets.find(a=>a.assetId===id);
-  if(asset&&art.artworkType==='image')void seed.source.local!.check().then(()=>seed.source.local!.fetcher(asset.url,{signal:abort.signal})).then(r=>r.blob()).then(blob=>{if(abort.signal.aborted)return;owned=URL.createObjectURL(blob);setUrl(owned);}).catch(()=>{});
+  if(asset&&art.artworkType==='image')void seed.source.local!.check().then(()=>seed.source.local!.fetcher(asset.url,{signal:abort.signal})).then(r=>r.blob()).then(blob=>{if(abort.signal.aborted)return;owned=URL.createObjectURL(blob);setImage({art,seed,url:owned});}).catch(()=>{});
   return()=>{abort.abort();if(owned)URL.revokeObjectURL(owned);};
  },[art,seed]);
+ const url=art.artworkType==='model'?modelPreview:image?.art===art&&image.seed===seed?image.url:undefined;
  return url?<img src={url} alt="" draggable={false}/>:<span className="private-thumbnail-empty">{art.artworkType==='image'?'회화':'조각'}</span>;
 }
 
@@ -65,6 +67,31 @@ export async function preparePrivateSave(seed:PrivateSeed,store:Pick<DraftStore,
 
 export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSeed;demoSession?:boolean}){
  const store=useMemo(()=>demoSession?null:new DraftStore(seed.storeName,{privateHistory:true}),[seed,demoSession]);
+ const [modelThumbnailState,setModelThumbnailState]=useState<{source:PrivateSeed['source'];items:Readonly<Record<string,string>>}|null>(null);
+ const modelThumbnails=modelThumbnailState?.source===seed.source?modelThumbnailState.items:{};
+ useEffect(()=>{
+  const source=seed.source,models=source.exhibition.artworks.filter(art=>art.artworkType==='model');
+  if(!models.length){setModelThumbnailState(null);return;}
+  let live=true,running=false,abort=new AbortController();
+  // Use the same published PNG reference, integrity check and bounded decoder
+  // as the public list/map. Never fetch a model or a private preview endpoint.
+  const cache=createPublicThumbnailCache({publicationId:source.publication.id,revisionSha256:source.publication.revisionSha256,assets:source.assets,fetcher:source.local!.fetcher,check:async()=>{await source.local!.check();},changed:items=>{if(live)setModelThumbnailState({source,items});}});
+  const load=async()=>{
+   if(!live||running||document.hidden)return;
+   running=true;
+   try{
+    if(!await cache.recheck())return;
+    for(const art of models){if(!live||document.hidden||abort.signal.aborted)break;await cache.loadOne(art,abort.signal);}
+   }finally{running=false;}
+  };
+  const visibility=()=>{
+   if(document.hidden){abort.abort();cache.invalidate();}
+   else{abort=new AbortController();void load();}
+  };
+  document.addEventListener('visibilitychange',visibility);
+  void load();const timer=setInterval(()=>void load(),10000);
+  return()=>{live=false;clearInterval(timer);document.removeEventListener('visibilitychange',visibility);abort.abort();cache.dispose();};
+ },[seed.source]);
  const record=useRef<LocalDraft|null>(null),stateRef=useRef<GeometryState|null>(null);
  const [state,setState]=useState<GeometryState|null>(null),[selection,setSelectionState]=useState<EditorSelection|null>(null),[preview,setPreviewState]=useState<GeometryCommand|null>(null);
  const [mode,setModeState]=useState<'edit'|'walk'>('edit'),[tool,setTool]=useState<EditMode>('translate'),[view,setView]=useState<'3d'|'plan'>('3d');
@@ -192,7 +219,7 @@ export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSe
       {selection&&<details><summary>위치와 이동 상세</summary><div className="private-nudge" role="group" aria-label="선택 대상 이동">{([['왼쪽',0,-.1],['오른쪽',0,.1],['위로',1,.1],['아래로',1,-.1],['앞으로',2,-.1],['뒤로',2,.1]] as const).map(([label,axis,step])=><button key={label} disabled={busy||preview!==null||!!selectedWall&&axis===2} onClick={()=>nudge(axis,step)}>{label}</button>)}</div><p>한 번에 10cm 이동해요.</p><form onSubmit={e=>{e.preventDefault();try{const pose=localPose(doc,selection),position=draftPosition.map(v=>v.trim()===''?NaN:Number(v));if(!position.every(Number.isFinite))throw Error();commit(commandForPose(doc,selection,{...pose,position:position as [number,number,number]}));}catch{setError('위치는 비어 있지 않은 숫자로 입력해 주세요.');}}}><fieldset disabled={busy||preview!==null}><legend>위치</legend>{['가로','높이','깊이'].map((label,i)=><label key={label}>{label} (m)<input type="number" step="any" value={draftPosition[i]} onChange={e=>setDraftPosition(v=>v.map((n,j)=>j===i?e.target.value:n))}/></label>)}<button type="submit">위치 적용</button></fieldset></form></details>}
      </div>
      <div hidden={activePanel!=='artwork'}>
-      <div className="private-art-dock" aria-label="작품 썸네일"><h3>작품 선택</h3><p>눌러 선택하거나 장면으로 끌어 놓으세요.</p><div className="private-art-list">{seed.source.exhibition.artworks.map(art=><button key={art.revisionId} disabled={busy||preview!==null} draggable={!busy&&preview===null} onDragStart={e=>{e.dataTransfer.setData('application/x-exhibitos-artwork',art.revisionId);e.dataTransfer.effectAllowed='copy';}} aria-pressed={selectedArt?.revisionId===art.revisionId} onClick={()=>{const placement=doc.placements.find(p=>p.roomId===room.id&&p.artworkRevisionId===art.revisionId);if(placement)setSelection({kind:'placement',id:placement.id});else add(art);}}><Thumbnail art={art} seed={seed}/><span>{art.metadata.title}</span></button>)}</div></div>
+      <div className="private-art-dock" aria-label="작품 썸네일"><h3>작품 선택</h3><p>눌러 선택하거나 장면으로 끌어 놓으세요.</p><div className="private-art-list">{seed.source.exhibition.artworks.map(art=><button key={art.revisionId} disabled={busy||preview!==null} draggable={!busy&&preview===null} onDragStart={e=>{e.dataTransfer.setData('application/x-exhibitos-artwork',art.revisionId);e.dataTransfer.effectAllowed='copy';}} aria-pressed={selectedArt?.revisionId===art.revisionId} onClick={()=>{const placement=doc.placements.find(p=>p.roomId===room.id&&p.artworkRevisionId===art.revisionId);if(placement)setSelection({kind:'placement',id:placement.id});else add(art);}}><Thumbnail art={art} seed={seed} modelPreview={modelThumbnails[art.revisionId.toLowerCase()]}/><span>{art.metadata.title}</span></button>)}</div></div>
       {selected&&<details><summary>크기와 배치 상세</summary><div className="private-selection-actions"><label>크기 배율<input type="number" aria-label="작품 크기 배율" min="0.1" max="10" step="any" value={scaleFactor} disabled={busy||preview!==null} onChange={e=>setScaleFactor(e.target.value)}/></label><button disabled={busy||preview!==null} onClick={scaleSelected}>크기 적용</button><button disabled={busy||preview!==null} onClick={()=>add(selectedArt!)}>같은 작품 추가</button><button disabled={busy||preview!==null} onClick={()=>{commit({type:'remove-placement',id:selected.id});setSelection({kind:'room',id:room.id});}}>배치 삭제</button></div></details>}
      </div>
      <div hidden={activePanel!=='space'&&activePanel!=='lighting'}><div hidden={activePanel!=='space'}><label>전시실 선택<select aria-label="전시실 선택" value={room.id} disabled={busy||preview!==null} onChange={event=>setSelection({kind:'room',id:event.target.value})}>{doc.rooms.map(value=><option key={value.id} value={value.id}>{value.name}</option>)}</select></label></div><RoomControls verifiedDoorBaseline={seed.source.exhibition} isCurrentRoom={()=>stateRef.current?.present===doc&&interactionSerial.current===interactionVersion&&!busyRef.current&&modeRef.current==='edit'&&previewRef.current===null} executeRoom={commitCheckedRoom} temperaturePreviewing={preview!==null&&preview===temperaturePreviewRef.current} previewTemperature={previewTemperature} temperatureDisabled={busy||mode!=='edit'||preview!==null&&preview!==temperaturePreviewRef.current} temperatureActive={panelOpen&&!panelCollapsed&&activePanel==='lighting'&&mode==='edit'} section={activePanel==='lighting'?'lighting':'space'} selectedSurfaceId={selection?.kind==='surface'?selection.id:undefined} selectedOpeningId={selection?.kind==='opening'?selection.id:undefined} document={doc} roomId={room.id} disabled={busy||preview!==null||mode!=='edit'} isCurrent={currentDoor} executeDoor={commitCheckedDoor} execute={commit} select={setSelection} error={setError} inspectCeiling={()=>{setPreview(null);setSelection({kind:'room',id:room.id});setView('3d');setCameraRequest(v=>({kind:'ceiling',sequence:(v?.sequence??0)+1}));}}/></div>
