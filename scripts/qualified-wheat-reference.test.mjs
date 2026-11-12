@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,mkdir,readdir,readFile,link,unlink,writeFile,rm} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {inspectDemo} from './deploy-reference-demo.mjs';
-import {verifiedQualifiedWheat,R115_REFERENCE} from './qualified-wheat-reference.mjs';
+import {verifiedQualifiedWheat,R115_REFERENCE,R115_MODEL_CATALOGUE_REFERENCE} from './qualified-wheat-reference.mjs';
 const input=process.env.EXHIBITOS_QUALIFIED_WHEAT_OUTPUT;
 const hash=b=>createHash('sha256').update(b).digest('hex');
 async function copyLinks(from,to){await mkdir(to,{recursive:true});for(const item of await readdir(from,{withFileTypes:true})){const a=join(from,item.name),b=join(to,item.name);if(item.isDirectory())await copyLinks(a,b);else if(item.isFile())await link(a,b);else throw Error('unexpected fixture type');}}
@@ -53,6 +53,8 @@ test('exact built v4 session decoration and tampered outputs', {skip:!input},asy
 // A content pin must never inherit an older publication's Viewer entitlement.
 test('R115 content authority does not admit an unreviewed Viewer tuple',()=>{
  assert.equal(R115_REFERENCE.nativeFiles,146);
+ assert.equal(R115_MODEL_CATALOGUE_REFERENCE.indexSha256,R115_REFERENCE.indexSha256);
+ assert.equal(R115_MODEL_CATALOGUE_REFERENCE.viewerSourceCommit,'51c32baf1944be4d7f316b07379c963772cd328c');
  for(const field of ['viewerSourceCommit','viewerSourceTree','viewerLockSha256','viewerBuildId','viewerInventorySha256'])assert.equal(Object.hasOwn(R115_REFERENCE,field),false);
 });
 
