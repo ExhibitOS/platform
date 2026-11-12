@@ -20,7 +20,7 @@ import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type 
 import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
+import {catalogBenchSource,authenticatedCatalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
 import "./viewer/input-surface.css";
 import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
@@ -596,7 +596,7 @@ export function GeometryPreview({
       const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
       const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
-      const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
+      const benchSource=session?authenticatedCatalogBenchSource(document,session,abort.signal):catalogBenchSource(document,benchAuthority,privateCatalogue);
       const benchReserve=benchSource&&beforeBench>benchSource.reserveBytes?benchSource.reserveBytes:0;
       const otherFurnishings=catalogOtherSources(document,benchAuthority);
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;

@@ -2,6 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicAsset} from '../publication-client';
+import type {Session} from '../cms-client';
 import {furnishingsFor,resolveFurnishing,validateFurnishings} from '@exhibitos/studio-contract';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {applyWallwasherModelPose} from './wallwasher-model-pose';
@@ -21,8 +22,25 @@ export function catalogBenchSource(document:Exhibition,source:{publicationId:str
  const candidates=source.assets.filter(a=>a.assetId===selected.asset.id);
  const reserveBytes=catalogBenchReserve(selected.asset.catalogId);
  if(candidates.length===1&&source.fetcher&&candidates[0]!.mime==='model/gltf-binary'&&candidates[0]!.url===`/api/v1/publications/${source.publicationId}/assets/${selected.asset.id}`)return {url:candidates[0]!.url,fetcher:source.fetcher,check:source.check,revision:source.revisionSha256,reserveBytes};
- if(candidates.length||!privateCatalogue)return undefined;
+ if(candidates.length||!privateCatalogue||selected.asset.catalogId!=='backless-oak-bench')return undefined;
  return {url:`/furnish-catalog/${selected.asset.catalogId}/1/model.glb`,fetcher:fetch,check:source.check,reserveBytes};
+}
+/** Authenticated ordinary Studio source; no publication or static-export authority is invented. */
+export function authenticatedCatalogBenchSource(document:Exhibition,session:Session,signal:AbortSignal){
+ const selected=privateCatalogBench(document);
+ if(!selected||!['admin','artist','curator'].includes(session.role)||!Number.isFinite(Date.parse(session.expiresAt))||Date.parse(session.expiresAt)<=Date.now())return undefined;
+ const url=`/api/v1/tenants/${session.tenantId}/studio/furnishings/${selected.asset.catalogId}/1/model`;
+ const check=async()=>{
+  signal.throwIfAborted();if(Date.parse(session.expiresAt)<=Date.now())throw Error('CATALOG_SESSION_EXPIRED');
+  const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(10000)])});
+  if(!response.ok)throw Error('CATALOG_SESSION_REQUIRED');const current=await response.json() as Session;
+  if(current.tenantId!==session.tenantId||current.userId!==session.userId||current.role!==session.role||current.csrfToken!==session.csrfToken||current.expiresAt!==session.expiresAt)throw Error('CATALOG_SCOPE_CHANGED');signal.throwIfAborted();
+ };
+ const fetcher:typeof fetch=async(input,init)=>{
+  if(input!==url)throw Error('CATALOG_SOURCE_INVALID');signal.throwIfAborted();
+  return fetch(url,{...init,credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,...(init?.signal?[init.signal]:[]),AbortSignal.timeout(30000)])});
+ };
+ return {url,check,fetcher,reserveBytes:catalogBenchReserve(selected.asset.catalogId)};
 }
 export function installPrivateCatalogBench(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,fallback:readonly Three.Group[],signal:AbortSignal,check:()=>Promise<void>,unavailable:()=>boolean,maxTriangles:number,changed:(model:Three.Object3D,hostId:string)=>void,assetSource?:{url:string;fetcher:typeof fetch;revision?:string},maxTextureSize=2048){
  const selected=privateCatalogBench(document);let disposed=false,loaded:Awaited<ReturnType<typeof loadCatalogModel>>|undefined,hiddenHost:Three.Group|undefined;
