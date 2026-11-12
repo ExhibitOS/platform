@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createHash} from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {lstat,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
@@ -208,6 +208,41 @@ describe('ordinary GPU producer job lifecycle (mocked encoder, no conversion)',(
   f.priorExists=false;if(barrier==='runtime')f.active=false;if(barrier==='encoder')f.encoderReady=false;if(barrier==='rights')f.artwork.metadata.rights.export=false;
   await expect(jobs.create(f.client,actor,artworkId,request)).rejects.toMatchObject({status:barrier==='rights'?409:503});
   expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO import_jobs'))).toBe(false);expect(f.events).not.toContain('spawn');expect(f.blobs.putDurable).not.toHaveBeenCalled();
+ });
+ it.each([true,false])('read-only recovery observes an absent key when readiness=%s without inserting or creating a job directory',async ready=>{
+  f.priorExists=false;f.active=ready;f.encoderReady=ready;
+  const absentRoot=join(root,'must-not-be-created'),lookup=new GpuModelPreparations({} as Pool,f.base,'/synthetic-managed-encoder',absentRoot);
+  try{
+   expect(await lookup.recover(f.client,actor,artworkId,request)).toEqual({artworkId,operationID:request.idempotencyKey,generation:request.generation,job:null});
+   expect(f.base.assertReady).not.toHaveBeenCalled();expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();expect(f.blobs.putDurable).not.toHaveBeenCalled();
+   expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+   expect(f.query.mock.calls.some(([sql])=>sql.startsWith('SELECT * FROM import_jobs')&&sql.includes('FOR UPDATE'))).toBe(false);
+   await expect(lstat(absentRoot)).rejects.toMatchObject({code:'ENOENT'});
+   const sql=f.query.mock.calls.map(([sql])=>sql);expect(sql.findIndex(x=>x.includes('hashtextextended'))).toBeGreaterThan(sql.findIndex(x=>x.startsWith('SELECT id FROM artworks')));
+  }finally{await lookup.close();}
+ });
+ it.each(['queued','processing','approved'] as const)('recovers committed %s metadata without producer readiness, bytes or invocation mutation',async state=>{
+  if(state==='approved')await jobs.work();
+  if(state==='processing'){f.row.state='processing';f.row.progress=25;f.row.lease_id=sourceId;f.row.png_worker_tokens=[sourceId];}
+  const before=structuredClone(f.row);f.active=false;f.encoderReady=false;f.artwork.metadata.rights.export=false;
+  f.events=[];f.query.mockClear();vi.mocked(f.base.assertReady).mockClear();vi.mocked(f.blobs.getBounded!).mockClear();vi.mocked(f.blobs.putDurable!).mockClear();
+  const response=await jobs.recover(f.client,actor,artworkId,request);
+  expect(response).toMatchObject({artworkId,operationID:request.idempotencyKey,generation:request.generation,job:{id:jobId,state,gpuPreparation:{workerDrained:state==='approved'}}});
+  expect(f.row).toEqual(before);expect(f.base.assertReady).not.toHaveBeenCalled();expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();expect(f.blobs.putDurable).not.toHaveBeenCalled();
+  expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql)||sql.startsWith('SELECT * FROM import_jobs')&&sql.includes('FOR UPDATE'))).toBe(false);
+  await expect(jobs.review(f.client,actor,artworkId,jobId)).rejects.toMatchObject({status:503});
+ });
+ it('requires the exact closed recovery body and current artwork ownership before revealing an operation',async()=>{
+  f.active=false;f.encoderReady=false;
+  await expect(jobs.recover(f.client,actor,artworkId,{...request,unknown:true})).rejects.toMatchObject({code:'INVALID_GPU_MODEL_PREPARATION'});
+  f.authorized=false;await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});expect(f.query).not.toHaveBeenCalled();f.authorized=true;
+  await expect(jobs.recover(f.client,{...actor,userId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(jobs.recover(f.client,{...actor,tenantId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  f.artworkIds.add(sourceId);await expect(jobs.recover(f.client,actor,sourceId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  await expect(jobs.recover(f.client,actor,artworkId,{...request,generation:'other-generation'})).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  f.row.user_id=sourceId;await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});f.row.user_id=principal;
+  f.row.gpu_preparation.intent=bindGpuModelPreparationIntent({...request,generation:'stored-conflict'},f.row.gpu_preparation.intent.binding);
+  await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();
  });
  it('approves only the exact reviewed receipt, preserves primary source, and replays after the approved revision increment',async()=>{
   await jobs.work();const before=structuredClone(f.snapshots.get(7)),receipt=f.row.gpu_preparation.result;

@@ -116,11 +116,32 @@ it('binds the real service to its pool/blob context and drains its registered wo
  expect(f.close).toHaveBeenCalledOnce();
 });
 
-it('rejects the installed but inactive issued producer before encoder dispatch instead of falling back',async()=>{
+it('requires owned artwork before installed inactive producer admission and never falls back',async()=>{
  const f=await fixture(),compact=vi.spyOn(Imports.prototype,'createCompact').mockImplementation(async()=>({}) as never);
  try{
-  const response=await f.app.inject({method:'POST',url:f.cms+'/compact-preparations',headers:f.headers,payload:f.input});expect(response.statusCode,response.body).toBe(503);expect(compact).not.toHaveBeenCalled();
+  const response=await f.app.inject({method:'POST',url:f.cms+'/compact-preparations',headers:f.headers,payload:f.input});expect(response.statusCode,response.body).toBe(403);expect(response.json()).toMatchObject({code:'FORBIDDEN'});expect(compact).not.toHaveBeenCalled();
   const read=await f.app.inject({method:'GET',url:f.gpu+'/'+f.jobId+'/review',headers:{...f.headers,cookie:''}});expect([401,403]).toContain(read.statusCode);
   expect((await f.app.inject({method:'GET',url:f.gpu.replace(f.tenantId,randomUUID())+'/selection',headers:f.headers})).statusCode).toBe(403);
  }finally{await f.cleanup();}
+});
+
+
+it('recovers metadata through authenticated read admission without creating a job or granting candidate access',async()=>{
+ const f=await fixture(),result={artworkId:f.artworkId,operationID:f.input.idempotencyKey,generation:f.input.generation,job:null};
+ const recover=vi.spyOn(f.service,'recover').mockResolvedValue(result),create=vi.spyOn(f.service,'create'),review=vi.spyOn(f.service,'review'),bytes=vi.spyOn(f.service,'reviewedBytes');
+ try{
+  const headers={...f.headers,'x-csrf-token':''};
+  const response=await f.app.inject({method:'POST',url:f.gpu+'/recover',headers,payload:f.input});
+  expect(response.statusCode,response.body).toBe(200);expect(response.json()).toEqual(result);expect(response.headers['cache-control']).toBe('no-store');
+  expect(recover).toHaveBeenCalledWith(f.client,expect.objectContaining({tenantId:f.tenantId,userId:f.userId}),f.artworkId,f.input);
+  for(const payload of [{...f.input,extra:true},{...f.input,profile:undefined},{...f.input,sha256:'BAD'}])expect((await f.app.inject({method:'POST',url:f.gpu+'/recover',headers,payload})).statusCode).toBe(400);
+  for(const denied of [{...headers,cookie:''},{...headers,origin:'http://other.invalid'}])expect([401,403]).toContain((await f.app.inject({method:'POST',url:f.gpu+'/recover',headers:denied,payload:f.input})).statusCode);
+  expect((await f.app.inject({method:'POST',url:f.gpu.replace(f.tenantId,randomUUID())+'/recover',headers,payload:f.input})).statusCode).toBe(403);
+  expect(recover).toHaveBeenCalledOnce();expect(create).not.toHaveBeenCalled();expect(review).not.toHaveBeenCalled();expect(bytes).not.toHaveBeenCalled();
+ }finally{await f.cleanup();}
+});
+
+it('returns unavailable for recovery when the service is absent',async()=>{
+ const f=await fixture(false);
+ try{const response=await f.app.inject({method:'POST',url:f.gpu+'/recover',headers:f.headers,payload:f.input});expect(response.statusCode).toBe(503);expect(response.json()).toMatchObject({code:'GPU_MODEL_PREPARATION_UNAVAILABLE'});}finally{await f.cleanup();}
 });

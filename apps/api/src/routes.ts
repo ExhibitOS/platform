@@ -588,6 +588,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const compactPreparationFields={revision:{type:'integer',minimum:1},assetId:id,sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},bytes:{type:'integer',minimum:28,maximum:33554432},idempotencyKey:{...str,minLength:1,maxLength:128},generation:{...str,minLength:1,maxLength:128}};
  app.post(`${cp}/artworks/:id/compact-preparations`,{schema:{body:{oneOf:[object(compactPreparationFields),object({...compactPreparationFields,profile:{const:GPU_MODEL_PREPARATION_PROFILE}})]}}},importMutation(async(c,s,req,reply)=>{reply.code(201);if(Object.hasOwn(req.body as object,'profile'))return gpuJobs().create(c,s,cmsId(req),req.body);return importer().createCompact(c,s,cmsId(req),req.body as CompactVariantInput);}));
  const gpuRoot=`${cp}/artworks/:id/gpu-preparations`;
+ app.post(`${gpuRoot}/recover`,{schema:{body:object({...compactPreparationFields,profile:{const:GPU_MODEL_PREPARATION_PROFILE}})}},call(false,async(c,s,req)=>gpuJobs().recover(c,s,cmsId(req),req.body)));
  app.get(`${gpuRoot}/selection`,call(false,async(c,s,req)=>gpuJobs().selection(c,s,cmsId(req))));
  app.get(`${gpuRoot}/:jobId/review`,call(false,async(c,s,req)=>gpuJobs().review(c,s,cmsId(req),(req.params as {jobId:string}).jobId)));
  app.get(`${gpuRoot}/:jobId/model`,{schema:{querystring:object({receiptSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'},candidateSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},call(false,async(c,s,req,reply)=>{
