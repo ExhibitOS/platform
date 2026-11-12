@@ -13,8 +13,8 @@ import {copyNativeFurnishings,verifyDefaultFurnishingsManifest,checkedDefaultFur
 
 const producer18Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_18_TEST_ROOT;
 const producer19Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_19_TEST_ROOT;
-const producer110Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_110_TEST_ROOT;
-test('native package includes exactly seven current functional pairs and all declared custody files', {skip:!producer110Root},async t => {
+const producer111Root=process.env.EXHIBITOS_DEFAULT_FURNISHINGS_111_TEST_ROOT;
+test('native package includes exactly eight current functional pairs and all declared custody files', {skip:!producer111Root},async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'exhibitos-native-furnishing-')));
   t.after(() => rm(root, {recursive:true, force:true}));
   const source = join(root, 'source'), output = join(root, 'output');
@@ -24,10 +24,10 @@ test('native package includes exactly seven current functional pairs and all dec
     const entry = furnishingCatalogueEntry(id);
     return [entry.path, entry.rights.noticePath,...(entry.preparation?.files??[]).map(file=>file.path)];
   });
-  assert.equal(paths.length, 22);
+  assert.equal(paths.length, 24);
   for (const path of paths) {
     await mkdir(dirname(join(source,path)), {recursive:true});
-    await cp(join(producer110Root,path), join(source,path));
+    await cp(join(producer111Root,path), join(source,path));
   }
   await copyNativeFurnishings(source, output);
   for (const path of paths) {
@@ -117,7 +117,7 @@ test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and
   assert.deepEqual(next.assets.slice(0,-1),previous.assets);
   assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
   assert.equal(next.assets.at(-1).hostKind,'info-stand');
-  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,7);
+  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,8);
   await writeFile(join(root,'manifest.json'),manifest16());
   assert.equal(manifest16().length,11855);
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);

@@ -22,14 +22,14 @@ test('1.10 admits the exact new original while preserving all16 prior distributi
  await assert.rejects(requireCurrentFurnishingsRelease(root));
  const changed=Buffer.from(fixture);changed[changed.length-2]^=1;await writeFile(join(root,'manifest.json'),changed);await assert.rejects(verifyDefaultFurnishingsManifest(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
 });
-test('latest normal release remains separate from old1.9 auditing and B049 fixed1.7 admission',async t=>{
+test('historical1.10 remains auditable separately from current normal and B049 fixed1.7 admission',async t=>{
  const root=await temporary(t),prior=await readFile(new URL('./fixtures/default-furnishings-1.9.0.manifest.json',import.meta.url));
  await writeFile(join(root,'manifest.json'),prior);assert.deepEqual(await verifyDefaultFurnishingsManifest(root),{commit:'8dee4eebb0d36d74d3d8cd955c9faf2c6bd2904a',manifestSHA256:'957af345c80951c287ce5492e0078769b800b3f889c19c24365b31b5e1c591ad'});await assert.rejects(requireCurrentFurnishingsRelease(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
  await writeFile(join(root,'manifest.json'),fixture);await assert.rejects(requireGpuModelPreparationFurnishingsRelease(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
 });
 test('normal1.10 source admission and existing copier include the newbench and all retained pairs',{skip:!producerRoot},async t=>{
  const root=await temporary(t);const head=execFileSync('/usr/bin/git',['rev-parse','HEAD'],{cwd:producerRoot,encoding:'utf8'}).trim();
- if(head===release.commit)await requireCurrentFurnishingsRelease(producerRoot);else{assert.equal(head,'9fa51fe913273e03cf0a74169f266049188defcd');await assert.rejects(requireCurrentFurnishingsRelease(producerRoot),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);}
+ assert.ok([release.commit,'9fa51fe913273e03cf0a74169f266049188defcd'].includes(head));await assert.rejects(requireCurrentFurnishingsRelease(producerRoot),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
  const output=join(root,'output');await mkdir(output);await copyNativeFurnishings(producerRoot,output,release);
  for(const item of JSON.parse(fixture).assets)for(const path of [item.model.path,item.rights.notice.path])assert((await lstat(join(output,path))).isFile());
  assert.equal(digest(await readFile(join(output,modelPath))),'e22f0acdda9f0e33f00fbe5c874eb12bc2799062e34ad2939fa0d88721bef1f9');assert.equal(digest(await readFile(join(output,noticePath))),'4e14161b2a63d79429a0f4861d0e8400691ad84d80f4b8974f48b1644db359b9');assert.deepEqual(await readFile(join(output,'assets/furnishings/default-manifest.json')),fixture);

@@ -116,3 +116,9 @@ it('preserves a base-valid opaque extension id reference during ordinary paramet
  expect(result.lights[0]!.intensity).toBe(42);expect(result.extensions!['com.example/light-reference']).toEqual(d.extensions!['com.example/light-reference']);expect(d).toEqual(before);
  expect(()=>applyLightObjectCommand(d,{type:'remove-light-object',lightId:id})).toThrow('LIGHT_OBJECT_REFERENCED');
 });
+
+it('uses the existing typed fixture selection for the original recessed downlight',()=>{
+ const d=fixture(),before=structuredClone(d),r=applyLightObjectCommand(d,{type:'set-light-fixture',lightId:id,visual:{catalogId:'recessed-downlight',catalogVersion:1,pose:{position:[0,.008,0],yaw:0,scale:1}}},{newAssetId:assetId});
+ valid(r.candidate);expect(d).toEqual(before);expect(r.candidate.lights).toEqual(d.lights);
+ expect(furnishingsFor(r.candidate)!.assets[0]).toMatchObject({catalogId:'recessed-downlight',bytes:86480,provenance:{recipe:'original-v1'}});
+});
