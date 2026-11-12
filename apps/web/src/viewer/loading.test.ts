@@ -477,3 +477,20 @@ describe('underlying scheduler drainage',()=>{
   expect(started).toEqual(['bad','good','bad','later']);expect(scheduler.stats()).toMatchObject({active:0,failed:2,completed:2,cancelled:0});
  });
 });
+
+
+describe('verified artwork wait attribution',()=>{
+ it('separates authority, response, body and integrity while retaining both rights checks',async()=>{
+  const inventory=syntheticArtwork('image').assets[0]!,payload=new Uint8Array([1,2,3]);
+  inventory.bytes=payload.length;inventory.sha256=createHash('sha256').update(payload).digest('hex');
+  const publicationId='a0000000-0000-4000-8000-000000000001',revisionSha256='1'.repeat(64),events:string[]=[];
+  const input={publicationId,revisionSha256,asset:{assetId:inventory.id,mime:inventory.mime,url:`/api/v1/publications/${publicationId}/assets/${inventory.id}`},inventory,signal:new AbortController().signal,
+   stage:(phase:string)=>events.push(phase),check:async()=>{events.push('authority');},
+   fetcher:(async()=>{events.push('fetch');return new Response(payload,{headers:{'content-type':inventory.mime,'x-exhibitos-publication-revision':revisionSha256}});}) as typeof fetch};
+  expect(new Uint8Array(await fetchVerifiedAsset(input))).toEqual(payload);
+  expect(events).toEqual(['availability-precheck','authority','asset-response-wait','fetch','asset-body','asset-integrity','availability-recheck','authority']);
+  events.length=0;inventory.sha256='0'.repeat(64);
+  await expect(fetchVerifiedAsset(input)).rejects.toThrow('ASSET_INTEGRITY');
+  expect(events).toEqual(['availability-precheck','authority','asset-response-wait','fetch','asset-body','asset-integrity']);
+ });
+});

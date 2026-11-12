@@ -475,16 +475,20 @@ export function retainEncodedBuffer(cache:MemoryAssetCache<ArrayBuffer>,key:stri
  if(cached!==undefined)cache.release(key);
  return {retainedBytes:retained.byteLength,dispose(){}};
 }
-export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;assetFetcher?:PublicationAssetFetcher;check?:()=>Promise<void>;maxBytes?:number;progress?:(loadedBytes:number)=>void}):Promise<ArrayBuffer> {
+export type VerifiedAssetPhase='availability-precheck'|'asset-response-wait'|'asset-body'|'asset-integrity'|'availability-recheck';
+export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;assetFetcher?:PublicationAssetFetcher;check?:()=>Promise<void>;maxBytes?:number;progress?:(loadedBytes:number)=>void;stage?:(phase:VerifiedAssetPhase)=>void}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!uuid.test(publicationId)||!uuid.test(asset.assetId)||asset.assetId!==inventory.id||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||asset.mime!==inventory.mime||!/^[a-f0-9]{64}$/.test(revisionSha256)||!/^[a-f0-9]{64}$/.test(inventory.sha256)||!Number.isSafeInteger(inventory.bytes)||inventory.bytes<1||inventory.bytes>Math.min(input.maxBytes??33554432,33554432))throw Error("ASSET_CONTRACT_INVALID");
- await input.check?.();
+ input.stage?.('availability-precheck');await input.check?.();
  const init={credentials:"omit",cache:"no-store",signal} as const;
  const stream=input.progress&&input.assetFetcher?{fetch:input.assetFetcher,progress:input.progress}:undefined;
+ input.stage?.('asset-response-wait');
  const response=stream?await stream.fetch(asset.url,init,stream.progress):await (input.fetcher??fetch)(asset.url,init);
  if(!response.ok)throw Error(`ASSET_HTTP_${response.status}`);if(response.headers.get("x-exhibitos-publication-revision")!==revisionSha256||response.headers.get("content-type")?.split(";")[0]!==inventory.mime)throw Error("ASSET_RESPONSE_INVALID");
+ input.stage?.('asset-body');
  const reader=response.body?.getReader();if(!reader)throw Error("ASSET_BODY_MISSING");const chunks:Uint8Array[]=[];let length=0;const onAbort=()=>{void reader.cancel(signal.reason).catch(()=>{});};signal.addEventListener("abort",onAbort,{once:true});
  try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>inventory.bytes)throw Error("ASSET_INTEGRITY");chunks.push(value);if(!stream)input.progress?.(length);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{signal.removeEventListener("abort",onAbort);reader.releaseLock();}
  signal.throwIfAborted();if(length!==inventory.bytes)throw Error("ASSET_INTEGRITY");const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
- const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");await input.check?.();return bytes.buffer;
+ input.stage?.('asset-integrity');
+ const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");input.stage?.('availability-recheck');await input.check?.();return bytes.buffer;
 }
