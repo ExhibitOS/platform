@@ -36,7 +36,7 @@ function Thumbnail({art,seed,modelPreview}:{art:Artwork;seed:PrivateSeed;modelPr
   if(asset&&art.artworkType==='image')void seed.source.local!.check().then(()=>seed.source.local!.fetcher(asset.url,{signal:abort.signal})).then(r=>r.blob()).then(blob=>{if(abort.signal.aborted)return;owned=URL.createObjectURL(blob);setImage({art,seed,url:owned});}).catch(()=>{});
   return()=>{abort.abort();if(owned)URL.revokeObjectURL(owned);};
  },[art,seed]);
- const url=art.artworkType==='model'?modelPreview:image?.art===art&&image.seed===seed?image.url:undefined;
+ const url=art.artworkType==='sculpture'?modelPreview:image?.art===art&&image.seed===seed?image.url:undefined;
  return url?<img src={url} alt="" draggable={false}/>:<span className="private-thumbnail-empty">{art.artworkType==='image'?'회화':'조각'}</span>;
 }
 
@@ -70,7 +70,7 @@ export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSe
  const [modelThumbnailState,setModelThumbnailState]=useState<{source:PrivateSeed['source'];items:Readonly<Record<string,string>>}|null>(null);
  const modelThumbnails=modelThumbnailState?.source===seed.source?modelThumbnailState.items:{};
  useEffect(()=>{
-  const source=seed.source,models=source.exhibition.artworks.filter(art=>art.artworkType==='model');
+  const source=seed.source,models=source.exhibition.artworks.filter(art=>art.artworkType==='sculpture');
   if(!models.length){setModelThumbnailState(null);return;}
   let live=true,running=false,abort=new AbortController();
   // Use the same published PNG reference, integrity check and bounded decoder
