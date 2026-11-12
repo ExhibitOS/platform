@@ -483,7 +483,7 @@ export function GeometryPreview({
     let disposed = false,
       release:()=>void|Promise<void> = () => {};
     let drainArtworkWork=()=>Promise.resolve(),disposeArtworkWork:()=>void=()=>{};
-    let materialWork:Promise<unknown>=Promise.resolve(),environmentWork:Promise<unknown>=Promise.resolve(),buildSettled:Promise<void>=Promise.resolve();
+    let materialWork:Promise<unknown>=Promise.resolve(),materialReductionWork:Promise<unknown>=Promise.resolve(),environmentWork:Promise<unknown>=Promise.resolve(),buildSettled:Promise<void>=Promise.resolve();
     let walkingRelease = () => {};
     let placementRelease = () => {};
     let nearPlacement: string | undefined;
@@ -2764,7 +2764,7 @@ export function GeometryPreview({
           if(materialReductionPending||!floorSettled||!surfaceSettled||disposed||gpuLost)return;
           materialReductionPending=true;
           const key='surface-resolution-reduction';
-          void surfaceTextures.reduceForArtwork(bytes=>{reserve(key,bytes);return()=>peak.release(key);},texture=>renderer.initTexture(texture)).then(residentBytes=>{
+          materialReductionWork=surfaceTextures.reduceForArtwork(bytes=>{reserve(key,bytes);return()=>peak.release(key);},texture=>renderer.initTexture(texture)).then(residentBytes=>{
             if(disposed||gpuLost||residentBytes===undefined)return;
             // Only retired material ownership returns bytes to artwork admission.
             surfacePlan.residentBytes=residentBytes;releaseMaterialLoadHold('surface');
@@ -2775,7 +2775,13 @@ export function GeometryPreview({
               retryAfter.delete(artId);residentMinimumWait.delete(artId);failed.delete(artId);minimumBlocked.delete(artId);
             }
             shadowPass.invalidate();render();update();
-          }).catch(()=>{/* Old complete material stays valid; no retry loop. */}).finally(()=>{materialReductionPending=false;});
+          }).catch(error=>{
+            if(error instanceof AssetReleaseUnconfirmedError){artworkReleaseFailure??=error;scheduler.stopUnconfirmed(error);throw error;}
+            // A clean resize/abort failure retains the old complete material.
+          }).finally(()=>{materialReductionPending=false;});
+          // The scene barrier owns failures after unmount; ordinary callers do
+          // not await this optional pressure operation.
+          void materialReductionWork.catch(()=>{});
         };
         demand.current = (kind) => {
           if(kind==='cancel')residentRecoveryCancelled=true;
@@ -3664,7 +3670,7 @@ export function GeometryPreview({
           scheduler.dispose();
           if(artworkReleaseFailure)return Promise.reject(artworkReleaseFailure);
           renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-draining',...scheduler.stats(),chargedBytes:peak.total()});
-          return Promise.all([scheduler.drain(),acquiredModelDrain,detailRetirementWork(),originalDetailSlot.whenAvailable(new AbortController().signal)]).then(()=>{
+          return Promise.all([scheduler.drain(),materialReductionWork,acquiredModelDrain,detailRetirementWork(),originalDetailSlot.whenAvailable(new AbortController().signal)]).then(()=>{
             renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-drained',...scheduler.stats(),chargedBytes:peak.total()});
           },error=>{renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-unconfirmed',...scheduler.stats(),chargedBytes:peak.total()});throw error;});
         };
