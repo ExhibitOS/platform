@@ -328,7 +328,82 @@ export const R108_SEAT_PATH_FEEDBACK_REFERENCE=Object.freeze({...R108_SIGHT_LOAD
  viewerBuildId:'4836b0dad1f66a6d615375c25b9fd8b6271620d1c1333fece87cbeef6cd215eb',
  viewerInventorySha256:'4e5d9227bfeace81afb2045ee326e6827f440d148f2b5b14f3a46eff45411474',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+// Exact R115 content authority only. No Viewer tuple is admitted until its
+// independently reviewed immutable build is pinned in the closure selector.
+export const R115_REFERENCE=Object.freeze({...R69_REFERENCE,
+ indexSha256:'df88d1703f790e33ac3ab7609bb55510b9f5feb20b64e48a1f3270cf08372a23',
+ publicationSha256:'301203abae836969ac49c9f9c1472a4d1d35f0a53e838d2d0a5dc4a3b1ab2187',
+ publicationId:'69dd586c-112a-48fb-b2ce-3218016df9aa',
+ revisionSha256:'583f11b98d6341f07ca74fcc16d6389e6b997b4d5d5093b95db9e28281d19c78',
+ candidateId:'668a8153-6bb5-40f8-b597-b7177740400f',
+ modelCandidateId:'8a095220-48e1-4343-a552-9f2f31994c48',
+ modelSourceBindingSha256:'30ec4c68cf1612499aeee5f6318be23cd964b37bb1ec3ad8fc3f380bbfef15ff',
+ nativeManifestSha256:'295aa833c7bce78c8e819b2f72c1bca8abb0e5ab3cfeeee5fe2a34b725f7dd87',
+ nativeFiles:146,
+});
+const r115SelectedModelThumbnails=[
+ {
+  "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
+  "revisionId":"118016f9-5f29-458c-a259-a22aa6291388",
+  "placementId":"68bb26fd-55d7-4eca-93bc-82a9fd816e70",
+  "thumbnail":{
+   "assetId":"43c55998-c00d-4ebc-8892-bfea2fa571d8",
+   "path":"data/234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1.bin",
+   "bytes":36561,
+   "sha256":"234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1",
+   "mime":"image/png"
+  }
+ },
+ {
+  "publicArtworkId":"19e7d40f-93c3-4eec-afc1-4d761630df20",
+  "revisionId":"da4f8d04-d09b-4746-93d9-1ccbeea08b4a",
+  "placementId":"ee403d73-bdbb-4eb7-b82e-e6c45172194b",
+  "thumbnail":{
+   "assetId":"7a8901a8-b561-44d4-9da4-5bf072f9f80e",
+   "path":"data/9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b.bin",
+   "bytes":23897,
+   "sha256":"9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b",
+   "mime":"image/png"
+  }
+ },
+ {
+  "publicArtworkId":"d812934b-337c-4a4a-ba79-ed8d1e69f12e",
+  "revisionId":"058a8d23-141f-4640-8a0f-76cc32d63563",
+  "placementId":"4a885eac-d097-4ab5-901a-2c4ef93666c4",
+  "thumbnail":{
+   "assetId":"7495dea5-d54d-42fe-a5c3-5f290e44ef9f",
+   "path":"data/d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69.bin",
+   "bytes":32849,
+   "sha256":"d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69",
+   "mime":"image/png"
+  }
+ },
+ {
+  "publicArtworkId":"d26a94f6-04ff-47e5-988e-f1adc53f371b",
+  "revisionId":"1b60d3e4-681c-4427-9a1b-6b165d016c82",
+  "placementId":"29b91ec7-4d8c-4034-a04f-a51eceaed454",
+  "thumbnail":{
+   "assetId":"96298773-d559-43af-9b8f-3621bf3a30bc",
+   "path":"data/13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6.bin",
+   "bytes":15365,
+   "sha256":"13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6",
+   "mime":"image/png"
+  }
+ },
+ {
+  "publicArtworkId":"5c09ed33-2247-41d7-8056-9d79c5f2d710",
+  "revisionId":"a8b0bc08-bbe9-4911-9f7e-949b05142bf3",
+  "placementId":"a35d58d6-ac86-40e3-9160-6ca3c3c863e7",
+  "thumbnail":{
+   "assetId":"3160890c-c398-47a9-aded-e68d7b71196b",
+   "path":"data/f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596.bin",
+   "bytes":39340,
+   "sha256":"f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596",
+   "mime":"image/png"
+  }
+ }
+];
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE,R115_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
@@ -342,24 +417,26 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const dualOriginal=reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE;
+ const r115=reference===R115_REFERENCE;
+ const dualOriginal=r115||reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE;
  const stoolAndLimestone=reference===R26_REFERENCE||reference===R27_REFERENCE||reference===R41_REFERENCE||reference===R44_REFERENCE||reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal);
  const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
+ const assetCount=r115?62:reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
  if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==(dualOriginal?2:1))fail();
  const notices=index.furnishingNotices??[];
- if(bench&&(!Array.isArray(notices)||notices.length!==1||
-    notices[0]?.sha256!=='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5'||
+ if(bench&&(!Array.isArray(notices)||notices.length!==(r115?2:1)||
+    !(r115?notices.some(item=>item.sha256==='02f6e4b864a64ca10a4b9b52c4da1749eeca402f7b3d225db784051c95c0aaf8'&&item.bytes===1321):true)||
+    !(r115?notices.some(item=>item.sha256==='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5'&&item.bytes===1569):notices[0]?.sha256==='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5')||
     !index.assets.some(asset=>asset.sha256==='364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b')))fail();
  if(upholsteredBench&&!index.assets.some(asset=>asset.sha256==='6924041a37702eb8233bf39da973f2235ff951f4b1f31ab564d4ad125542b3de'&&asset.bytes===203064&&asset.mime==='model/gltf-binary'))fail();
  if(charcoalFloor&&!index.assets.some(asset=>asset.sha256==='4684fcb53dbc376f563a7c8bba97d48f660968198401fad0bdff143a14a2f909'&&asset.bytes===2154063&&asset.mime==='image/png'))fail();
  if(terrazzoFloor&&(!index.assets.some(asset=>asset.sha256==='afa5635491e8a7875fe3ca8dfdd6651dc197ab8e648492c98907ec7d07750f90'&&asset.mime==='image/png')||
    !['e77d9970fecdbe384cb6b973ebafea4284a70912eed71ccf88496ec5875ed9b5','865d1556595dfad9278fdd92e2227a8a5decd9e5c34f3d8de2f584e1a012e536'].every(sha256=>index.resources.some(asset=>asset.sha256===sha256&&asset.mime==='image/png'))))fail();
  if((reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))&&!index.assets.some(asset=>asset.sha256==='4e26824b897af85e781c102cf7f01e404e4266b4d5299088c2b29940facaccba'&&asset.bytes===112044&&asset.mime==='model/gltf-binary'))fail();
- if((reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))&&!index.assets.some(asset=>asset.sha256==='6cb111d9baf50d355c18b8e94b9cff78eeeb9679f02ebf490d7093e2c32c59d0'&&asset.bytes===85876&&asset.mime==='model/gltf-binary'))fail();
+ if((reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))&&!index.assets.some(asset=>asset.sha256===(r115?'e22f0acdda9f0e33f00fbe5c874eb12bc2799062e34ad2939fa0d88721bef1f9':'6cb111d9baf50d355c18b8e94b9cff78eeeb9679f02ebf490d7093e2c32c59d0')&&asset.bytes===(r115?345608:85876)&&asset.mime==='model/gltf-binary'))fail();
  const entries=[index.publication,...index.assets,...index.resources,...notices,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
@@ -379,6 +456,17 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
   const artwork=publication.exhibition.artworks.find(art=>art.assets.find(asset=>asset.id===art.primaryAssetId)?.sha256===reference.modelDisplaySha256),thumbnail=artworkThumbnailFor(artwork);
   if(!artwork||!thumbnail||thumbnail.sha256!==reference.modelThumbnailSha256||thumbnail.bytes!==39340||!index.assets.some(entry=>entry.assetId===thumbnail.id&&entry.sha256===thumbnail.sha256&&entry.bytes===thumbnail.bytes&&entry.mime==='image/png'))fail();
  }else if(plan.entries.length!==1)fail();
+ if(r115)for(const expected of r115SelectedModelThumbnails){
+  const artworks=publication.exhibition.artworks.filter(art=>art.id===expected.publicArtworkId),artwork=artworks[0];
+  const thumbnail=artwork&&artworkThumbnailFor(artwork),model=artwork?.assets.find(asset=>asset.id===artwork.primaryAssetId);
+  const placements=publication.exhibition.placements.filter(item=>item.id===expected.placementId);
+  const indexed=index.assets.filter(item=>item.assetId===expected.thumbnail.assetId);
+  if(artworks.length!==1||artwork.revisionId!==expected.revisionId||artwork.artworkType!=='sculpture'||model?.mime!=='model/gltf-binary'||
+     !artwork.rights?.permissions?.display||!artwork.rights?.permissions?.export||
+     !thumbnail||thumbnail.id!==expected.thumbnail.assetId||thumbnail.sha256!==expected.thumbnail.sha256||thumbnail.bytes!==expected.thumbnail.bytes||thumbnail.mime!=='image/png'||
+     placements.length!==1||placements[0].artworkRevisionId!==artwork.revisionId||placements[0].assetId!==artwork.primaryAssetId||
+     indexed.length!==1||!keys(indexed[0],Object.keys(expected.thumbnail))||Object.keys(expected.thumbnail).some(key=>indexed[0][key]!==expected.thumbnail[key]))fail();
+ }
  const candidates=publication.exhibition.artworks.flatMap(a=>(a.extensions?.['org.exhibitos.viewer/artwork-detail-quality']?.candidates??[]).map(candidate=>({candidate,rights:a.rights})));
  const expectedCandidates=dualOriginal?[reference.candidateId,reference.modelCandidateId]:[reference.candidateId];
  if(candidates.length!==expectedCandidates.length||expectedCandidates.some(id=>candidates.filter(item=>item.candidate.candidateId===id).length!==1)||candidates.some(item=>!item.rights?.permissions?.display||!item.rights?.permissions?.export||!item.rights?.permissions?.download||item.rights.licenseId!=='CC0-1.0'))fail();
