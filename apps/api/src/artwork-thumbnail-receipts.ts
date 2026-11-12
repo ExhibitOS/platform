@@ -4,7 +4,7 @@ import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
 import {MAX_ARTWORK_THUMBNAIL_BYTES} from '@exhibitos/studio-contract';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {ApiError,type Session} from './auth.ts';
+import {ApiError,uuid,type Session} from './auth.ts';
 import {Cms,validMetadata} from './cms.ts';
 import {allowedRights} from './rights.ts';
 import {parseThumbnailCandidate,parseRenderedThumbnail,validateThumbnailBytes,RENDERED_ARTWORK_THUMBNAIL_PROFILE,RENDERED_ARTWORK_THUMBNAIL_RECIPE,RENDERED_ARTWORK_THUMBNAIL_TOOL} from './artwork-thumbnail.ts';
@@ -72,6 +72,26 @@ export class ArtworkThumbnailReceipts {
   if(art.revision!==expectedRevision||art.approved_revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
   const selected=(await c.query('SELECT binding_id,version FROM artwork_thumbnail_selections WHERE tenant_id=$1 AND artwork_id=$2 AND artwork_revision=$3',[s.tenantId,artworkId,expectedRevision])).rows[0];
   return {selectionVersion:selected?.version??0,bindingId:selected?.binding_id??null};
+ }
+ /** A card reads one exact current selection. The generic model preview and
+  * immutable approval graph retain their existing roles. */
+ async selectedPreview(c:PoolClient,s:Session,artworkId:string,revision:number,bindingId:string,selectionVersion:number,signal:AbortSignal){
+  uuid(bindingId);bindingId=bindingId.toLowerCase();
+  if(!Number.isSafeInteger(selectionVersion)||selectionVersion<1||selectionVersion>2147483647)throw new ApiError(400,'INVALID_INPUT');
+  const check=async()=>{
+   const current=await this.current(c,s,artworkId,revision);
+   if(current.bindingId!==bindingId||current.selectionVersion!==selectionVersion)throw new ApiError(409,'SELECTION_CONFLICT');
+  };
+  const checkAbort=()=>{if(signal.aborted)throw new ApiError(503,'THUMBNAIL_READ_UNAVAILABLE');};
+  await check();checkAbort();
+  const {artwork}=await this.cms.studioArtwork(c,s,artworkId),primary=artwork.assets.find(asset=>asset.id===artwork.primaryAssetId);
+  if(artwork.revision!==revision||!primary)throw new ApiError(409,'REVISION_CONFLICT');
+  const selected=await this.selectedForPublication(c,s,artworkId,revision,primary.id,primary.sha256,signal).catch((error:unknown)=>{
+   if(error instanceof ApiError)throw error;checkAbort();throw new ApiError(409,'ASSET_INTEGRITY');
+  });
+  if(!selected||selected.id!==bindingId)throw new ApiError(409,'SELECTION_CONFLICT');
+  await check();checkAbort();
+  return {...selected,revision,selectionVersion};
  }
  async select(c:PoolClient,s:Session,artworkId:string,value:unknown){
   return this.selectBound(c,s,artworkId,value);

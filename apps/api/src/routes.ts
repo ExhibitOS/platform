@@ -1,3 +1,4 @@
+import {imagePreparationLineage} from './image-preparation-lineage.ts';
 import {GPU_MODEL_PREPARATION_PROFILE} from './gpu-model-preparation-contract.ts';
 import type {GpuModelPreparations} from './gpu-model-preparations.ts';
 import {materialBatchDiagnostic} from './workspace-material-batch-diagnostic.ts';
@@ -494,6 +495,12 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number;watermarked:boolean;watermarkMode:'none'|'embedded'};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
  const thumbnailReceipts=()=>{if(!store)throw new ApiError(503,'STORAGE_UNAVAILABLE');return new ArtworkThumbnailReceipts(store);};
  app.get(`${cp}/artworks/:id/thumbnail-selection`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>thumbnailReceipts().current(c,s,cmsId(req),Number((req.query as {expectedRevision:string}).expectedRevision))));
+ app.get(`${cp}/artworks/:id/thumbnail-selection/:bindingId/image`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},expectedSelectionVersion:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req,reply)=>{
+  const q=req.query as {expectedRevision:string;expectedSelectionVersion:string},p=req.params as {bindingId:string};
+  const result=await thumbnailReceipts().selectedPreview(c,s,cmsId(req),Number(q.expectedRevision),p.bindingId,Number(q.expectedSelectionVersion),AbortSignal.timeout(10000));
+  reply.header('cache-control','no-store').header('content-type','image/png').header('content-length',result.bytes.length).header('x-content-type-options','nosniff').header('x-exhibitos-sha256',result.sha256).header('x-exhibitos-artwork-revision',result.revision).header('x-exhibitos-thumbnail-selection-version',result.selectionVersion).header('x-exhibitos-thumbnail-binding-id',result.id);
+  return result.bytes;
+ }));
  const renderedThumbnailMutation=nativeMutation(async(c,s,req)=>{
   await renderedThumbnailReady(c,s);
   const result=await thumbnailReceipts().selectRendered(c,s,cmsId(req),req.body);
@@ -505,6 +512,11 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   (req.body as {kind?:unknown}|null)?.kind===RENDERED_ARTWORK_THUMBNAIL_PROFILE?renderedThumbnailMutation(req,reply):existingThumbnailMutation(req,reply));
  const imports=store?new Imports(pool,store,nativeOexWorkspace,modelPreparationExecution):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
+ if(nativeOexWorkspace&&nativeBoundedEditing&&!freshOexTest&&store)app.get(`${cp}/artworks/:id/image-preparation-lineage`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},approvedAssetId:id,cursor:id},['expectedRevision','approvedAssetId'])}},call(false,async(c,s,req,reply)=>{
+  reply.header('cache-control','no-store');
+  const q=req.query as {expectedRevision:string;approvedAssetId:string;cursor?:string};
+  return imagePreparationLineage(c,s,cmsId(req),{expectedRevision:Number(q.expectedRevision),approvedAssetId:q.approvedAssetId,...(q.cursor===undefined?{}:{cursor:q.cursor})},cms,importer());
+ }));
  if(nativeHayesCaller&&nativeOexWorkspace)app.post(`${prefix}/imports/native-hayes-original`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},displayReferenceSha256:{...str,pattern:'^[0-9a-f]{64}$'},idempotencyKey:id})}},async(req,reply)=>{guarded(req,true);reply.header('cache-control','no-store');const tenantId=(req.params as {tenantId:string}).tenantId;uuid(tenantId);if(tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');if(runtimeAvailable&&!runtimeAvailable())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');return nativeHayesCaller.create({token:token(req),csrf:typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined},req.body as {artworkId:string;artworkRevision:number;displayReferenceSha256:string;idempotencyKey:string},Date.now()+30000);});
  if(nativeHayesCaller&&nativeOexWorkspace&&isHayesReleaseContext(nativeOexWorkspace))app.post(`${prefix}/imports/native-hayes-original/:id/execute`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647}})}},async(req,reply)=>{
   guarded(req,true);reply.header('cache-control','no-store');const p=req.params as {tenantId:string;id:string};uuid(p.tenantId);uuid(p.id);if(p.tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');if(runtimeAvailable&&!runtimeAvailable())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
