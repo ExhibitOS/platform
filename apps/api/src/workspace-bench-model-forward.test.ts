@@ -42,10 +42,10 @@ it('declares only model-local forward and preserves source, host, placement, vie
  const ids=new Map([[host(f.next).id,crypto.randomUUID()],[host(f.next).roomId,crypto.randomUUID()],[host(f.next).viewpointId,crypto.randomUUID()],[f.placement.id,crypto.randomUUID()]]);const mapped=remapStudioBenches(f.next.candidate.extensions![BN] as unknown as StudioBenches,ids);expect(mapped.benches[0]!.workspaceVisual!.modelForward).toBe('positive-z');
 });
 it('no-op preserves missing legacy field; positive-to-negative is explicit and stale expected declarations reject',async()=>{
- const f=await setup(),n=applyWorkspaceBenchModelForward(f.draft.candidate,{...f.command,modelForward:'negative-z'}) as typeof f.draft.candidate;expect(n).toEqual(f.draft.candidate);expect(host({...f.draft,candidate:n}).workspaceVisual).not.toHaveProperty('modelForward');
+ const f=await setup(),n=applyWorkspaceBenchModelForward(f.draft.candidate,{...f.command,modelForward:'negative-z'});const unchanged=structuredClone(f.draft);unchanged.candidate=n;expect(n).toEqual(f.draft.candidate);expect(host(unchanged).workspaceVisual).not.toHaveProperty('modelForward');
  expect(()=>applyWorkspaceBenchModelForward(f.draft.candidate,{...f.command,expectedModelForward:'positive-z'})).toThrow('BENCH_MODEL_FORWARD_STALE');
- const back=applyWorkspaceBenchModelForward(f.next.candidate,{...f.command,expectedModelForward:'positive-z',modelForward:'negative-z'}) as typeof f.next.candidate;expect(host({...f.next,candidate:back}).workspaceVisual!.modelForward).toBe('negative-z');expect(delta(f.next,{...f.next,candidate:back})).toBe(true);
- expect(delta(f.draft,{...f.draft,candidate:n})).toBe(false);
+ const back=applyWorkspaceBenchModelForward(f.next.candidate,{...f.command,expectedModelForward:'positive-z',modelForward:'negative-z'});const backDraft=structuredClone(f.next);backDraft.candidate=back;expect(host(backDraft).workspaceVisual!.modelForward).toBe('negative-z');expect(delta(f.next,backDraft)).toBe(true);
+ expect(delta(f.draft,unchanged)).toBe(false);
 });
 it.each(['host-id','host-size','host-name','host-material','host-kind','viewpoint','pose','scale','placement-id','wrong-digest','descriptor','collision','unrelated','unsupported','extra-field'] as const)('rejects declaration with %s changes',async kind=>{
  const f=await setup(),n=f.next,w=workspace(n),h=host(n);
