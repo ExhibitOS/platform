@@ -43,6 +43,7 @@ export class Imports {
  async access(c:PoolClient,s:Session,id:string) {
   const result=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id]);
   const row=result.rows[0];if(!row)throw new ApiError(403,'FORBIDDEN');
+  if(row.gpu_preparation!=null)throw new ApiError(503,'GPU_MODEL_PREPARATION_UNAVAILABLE');
   await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);
   const product=storedPreparedImage(row);
   if(product){
@@ -182,10 +183,11 @@ export class Imports {
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
    // The current ordinary catalog has no 042 column; discover this one
    // optional catalog before issuing SQL that references it.
-   const feature=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='hayes_attempt_id' AND NOT attisdropped) AS selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AS model_selected");
+   const feature=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='hayes_attempt_id' AND NOT attisdropped) AS selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AS model_selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='gpu_preparation' AND NOT attisdropped) AS gpu_selected");
    const inactive=!this.modelExecution?.isActive();
    const modelFilter=(feature.rows[0]?.model_selected===true&&inactive?' AND model_preparation IS NULL':'')
-    +(inactive?" AND COALESCE(derived->>'kind','') NOT IN ('product-image-pair','fresh-product-image')":'');
+    +(inactive?" AND COALESCE(derived->>'kind','') NOT IN ('product-image-pair','fresh-product-image')":'')
+    +(feature.rows[0]?.gpu_selected===true?' AND gpu_preparation IS NULL':'');
    const hayesFilter=feature.rows[0]?.selected===true?" AND hayes_attempt_id IS NULL AND NOT (state='queued' AND mime='model/gltf-binary' AND expected_hash='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6' AND expected_bytes=8383096)":'';
    await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter);
    const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter+" ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
