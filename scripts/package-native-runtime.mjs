@@ -2,13 +2,14 @@
 // Local macOS validation payload producer; never installs, launches or publishes.
 import {spawn} from 'node:child_process';
 import {createReadStream} from 'node:fs';
-import {cp, mkdir, lstat, readFile, readdir, realpath, writeFile} from 'node:fs/promises';
+import {cp, mkdir, lstat, readFile, readdir, readlink, realpath, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
 import {CATALOG045_PRE_READY_HAYES_MARKER,CATALOG045_PRE_READY_HAYES_CAPABILITY,CATALOG045_PRE_READY_MARKER,CATALOG045_PRE_READY_CAPABILITY,INFO_STAND_PREPARATION_CAPABILITY,INFO_STAND_PREPARATION_MIGRATION,INFO_STAND_PREPARATION_SHA256} from './native-oex-normal-catalog.mjs';
 import {WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,WORKSPACE_FURNISHING_THUMBNAIL_SHA256,WORKSPACE_FURNISHING_THUMBNAIL_MARKER,WORKSPACE_FURNISHING_THUMBNAIL_CAPABILITY} from './native-oex-normal-catalog.mjs';
+import {GPU_MODEL_PREPARATION_MIGRATION,GPU_MODEL_PREPARATION_SHA256,GPU_MODEL_PREPARATION_MARKER,GPU_MODEL_PREPARATION_CAPABILITY} from './native-oex-normal-catalog.mjs';
 import {ADOPTION_CAPABILITY,ADOPTION_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY,ADOPTION_CARRIED_TARGET_MARKER} from './native-model-adoption-owner-channel.mjs';
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
@@ -66,7 +67,7 @@ const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
 // The candidate import schema is inert until a future, separately selected capability.
 export function nativePackageExcludedFiles(freshOexValidation,normalOexSelected){
-  return new Set(['database/native-workspace-furnishing-thumbnail/050_workspace_furnishing_thumbnail.sql','database/native-workspace-info-stand-preparation/'+INFO_STAND_PREPARATION_MIGRATION,'database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql','database/native-workspace-furnishing/036_workspace_furnishing.sql','database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql','database/native-workspace-furnishing-publication/038_workspace_furnishing_publication.sql','database/native-workspace-material-publication/039_workspace_material_publication.sql','database/native-workspace-material-multimap/040_workspace_material_multimap.sql','database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql','database/native-hayes-original/042_hayes_original_attempt.sql','database/native-hayes-disposition/043_hayes_output_stage.sql','database/native-hayes-release/044_hayes_native_release.sql','database/native-model-preparation/045_required_model_preparation.sql','database/native-fresh-image-preparation/047_fresh_image_preparation.sql','database/native-large-model-preparation/046_large_model_preparation.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
+  return new Set(['database/native-gpu-model-preparation/'+GPU_MODEL_PREPARATION_MIGRATION,'database/native-workspace-furnishing-thumbnail/050_workspace_furnishing_thumbnail.sql','database/native-workspace-info-stand-preparation/'+INFO_STAND_PREPARATION_MIGRATION,'database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql','database/native-workspace-furnishing/036_workspace_furnishing.sql','database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql','database/native-workspace-furnishing-publication/038_workspace_furnishing_publication.sql','database/native-workspace-material-publication/039_workspace_material_publication.sql','database/native-workspace-material-multimap/040_workspace_material_multimap.sql','database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql','database/native-hayes-original/042_hayes_original_attempt.sql','database/native-hayes-disposition/043_hayes_output_stage.sql','database/native-hayes-release/044_hayes_native_release.sql','database/native-model-preparation/045_required_model_preparation.sql','database/native-fresh-image-preparation/047_fresh_image_preparation.sql','database/native-large-model-preparation/046_large_model_preparation.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
 }
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
@@ -248,7 +249,12 @@ export async function checkedDefaultFurnishingsRoot(root){
 /** A new six-entry runtime must select the matched1.9 release before any
  * build. Older release verification/copy remains available for immutable audits. */
 export async function requireCurrentFurnishingsRelease(root){
-  const expected=DEFAULT_FURNISHINGS_RELEASES['1.9.0'];
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.9.0']);
+}
+export async function requireGpuModelPreparationFurnishingsRelease(root){
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.7.0']);
+}
+async function requirePinnedFurnishingsRelease(root,expected){
   if(typeof root!=='string'||!isAbsolute(root)||resolve(root)!==root)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   if(await checkedSource(root,'directory')!==root)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const path=join(root,'manifest.json');if(await checkedSource(path,'file')!==path||(await lstat(path)).size!==expected.bytes||await hash(path)!==expected.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
@@ -372,7 +378,68 @@ export async function copyWorkspaceFurnishingThumbnailSelectedFiles(sourceRoot,p
  await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-workspace-furnishing-thumbnail/'+WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,WORKSPACE_FURNISHING_THUMBNAIL_SHA256);
  await writeFile(join(platformRoot,'scripts',WORKSPACE_FURNISHING_THUMBNAIL_MARKER),WORKSPACE_FURNISHING_THUMBNAIL_CAPABILITY,{flag:'wx',mode:0o600});
 }
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, privateWheatQualification}) {
+// Fixed signed source build, independent of the historical vendor recipe.
+export const GPU_MODEL_ENCODER_PACKAGE=Object.freeze({
+ runtimePrefix:'tools/ktx-4.4.2-noetc',
+ executable:Object.freeze({path:'bin/toktx',bytes:993520,sha256:'4ec0c7fa5f123e91f8e2adb21c1b94e7119a0f396f11cc8fd747459b2a51620c',mode:0o755}),
+ library:Object.freeze({path:'lib/libktx.4.4.2.dylib',bytes:2454960,sha256:'e2f8115a77cf2c1e375210d3687f487a4e54f0cde803060cb1c4085427f3d393',mode:0o755}),
+ components:Object.freeze({path:'licenses/COMPONENTS.json',bytes:5829,sha256:'184d18446feb6774ebc8e94f632290a3355079164e2d1102accd1f2561a307e3',mode:0o644}),
+ links:Object.freeze({'lib/libktx.4.dylib':'libktx.4.4.2.dylib','lib/libktx.dylib':'libktx.4.dylib'}),
+});
+const GPU_REQUIRED_PARENT_FLAGS=['normalOexSelected','privateStaticEditor','workspaceMaterialSelected','workspaceImportSelected','workspaceWallImportSelected','workspaceFurnishingSelected','workspaceFurnishingWriterSelected','workspaceFurnishingPublicationSelected','workspaceMaterialPublicationSelected','workspaceMaterialMultimapSelected','workspaceFurnishingStoolSelected','workspaceFurnishingRoomVisualSelected','workspaceFurnishingArtworkFrameSelected','workspaceFurnishingArtworkFrameModelsSelected','workspaceArtworkFramePreparationSelected','workspacePortalFinishSelected','hayesOriginalSelected','hayesDispositionSelected','hayesReleaseSelected','modelPreparationSelected'];
+const GPU_FORBIDDEN_FLAGS=['freshOexValidation','workspaceFurnishingSelectedImport','workspaceMaterialSelectedImport','workspaceMaterialMultimapSelectedImport','modelAdoptionSelected','modelAdoptionCarriedTargetSelected','catalog045PreReadyPreservation','catalog045PreReadyHayesPreservation','freshImageSelected','largeModelSelected','largeModelRecoverySelected','infoStandPreparationSelected','workspaceFurnishingThumbnailsSelected','hayesReleaseProbeSelected','hayesDispositionProbeSelected','hayesSessionProbeSelected'];
+/** One explicit 45+049 family. It never widens the default/050 producer. */
+export function assertGpuModelPreparationPackageOptions(options){
+ const {gpuModelPreparationSelected=false,gpuModelEncoderRoot}=options;
+ if(typeof gpuModelPreparationSelected!=='boolean'||!gpuModelPreparationSelected&&gpuModelEncoderRoot!==undefined)fail('NATIVE_PACKAGE_INPUT_INVALID');
+ if(!gpuModelPreparationSelected)return;
+ if(GPU_REQUIRED_PARENT_FLAGS.some(key=>options[key]!==true)||GPU_FORBIDDEN_FLAGS.some(key=>options[key]!==undefined&&options[key]!==false)||options.postgresProfile!=='validation-full'||options.privateWheatQualification!=='2152f40102fc904b971a66fbedacaf6a157706c507ae59cb04c4ff6a886a6082'||typeof gpuModelEncoderRoot!=='string'||!isAbsolute(gpuModelEncoderRoot)||resolve(gpuModelEncoderRoot)!==gpuModelEncoderRoot)fail('NATIVE_PACKAGE_INPUT_INVALID');
+}
+/** No execution or signing: read exact already-signed binaries and notices. */
+export async function verifyGpuModelEncoderPackageRoot(root){
+ try{
+  if(typeof root!=='string'||!isAbsolute(root)||resolve(root)!==root||await checkedSource(root,'directory')!==root)fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');
+  const checked=async record=>{
+   const path=join(root,record.path),stat=await lstat(path);
+   if(await checkedSource(path,'file')!==path||stat.uid!==process.getuid?.()||stat.nlink!==1||(stat.mode&0o7777)!==record.mode||stat.size!==record.bytes||await hash(path)!==record.sha256)fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');
+  };
+  for(const record of [GPU_MODEL_ENCODER_PACKAGE.executable,GPU_MODEL_ENCODER_PACKAGE.library,GPU_MODEL_ENCODER_PACKAGE.components])await checked(record);
+  const components=JSON.parse(await readFile(join(root,GPU_MODEL_ENCODER_PACKAGE.components.path),'utf8'));
+  if(components.sourceCommit!=='4d6fc70eaf62ad0558e63e8d97eb9766118327a6'||!Array.isArray(components.noticeFiles)||components.noticeFiles.length!==21)fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');
+  const files=[GPU_MODEL_ENCODER_PACKAGE.executable,GPU_MODEL_ENCODER_PACKAGE.library,GPU_MODEL_ENCODER_PACKAGE.components],seen=new Set(files.map(record=>record.path));
+  for(const record of components.noticeFiles){
+   if(typeof record.path!=='string'||!/^licenses\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(record.path)||record.path.split('/').some(part=>part==='.'||part==='..')||seen.has(record.path)||!Number.isSafeInteger(record.bytes)||record.bytes<1||record.bytes>65536||!/^[a-f0-9]{64}$/.test(record.sha256))fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');
+   seen.add(record.path);const file={path:record.path,bytes:record.bytes,sha256:record.sha256,mode:0o644};await checked(file);files.push(file);
+  }
+  for(const [path,target]of Object.entries(GPU_MODEL_ENCODER_PACKAGE.links)){
+   const full=join(root,path),stat=await lstat(full);
+   if(!stat.isSymbolicLink()||stat.uid!==process.getuid?.()||await readlink(full)!==target||await realpath(full)!==join(root,GPU_MODEL_ENCODER_PACKAGE.library.path))fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');seen.add(path);
+  }
+  const directories=new Set([...seen].flatMap(path=>path.split('/').slice(0,-1).map((_,i)=>path.split('/').slice(0,i+1).join('/'))));
+  async function walk(path,prefix=''){
+   const stat=await lstat(path);if(await checkedSource(path,'directory')!==path||stat.uid!==process.getuid?.()||(stat.mode&0o7022)!==0)fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');
+   for(const name of await readdir(path)){const rel=prefix+name;if(directories.has(rel))await walk(join(path,name),rel+'/');else if(!seen.delete(rel))fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');}
+  }
+  await walk(root);if(seen.size)fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');return {files,links:GPU_MODEL_ENCODER_PACKAGE.links};
+ }catch{fail('NATIVE_PACKAGE_GPU_ENCODER_INVALID');}
+}
+export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRoot,tracked,selected=false,encoderRoot){
+ if(typeof selected!=='boolean'||!selected&&encoderRoot!==undefined)fail('NATIVE_PACKAGE_INPUT_INVALID');if(!selected)return;
+ const parent=join(platformRoot,'scripts/native-model-preparation-capability-v1.json');
+ if(await checkedSource(parent,'file')!==parent||await readFile(parent,'utf8')!==MODEL_PREPARATION_CAPABILITY)fail('NATIVE_PACKAGE_SOURCE_INVALID');
+ const encoder=await verifyGpuModelEncoderPackageRoot(encoderRoot);
+ await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-gpu-model-preparation/'+GPU_MODEL_PREPARATION_MIGRATION,GPU_MODEL_PREPARATION_SHA256);
+ for(const name of ['native-gpu-model-preparation-bootstrap.mjs','native-gpu-model-runtime.mjs']){
+  const path=join(sourceRoot,'scripts',name),input=await checkedSource(path,'file');if(input!==path)fail('NATIVE_PACKAGE_SOURCE_INVALID');const digest=await hash(input);await copy(input,join(platformRoot,'scripts',name));if(await hash(join(platformRoot,'scripts',name))!==digest)fail('NATIVE_PACKAGE_SOURCE_INVALID');
+ }
+ const target=join(platformRoot,GPU_MODEL_ENCODER_PACKAGE.runtimePrefix);await mkdir(target,{recursive:true,mode:0o700});
+ for(const record of encoder.files)await copy(join(encoderRoot,record.path),join(target,record.path));
+ for(const path of Object.keys(encoder.links))await copy(join(encoderRoot,path),join(target,path));
+ await verifyGpuModelEncoderPackageRoot(target);
+ await writeFile(join(platformRoot,'scripts',GPU_MODEL_PREPARATION_MARKER),GPU_MODEL_PREPARATION_CAPABILITY,{flag:'wx',mode:0o600});
+}
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, gpuModelPreparationSelected = false, gpuModelEncoderRoot, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, privateWheatQualification}) {
+  assertGpuModelPreparationPackageOptions({gpuModelPreparationSelected,gpuModelEncoderRoot,postgresProfile,privateWheatQualification,modelPreparationSelected,normalOexSelected,privateStaticEditor,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected,workspaceFurnishingPublicationSelected,workspaceMaterialPublicationSelected,workspaceMaterialMultimapSelected,workspaceFurnishingStoolSelected,workspaceFurnishingRoomVisualSelected,workspaceFurnishingArtworkFrameSelected,workspaceFurnishingArtworkFrameModelsSelected,workspaceArtworkFramePreparationSelected,workspacePortalFinishSelected,hayesOriginalSelected,hayesDispositionSelected,hayesReleaseSelected,freshOexValidation,workspaceFurnishingSelectedImport,workspaceMaterialSelectedImport,workspaceMaterialMultimapSelectedImport,modelAdoptionSelected,modelAdoptionCarriedTargetSelected,catalog045PreReadyPreservation,catalog045PreReadyHayesPreservation,freshImageSelected,largeModelSelected,largeModelRecoverySelected,infoStandPreparationSelected,workspaceFurnishingThumbnailsSelected,hayesReleaseProbeSelected,hayesDispositionProbeSelected,hayesSessionProbeSelected});
   if(typeof workspaceFurnishingThumbnailsSelected!=='boolean'||workspaceFurnishingThumbnailsSelected&&(!modelPreparationSelected||!workspaceFurnishingWriterSelected||infoStandPreparationSelected||freshImageSelected||largeModelSelected||catalog045PreReadyPreservation||catalog045PreReadyHayesPreservation||modelAdoptionSelected||modelAdoptionCarriedTargetSelected))fail('NATIVE_PACKAGE_INPUT_INVALID');
   if(typeof modelAdoptionCarriedTargetSelected!=='boolean'||modelAdoptionCarriedTargetSelected&&!modelAdoptionSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');
   if(typeof modelAdoptionSelected!=='boolean'||modelAdoptionSelected&&
@@ -405,7 +472,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if (await command(nodeBinary, ['--version'], {capture:true}) !== 'v24.21.0') fail('NATIVE_PACKAGE_NODE_INVALID');
   if (await command(nodeBinary, [npmCLI, '--version'], {capture:true}) !== '11.19.0') fail('NATIVE_PACKAGE_NPM_INVALID');
   if (!/^postgres \(PostgreSQL\) 18\.6 \(Postgres\.app\)$/.test(await command(join(postgresRoot, 'bin/postgres'), ['--version'], {capture:true,env:{PATH:'/usr/bin:/bin',LANG:'C'}}))) fail('NATIVE_PACKAGE_POSTGRES_INVALID');
-  await requireCurrentFurnishingsRelease(defaultFurnishingsRoot);
+  if(gpuModelPreparationSelected)await requireGpuModelPreparationFurnishingsRelease(defaultFurnishingsRoot);else await requireCurrentFurnishingsRelease(defaultFurnishingsRoot);
   // Rebuild the contract before reading its catalogue or copying its dist.
   // A Git pin alone cannot identify an ignored build directory.
   await command(nodeBinary, [npmCLI, 'run', 'build', '--workspace', '@exhibitos/studio-contract'], {
@@ -465,6 +532,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if(hayesDispositionSelected)await writeFile(join(platform,'scripts/native-hayes-disposition-capability-v1.json'),HAYES_DISPOSITION_CAPABILITY,{flag:'wx',mode:0o600});
   if(hayesReleaseSelected)await writeFile(join(platform,'scripts/native-hayes-release-capability-v1.json'),HAYES_RELEASE_CAPABILITY,{flag:'wx',mode:0o600});
   await copyModelPreparationSelectedFiles(source,platform,tracked,modelPreparationSelected,hayesReleaseSelected);
+  await copyGpuModelPreparationSelectedFiles(source,platform,tracked,gpuModelPreparationSelected,gpuModelEncoderRoot);
   if(modelAdoptionSelected)await writeFile(join(platform,'scripts',ADOPTION_MARKER),ADOPTION_CAPABILITY,{flag:'wx',mode:0o600});
   if(modelAdoptionCarriedTargetSelected)await writeFile(join(platform,'scripts',ADOPTION_CARRIED_TARGET_MARKER),ADOPTION_CARRIED_TARGET_CAPABILITY,{flag:'wx',mode:0o600});
   if(catalog045PreReadyPreservation)await writeFile(join(platform,'scripts',CATALOG045_PRE_READY_MARKER),CATALOG045_PRE_READY_CAPABILITY,{flag:'wx',mode:0o600});
