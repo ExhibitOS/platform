@@ -31,7 +31,16 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
   const drain=async()=>{while(pending.size)await Promise.all([...pending]);};
   const retire=()=>{for(const pattern of handlers)manager.removeHandler(pattern);handlers.length=0;owned.clear();compressedImages.clear();manager.setURLModifier(()=>reject());};
   const cleanupOK=()=>!cleanupFailed;
-  let expectedTextures=0;const assertLoaded=()=>{if(disposed||textures.size!==expectedTextures)reject();},ownsTexture=(texture:Texture)=>ownedTextures.has(texture);
+  // GLTFLoader converts image-load rejection to a null texture. Retain only a
+  // closed diagnostic code for the first child failure, never its message/URL.
+  let firstLoadFailure:string|undefined;
+  const childFailure=(kind:'PNG'|'KTX2',index:number,error:unknown)=>{
+    if(!gpuModel||disposed||firstLoadFailure)return;
+    const name=error instanceof Error?error.name:'';
+    const code=({Error:'ERROR',TypeError:'TYPE_ERROR',RangeError:'RANGE_ERROR',EncodingError:'ENCODING_ERROR',InvalidStateError:'INVALID_STATE_ERROR',NotSupportedError:'NOT_SUPPORTED_ERROR',SecurityError:'SECURITY_ERROR',AbortError:'ABORT_ERROR'} as Record<string,string>);
+    firstLoadFailure=`GPU_MODEL_EMBEDDED_${kind}_${index}_${Object.hasOwn(code,name)?code[name]:'UNKNOWN_ERROR'}`;
+  };
+  let expectedTextures=0;const assertLoaded=()=>{if(disposed)reject();if(textures.size!==expectedTextures){if(firstLoadFailure)throw Error(firstLoadFailure);reject();}},ownsTexture=(texture:Texture)=>ownedTextures.has(texture);
   const legacyBacking=(value:ArrayBuffer)=>{let backing:ArrayBuffer|undefined=value;return {get bytes(){return backing??reject();},retire(){backing=undefined;retire();}};};
   if (doc.images === undefined) {if(gpuModel)reject();pairs(doc,()=>reject());manager.setURLModifier(()=>reject());return Object.assign(legacyBacking(input),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader:undefined});}
   if (doc.images !== undefined) {
@@ -85,14 +94,14 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
             const bitmap=await createImageBitmap(new Blob([png],{type:jpeg?'image/jpeg':'image/png'}),{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
             if(disposed||original&&(bitmap.width!==w||bitmap.height!==h)){attempt(()=>bitmap.close());throw Error('EMBEDDED_IMAGE_DISPOSED');}
             bitmaps.add(bitmap);const texture=new three.Texture(bitmap);texture.needsUpdate=true;textures.add(texture);ownedTextures.add(texture);onLoad(texture);
-          }).catch(onError).finally(finish);
+          }).catch(error=>{childFailure('PNG',doc.images.indexOf(image),error);onError(error);}).finally(finish);
         }
       };
       const pattern=new RegExp('^'+key+'$');handlers.push(pattern);manager.addHandler(pattern,loader as never);
     }
   }
-  const ktx2Loader=compressed?{load(url:string,onLoad:(texture:Texture)=>void,_progress:unknown,onError:(error:unknown)=>void){const data=compressedImages.get(url);if(!data||disposed){onError(Error('EXTERNAL_RESOURCE_REJECTED'));return;}const finish=track();let ended=false;const end=()=>{if(!ended){ended=true;finish();}};try{compressed.parse(data.slice().buffer,texture=>{try{if(disposed){attempt(()=>texture.dispose());onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}textures.add(texture);ownedTextures.add(texture);onLoad(texture);}finally{end();}},error=>{try{onError(error);}finally{end();}});}catch(error){try{onError(error);}finally{end();}}}}:undefined;
-  manager.setURLModifier(url=>{if(owned.has(url))return url;return reject();});
+  const ktx2Loader=compressed?{load(url:string,onLoad:(texture:Texture)=>void,_progress:unknown,onError:(error:unknown)=>void){const data=compressedImages.get(url);if(!data||disposed){onError(Error('EXTERNAL_RESOURCE_REJECTED'));return;}const finish=track();let ended=false;const end=()=>{if(!ended){ended=true;finish();}};try{compressed.parse(data.slice().buffer,texture=>{try{if(disposed){attempt(()=>texture.dispose());onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}textures.add(texture);ownedTextures.add(texture);onLoad(texture);}finally{end();}},error=>{try{childFailure('KTX2',Number(url.slice('exhibitos-embedded-ktx2-'.length)),error);onError(error);}finally{end();}});}catch(error){try{childFailure('KTX2',Number(url.slice('exhibitos-embedded-ktx2-'.length)),error);onError(error);}finally{end();}}}}:undefined;
+  manager.setURLModifier(url=>{if(owned.has(url))return url;if(gpuModel&&!disposed)throw Error('GPU_MODEL_EMBEDDED_URI_REJECTED');return reject();});
   const json=new TextEncoder().encode(JSON.stringify(doc)), padded=Math.ceil(json.length/4)*4, bin=bytes.subarray(start);if(padded>1048576||28+padded+bin.length>33554432)reject();const result=new ArrayBuffer(28+padded+bin.length), out=new Uint8Array(result), header=new DataView(result);header.setUint32(0,0x46546c67,true);header.setUint32(4,2,true);header.setUint32(8,out.length,true);header.setUint32(12,padded,true);header.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+padded);out.set(json,20);header.setUint32(20+padded,bin.length,true);header.setUint32(24+padded,0x004e4942,true);out.set(bin,28+padded);
   if(!phasedPng)return Object.assign(legacyBacking(result),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader});
   const backing=parsedPngBacking(manager,handlers,owned,assertLoaded,result);
