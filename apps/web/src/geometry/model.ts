@@ -3,7 +3,7 @@ import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
   applyLightObjectCommand, type LightObjectCommand,
-  reflowRoomBaseLight, manualizeRoomBaseLight,
+  reflowRoomBaseLight, manualizeRoomBaseLight, sameLightPose,
   reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
   roomBaseLight,
@@ -71,12 +71,6 @@ export class GeometryError extends Error {
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const clone = <T>(v: T): T => structuredClone(v);
-/** Quaternion sign/normalization are representations, not a spatial edit. */
-function sameLightPose(a:Light["transform"],b:Light["transform"]){
-  if(!a.position.every((n,i)=>n===b.position[i])||!a.scale.every((n,i)=>n===b.scale[i]))return false;
-  const an=Math.hypot(...a.rotation),bn=Math.hypot(...b.rotation);
-  return [1,-1].some(sign=>a.rotation.every((n,i)=>Math.abs(n/an-sign*b.rotation[i]!/bn)<=1e-12));
-}
 const identity = (): Pose => ({
   position: [0, 0, 0],
   rotation: [0, 0, 0, 1],
