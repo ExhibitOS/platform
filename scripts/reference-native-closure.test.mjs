@@ -169,3 +169,14 @@ test('reads the distinct bottom-layout tuple while preserving the previous R115 
  const {R115_MODEL_CATALOGUE_REFERENCE}=await import('./qualified-wheat-reference.mjs');
  assert.equal(R115_MODEL_CATALOGUE_REFERENCE.viewerBuildId,'a596926b7726edea7a8bb68317375c1957f92101b366ddb381dc3d111f9f1b58');
 });
+
+const minHeightReadonly=process.env.EXHIBITOS_R115_MIN_HEIGHT_REFERENCE_READONLY_INPUT,minHeightReadonlyPin=process.env.EXHIBITOS_R115_MIN_HEIGHT_REFERENCE_READONLY_SHA256;
+test('reads the exact intrinsic-height correction without replacing the prior layout tuple',{skip:!minHeightReadonly||!minHeightReadonlyPin},async()=>{
+ const source=await readNativeReferenceClosure({inputRoot:await realpath(resolve(minHeightReadonly)),inventorySha256:minHeightReadonlyPin});
+ assert.equal(source.reference.viewerSourceCommit,'eba410a6837842362a1894cf07736f9a959ac86c');
+ assert.equal(source.reference.viewerBuildId,'da746b7ebb1e4c2bfc54b78e6cab1541f5a6e2cdbc1b644f3d8c3dc1084b4bed');
+ assert.equal(source.reference.indexSha256,'df88d1703f790e33ac3ab7609bb55510b9f5feb20b64e48a1f3270cf08372a23');
+ assert.equal(source.sourceEntries.size,146);assert.equal(source.webEntries.size,36);
+ const {R115_BOTTOM_LAYOUT_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ assert.equal(R115_BOTTOM_LAYOUT_REFERENCE.viewerBuildId,'a5ff805540c0b3e5ce0ef7ee48314fa0d866e29a3348c051c588bcff9302d94d');
+});

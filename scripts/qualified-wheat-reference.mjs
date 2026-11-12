@@ -357,6 +357,14 @@ export const R115_BOTTOM_LAYOUT_REFERENCE=Object.freeze({...R115_REFERENCE,
  viewerBuildId:'a5ff805540c0b3e5ce0ef7ee48314fa0d866e29a3348c051c588bcff9302d94d',
  viewerInventorySha256:'e41bd12c493b8b1a33fc429996b62ea836e21745c1ecfa5828be89b0c8354c76',
 });
+// Separate intrinsic-height correction; retain both earlier R115 Viewer tuples.
+export const R115_MIN_HEIGHT_REFERENCE=Object.freeze({...R115_REFERENCE,
+ viewerSourceCommit:'eba410a6837842362a1894cf07736f9a959ac86c',
+ viewerSourceTree:'280e314abd50da2a2ec8d418061985b0f9e9a408',
+ viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
+ viewerBuildId:'da746b7ebb1e4c2bfc54b78e6cab1541f5a6e2cdbc1b644f3d8c3dc1084b4bed',
+ viewerInventorySha256:'2d47d53df20b655813965f33d25d754b3037900eafa47e82d2f1310b4723b013',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
