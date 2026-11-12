@@ -28,6 +28,11 @@ test('shared furnishing proposal uses the existing bench reducer and rejects for
   await writeFile(path,JSON.stringify(packet));const result=await runPrivateAgentRenderer(path,join(root,'result'));
   assert.deepEqual(Object.keys(result.reply).sort(),['candidate','epoch','principalId','requestId','sequence','tenantId','version']);
   const furnishing=furnishingsFor(result.reply.candidate);assert.equal(furnishing.bindings[0].hostId,hostId);assert.equal(furnishing.assets[0].sha256,'364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b');
+  const refinedRequest={...request,catalogId:'sculpture-bench-refined'};
+  await writeFile(path,JSON.stringify({...packet,request:refinedRequest}));const refined=await runPrivateAgentRenderer(path,join(root,'refined-result'));
+  assert.equal(furnishingsFor(refined.reply.candidate).assets[0].sha256,'e22f0acdda9f0e33f00fbe5c874eb12bc2799062e34ad2939fa0d88721bef1f9');
+  assert.equal(refined.reply.candidate.extensions['org.exhibitos.studio/benches'].benches[0].kind,'backed');
+  assert.deepEqual(refined.reply.candidate.extensions['org.exhibitos.studio/presentation'],inputCandidate.extensions['org.exhibitos.studio/presentation']);
   for(const bad of [{...request,tenantId:randomUUID()},{...request,hostId:randomUUID()},{...request,catalogId:'rectangular-plinth'},{...request,extra:true}]){await writeFile(path,JSON.stringify({...packet,request:bad}));await assert.rejects(runPrivateAgentRenderer(path,join(root,randomUUID())));}
  }finally{await rm(root,{recursive:true,force:true});}
 });

@@ -21,7 +21,6 @@ import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
-import {BENCH_RESERVE_BYTES} from './private-editor/catalog-bench';
 import "./viewer/input-surface.css";
 import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
@@ -598,7 +597,7 @@ export function GeometryPreview({
       const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
       const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
-      const benchReserve=benchSource&&beforeBench>BENCH_RESERVE_BYTES?BENCH_RESERVE_BYTES:0;
+      const benchReserve=benchSource&&beforeBench>benchSource.reserveBytes?benchSource.reserveBytes:0;
       const otherFurnishings=catalogOtherSources(document,benchAuthority);
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
@@ -1067,7 +1066,7 @@ export function GeometryPreview({
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
       let contactBench:{model:Object3D;hostId:string}|undefined;
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
       if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled});catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};

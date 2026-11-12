@@ -14,7 +14,7 @@ export function installBenches(three:typeof Three,document:Exhibition,rooms:Read
     const group=new three.Group();groups.push(group);group.position.fromArray(bench.position);group.rotation.y=bench.yaw;group.userData.benchId=bench.id;parent.add(group);
     const m=bench.material,key=JSON.stringify([m.color.toLowerCase(),m.roughness,m.metalness]);
     let material=materials.get(key);if(!material){material=new three.MeshStandardMaterial({color:m.color,roughness:m.roughness,metalness:m.metalness});materials.set(key,material);}
-    const boxes=benchBoxes(bench),mesh=new three.InstancedMesh(geometry!,material,boxes.length),pose=new three.Object3D();
+    const boxes=benchBoxes(bench,1,document),mesh=new three.InstancedMesh(geometry!,material,boxes.length),pose=new three.Object3D();
     boxes.forEach((box,i)=>{pose.position.fromArray(box.position);pose.scale.set(box.dimensions.width,box.dimensions.height,box.dimensions.depth);pose.updateMatrix();mesh.setMatrixAt(i,pose.matrix);});
     mesh.instanceMatrix.needsUpdate=true;mesh.computeBoundingBox();mesh.computeBoundingSphere();mesh.userData.benchId=bench.id;instances.push(mesh);group.add(mesh);
   }}catch(error){for(const g of groups)g.removeFromParent();for(const mesh of instances)mesh.dispose();geometry?.dispose();for(const m of materials.values())m.dispose();throw error;}
