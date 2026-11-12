@@ -1,4 +1,4 @@
-import {embeddedBasisPairs,ordinaryPngRoleSet,type DetailTextureFeatures} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs,embeddedMippedBasisPairs,ordinaryPngRoleSet,type DetailTextureFeatures} from '@exhibitos/studio-contract';
 import type { LoadingManager, Texture } from 'three';
 import {embeddedJpegSize,acquiredModelTextureEdge} from './viewer/detail-model-admission';
 /** Kept separate so legacy scopes do not newly capture the manager/handlers. */
@@ -13,13 +13,15 @@ function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<str
   }};
 }
 /** Each GLB image is served from a predeclared immutable embedded buffer, never a URL supplied by the model. */
-export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}, acquiredTextures?:readonly Readonly<DetailTextureFeatures>[]) {
+export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}, acquiredTextures?:readonly Readonly<DetailTextureFeatures>[], mode:'legacy-single'|'gpu-model-v1'='legacy-single') {
   const bytes = new Uint8Array(input), view = new DataView(input);
   const reject = (): never => { throw Error('EXTERNAL_RESOURCE_REJECTED'); };
   if (bytes.length < 20 || bytes.length > 33554432 || view.getUint32(0,true) !== 0x46546c67 || view.getUint32(4,true) !== 2 || view.getUint32(8,true) !== bytes.length) reject();
   const size = view.getUint32(12,true), start = 28 + size;
   if (size > 1048576 || size % 4 || 20+size > bytes.length || view.getUint32(16,true) !== 0x4e4f534a) reject();
-  const pairs=(doc:ReturnType<typeof JSON.parse>,read:(index:number)=>Uint8Array)=>{try{return embeddedBasisPairs(doc,read);}catch{return reject();}};
+  const gpuModel=mode==='gpu-model-v1';
+  if(gpuModel&&(!compressed||acquiredTextures))reject();
+  const pairs=(doc:ReturnType<typeof JSON.parse>,read:(index:number)=>Uint8Array)=>{try{return (gpuModel?embeddedMippedBasisPairs:embeddedBasisPairs)(doc,read);}catch{return reject();}};
   const doc = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(20,20+size)));
   const compressedImages=new Map<string,Uint8Array>();
   const owned = new Set<string>(), textures=new Set<Texture>(),ownedTextures=new WeakSet<Texture>(), bitmaps=new Set<ImageBitmap>(),handlers:RegExp[]=[],pending=new Set<Promise<void>>();let disposed=false,phasedPng=false,cleanupFailed=false;
@@ -31,10 +33,24 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
   const cleanupOK=()=>!cleanupFailed;
   let expectedTextures=0;const assertLoaded=()=>{if(disposed||textures.size!==expectedTextures)reject();},ownsTexture=(texture:Texture)=>ownedTextures.has(texture);
   const legacyBacking=(value:ArrayBuffer)=>{let backing:ArrayBuffer|undefined=value;return {get bytes(){return backing??reject();},retire(){backing=undefined;retire();}};};
-  if (doc.images === undefined) {pairs(doc,()=>reject());manager.setURLModifier(()=>reject());return Object.assign(legacyBacking(input),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader:undefined});}
+  if (doc.images === undefined) {if(gpuModel)reject();pairs(doc,()=>reject());manager.setURLModifier(()=>reject());return Object.assign(legacyBacking(input),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader:undefined});}
   if (doc.images !== undefined) {
     if (!Array.isArray(doc.images) || doc.images.length > 16 || !doc.images.length || view.getUint32(24+size,true) !== 0x004e4942 || view.getUint32(20+size,true) + start !== bytes.length || doc.buffers?.length !== 1 || Object.keys(doc.buffers[0]).some(k=>k!=='byteLength') || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength<1 || doc.buffers[0].byteLength>bytes.length-start || bytes.length-start-doc.buffers[0].byteLength>3) reject();
     const basis=pairs(doc,(i)=>{const im=doc.images[i],bv=doc.bufferViews?.[im?.bufferView],o=bv?.byteOffset??0,n=bv?.byteLength;if(!bv||bv.buffer!==0||!Number.isSafeInteger(o)||o<0||!Number.isSafeInteger(n)||n<1||o+n>doc.buffers[0].byteLength)reject();return bytes.subarray(start+o,start+o+n);});
+    if(gpuModel){
+      // The new recipe permits one compressed colour map only. Reuse the
+      // ordinary three-role boundary on its PNG fallbacks, without widening
+      // legacy Basis admission or allowing compressed normal/AO maps.
+      if(basis.size!==1||doc.images.length!==4||doc.textures?.length!==3)reject();
+      const colour=doc.materials?.[0]?.pbrMetallicRoughness?.baseColorTexture?.index;
+      const encoded=doc.textures[colour]?.extensions?.KHR_texture_basisu?.source;
+      if(!basis.has(encoded)||doc.animations!==undefined||doc.skins!==undefined||
+        doc.samplers!==undefined&&(!Array.isArray(doc.samplers)||doc.samplers.some((sampler:object)=>!sampler||Object.keys(sampler).length)))reject();
+      const pngIndices=doc.images.map((image:{mimeType:string},index:number)=>image.mimeType==='image/png'?index:-1).filter((index:number)=>index>=0);
+      const fallback=structuredClone(doc);fallback.images=pngIndices.map((index:number)=>fallback.images[index]);
+      for(const texture of fallback.textures){texture.source=pngIndices.indexOf(texture.source);delete texture.extensions;}
+      if(!ordinaryPngRoleSet(fallback))reject();
+    }
     expectedTextures=doc.textures===undefined?doc.images.length:new Set(doc.textures.map((t: {source:number;extensions?:{KHR_texture_basisu?:{source:number}}})=>compressed&&t.extensions?.KHR_texture_basisu?t.extensions.KHR_texture_basisu.source:t.source)).size;
     const ordinary=ordinaryPngRoleSet(doc)&&doc.images.every((image:{bufferView:number})=>{const buffer=doc.bufferViews?.[image.bufferView],offset=buffer?.byteOffset??0,length=buffer?.byteLength;if(!buffer||buffer.buffer!==0||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(length)||length<33||offset+length>doc.buffers[0].byteLength)return false;const png=bytes.subarray(start+offset,start+offset+length),header=new DataView(png.buffer,png.byteOffset,png.byteLength);return [137,80,78,71,13,10,26,10].every((b,i)=>png[i]===b)&&header.getUint32(8)===13&&new TextDecoder().decode(png.subarray(12,16))==='IHDR'&&png[24]===8&&png[25]===2;}),pixelLimit=(ordinary?12:2)*1024*1024,byteLimit=(ordinary?24:8)*1024*1024;
     phasedPng=ordinary&&doc.extensionsUsed===undefined&&doc.extensionsRequired===undefined&&doc.animations===undefined&&doc.skins===undefined&&doc.meshes.every((mesh:{primitives:Record<string,unknown>[]})=>mesh.primitives.every(primitive=>primitive.targets===undefined));
@@ -57,7 +73,7 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
       if(acquiredTextures){
         if(!original||original.codec!==(jpeg?'jpeg':'png')||original.encodedBytes!==length||w!==original.width||h!==original.height||
          w>acquiredModelTextureEdge||h>acquiredModelTextureEdge||pixels>3*acquiredModelTextureEdge**2)reject();
-      }else if(!w||!h||w>2048||h>2048||pixels>pixelLimit||totalBytes>byteLimit||ordinary&&(png[24]!==8||png[25]!==2))reject();
+      }else if(!w||!h||w>2048||h>2048||pixels>pixelLimit||totalBytes>byteLimit||(ordinary||gpuModel)&&(png[24]!==8||png[25]!==2)||gpuModel&&(w!==512||h!==512))reject();
       // Loader handler matches an opaque model-local key; no general blob/data/http resource is allowed.
       const key = 'exhibitos-embedded-png-'+owned.size;
       owned.add(key);
