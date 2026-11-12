@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {checkedGpuCandidatePreviewRequest,gpuCandidatePreviewOwnerMatches,gpuCandidatePreviewCapabilityReply,gpuCandidatePreviewBeginReply,gpuCandidatePreviewCancelReply,gpuCandidatePreviewEnded,type GpuCandidatePreviewBegin,type GpuCandidatePreviewCancel} from './gpu-candidate-preview-wire';
 const id=(n:number)=>`00000000-0000-4000-8000-${n.toString().padStart(12,'0')}`;
 const begin=():GpuCandidatePreviewBegin=>({version:1,phase:'begin',epoch:id(1),sequence:1,requestId:id(2),workspaceId:id(3),tenantId:id(4),principalId:id(5),artworkId:id(6),artworkRevision:0,jobId:id(7),generation:'native.job-1_0',receiptSHA256:'a'.repeat(64),source:{assetId:id(8),mime:'model/gltf-binary',sha256:'b'.repeat(64),bytes:33554432,approvalSHA256:'c'.repeat(64),rightsSHA256:'d'.repeat(64)},candidate:{assetId:id(9),mime:'model/gltf-binary',sha256:'e'.repeat(64),bytes:1}});
@@ -27,6 +27,16 @@ it('rejects malformed identity, unsafe counts, hashes, generations, MIME and col
     r=>{Object.assign(r.source,{mime:'image/png'});},r=>{r.candidate.assetId=r.source.assetId;},r=>{r.source.assetId='aaaaaaaa-0000-4000-8000-000000000001';r.candidate.assetId=r.source.assetId.toUpperCase();},
   ];
   for(const mutate of mutations){const r=begin();mutate(r);expect(()=>checkedGpuCandidatePreviewRequest(r)).toThrow('GPU_CANDIDATE_PREVIEW_WIRE_INVALID');}
+});
+it('rejects prototypes, hidden keys, symbols and accessors without executing getters',()=>{
+  const getter=vi.fn(()=> 'begin');
+  const prototyped=Object.assign(Object.create({grant:true}),begin());
+  const hidden=Object.defineProperty(begin(),'grant',{value:true,enumerable:false});
+  const symbolic=Object.assign(begin(),{[Symbol('grant')]:true});
+  const accessor=Object.defineProperty(begin(),'phase',{get:getter,enumerable:true});
+  const nested=begin();Object.defineProperty(nested.source,'assetId',{get:getter,enumerable:true});
+  for(const value of [prototyped,hidden,symbolic,accessor,nested])expect(()=>checkedGpuCandidatePreviewRequest(value)).toThrow('GPU_CANDIDATE_PREVIEW_WIRE_INVALID');
+  expect(getter).not.toHaveBeenCalled();
 });
 it('requires exact owner equality including sequence rather than admitting a newer frame',()=>{
   const r=begin(),c=cancel(r);expect(gpuCandidatePreviewOwnerMatches(r,c)).toBe(true);

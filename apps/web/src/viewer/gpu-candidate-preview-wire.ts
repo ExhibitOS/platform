@@ -27,8 +27,16 @@ const fail=():never=>{throw Error('GPU_CANDIDATE_PREVIEW_WIRE_INVALID');};
 const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const sha=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const integer=(v:unknown,min:number,max=Number.MAX_SAFE_INTEGER)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=min&&v<=max;
+function dataObject(v:unknown):asserts v is Record<string,unknown>{
+  if(!v||typeof v!=='object'||Object.getPrototypeOf(v)!==Object.prototype)fail();
+  for(const key of Reflect.ownKeys(v)){
+    const descriptor=Object.getOwnPropertyDescriptor(v,key)!;
+    if(typeof key!=='string'||!descriptor.enumerable||!Object.hasOwn(descriptor,'value'))fail();
+  }
+}
 function closed(v:unknown,keys:string):asserts v is Record<string,unknown>{
-  if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).sort().join(',')!==keys.split(',').sort().join(','))fail();
+  dataObject(v);
+  if(Reflect.ownKeys(v).sort().join(',')!==keys.split(',').sort().join(','))fail();
 }
 const ownerKeys='version,epoch,sequence,requestId,workspaceId,tenantId,principalId';
 function asset(v:unknown,source:boolean){
@@ -37,8 +45,8 @@ function asset(v:unknown,source:boolean){
 }
 /** Closed data only: no URL, authority grant, control, or budget can cross this wire. */
 export function checkedGpuCandidatePreviewRequest(value:unknown):GpuCandidatePreviewRequest{
-  if(!value||typeof value!=='object'||Array.isArray(value))fail();
-  const v=value as Record<string,unknown>;
+  dataObject(value);
+  const v=value;
   if(v.phase==='capability'){
     closed(v,'version,phase');if(v.version!==1)fail();
   }else{
