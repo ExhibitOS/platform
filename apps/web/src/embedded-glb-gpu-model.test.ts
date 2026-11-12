@@ -57,3 +57,31 @@ test('GPU mode requires explicit decoder proxy and refuses acquired-original tex
  const parse=vi.fn();expect(()=>embeddedPNGManager(new LoadingManager(),fixture(),undefined,undefined,'gpu-model-v1')).toThrow('EXTERNAL_RESOURCE_REJECTED');
  expect(()=>embeddedPNGManager(new LoadingManager(),fixture(),{parse},[],'gpu-model-v1')).toThrow('EXTERNAL_RESOURCE_REJECTED');expect(parse).not.toHaveBeenCalled();
 });
+
+test('retains the first compressed child failure as a closed native-visible code without raw error text',async()=>{
+ const raw='https://example.invalid/private?token=never-log cookie=never-log';
+ const manager=new LoadingManager(),parse=vi.fn((_bytes,onLoad,onError)=>onError(new TypeError(raw)));
+ const scope=embeddedPNGManager(manager,fixture(),{parse},undefined,'gpu-model-v1'),errors:unknown[]=[];
+ scope.ktx2Loader!.load('exhibitos-embedded-ktx2-3',()=>{},undefined,error=>errors.push(error));
+ expect(errors).toHaveLength(1);expect(()=>scope.assertLoaded()).toThrow('GPU_MODEL_EMBEDDED_KTX2_3_TYPE_ERROR');
+ // Later failures cannot replace the first one, and no raw text crosses assertLoaded.
+ parse.mockImplementationOnce((_bytes,_onLoad,onError)=>onError(new RangeError('later')));
+ scope.ktx2Loader!.load('exhibitos-embedded-ktx2-3',()=>{},undefined,()=>{});
+ try{scope.assertLoaded();}catch(error){expect((error as Error).message).toMatch(/^[A-Z0-9_]{1,80}$/);expect((error as Error).message).not.toContain(raw);expect((error as Error).message).toBe('GPU_MODEL_EMBEDDED_KTX2_3_TYPE_ERROR');}
+ scope.dispose();await scope.drain();scope.retire();expect(scope.cleanupOK()).toBe(true);expect(()=>scope.assertLoaded()).toThrow('EXTERNAL_RESOURCE_REJECTED');
+});
+
+test('retains a PNG decode failure before GLTFLoader can swallow its rejection',async()=>{
+ const error=Object.assign(Error('private raw message'),{name:'EncodingError'}),bitmap=vi.fn().mockRejectedValue(error);vi.stubGlobal('createImageBitmap',bitmap);
+ const manager=new LoadingManager(),scope=embeddedPNGManager(manager,fixture(),{parse:vi.fn()},undefined,'gpu-model-v1');
+ const key='exhibitos-embedded-png-1',handler=manager.getHandler(key)!,onError=vi.fn();handler.load(key,()=>{},undefined,onError);
+ await scope.drain();expect(onError).toHaveBeenCalledWith(error);expect(()=>scope.assertLoaded()).toThrow('GPU_MODEL_EMBEDDED_PNG_1_ENCODING_ERROR');
+ scope.dispose();await scope.drain();scope.retire();expect(scope.cleanupOK()).toBe(true);
+});
+
+test('distinguishes active GPU opaque-URI rejection and synchronous decoder failure without admitting any URL',async()=>{
+ const manager=new LoadingManager(),scope=embeddedPNGManager(manager,fixture(),{parse(){throw Error('not retained');}},undefined,'gpu-model-v1');
+ expect(()=>manager.resolveURL('https://example.invalid/private')).toThrow('GPU_MODEL_EMBEDDED_URI_REJECTED');
+ scope.ktx2Loader!.load('exhibitos-embedded-ktx2-3',()=>{},undefined,()=>{});expect(()=>scope.assertLoaded()).toThrow('GPU_MODEL_EMBEDDED_KTX2_3_ERROR');
+ scope.dispose();await scope.drain();scope.retire();expect(()=>manager.resolveURL('exhibitos-embedded-ktx2-3')).toThrow('EXTERNAL_RESOURCE_REJECTED');
+});
