@@ -1,6 +1,6 @@
 import {Matrix4,Vector3,Quaternion} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {artifactBounds,artifactCorners,alignedDoorPair,freezeCanonical,TEMPLATE_NAMESPACE,assertRoomEnvelopeContents} from '@exhibitos/studio-contract';
+import {artifactBounds,artifactCorners,alignedDoorPair,freezeCanonical,TEMPLATE_NAMESPACE,assertRoomEnvelopeContents,ensureRoomBaseLight,roomBaseLight,LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
 import {newRoom,newDoor,whiteCubeSurfaces,applyGeometryCommand,createGeometryState,type GeometryCommand} from '../geometry/model';
 import {worldMatrix,matrix} from '../geometry/direct-edit';
 import {runDoorConnection,checkedDoorConnection} from './door-connection';
@@ -46,7 +46,19 @@ export function assertPreparedRoom(source:Exhibition,command:GeometryCommand,roo
  if(!first||!second||!same(first.connectsToOpeningId??'',second.id)||!same(second.connectsToOpeningId??'',first.id)||first.exterior!==undefined||second.exterior!==undefined||!surfaces.some(value=>same(value.id,second.surfaceId)))throw Error('ROOM_ATTEMPT_CHANGED');
  if(original){const stable=(value:typeof original)=>({...value,connectsToOpeningId:null,exterior:null});if(freezeCanonical(stable(first))!==freezeCanonical(stable(original)))throw Error('ROOM_ATTEMPT_CHANGED');}
  else if(!source.surfaces.some(value=>same(value.id,first.surfaceId)))throw Error('ROOM_ATTEMPT_CHANGED');
+ // The ordinary add-room command owns exactly one generated automatic light.
+ // Recreate only that recipe with its actual generated ID; no other lighting
+ // or metadata delta becomes exempt from source preservation.
+ const base=roomBaseLight(next,roomId);if(!base)throw Error('ROOM_ATTEMPT_CHANGED');
+ const expected=ensureRoomBaseLight({...structuredClone(source),rooms:[...structuredClone(source.rooms),structuredClone(room)]},roomId,base.id);
+ if(freezeCanonical(next.lights)!==freezeCanonical(expected.lights)||freezeCanonical(next.extensions?.[LIGHT_DETAILS_NAMESPACE]??null)!==freezeCanonical(expected.extensions?.[LIGHT_DETAILS_NAMESPACE]??null))throw Error('ROOM_ATTEMPT_CHANGED');
  const copy=structuredClone(next);copy.rooms=copy.rooms.filter(value=>!same(value.id,roomId));copy.surfaces=copy.surfaces.filter(value=>!same(value.roomId,roomId));copy.openings=copy.openings.filter(value=>!same(value.id,second.id)&&(!same(value.id,first.id)||!!original)).map(value=>original&&same(value.id,original.id)?structuredClone(original):value);
+ copy.lights=structuredClone(source.lights);
+ if(copy.extensions){
+  if(source.extensions&&Object.hasOwn(source.extensions,LIGHT_DETAILS_NAMESPACE))copy.extensions[LIGHT_DETAILS_NAMESPACE]=structuredClone(source.extensions[LIGHT_DETAILS_NAMESPACE]!);
+  else delete copy.extensions[LIGHT_DETAILS_NAMESPACE];
+  if(source.extensions===undefined&&!Object.keys(copy.extensions).length)delete copy.extensions;
+ }
  const template=copy.extensions?.[TEMPLATE_NAMESPACE] as unknown as {modified?:unknown}|undefined,oldTemplate=source.extensions?.[TEMPLATE_NAMESPACE] as unknown as {modified?:unknown}|undefined;if(template&&oldTemplate&&typeof template.modified==='boolean'&&typeof oldTemplate.modified==='boolean')template.modified=oldTemplate.modified;
  if(freezeCanonical(copy)!==freezeCanonical(source))throw Error('ROOM_ATTEMPT_CHANGED');assertRoomEnvelopeContents(next,roomId);
 }
