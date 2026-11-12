@@ -11,6 +11,41 @@ import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from '@exhibitos/studio-contr
 const root=fileURLToPath(new URL('../',import.meta.url)),hex=/^[a-f0-9]{64}$/,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const fail=code=>{throw Error(code);};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const rawBasisPins=Object.freeze([
+ {name:'basis_transcoder.js',bytes:57529,sha256:'8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1',mime:'text/javascript'},
+ {name:'basis_transcoder.wasm',bytes:527333,sha256:'6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a',mime:'application/wasm'},
+ {name:'exhibitos-basis-worker.js',bytes:68805,sha256:'db4e90b304008ac396794f30b9f72897e4269080807e1546111bf9ae2c77b9ac',mime:'text/javascript'},
+]);
+/** Only the candidate may explicitly select the existing closed GPU recipe. */
+export function rawAssetProfile(asset,role){
+ const profiled=role==='candidate'&&asset?.profile==='gpu-model-v1';
+ const expected=profiled?'bytes,mime,path,profile,sha256':'bytes,mime,path,sha256';
+ if(!['reference','candidate'].includes(role)||!asset||Array.isArray(asset)||Object.keys(asset).sort().join(',')!==expected||
+   typeof asset.path!=='string'||asset.mime!=='model/gltf-binary'||!hex.test(asset.sha256)||
+   !Number.isSafeInteger(asset.bytes)||asset.bytes<28||asset.bytes>32*1024*1024)fail('AGENT_REQUEST');
+ return profiled?'gpu-model-v1':undefined;
+}
+export function assertRawAssetTextureBranch(profile,diagnostics){
+ const gpu=profile==='gpu-model-v1';
+ if(diagnostics?.textureBranch!==(gpu?'gpu-model-v1':'embedded-png')||
+   (gpu?!['astc-4x4','bc7'].includes(diagnostics.targetFormat):diagnostics.targetFormat!==null))fail('AGENT_TEXTURE_BRANCH');
+}
+/** No path or decoder source is accepted from the raw-asset request. */
+export async function rawAssetBasisFiles(signal,assetRoot=join(root,'apps/web/dist/basis')){
+ await plain(assetRoot,true);const files=new Map();
+ for(const pin of rawBasisPins){
+  signal?.throwIfAborted();const path=join(assetRoot,pin.name);await plain(path);
+  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);let bytes;
+  try{
+   const stat=await file.stat();if(!stat.isFile()||stat.uid!==process.getuid()||stat.size!==pin.bytes)fail('AGENT_BASIS_INTEGRITY');
+   const buffer=Buffer.alloc(pin.bytes+1);let offset=0;
+   while(offset<buffer.length){signal?.throwIfAborted();const read=await file.read(buffer,offset,buffer.length-offset,offset);if(!read.bytesRead)break;offset+=read.bytesRead;}
+   bytes=buffer.subarray(0,offset);if(bytes.length!==pin.bytes||hash(bytes)!==pin.sha256)fail('AGENT_BASIS_INTEGRITY');
+  }finally{await file.close();}
+  files.set('/basis/'+pin.name,{bytes,mime:pin.mime});
+ }
+ return files;
+}
 async function digest(path,signal){signal?.throwIfAborted();const h=createHash('sha256');for await(const bytes of createReadStream(path)){signal?.throwIfAborted();h.update(bytes);}signal?.throwIfAborted();return h.digest('hex');}
 async function plain(path,directory=false){if(!isAbsolute(path)||await realpath(path)!==path)fail('AGENT_PATH');const st=await lstat(path);if(st.isSymbolicLink()||!(directory?st.isDirectory():st.isFile())||st.uid!==process.getuid())fail('AGENT_PATH');return path;}
 async function json(path,limit=1100000){await plain(path);const st=await lstat(path);if(st.size>limit)fail('AGENT_INPUT_LIMIT');return JSON.parse(await readFile(path,'utf8'));}
@@ -119,11 +154,13 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
   };
   for(const role of roles){
    const asset=input[role];
-   if(!keys(asset,'bytes,mime,path,sha256')||typeof asset.path!=='string'||asset.mime!=='model/gltf-binary'||
-    !hex.test(asset.sha256)||!Number.isSafeInteger(asset.bytes)||asset.bytes<28||asset.bytes>32*1024*1024)fail('AGENT_REQUEST');
+   const profile=rawAssetProfile(asset,role);
    const bytes=await readAsset(role);
    await new Promise((resolve,reject)=>{
-    const child=execFile(process.execPath,['--max-old-space-size=128',join(root,'dist-agent/validation-worker.mjs'),asset.mime],{
+    // The hash-pinned upstream Basis implementation emits Node DEP0005.
+    // Suppress only that warning in this explicit mode; all other stderr still
+    // rejects the isolated validator and the legacy invocation is unchanged.
+    const child=execFile(process.execPath,['--max-old-space-size=128',...(profile?['--disable-warning=DEP0005']:[]),join(root,'dist-agent/validation-worker.mjs'),asset.mime,...(profile?[profile]:[])],{
      signal,timeout:5000,maxBuffer:4096,killSignal:'SIGKILL',env:{PATH:process.env.PATH},
     });
     let stdout='',runtimeFailure=false;
@@ -140,6 +177,7 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
    });
   }
 
+  const basisFiles=input.candidate.profile==='gpu-model-v1'?await rawAssetBasisFiles(signal):new Map();
   let server,browser;
   const nonce=randomUUID(),images=new Map();
   try{
@@ -153,6 +191,10 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
      }else if(req.url==='/renderer.js'){
       res.setHeader('Content-Type','text/javascript');
       res.end(await readFile(join(root,'dist-agent/renderer.js')));
+     }else if(basisFiles.has(req.url)){
+      const file=basisFiles.get(req.url);res.setHeader('Content-Type',file.mime);res.setHeader('X-Content-Type-Options','nosniff');
+      if(req.url==='/basis/exhibitos-basis-worker.js')res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'");
+      res.end(file.bytes);
      }else if(roles.some(role=>req.url==='/'+nonce+'/raw/'+role)){
       res.setHeader('Content-Type','model/gltf-binary');
       res.end(await readAsset(req.url.split('/').at(-1)));
@@ -180,9 +222,10 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
       const capture=await page.evaluate(async value=>{
        try{return {image:await window.captureRawAsset(value)};}
        catch(error){return {code:error instanceof Error?error.message:'AGENT_RENDER_FAILED'};}
-      },{role,bytes:asset.bytes,sha256:asset.sha256,camera});
+      },{role,bytes:asset.bytes,sha256:asset.sha256,camera,...(asset.profile?{profile:asset.profile}:{})});
       if(errors.length)fail('AGENT_RENDER');
       if(!capture.image)fail(capture.code==='MODEL_RESIDENT_BUDGET'?'AGENT_MODEL_RESIDENT_BUDGET':capture.code);
+      assertRawAssetTextureBranch(asset.profile,capture.image);
       const {pngBase64,...diagnostics}=capture.image;
       const bytes=Buffer.from(pngBase64,'base64');
       if(bytes.length>524288||bytes.length<33||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||

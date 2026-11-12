@@ -36,3 +36,31 @@ test('shared furnishing proposal uses the existing bench reducer and rejects for
   for(const bad of [{...request,tenantId:randomUUID()},{...request,hostId:randomUUID()},{...request,catalogId:'rectangular-plinth'},{...request,extra:true}]){await writeFile(path,JSON.stringify({...packet,request:bad}));await assert.rejects(runPrivateAgentRenderer(path,join(root,randomUUID())));}
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('raw GPU selection is candidate-only, explicit and closed; legacy descriptors remain unchanged',async()=>{
+ const {rawAssetProfile,assertRawAssetTextureBranch}=await import('./private-agent-renderer.mjs');
+ const asset={path:'/immutable/model.glb',mime:'model/gltf-binary',bytes:28,sha256:'a'.repeat(64)};
+ assert.equal(rawAssetProfile(asset,'reference'),undefined);assert.equal(rawAssetProfile(asset,'candidate'),undefined);
+ assert.equal(rawAssetProfile({...asset,profile:'gpu-model-v1'},'candidate'),'gpu-model-v1');
+ for(const [role,value] of [['reference',{...asset,profile:'gpu-model-v1'}],['candidate',{...asset,profile:null}],['candidate',{...asset,profile:'legacy-single'}],['candidate',{...asset,profile:'gpu-model-v1',basisRoot:'/caller'}],['candidate',{...asset,bytes:33*1024*1024}],['candidate',{...asset,sha256:'bad'}]])assert.throws(()=>rawAssetProfile(value,role),/AGENT_REQUEST/);
+ assert.doesNotThrow(()=>assertRawAssetTextureBranch(undefined,{textureBranch:'embedded-png',targetFormat:null}));
+ for(const targetFormat of ['astc-4x4','bc7'])assert.doesNotThrow(()=>assertRawAssetTextureBranch('gpu-model-v1',{textureBranch:'gpu-model-v1',targetFormat}));
+ for(const [profile,diagnostics] of [[undefined,{textureBranch:'gpu-model-v1',targetFormat:'bc7'}],['gpu-model-v1',{textureBranch:'embedded-png',targetFormat:null}],['gpu-model-v1',{textureBranch:'gpu-model-v1',targetFormat:'rgba8'}],[undefined,{textureBranch:'embedded-png',targetFormat:'bc7'}]])assert.throws(()=>assertRawAssetTextureBranch(profile,diagnostics),/AGENT_TEXTURE_BRANCH/);
+});
+
+test('raw decoder files admit only the unchanged pinned runtime bytes and reject altered or linked files',async()=>{
+ const {rawAssetBasisFiles}=await import('./private-agent-renderer.mjs');
+ const {KTX2Loader}=await import('three/addons/loaders/KTX2Loader.js');
+ const root=await realpath(await mkdtemp(join(tmpdir(),'raw-basis-')));
+ const base=new URL('../node_modules/three/examples/jsm/libs/basis/',import.meta.url);
+ const js=await readFile(new URL('basis_transcoder.js',base)),wasm=await readFile(new URL('basis_transcoder.wasm',base));
+ const fn=KTX2Loader.BasisWorker.toString();
+ const worker=Buffer.from(['/* Fixed ExhibitOS worker: original pinned Three.js MIT worker and Basis Apache-2.0 implementation. Generated without private sources. */',...['EngineFormat','EngineType','TranscoderFormat','BasisFormat'].map(k=>'let _'+k+' = '+JSON.stringify(KTX2Loader[k])+';'),js.toString(),fn.substring(fn.indexOf('{')+1,fn.lastIndexOf('}'))].join('\n'));
+ try{
+  await writeFile(join(root,'basis_transcoder.js'),js);await writeFile(join(root,'basis_transcoder.wasm'),wasm);await writeFile(join(root,'exhibitos-basis-worker.js'),worker);
+  const files=await rawAssetBasisFiles(new AbortController().signal,root);
+  assert.deepEqual([...files.keys()],['/basis/basis_transcoder.js','/basis/basis_transcoder.wasm','/basis/exhibitos-basis-worker.js']);assert.equal(files.get('/basis/basis_transcoder.wasm').mime,'application/wasm');assert.deepEqual(files.get('/basis/exhibitos-basis-worker.js').bytes,worker);
+  const changed=Buffer.from(wasm);changed[changed.length-1]^=1;await writeFile(join(root,'basis_transcoder.wasm'),changed);await assert.rejects(rawAssetBasisFiles(undefined,root),/AGENT_BASIS_INTEGRITY/);
+  await writeFile(join(root,'basis_transcoder.wasm'),wasm);await rm(join(root,'exhibitos-basis-worker.js'));await symlink(join(root,'basis_transcoder.js'),join(root,'exhibitos-basis-worker.js'));await assert.rejects(rawAssetBasisFiles(undefined,root),/AGENT_PATH/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
