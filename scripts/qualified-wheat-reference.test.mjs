@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,mkdir,readdir,readFile,link,unlink,writeFile,rm} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {inspectDemo} from './deploy-reference-demo.mjs';
-import {verifiedQualifiedWheat} from './qualified-wheat-reference.mjs';
+import {verifiedQualifiedWheat,R115_REFERENCE} from './qualified-wheat-reference.mjs';
 const input=process.env.EXHIBITOS_QUALIFIED_WHEAT_OUTPUT;
 const hash=b=>createHash('sha256').update(b).digest('hex');
 async function copyLinks(from,to){await mkdir(to,{recursive:true});for(const item of await readdir(from,{withFileTypes:true})){const a=join(from,item.name),b=join(to,item.name);if(item.isDirectory())await copyLinks(a,b);else if(item.isFile())await link(a,b);else throw Error('unexpected fixture type');}}
@@ -46,5 +46,33 @@ test('exact built v4 session decoration and tampered outputs', {skip:!input},asy
    await rehashManifest(root,'studio.html');
   }
   await assert.rejects(inspect(root));
+ });
+});
+
+// The content reference is ready independently of the not-yet-built Viewer.
+// A content pin must never inherit an older publication's Viewer entitlement.
+test('R115 content authority does not admit an unreviewed Viewer tuple',()=>{
+ assert.equal(R115_REFERENCE.nativeFiles,146);
+ for(const field of ['viewerSourceCommit','viewerSourceTree','viewerLockSha256','viewerBuildId','viewerInventorySha256'])assert.equal(Object.hasOwn(R115_REFERENCE,field),false);
+});
+
+const r115Input=process.env.EXHIBITOS_QUALIFIED_R115_OUTPUT;
+test('R115 exact originals, notices and all five selected model PNGs remain bound',{skip:!r115Input},async t=>{
+ const source=resolve(r115Input),base=await mkdtemp(join(dirname(source),'.r115-reference-test-'));t.after(()=>rm(base,{recursive:true,force:true}));
+ const qualified=await verifiedQualifiedWheat({root:source});
+ assert.equal(qualified.reference,R115_REFERENCE);
+ assert.equal(qualified.index.assets.length,62);
+ assert.equal(qualified.index.furnishingNotices.length,2);
+ assert.equal(qualified.index.detailAssets.length,2);
+ const selected=qualified.publication.exhibition.artworks.filter(art=>art.artworkType==='sculpture').map(art=>art.extensions?.['org.exhibitos.viewer/thumbnail']);
+ assert.equal(selected.length,5);
+ const {artworkThumbnailFor}=await import('@exhibitos/studio-contract');
+ const thumbnails=qualified.publication.exhibition.artworks.filter(art=>art.artworkType==='sculpture').map(art=>artworkThumbnailFor(art));
+ assert(thumbnails.every(item=>item?.mime==='image/png'));
+ const paths=[...thumbnails.map(item=>`data/${item.sha256}.bin`),...qualified.index.detailAssets.map(item=>item.path),...qualified.index.furnishingNotices.map(item=>item.path)];
+ for(const [i,path]of paths.entries())await t.test(`reject changed bound content ${i+1}`,async()=>{
+  const root=join(base,String(i));await copyLinks(source,root);
+  await replace(join(root,path),Buffer.from('changed bound content'));
+  await assert.rejects(verifiedQualifiedWheat({root}),/DEMO_WHEAT_REFERENCE_INVALID/);
  });
 });
