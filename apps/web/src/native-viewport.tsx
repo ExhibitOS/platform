@@ -1,4 +1,6 @@
 import {NativeOwnerAuthorityGate,type NativeOwnerAuthority} from './native-owner-authority';
+import {NativeGpuCandidatePreview} from './viewer/gpu-candidate-preview';
+import {GPU_CANDIDATE_PREVIEW_CAPABILITY} from './viewer/gpu-candidate-preview-wire';
 import {NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY,checkedSceneSnapshotRequest,checkedSavedScene,snapshotCandidateHash,sceneSnapshotBinding,snapshotEditSettled,type SceneSnapshotRequest,type SceneSnapshotReply} from './native-scene-snapshot';
 import type {SceneSnapshotCapture} from './scene-snapshot';
 import {NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,checkedArchitecturalFinishRequest,nativeArchitecturalFinishCandidate,type ArchitecturalFinishRequest} from './native-architectural-finishes';
@@ -36,8 +38,9 @@ import {NATIVE_FURNISHING_VISUALS_CAPABILITY,checkedFurnishingVisualsRequest,nat
 import {NATIVE_CAMERA_INTERACTION_CAPABILITY,NativeCameraInteractionGate,type CameraInteractionRequest} from './native-camera-interaction';
 import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,ROOM_BASE_LIGHT_PROFILE,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY,NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,ROOM_BASE_LIGHT_PROFILE,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY,NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY,GPU_CANDIDATE_PREVIEW_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
+ gpuCandidatePreview:(v:unknown)=>ReturnType<NativeGpuCandidatePreview['request']>;
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:readonly string[];cameraInteractionMode:CameraInteractionMode;boundedReadOnly:boolean;editingCapability?:NativeBoundedEditingCapability}>;
  setCameraInteraction:(v:unknown)=>Promise<CameraInteractionRequest&{accepted:true}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
@@ -150,10 +153,26 @@ window.addEventListener('pagehide',invalidatePendingAccept);
 window.addEventListener('exhibitos-auth-changed',invalidatePendingAccept);
 window.addEventListener('pagehide',()=>entrancePreview.invalidate());
 window.addEventListener('exhibitos-auth-changed',()=>entrancePreview.invalidate());
+let gpuPreviewEditorPending=0;
+const gpuCandidatePreview=new NativeGpuCandidatePreview({
+ unavailable:()=>!!current||acceptPending||gpuPreviewEditorPending>0||document.hidden,
+ host:()=>{
+  const host=document.createElement('div');host.className='native-gpu-candidate-preview';
+  host.style.cssText='position:fixed;inset:0;z-index:30;overflow:hidden;background:Canvas';
+  document.body.append(host);return host;
+ },
+ post:event=>window.webkit?.messageHandlers?.exhibitosViewport?.postMessage(event),
+});
+window.addEventListener('pagehide',()=>{void gpuCandidatePreview.invalidate('disposed').catch(()=>{});});
+window.addEventListener('exhibitos-auth-changed',()=>{void gpuCandidatePreview.invalidate('authority-changed').catch(()=>{});});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)void gpuCandidatePreview.invalidate('hidden').catch(()=>{});});
 window.exhibitosViewport={
+ gpuCandidatePreview:value=>gpuCandidatePreview.request(value),
  entrancePreview:value=>entrancePreview.request(value),
  entrancePreviewState:value=>entrancePreview.state(value),
  accept:async value=>{
+  gpuPreviewEditorPending++;
+  try{await gpuCandidatePreview.invalidate('editor-frame');}finally{gpuPreviewEditorPending--;}
   catalogDropRenderer?.preview.clearHighlight();
   const generation=++acceptGeneration;acceptPending=true;if(currentBoundedEditable){currentBoundedEditable=false;currentReadOnly=true;}viewportChanged?.();
   try{let frame:NativeViewportFrame,needsAuthority=false,editingCapability:NativeBoundedEditingCapability|undefined;
