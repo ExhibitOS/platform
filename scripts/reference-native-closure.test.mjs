@@ -11,10 +11,10 @@ import {isRefreshedShellPath} from './refresh-native-detail-shell.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 /** Only malformed-input fixtures. No synthetic pin can become R97 authority. */
-async function fixture(){
+async function fixture(nativeFiles=140){
  const parent=await realpath(await mkdtemp(join(tmpdir(),'reference-native-input-'))),root=join(parent,'bundle');await mkdir(root);
  const files=[],put=async(path,data)=>{const bytes=Buffer.from(data);await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),bytes);files.push({path,bytes:bytes.length,sha256:hash(bytes)});};
- for(const path of ['source/static-export-manifest.json','source/static-publication-index.json',...Array.from({length:138},(_,i)=>`source/assets/source${i}.js`)])await put(path,'synthetic unqualified input');
+ for(const path of ['source/static-export-manifest.json','source/static-publication-index.json',...Array.from({length:nativeFiles-2},(_,i)=>`source/assets/source${i}.js`)])await put(path,'synthetic unqualified input');
  for(const path of ['web/static.html','web/static-studio.html',...Array.from({length:34},(_,i)=>`web/assets/web${i}.js`)])await put(path,'synthetic unqualified web');
  await put('web-inventory.json',JSON.stringify({format:'exhibitos-static-web-input-v1',buildId:'a'.repeat(64),files:files.filter(item=>item.path.startsWith('web/')).map(item=>({...item,path:item.path.slice(4)}))}));
  await put('closure.json',JSON.stringify({format:'exhibitos-reference-native-closure-v1',publication:{publicationId:'00000000-0000-4000-8000-000000000001',revisionSha256:'a'.repeat(64),indexSha256:'a'.repeat(64),manifestSha256:'a'.repeat(64)},viewer:{sourceCommit:'a'.repeat(40),sourceTree:'a'.repeat(40),lockSha256:'a'.repeat(64),buildId:'a'.repeat(64),inventorySha256:'a'.repeat(64)},paths:{source:'source',web:'web',webInventory:'web-inventory.json'}}));
@@ -140,4 +140,20 @@ test('rejects independently re-pinned publication identity mutations',{skip:!act
   const integrity=Buffer.from(JSON.stringify(inventory));await writeFile(join(root,'integrity.json'),integrity);
   await assert.rejects(readNativeReferenceClosure({inputRoot:root,inventorySha256:hash(integrity)}),/REFERENCE_NATIVE_CLOSURE/,field);
  }
+});
+
+// Larger exact R115 inventories must not grant content or Viewer authority by
+// file count alone. Every tuple field remains selected from the closed map.
+test('R115-sized self-consistent inventory still rejects an unqualified tuple',async()=>{
+ const f=await fixture(146);try{await assert.rejects(readNativeReferenceClosure(f.input),/REFERENCE_NATIVE_CLOSURE/);}finally{await rm(f.parent,{recursive:true,force:true});}
+});
+
+const r115Readonly=process.env.EXHIBITOS_R115_REFERENCE_READONLY_INPUT,r115ReadonlyPin=process.env.EXHIBITOS_R115_REFERENCE_READONLY_SHA256;
+test('reads the exact R115 content and independently built Viewer closure without composing',{skip:!r115Readonly||!r115ReadonlyPin},async()=>{
+ const source=await readNativeReferenceClosure({inputRoot:await realpath(resolve(r115Readonly)),inventorySha256:r115ReadonlyPin});
+ assert.equal(source.reference.publicationId,'69dd586c-112a-48fb-b2ce-3218016df9aa');
+ assert.equal(source.reference.viewerSourceCommit,'51c32baf1944be4d7f316b07379c963772cd328c');
+ assert.equal(source.reference.viewerBuildId,'a596926b7726edea7a8bb68317375c1957f92101b366ddb381dc3d111f9f1b58');
+ assert.equal(source.sourceEntries.size,146);
+ assert.equal(source.webEntries.size,36);
 });

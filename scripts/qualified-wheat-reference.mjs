@@ -341,6 +341,14 @@ export const R115_REFERENCE=Object.freeze({...R69_REFERENCE,
  nativeManifestSha256:'295aa833c7bce78c8e819b2f72c1bca8abb0e5ab3cfeeee5fe2a34b725f7dd87',
  nativeFiles:146,
 });
+// One exact independently reviewed Main build for the R115 session candidate.
+export const R115_MODEL_CATALOGUE_REFERENCE=Object.freeze({...R115_REFERENCE,
+ viewerSourceCommit:'51c32baf1944be4d7f316b07379c963772cd328c',
+ viewerSourceTree:'dd13bb2086b36a94b15d54dc0fd9d5d18a6a00d6',
+ viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
+ viewerBuildId:'a596926b7726edea7a8bb68317375c1957f92101b366ddb381dc3d111f9f1b58',
+ viewerInventorySha256:'cec207bf046d59cb3db653be361ce5b6c2488b0aa711e19ad494f73c9e4327e3',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
