@@ -365,6 +365,14 @@ export const R115_MIN_HEIGHT_REFERENCE=Object.freeze({...R115_REFERENCE,
  viewerBuildId:'da746b7ebb1e4c2bfc54b78e6cab1541f5a6e2cdbc1b644f3d8c3dc1084b4bed',
  viewerInventorySha256:'2d47d53df20b655813965f33d25d754b3037900eafa47e82d2f1310b4723b013',
 });
+// Separate nested figure/row correction; preserve every earlier R115 tuple.
+export const R115_NESTED_MINIMUM_REFERENCE=Object.freeze({...R115_REFERENCE,
+ viewerSourceCommit:'3f2fcae5dcbb56ee8f4d2bf40042d3df9a0795e7',
+ viewerSourceTree:'0e2391b33033f9abda738c44c00593e316621ed8',
+ viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
+ viewerBuildId:'494ef8a0250a7ee1a85952d2a5606cdb9e500cf13baa43045b9b37414eb2ebf3',
+ viewerInventorySha256:'b72d382069b582adc1a4729ae022f15d722c3cdfa8d56a4d73149324b54e801d',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
