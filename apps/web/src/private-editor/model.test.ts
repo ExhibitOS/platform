@@ -1,4 +1,4 @@
-import {artifactCorners,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError,lightAttachmentPose,setLightAttachment,setLightDetails} from '@exhibitos/studio-contract';
+import {artifactCorners,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError,lightAttachmentPose,setLightAttachment,setLightDetails,roomBaseLight,roomBaseLightRange,lightDetailsFor} from '@exhibitos/studio-contract';
 import {newLight} from '../placement/model';
 import {newDraft} from '../drafts/example';
 import {validateDraft} from '../drafts/validator';
@@ -46,7 +46,11 @@ it('adds an empty complete disconnected room only on explicit command and keeps 
  const seed=privateSeed(source(),'a'.repeat(64)),draft=starterDraft(seed),initial=createGeometryState(draft.candidate),result=addPrivateRoom(initial.present),next=applyGeometryCommand(initial,result.command);
  expect(initial.present.rooms).toHaveLength(seed.source.exhibition.rooms.length);expect(next.present.rooms).toHaveLength(initial.present.rooms.length+1);
  expect(next.present.surfaces.filter(s=>s.roomId===result.roomId).map(s=>s.type).sort()).toEqual(['ceiling','floor','wall','wall','wall','wall']);
- expect(next.present.placements).toEqual(initial.present.placements);expect(next.present.openings).toEqual(initial.present.openings);expect(next.present.lights).toEqual(initial.present.lights);
+ expect(next.present.placements).toEqual(initial.present.placements);expect(next.present.openings).toEqual(initial.present.openings);
+ const base=roomBaseLight(next.present,result.roomId)!,room=next.present.rooms.find(r=>r.id===result.roomId)!;
+ expect(base).toMatchObject({roomId:result.roomId,type:'point',intensity:16,castsShadow:false,transform:{position:[0,room.dimensions.height*.9,0]}});
+ expect(next.present.lights).toEqual([...initial.present.lights,base]);
+ expect(lightDetailsFor(next.present)).toEqual([...lightDetailsFor(initial.present),{lightId:base.id,fixture:'none',purpose:'room-base',basePlacement:'auto',range:roomBaseLightRange(room.dimensions)}]);
  expect(next.present.extensions?.['org.exhibitos.studio/presentation']).toEqual(initial.present.extensions?.['org.exhibitos.studio/presentation']);checkPrivateCandidate(seed,next.present);expect(undoGeometry(next).present).toEqual(initial.present);
 });
 
