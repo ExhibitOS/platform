@@ -2,7 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTexturePack,type FloorBinding,type FloorMapRole,type FloorTextureFile,type FloorTexturePackDescriptor} from '@exhibitos/studio-contract';
-import {MemoryAssetCache,textureResidentBytes} from './viewer/loading';
+import {AssetReleaseUnconfirmedError,MemoryAssetCache,textureResidentBytes} from './viewer/loading';
 import {materialResizeDimensions} from './material-texture-plan';
 
 export type MaterialTextureFetcher=(input:Parameters<typeof fetch>[0],init?:RequestInit,progress?:(receivedBytes:number)=>void)=>Promise<Response>;
@@ -144,25 +144,33 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
   // resize source copy before the first allocation or upload.
   const release=reserve(residentBytes+Math.max(...old.map(v=>v.bitmap.width*v.bitmap.height*4)));
   const replacements=new Map<TextureValue,TextureValue>();
-  let committed=false;
+  // Own each returned bitmap before checking cancellation or preparing its
+  // texture. Even a rejected upload must retire every new allocation.
+  const incoming:Array<{bitmap:ImageBitmap;texture?:Three.Texture}>=[];
+  let committed=false,cleanupFailed=false,cleanupCause:unknown,workFailed=false,workError:unknown;
+  const cleanup=(work:()=>void)=>{try{work();}catch(error){cleanupFailed=true;cleanupCause??=error;}};
   try{
    for(const [i,value]of old.entries()){
     if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
     const bitmap=await createImageBitmap(value.bitmap,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:sizes[i]!.width,resizeHeight:sizes[i]!.height,resizeQuality:'high'});
-    if(inactive()){bitmap.close();throw Error('FLOOR_TEXTURE_CANCELLED');}
-    let texture:Three.Texture|undefined;
-    try{texture=new three.Texture(bitmap);texture.flipY=value.texture.flipY;texture.colorSpace=value.texture.colorSpace;texture.wrapS=value.texture.wrapS;texture.wrapT=value.texture.wrapT;texture.minFilter=value.texture.minFilter;texture.magFilter=value.texture.magFilter;texture.generateMipmaps=value.texture.generateMipmaps;texture.needsUpdate=true;prepare(texture);replacements.set(value,{texture,bitmap});}
-    catch(error){texture?.dispose();bitmap.close();throw error;}
+    const owned:{bitmap:ImageBitmap;texture?:Three.Texture}={bitmap};incoming.push(owned);
+    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
+    const texture=new three.Texture(bitmap);owned.texture=texture;
+    texture.flipY=value.texture.flipY;texture.colorSpace=value.texture.colorSpace;texture.wrapS=value.texture.wrapS;texture.wrapT=value.texture.wrapT;texture.minFilter=value.texture.minFilter;texture.magFilter=value.texture.magFilter;texture.generateMipmaps=value.texture.generateMipmaps;texture.needsUpdate=true;prepare(texture);replacements.set(value,{texture,bitmap});
    }
    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
    const next=new Map<MaterialTexturePack,Partial<Record<FloorMapRole,TextureValue>>>();
    for(const [pack,maps]of readyMaps)next.set(pack,Object.fromEntries(Object.entries(maps).map(([role,value])=>[role,replacements.get(value)!])));
    for(const target of targets){const maps=next.get(target.pack);if(maps)publish(target,maps);}
    readyMaps=next;for(const value of replacements.values())reducedOwned.add(value);
-   committed=true;cache.clear();return residentBytes;
-  }finally{
-   if(!committed)for(const value of replacements.values()){value.texture.dispose();value.bitmap.close();}
-   release();
-  }
+   committed=true;cleanup(()=>cache.clear());
+  }catch(error){workFailed=true;workError=error;}
+  if(!committed)for(const value of incoming){if(value.texture)cleanup(()=>value.texture!.dispose());cleanup(()=>value.bitmap.close());}
+  // A normal resize/abort failure can return its hold after positive cleanup.
+  // Never let an uncertain texture/bitmap retirement acknowledge that release.
+  if(cleanupFailed)throw new AssetReleaseUnconfirmedError({cause:cleanupCause});
+  try{release();}catch(cause){throw new AssetReleaseUnconfirmedError({cause});}
+  if(workFailed)throw workError;
+  return residentBytes;
  },dispose(){if(disposed)return;disposed=true;for(const {material}of targets){material.map=null;material.roughnessMap=null;material.normalMap=null;material.aoMap=null;}cache.clear();for(const value of reducedOwned){value.texture.dispose();value.bitmap.close();}reducedOwned.clear();readyMaps.clear();targets.length=0;}};
 }
