@@ -5,7 +5,7 @@ import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_NAMESPACE,FLOOR_TEXTURE_FILES,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
 import {floorUvs,floorTexturePlan,fetchFloorTexture,createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
-import {textureResidentBytes} from './viewer/loading';
+import {AssetReleaseUnconfirmedError,textureResidentBytes} from './viewer/loading';
 const room='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const binding:FloorBinding={...floorPresetDefaults('wood'),target:{kind:'surface',surfaceId:surface},repeatMeters:[2,4],rotation:0};
 test('separate panels keep continuous meter UVs through room/surface scale and room rotation',()=>{
@@ -104,4 +104,51 @@ test('failed or revoked material reduction preserves old roles and releases only
   }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
   for(const bitmap of bitmaps)expect(bitmap.close).toHaveBeenCalledTimes(1);
  }
+});
+
+
+function reductionFixture(abort:AbortController,normalRole=false){
+ const bytes=new Uint8Array([1,2,3]),color:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/reduction.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:512,height:512,colorSpace:'srgb'};
+ const normal={...color,colorSpace:'linear' as const},pack={id:'reduction-cleanup',maps:normalRole?{color,normal}:{color}},material=new three.MeshStandardMaterial();
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:8*1024*1024,sizeFor:()=>512},normalRole?[color,normal]:[color],()=>pack,abort.signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ loader.add(material,{normalScale:1});return {loader,material};
+}
+test('aborted reduction keeps its hold until the delayed resize bitmap is closed, before source disposal',async()=>{
+ const abort=new AbortController(),events:string[]=[],sourceClose=vi.fn(()=>{events.push('source-close');}),lateClose=vi.fn(()=>{events.push('replacement-close');});
+ let finish!:(value:unknown)=>void;const delayed=new Promise(resolve=>{finish=resolve;});
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number})=>options?.resizeWidth?delayed:{width:512,height:512,close:sourceClose});
+ const {loader,material}=reductionFixture(abort);let held=false,settled=false;const prepare=vi.fn();
+ try{
+  await loader.start(()=>{});const old=material.map;
+  const reduction=loader.reduceForArtwork(()=>{held=true;events.push('reserved');return()=>{held=false;events.push('released');};},prepare).finally(()=>{settled=true;});
+  const rejected=expect(reduction).rejects.toThrow('FLOOR_TEXTURE_CANCELLED');abort.abort();await Promise.resolve();
+  expect(held).toBe(true);expect(settled).toBe(false);expect(sourceClose).not.toHaveBeenCalled();expect(material.map).toBe(old);
+  finish({width:256,height:256,close:lateClose});await rejected;
+  expect(prepare).not.toHaveBeenCalled();expect(held).toBe(false);expect(sourceClose).not.toHaveBeenCalled();expect(events).toEqual(['reserved','replacement-close','released']);
+  loader.dispose();expect(events).toEqual(['reserved','replacement-close','released','source-close']);
+ }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+});
+test('a failed close on the delayed aborted bitmap retains the reservation, including a falsy exception',async()=>{
+ const abort=new AbortController(),release=vi.fn(),lateClose=vi.fn(()=>{throw undefined;});let finish!:(value:unknown)=>void;
+ const delayed=new Promise(resolve=>{finish=resolve;}),sourceClose=vi.fn();
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number})=>options?.resizeWidth?delayed:{width:512,height:512,close:sourceClose});
+ const {loader,material}=reductionFixture(abort);
+ try{
+  await loader.start(()=>{});const old=material.map,reduction=loader.reduceForArtwork(()=>release,()=>{}),rejected=expect(reduction).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+  abort.abort();finish({width:256,height:256,close:lateClose});await rejected;
+  expect(lateClose).toHaveBeenCalledOnce();expect(release).not.toHaveBeenCalled();expect(material.map).toBe(old);expect(sourceClose).not.toHaveBeenCalled();
+ }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+});
+test('failed texture disposal still closes every replacement bitmap and attempts later replacement cleanup',async()=>{
+ const abort=new AbortController(),release=vi.fn(),images:{width:number;height:number;close:ReturnType<typeof vi.fn>}[]=[],replacementTextures:three.Texture[]=[];
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number})=>{const image={width:options?.resizeWidth??512,height:options?.resizeWidth??512,close:vi.fn()};images.push(image);return image;});
+ const {loader,material}=reductionFixture(abort,true);
+ try{
+  await loader.start(()=>{});const old=[material.map,material.normalMap];
+  const prepare=(texture:three.Texture)=>{replacementTextures.push(texture);if(replacementTextures.length===1)vi.spyOn(texture,'dispose').mockImplementation(()=>{throw undefined;});else{vi.spyOn(texture,'dispose');throw Error('UPLOAD_FAILED');}};
+  await expect(loader.reduceForArtwork(()=>release,prepare)).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+  expect(replacementTextures).toHaveLength(2);for(const texture of replacementTextures)expect(texture.dispose).toHaveBeenCalledOnce();
+  expect(images).toHaveLength(4);for(const image of images.slice(2))expect(image.close).toHaveBeenCalledOnce();
+  for(const image of images.slice(0,2))expect(image.close).not.toHaveBeenCalled();expect(material.map).toBe(old[0]);expect(material.normalMap).toBe(old[1]);expect(release).not.toHaveBeenCalled();
+ }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
 });
