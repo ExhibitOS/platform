@@ -16,6 +16,12 @@ export function hasViewDemand(view:ViewInterest|undefined,current=false,pinned=f
 export function viewAttentionEligible(plausible:boolean,inView:boolean,inNext:boolean,distance:number){
   return plausible&&(inView||inNext&&distance<=6);
 }
+/** Confirmed camera visibility can qualify attention without a room/near-door
+ * prediction. This does not grant detail: pixel demand and dwell still apply.
+ * Partial footprints keep their minimum without qualifying centre-blocked detail. */
+export function actualViewAttentionEligible(inView:boolean,footprintVisible:boolean,centreClear:boolean){
+  return inView&&footprintVisible&&centreClear;
+}
 export function viewQueuePriority(view:ViewInterest|undefined,current:boolean,pinned:boolean,prepareOnly=false){
   if(pinned)return -200;
   if(current)return -100;
@@ -60,4 +66,17 @@ export function planDecodedReclamation(rows:ReadonlyArray<DecodedReclamationRow>
   const result:string[]=[];let reclaimed=0;
   for(const row of candidates){if(reclaimed>=deficit)break;result.push(row.id);reclaimed+=row.bytes;}
   return result;
+}
+
+export const COLD_ARTWORK_GRACE_MS=1800;
+export type ColdArtworkStamp={key:string;since:number};
+export type ColdArtworkWork={key:string;now:number;previous?:ColdArtworkStamp;ordinary:boolean;attached:boolean;manual:boolean;detailPromotion:boolean;pinned:boolean;current:boolean;view?:ViewInterest};
+/** The same cold-demand grace covers queued AND in-flight never-displayed work.
+ * A cancellation decision does not release a slot or reservation: its owner must
+ * use normal abort/drain settlement before another attempt acquires that capacity. */
+export function coldArtworkWorkDecision(input:ColdArtworkWork):{cancel:boolean;coldSince?:ColdArtworkStamp}{
+  if(!input.ordinary||input.attached||input.manual||input.detailPromotion||!input.view||hasViewDemand(input.view,input.current,input.pinned)||!Number.isFinite(input.now)||input.now<0)return {cancel:false};
+  const previous=input.previous;
+  const coldSince=previous?.key===input.key&&Number.isFinite(previous.since)&&previous.since>=0&&previous.since<=input.now?previous:{key:input.key,since:input.now};
+  return {cancel:input.now-coldSince.since>=COLD_ARTWORK_GRACE_MS,coldSince};
 }

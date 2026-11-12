@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import {AssetScheduler,MemoryAssetCache,ArtworkAttention,detailDemand,nearbyPreparation,DetailTransition,minimumDetailPending} from './loading';
-import {optionalResidentRetryReady,retainGalleryDetail,galleryDetailChoice,viewInterestRank,viewQueuePriority,viewAttentionEligible,hasViewDemand,ownedWallFullPromotion,planDecodedReclamation,type DecodedReclamationRow,type ViewInterest} from './view-interest';
+import {optionalResidentRetryReady,retainGalleryDetail,galleryDetailChoice,viewInterestRank,viewQueuePriority,viewAttentionEligible,actualViewAttentionEligible,coldArtworkWorkDecision,hasViewDemand,ownedWallFullPromotion,planDecodedReclamation,type ColdArtworkWork,type DecodedReclamationRow,type ViewInterest} from './view-interest';
 const cold:ViewInterest={visible:false,next:false,recent:false,connected:false,distance:20};
 it('connected rooms remain soft interest rather than visible or next-view entitlement',()=>{
   expect(viewInterestRank({...cold,connected:true})).toBeGreaterThan(viewInterestRank({...cold,next:true}));
@@ -123,4 +123,53 @@ it('a newly exposed pending minimum cannot demote current admitted full quality 
   expect(galleryDetailChoice({...input,reclaiming:true,want:true})).toBe('minimum');
   transition.update(false,1400);
   expect(galleryDetailChoice({...input,want:transition.update(false,3200)})).toBe('minimum');
+});
+
+
+it('confirmed cross-room visibility can own attention while centre-blocked or partial views cannot grant detail',()=>{
+  const demand={kind:'image',visible:true,distance:5,occupancy:.1,projectedPixels:700,coarseTextureSize:512,gazeDistance:0,focused:false};
+  // The actual centre-clear footprint is visible beyond the near-door predictor.
+  expect(viewAttentionEligible(false,true,true,5)).toBe(false);
+  const item={id:'across-door',eligible:actualViewAttentionEligible(true,true,true),demand:detailDemand(demand),occupancy:.1,focused:false,gazeDistance:0,distance:5};
+  const attention=new ArtworkAttention();expect(attention.update([item],0)).toBeUndefined();expect(attention.update([item],299)).toBeUndefined();expect(attention.update([item],300)).toBe(item.id);
+  expect(detailDemand({...demand,occupancy:.001,projectedPixels:30})).toBe(false); // Visibility is not a tier upgrade.
+  for(const [inView,footprintVisible,centreClear]of [[true,true,false],[true,false,true],[false,true,true]]){
+    const eligible=actualViewAttentionEligible(inView!,footprintVisible!,centreClear!);
+    expect(eligible).toBe(false);const blocked=new ArtworkAttention();blocked.update([{...item,eligible}],0);expect(blocked.update([{...item,eligible}],300)).toBeUndefined();
+  }
+});
+it('confirmed attention does not enlarge plausible expanded-frustum preparation or its six-metre/two-work cap',()=>{
+  expect(actualViewAttentionEligible(false,false,true)).toBe(false);
+  expect(viewAttentionEligible(false,false,true,3)).toBe(false);
+  expect(viewAttentionEligible(true,false,true,6)).toBe(true);
+  expect(viewAttentionEligible(true,false,true,6.01)).toBe(false);
+  const candidates=[3,4,5,9].map(distance=>({id:String(distance),demand:true,eligible:actualViewAttentionEligible(true,true,true),occupancy:.1,focused:distance===9,distance}));
+  expect(nearbyPreparation(candidates,undefined)).toEqual(['3','4']);
+});
+const coldWork=(overrides:Partial<ColdArtworkWork>={}):ColdArtworkWork=>({key:'minimum/1',now:100,ordinary:true,attached:false,manual:false,detailPromotion:false,pinned:false,current:false,view:cold,...overrides});
+it('cold work keeps exactly the existing grace across queue-to-flight and resets for new generations or clock rollback',()=>{
+  const first=coldArtworkWorkDecision(coldWork());expect(first).toEqual({cancel:false,coldSince:{key:'minimum/1',since:100}});
+  const previous=first.coldSince;
+  expect(coldArtworkWorkDecision(coldWork({previous,now:1899})).cancel).toBe(false);
+  expect(coldArtworkWorkDecision(coldWork({previous,now:1900})).cancel).toBe(true);
+  expect(coldArtworkWorkDecision(coldWork({previous,key:'minimum/2',now:1900}))).toEqual({cancel:false,coldSince:{key:'minimum/2',since:1900}});
+  expect(coldArtworkWorkDecision(coldWork({previous,now:99}))).toEqual({cancel:false,coldSince:{key:'minimum/1',since:99}});
+});
+it('every live-interest and ownership protection clears cold grace without granting topology a pin',()=>{
+  const previous={key:'minimum/1',since:0},input=coldWork({previous,now:5000});
+  const protectedChanges:Partial<ColdArtworkWork>[]=[{ordinary:false},{attached:true},{manual:true},{detailPromotion:true},{pinned:true},{current:true},{view:undefined},
+    ...(['visible','next','recent','shadow'] as const).map(key=>({view:{...cold,[key]:true}}))];
+  for(const change of protectedChanges)expect(coldArtworkWorkDecision({...input,...change})).toEqual({cancel:false});
+  expect(coldArtworkWorkDecision({...input,view:{...cold,connected:true}}).cancel).toBe(true);
+  const renewed=coldArtworkWorkDecision({...input,current:true});expect(coldArtworkWorkDecision(coldWork({previous:renewed.coldSince,now:5001})).coldSince?.since).toBe(5001);
+  expect(coldArtworkWorkDecision(coldWork({now:NaN}))).toEqual({cancel:false});
+});
+it('an in-flight cold minimum can abort after grace but cannot release the serial slot before its owner settles',async()=>{
+  let drain!:()=>void;const started:string[]=[],scheduler=new AssetScheduler({concurrency:1,load:async(key:string)=>{started.push(key);if(key==='old-minimum')await new Promise<void>(resolve=>{drain=resolve;});return key;}});
+  const old=scheduler.request('old-minimum'),settled=old.catch(()=>undefined);await Promise.resolve();expect(scheduler.isQueued('old-minimum')).toBe(false);
+  const next=scheduler.request('new-visible-minimum',-200),first=coldArtworkWorkDecision(coldWork({key:'old-minimum',now:0}));
+  expect(coldArtworkWorkDecision(coldWork({key:'old-minimum',previous:first.coldSince,now:1799})).cancel).toBe(false);
+  if(coldArtworkWorkDecision(coldWork({key:'old-minimum',previous:first.coldSince,now:1800})).cancel)scheduler.cancel('old-minimum');
+  await settled;expect(started).toEqual(['old-minimum']);expect(scheduler.stats()).toMatchObject({active:1,queued:1});
+  drain();expect(await next).toBe('new-visible-minimum');expect(started).toEqual(['old-minimum','new-visible-minimum']);scheduler.dispose();
 });
