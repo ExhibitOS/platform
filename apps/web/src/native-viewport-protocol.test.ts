@@ -3,7 +3,7 @@ import {describe,it,expect} from 'vitest';
 import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction,geometryProposal,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
 import {newDoor,applyGeometryCommand,createGeometryState,undoGeometry} from './geometry/model';
-import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor,lightDetailsFor,roomBaseLight,setLightDetails} from '@exhibitos/studio-contract';
+import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor,lightDetailsFor,roomBaseLight,roomBaseLightRange,setLightDetails} from '@exhibitos/studio-contract';
 import {readFile} from 'node:fs/promises';
 import {fixtureURL,readOex} from '@exhibitos/spec';
 const uuid=()=>crypto.randomUUID();
@@ -93,7 +93,7 @@ describe('native viewport frame and shared geometry proposal boundary',()=>{
   expect(roomBaseLight(candidate,existingRoom.id)).toBeUndefined();
   expect(candidate.lights).toEqual([...before.lights,base]);
   expect(base).toMatchObject({roomId:room.id,type:'point',intensity:16,castsShadow:false,transform:{position:[0,3.6,0]}});
-  expect(lightDetailsFor(candidate)).toEqual([{lightId:base.id,fixture:'none',purpose:'room-base',range:12}]);
+  expect(lightDetailsFor(candidate)).toEqual([{lightId:base.id,fixture:'none',purpose:'room-base',basePlacement:'auto',range:roomBaseLightRange(room.dimensions)}]);
   const ensured=nativeGeometryAction({...f,selection:{kind:'room',id:existingRoom.id}},{type:'ensure-room-base-light',roomId:existingRoom.id});
   expect(ensured.rooms).toEqual(before.rooms);
   expect(ensured.lights[0]).toEqual(before.lights[0]);
