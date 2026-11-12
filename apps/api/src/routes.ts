@@ -1,3 +1,5 @@
+import {GPU_MODEL_PREPARATION_PROFILE} from './gpu-model-preparation-contract.ts';
+import type {GpuModelPreparations} from './gpu-model-preparations.ts';
 import {materialBatchDiagnostic} from './workspace-material-batch-diagnostic.ts';
 import {PROFILE as WORKSPACE_INFO_STAND_REPLACEMENT_PROFILE} from './workspace-info-stand-replacement-delta.ts';
 import {REQUIRED_MODEL_ORIGINAL_PROFILE,resolveRequiredModelCandidate,approveRequiredModelOriginal,readRequiredModelOriginalApproval,type RequiredModelOriginalApproval} from './required-model-original.ts';
@@ -66,7 +68,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
  if(nativeDetailContext&&(!isIssuedNativeDetailContext(nativeDetailContext)||nativeDetailContext.owner!==nativeExportWorkspace||!(store instanceof FileBlobStore)||!nativeDetailContext.owner.matchesBlobRoot?.(store.root)||input.mode!=='local'||freshOexTest))throw Error('NATIVE_DETAIL_CONFIGURATION');
  if(nativeHayesCaller&&(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.matchesBlobRoot?.(store.root)||typeof runtimeAvailable!=='function'||!isIssuedNativeHayesCaller(nativeHayesCaller,nativeOexWorkspace,store)))throw Error('HAYES_OWNER_CONFIGURATION');
@@ -582,13 +584,31 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');
   return inspectModelOriginal(req.body,LARGE_MODEL_RECIPE.id);
  }));
- app.post(`${cp}/artworks/:id/compact-preparations`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id,sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},bytes:{type:'integer',minimum:28,maximum:33554432},idempotencyKey:{...str,minLength:1,maxLength:128},generation:{...str,minLength:1,maxLength:128}})}},importMutation(async(c,s,req,reply)=>{reply.code(201);return importer().createCompact(c,s,cmsId(req),req.body as CompactVariantInput);}));
+ const gpuJobs=()=>{if(!gpuModelPreparations)throw new ApiError(503,'GPU_MODEL_PREPARATION_UNAVAILABLE');return gpuModelPreparations;};
+ const compactPreparationFields={revision:{type:'integer',minimum:1},assetId:id,sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},bytes:{type:'integer',minimum:28,maximum:33554432},idempotencyKey:{...str,minLength:1,maxLength:128},generation:{...str,minLength:1,maxLength:128}};
+ app.post(`${cp}/artworks/:id/compact-preparations`,{schema:{body:{oneOf:[object(compactPreparationFields),object({...compactPreparationFields,profile:{const:GPU_MODEL_PREPARATION_PROFILE}})]}}},importMutation(async(c,s,req,reply)=>{reply.code(201);if(Object.hasOwn(req.body as object,'profile'))return gpuJobs().create(c,s,cmsId(req),req.body);return importer().createCompact(c,s,cmsId(req),req.body as CompactVariantInput);}));
+ const gpuRoot=`${cp}/artworks/:id/gpu-preparations`;
+ app.get(`${gpuRoot}/selection`,call(false,async(c,s,req)=>gpuJobs().selection(c,s,cmsId(req))));
+ app.get(`${gpuRoot}/:jobId/review`,call(false,async(c,s,req)=>gpuJobs().review(c,s,cmsId(req),(req.params as {jobId:string}).jobId)));
+ app.get(`${gpuRoot}/:jobId/model`,{schema:{querystring:object({receiptSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'},candidateSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},call(false,async(c,s,req,reply)=>{
+  const result=await gpuJobs().reviewedBytes(c,s,cmsId(req),(req.params as {jobId:string}).jobId,req.query as {receiptSHA256:string;candidateSHA256:string});
+  reply.header('cache-control','no-store').header('x-content-type-options','nosniff').header('content-type','model/gltf-binary').header('content-length',result.bytes.length).header('x-exhibitos-sha256',result.receipt.candidate.sha256).header('x-exhibitos-receipt-sha256',result.receipt.sha256);return result.bytes;
+ }));
+ app.post(`${gpuRoot}/approve`,{schema:{body:object({revision:{type:'integer',minimum:1,maximum:2147483646},jobId:id,receiptSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'},candidateSHA256:{type:'string',pattern:'^[a-f0-9]{64}$'},generation:{...str,minLength:1,maxLength:128}})}},importMutation(async(c,s,req)=>gpuJobs().approve(c,s,cmsId(req),req.body,cms)));
+ // No session capability is advertised by this source-only integration. The
+ // managed Native producer and supported output consumers must be admitted first.
+ if(gpuModelPreparations){
+  let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
+  const tick=async()=>{try{if(!closing)await gpuModelPreparations.work();}catch{/* Durable job status owns failures; unavailable producer stays unadvertised. */}finally{if(!closing){timer=setTimeout(()=>{running=tick();},250);timer.unref();}}};
+  app.addHook('onReady',async()=>{running=tick();});
+  app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await gpuModelPreparations.close();await running;});
+ }
  app.post(`${cp}/artworks/:id/compact-preparations/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},jobId:id})}},importMutation(async(c,s,req)=>{await importer().requiredModelReady(c,s);return cms.approveCompact(c,s,cmsId(req),req.body as {revision:number;jobId:string});}));
  if(nativeOexWorkspace&&nativeBoundedEditing&&modelPreparationExecution)app.post(`${cp}/artworks/:id/fresh-image-preparations/approve`,{
   schema:{body:object({revision:{type:'integer',minimum:1},jobId:id})},
  },nativeMutation((c,s,req)=>cms.approveFreshImage(c,s,cmsId(req),req.body as {revision:number;jobId:string},importer())));
  app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:nativeBoundedEditing?LARGE_MODEL_RECIPE.limits.sourceBytes:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA,modelDerivation:MODEL_DERIVATION_SCHEMA,modelPreparation:MODEL_PREPARATION_SCHEMA,...(nativeOexWorkspace&&nativeBoundedEditing?{imagePreparation:FRESH_IMAGE_INTENT_SCHEMA}:{}),coarsePreparation:{oneOf:[IMAGE_COARSE_INTENT_SCHEMA,PRODUCT_IMAGE_INTENT_SCHEMA]}},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},importMutation(async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
- app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().view(await importer().access(c,s,p.id));}));
+ app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(gpuModelPreparations&&await gpuModelPreparations.has(c,s,p.id))return gpuModelPreparations.view(await gpuModelPreparations.access(c,s,p.id));return importer().view(await importer().access(c,s,p.id));}));
  app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
  if(modelPreparationExecution&&nativeOexWorkspace&&nativeBoundedEditing)app.put(`${prefix}/imports/:id/large-model-bytes`,{bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes,onRequest:largeModelBody},nativeMutation(async(c,s,req)=>{
   const p=req.params as {id:string};uuid(p.id);
@@ -597,7 +617,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }));
  app.put(`${prefix}/imports/:id/derived-bytes`,{bodyLimit:MAX_PREPARED_IMAGE_BYTES},importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().uploadDerived(c,s,p.id,req.body);}));
  app.post(`${prefix}/imports/:id/complete`,importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().complete(c,s,p.id);}));
- for(const action of ['cancel','retry'] as const)app.post(`${prefix}/imports/:id/${action}`,importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().action(c,s,p.id,action);}));
+ for(const action of ['cancel','retry'] as const)app.post(`${prefix}/imports/:id/${action}`,importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(gpuModelPreparations&&await gpuModelPreparations.has(c,s,p.id)){if(req.body!==undefined&&(!req.body||typeof req.body!=='object'||Array.isArray(req.body)||Object.keys(req.body).length))throw new ApiError(400,'INVALID_INPUT');return gpuModelPreparations.action(c,s,p.id,action);}return importer().action(c,s,p.id,action);}));
 
  for(const kind of ['artworks','exhibitions'] as const) {
   app.get(`${prefix}/${kind}/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return auth.resource(c,s,kind,p.id);}));

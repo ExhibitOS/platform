@@ -47,7 +47,7 @@ const canonical = (v: unknown): unknown =>
         )
       : v;
 const json = (v: unknown) => JSON.stringify(canonical(v));
-function revisionIdentity(s:Session,id:string,revision:number){
+export function revisionIdentity(s:Session,id:string,revision:number){
   const digest=createHash('sha256').update(`${s.tenantId}:${id}:${revision}`).digest('hex');
   return `${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;
 }
@@ -453,6 +453,10 @@ export class Cms {
     if(!exact(b,['revision','assetId']))throw new ApiError(400,'INVALID_INPUT');
     uuid(b.assetId);
     let a = await this.ownArtwork(c, s, id);
+    // A prepared GPU candidate can only be selected by its explicit reviewed
+    // derivative approval; ordinary approval must never replace the source.
+    const gpuCandidate=await c.query("SELECT 1 FROM import_jobs j WHERE j.tenant_id=$1 AND j.artwork_id=$2 AND j.asset_id=$3 AND to_jsonb(j)->>'gpu_preparation' IS NOT NULL LIMIT 1",[s.tenantId,id,b.assetId]);
+    if(gpuCandidate.rowCount)throw new ApiError(409,'GPU_MODEL_EXPLICIT_APPROVAL_REQUIRED');
     let revision=b.revision;
     if (a.revision !== revision) {
       if(await requiredModelApprovalReplay(c,s,id,revision,b.assetId,a.revision))return this.detail(c,s,id);
