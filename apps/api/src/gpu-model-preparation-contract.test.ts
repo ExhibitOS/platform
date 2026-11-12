@@ -2,7 +2,7 @@
 import {createHash} from 'node:crypto';
 import {expect,it} from 'vitest';
 import {GPU_MODEL_PREPARATION_PROFILE,GPU_MODEL_PREPARATION_PURPOSE,GPU_MODEL_PREPARATION_RECIPE,GPU_MODEL_PREPARATION_RECIPE_JSON,
- GPU_MODEL_PREPARATION_RECIPE_SHA256,GPU_MODEL_PREPARATION_VENDOR_RECIPE,GPU_MODEL_PREPARATION_VENDOR_RECIPE_SHA256,parseGpuModelPreparationInput,bindGpuModelPreparationIntent,parseGpuModelPreparationIntent,
+ GPU_MODEL_PREPARATION_RECIPE_SHA256,GPU_MODEL_PREPARATION_LEGACY_RECIPE,GPU_MODEL_PREPARATION_LEGACY_RECIPE_JSON,GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256,GPU_MODEL_PREPARATION_VENDOR_RECIPE,GPU_MODEL_PREPARATION_VENDOR_RECIPE_SHA256,parseGpuModelPreparationInput,bindGpuModelPreparationIntent,parseGpuModelPreparationIntent,
  gpuModelPreparationIntentSHA256} from './gpu-model-preparation-contract.ts';
 
 const request=()=>({revision:2,assetId:'A0000000-0000-4000-8000-000000000001',sha256:'a'.repeat(64),bytes:2000000,
@@ -11,9 +11,13 @@ const binding=()=>({tenantId:'B0000000-0000-4000-8000-000000000002',principalId:
  artworkId:'D0000000-0000-4000-8000-000000000004',approvalSHA256:'b'.repeat(64),rightsSHA256:'c'.repeat(64)});
 
 it('pins the complete canonical mipmapped recipe without private artifact dependencies or readiness claims',()=>{
- expect(createHash('sha256').update(GPU_MODEL_PREPARATION_RECIPE_JSON).digest('hex')).toBe('886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc');
- expect(GPU_MODEL_PREPARATION_RECIPE_SHA256).toBe('886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc');
- expect(GPU_MODEL_PREPARATION_RECIPE).toMatchObject({version:2,encoder:{sha256:'4ec0c7fa5f123e91f8e2adb21c1b94e7119a0f396f11cc8fd747459b2a51620c',librarySHA256:'e2f8115a77cf2c1e375210d3687f487a4e54f0cde803060cb1c4085427f3d393',bytes:993520,libraryBytes:2454960,etcUnpack:false,build:'source-noetc-v1'}});
+ expect(createHash('sha256').update(GPU_MODEL_PREPARATION_RECIPE_JSON).digest('hex')).toBe('82a7dd855788e590ba6698f1c3c5fc51b7638edd24c891391b20c20c09ac1fdf');
+ expect(GPU_MODEL_PREPARATION_RECIPE_SHA256).toBe('82a7dd855788e590ba6698f1c3c5fc51b7638edd24c891391b20c20c09ac1fdf');
+ expect(GPU_MODEL_PREPARATION_RECIPE).toMatchObject({version:3,encoder:{sha256:'4ec0c7fa5f123e91f8e2adb21c1b94e7119a0f396f11cc8fd747459b2a51620c',librarySHA256:'e2f8115a77cf2c1e375210d3687f487a4e54f0cde803060cb1c4085427f3d393',bytes:993520,libraryBytes:2454960,etcUnpack:false,build:'source-noetc-v1'}});
+ expect(createHash('sha256').update(GPU_MODEL_PREPARATION_LEGACY_RECIPE_JSON).digest('hex')).toBe(GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256);
+ expect(GPU_MODEL_PREPARATION_LEGACY_RECIPE).toMatchObject({version:2});
+ expect(GPU_MODEL_PREPARATION_LEGACY_RECIPE.encoder.options).toContain('--wmode');
+ expect(GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256).toBe('886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc');
  expect(GPU_MODEL_PREPARATION_VENDOR_RECIPE_SHA256).toBe('6739a173b5a3af38f3fb02b250a2fa4d3315972f62ea8592f1c5695ab5848d98');
  expect(GPU_MODEL_PREPARATION_VENDOR_RECIPE.encoder.sha256).toBe('708e94078c8b8a8096f3573e2899bf08fbcf702d92bbbac47bd2098a1aaa6eb6');
  expect(GPU_MODEL_PREPARATION_VENDOR_RECIPE.encoder.librarySHA256).toBe('bd26f0747b7a800384b7b3c9221dafeb3943ef565a560ab98238cade597c0947');
@@ -57,7 +61,7 @@ it('rejects null, arrays, inherited fields, accessors, symbol keys and client-su
 
 it('binds detached deeply immutable durable authority and validates every stored boundary',()=>{
  const raw=request(),owner=binding(),intent=bindGpuModelPreparationIntent(raw,owner);
- expect(intent).toMatchObject({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,
+ expect(intent).toMatchObject({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256,
   request:{assetId:raw.assetId.toLowerCase()},binding:{tenantId:owner.tenantId.toLowerCase(),approvalSHA256:owner.approvalSHA256}});
  raw.generation='later';owner.rightsSHA256='d'.repeat(64);expect(intent.request.generation).toBe('InstalledGeneration_1');expect(intent.binding.rightsSHA256).toBe('c'.repeat(64));
  expect([intent,intent.request,intent.binding].every(Object.isFrozen)).toBe(true);
@@ -79,4 +83,10 @@ it('makes reordered/UUID-case replay identical and separates every request and s
  for(const change of [{tenantId:'b0000000-0000-4000-8000-000000000005'},{principalId:'c0000000-0000-4000-8000-000000000005'},
   {artworkId:'d0000000-0000-4000-8000-000000000005'},{approvalSHA256:'d'.repeat(64)},{rightsSHA256:'d'.repeat(64)}])
   expect(gpuModelPreparationIntentSHA256(bindGpuModelPreparationIntent(request(),{...binding(),...change}))).not.toBe(hash);
+});
+
+it('uses the registered KTX4.4.2 wrapping option rather than the misspelled help entry',()=>{
+ const options=[...GPU_MODEL_PREPARATION_RECIPE.encoder.options] as string[];
+ expect(options).not.toContain('--wmode');
+ expect(options.slice(options.indexOf('--wrapping'),options.indexOf('--wrapping')+2)).toEqual(['--wrapping','wrap']);
 });

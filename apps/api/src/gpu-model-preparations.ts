@@ -8,8 +8,8 @@ import {artworkAccess,transaction,sha256,type BlobStore} from '@exhibitos/storag
 import {ApiError,type Session,uuid} from './auth.ts';
 import {allowedRights} from './rights.ts';
 import {assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
-import {parseGpuModelPreparationInput,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
-import {storedGpuModelPreparation,gpuModelDigest,gpuModelJobView,gpuModelReceipt,gpuModelPreparationDrained,createGpuModelReceipt} from './gpu-model-preparation-state.ts';
+import {parseGpuModelPreparationInput,bindGpuModelPreparationIntent,GPU_MODEL_PREPARATION_RECIPE_SHA256} from './gpu-model-preparation-contract.ts';
+import {storedGpuModelPreparation,gpuModelDigest,gpuModelExecutionRecipe,gpuModelJobView,gpuModelReceipt,gpuModelPreparationDrained,createGpuModelReceipt} from './gpu-model-preparation-state.ts';
 import {parseGpuModelSource} from './gpu-source-preservation.ts';
 import {assertGpuModelOutputCapacity,assembleGpuModelDerivative} from './gpu-model-producer.ts';
 import {assertGpuModelEncoderReady,encodeGpuModelBaseColor,GpuModelEncoderError} from './gpu-model-encoder.ts';
@@ -119,7 +119,7 @@ export class GpuModelPreparations {
   if(!source||source.sha256!==request.sha256||Number(source.bytes)!==request.bytes||source.mime!=='model/gltf-binary'||!isDeepStrictEqual(source.current_rights,artwork.metadata.rights))throw changed();
   await this.slot(c,s.tenantId,artworkId,request.revision);
   const intent=bindGpuModelPreparationIntent(request,{tenantId:s.tenantId,principalId:s.userId,artworkId,approvalSHA256:gpuModelDigest(approval),rightsSHA256:gpuModelDigest(source.current_rights)}),id=randomUUID();
-  const result=await c.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,scale_meters,rights,object_key,approved_key,state,progress,png_drain_version,png_worker_tokens,gpu_preparation) VALUES($1,$2,$3,$4,$5,$6,'model/gltf-binary',$7,$8,$9,$10,$11,$12,'queued',10,1,'{}',$13) RETURNING *",[s.tenantId,id,s.userId,artworkId,request.idempotencyKey,requestHash,request.sha256,request.bytes,source.scale_meters,source.current_rights,source.object_key,`${s.tenantId}/quarantine/gpu-${id}`,{kind:'gpu-model-preparation',intent}]);
+  const result=await c.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,scale_meters,rights,object_key,approved_key,state,progress,png_drain_version,png_worker_tokens,gpu_preparation) VALUES($1,$2,$3,$4,$5,$6,'model/gltf-binary',$7,$8,$9,$10,$11,$12,'queued',10,1,'{}',$13) RETURNING *",[s.tenantId,id,s.userId,artworkId,request.idempotencyKey,requestHash,request.sha256,request.bytes,source.scale_meters,source.current_rights,source.object_key,`${s.tenantId}/quarantine/gpu-${id}`,{kind:'gpu-model-preparation',intent,executionRecipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256}]);
   return this.view(result.rows[0]);
  }
  private async slot(c:PoolClient,tenantId:string,artworkId:string,revision:number,except?:string){
@@ -153,12 +153,15 @@ export class GpuModelPreparations {
   const row=action==='cancel'?await this.owned(c,s,id):await this.access(c,s,id),value=storedGpuModelPreparation(row)!;
   if(action==='cancel')await artworkAccess(c,s,String(row.artwork_id),true);
   if(action==='cancel'){
-   if(row.state==='approved')throw new ApiError(409,'JOB_STATE');
+   if(row.state==='approved'||gpuModelExecutionRecipe(value)!==GPU_MODEL_PREPARATION_RECIPE_SHA256)throw new ApiError(409,'JOB_STATE');
    await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);this.controllers.get(id)?.abort();
   }else{
    if(row.state!=='failed'||!gpuModelPreparationDrained(row)||Number(row.attempts)>=5||new Date(String(row.available_at)).getTime()>Date.now())throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
    await this.context(c,row);await this.slot(c,s.tenantId,value.intent.binding.artworkId,value.intent.request.revision,id);
-   await c.query("UPDATE import_jobs SET state='queued',error_code=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
+   // Preserve the immutable049 intent and same request/job identity. Only this
+   // explicit owner-authorized retry upgrades execution of the existing failed row.
+   const next=gpuModelExecutionRecipe(value)===GPU_MODEL_PREPARATION_RECIPE_SHA256?value:{...value,executionRecipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256};
+   await c.query("UPDATE import_jobs SET state='queued',error_code=NULL,gpu_preparation=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id,next]);
   }
   return this.view((await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
  }
@@ -214,7 +217,7 @@ export class GpuModelPreparations {
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');if(!await this.supported(c))return null;
    const r=(await c.query("SELECT * FROM import_jobs WHERE gpu_preparation IS NOT NULL AND (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND cardinality(png_worker_tokens)=0 ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];if(!r)return null;
-   const value=storedGpuModelPreparation(r)!;await this.ready(c,{tenantId:String(r.tenant_id),userId:String(r.user_id)});
+   const value=storedGpuModelPreparation(r)!;if(gpuModelExecutionRecipe(value)!==GPU_MODEL_PREPARATION_RECIPE_SHA256)throw new ApiError(409,'GPU_MODEL_PREPARATION_STATE_INVALID');await this.ready(c,{tenantId:String(r.tenant_id),userId:String(r.user_id)});
    const claimed={...value,claim:{token:lease,...(this.base.writer?.identity??{mode:'service'})}};
    return (await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=array_append(png_worker_tokens,$3::uuid),gpu_preparation=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[r.tenant_id,r.id,lease,claimed])).rows[0];
   });if(!row)return false;
