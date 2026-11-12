@@ -1,0 +1,33 @@
+{
+  "format": "exhibitos-local-web-composition-v1",
+  "base": {
+    "sourceCommit": "6784659cf5fe3b1f4c925a6ac0a0f5554cb8a4fe",
+    "sourceTree": "72e198f82b8916828a463dcf8dc8cc34232ce7f0",
+    "producerSHA256": "09e8c2212145423f277c86e2f16584ebb58bf4d5253a9f94bd7761f094c77634",
+    "manifestSHA256": "291a26daf7b46955488e63358ad2dd868cc94f8a7db44e05092245422a5f7309",
+    "files": 16579,
+    "entryDigest": "43417729c25ff7a9f74f9d6ff0c0d6031f85c929ea9d1565235d1aeaca38b752"
+  },
+  "web": {
+    "sourceCommit": "dc310e80c27026c21b9a42eec128f523b8afef4b",
+    "sourceTree": "a76c58c6c38c77383193511db03b83ab016f2bfc",
+    "handoffSHA256": "39b40c6728e2883887b7569f64f9fc4533c67cc57c0ee617fb3f00e98994c928",
+    "ordinary": {
+      "inventorySHA256": "3d3adba0a8f010e4523a89c7d54611233d957ff9fd5f413890a04dbbd73d5923",
+      "files": 74,
+      "entryDigest": "8c8ada43fa773f3d75481c74010724b050a3695fc0bbe06f0655815c87ee8df2"
+    },
+    "static": {
+      "inventorySHA256": "632311218c7f966d6bb8aa429331ec5ab6bc77b8dcd5329408f06e6940a9072d",
+      "files": 79,
+      "entryDigest": "1ea837282414c2010520910ce6dff539164b72c0e4e758bb8ad98f4d3fb9d7fe"
+    }
+  },
+  "cover": {
+    "sourceCommit": "c392991de152188e4e2d47c09a7e115bde1fc36b",
+    "sourceTree": "60442385712799511b25cabe428193e18c15ee1a",
+    "inventorySHA256": "36c59ccc8ffcfc4de8bce4569695429a4df70337ff3cd7f9b2cea939be340790",
+    "files": 1,
+    "entryDigest": "e5e0c87082b591b86eb78bb09b10148977dfc2bf9394460069884c069cb9f68c"
+  }
+}
