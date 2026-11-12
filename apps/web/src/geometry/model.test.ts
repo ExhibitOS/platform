@@ -216,7 +216,7 @@ describe("validated reversible meter geometry commands", () => {
 
 describe('atomic explicit room-base placement lifecycle',()=>{
   it('ordinary room creation owns one automatic base light in the same undo step',()=>{
-    const before=createGeometryState(newDraft().candidate),room=newRoom('Added',{width:10,height:5,depth:8}),created=applyGeometryCommand(before,{type:'add-room',room});
+    const before=createGeometryState(newDraft().candidate),room=newRoom('Added',{width:10,height:5,depth:8},{position:[20,0,0],rotation:[0,0,0,1],scale:[1,1,1]}),created=applyGeometryCommand(before,{type:'add-room',room});
     const light=roomBaseLight(created.present,room.id)!;expect(light).toBeDefined();expect(light.transform.position).toEqual([0,4.5,0]);
     expect(lightDetailsFor(created.present).find(v=>v.lightId===light.id)).toMatchObject({purpose:'room-base',basePlacement:'auto',range:roomBaseLightRange(room.dimensions)});
     expect(created.past).toHaveLength(before.past.length+1);expect(undoGeometry(created).present).toEqual(before.present);expect(redoGeometry(undoGeometry(created)).present).toEqual(created.present);
