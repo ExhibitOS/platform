@@ -2700,7 +2700,7 @@ export function GeometryPreview({
                 if(deferredByMaterialLoad(error?.message,floorSettled,surfaceSettled)){
                   // The material decode hold will be released after its serial phase.
                   // Retry under the settled limits before reporting a real failure.
-                  materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
+                  materialBudgetDeferred.set(art.revisionId,{full:!!task.full,prepareOnly:task.prepareOnly,detailPromotion:!!task.detailPromotion,manual:!!task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
                 const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
