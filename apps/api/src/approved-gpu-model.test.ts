@@ -10,7 +10,7 @@ import {ApiError} from './api-error.ts';
 import {assembleGpuModelDerivative} from './gpu-model-producer.ts';
 import {COMPACT_MODEL_LIMITS} from './oam-original-preparation.ts';
 import {pngCrc} from './png-pixels.ts';
-import {bindGpuModelPreparationIntent,GPU_MODEL_PREPARATION_PROFILE} from './gpu-model-preparation-contract.ts';
+import {GPU_MODEL_PREPARATION_RECIPE_SHA256,bindGpuModelPreparationIntent,GPU_MODEL_PREPARATION_PROFILE} from './gpu-model-preparation-contract.ts';
 import {createGpuModelReceipt,gpuModelDigest} from './gpu-model-preparation-state.ts';
 import {applyGpuModelApproval,assertGpuModelBytes,approvedGpuModelPublicationSource} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,MAX_GPU_MODEL_TRIANGLES,artworkGpuModelFor} from '@exhibitos/studio-contract';
@@ -67,7 +67,7 @@ beforeEach(()=>{
  const rights={holder:'Synthetic test',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,export:true,download:true,commercial:false}};
  original={asset:{id:sourceId,mime:'model/gltf-binary',...identity(source)},metadata:{rights}};
  const intent=bindGpuModelPreparationIntent({revision:7,assetId:sourceId,...identity(source),idempotencyKey:'synthetic-job',generation:'native-client-7',profile:GPU_MODEL_PREPARATION_PROFILE},{tenantId:tenant,principalId:principal,artworkId,approvalSHA256:gpuModelDigest(original),rightsSHA256:gpuModelDigest(rights)});
- row={tenant_id:tenant,user_id:principal,artwork_id:artworkId,id:jobId,idempotency_key:'synthetic-job',expected_hash:sha(source),expected_bytes:source.length,mime:'model/gltf-binary',object_key:'original-source',approved_key:'approved-candidate',scale_meters:1,rights:structuredClone(rights),state:'approved',asset_id:candidateId,png_drain_version:1,png_worker_tokens:[],lease_id:null,gpu_preparation:{kind:'gpu-model-preparation',intent}};
+ row={tenant_id:tenant,user_id:principal,artwork_id:artworkId,id:jobId,idempotency_key:'synthetic-job',expected_hash:sha(source),expected_bytes:source.length,mime:'model/gltf-binary',object_key:'original-source',approved_key:'approved-candidate',scale_meters:1,rights:structuredClone(rights),state:'approved',asset_id:candidateId,png_drain_version:1,png_worker_tokens:[],lease_id:null,gpu_preparation:{kind:'gpu-model-preparation',intent,executionRecipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256}};
  const receipt=createGpuModelReceipt(row,{assetId:candidateId,mime:'model/gltf-binary',...identity(candidate)},output.producer);row.gpu_preparation.result=receipt;selected={...structuredClone(original),gpuVariant:structuredClone(receipt)};
  owner={revision:8,approved_revision:8,approved_asset_id:sourceId,metadata:{rights:structuredClone(rights)}};state.owner=owner;
  assets=[{id:sourceId,object_key:row.object_key,mime:'model/gltf-binary',...identity(source),scale_meters:1,current_rights:structuredClone(rights)},{id:candidateId,object_key:row.approved_key,mime:'model/gltf-binary',...identity(candidate),scale_meters:1,current_rights:structuredClone(rights)}];

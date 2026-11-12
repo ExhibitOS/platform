@@ -9,7 +9,7 @@ import {GPU_MODEL_NAMESPACE,GPU_MODEL_PROFILE,GPU_MODEL_RECIPE_SHA256,artworkGpu
 import {projectPublication,approvedPublicationSource} from './publication.ts';
 import {remapOex,checkOexProfile} from './oex.ts';
 import {assembleGpuModelDerivative} from './gpu-model-producer.ts';
-import {bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
+import {GPU_MODEL_PREPARATION_RECIPE_SHA256,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
 import {createGpuModelReceipt,gpuModelDigest} from './gpu-model-preparation-state.ts';
 import {pngCrc} from './png-pixels.ts';
 // Synthetic structural container copied from the producer's unit fixture.
@@ -56,7 +56,7 @@ async function portableFixture(){
  const originalApproval={asset:{id:source.id,sha256:source.sha256,bytes:source.bytes,mime:source.mime},metadata:{rights:artwork.rights}};
  const request={revision:3,assetId:source.id,sha256:source.sha256,bytes:source.bytes,idempotencyKey:'synthetic-portable-gpu',generation:'synthetic-portable-generation',profile:GPU_MODEL_PROFILE};
  const intent=bindGpuModelPreparationIntent(request,{tenantId:randomUUID(),principalId:randomUUID(),artworkId:artwork.id,approvalSHA256:gpuModelDigest(originalApproval),rightsSHA256:gpuModelDigest(artwork.rights)});
- const row={id:randomUUID(),tenant_id:intent.binding.tenantId,user_id:intent.binding.principalId,artwork_id:artwork.id,idempotency_key:request.idempotencyKey,expected_hash:source.sha256,expected_bytes:source.bytes,mime:source.mime,png_drain_version:1,rights:artwork.rights,gpu_preparation:{kind:'gpu-model-preparation',intent}};
+ const row={id:randomUUID(),tenant_id:intent.binding.tenantId,user_id:intent.binding.principalId,artwork_id:artwork.id,idempotency_key:request.idempotencyKey,expected_hash:source.sha256,expected_bytes:source.bytes,mime:source.mime,png_drain_version:1,rights:artwork.rights,gpu_preparation:{kind:'gpu-model-preparation',intent,executionRecipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256}};
  const receipt=createGpuModelReceipt(row,{assetId:candidate.id,mime:'model/gltf-binary',sha256:candidate.sha256,bytes:candidate.bytes},result.producer);
  const binding:ArtworkGpuModel={version:1,profile:GPU_MODEL_PROFILE,recipeSHA256:GPU_MODEL_RECIPE_SHA256,receiptSHA256:receipt.sha256,sourceAssetId:source.id,candidateAssetId:candidate.id,triangles:1,textureSize:512};
  artwork.extensions={[GPU_MODEL_NAMESPACE]:binding as unknown as NonNullable<typeof artwork.extensions>[string],[LOD_NAMESPACE]:{version:1,profile:NEAR_TEXTURE_PAIR_PROFILE,variants:[{assetId:source.id,detail:'full',triangles:1,textureSize:512},{assetId:low.id,detail:'coarse',triangles:1,textureSize:256}]}};

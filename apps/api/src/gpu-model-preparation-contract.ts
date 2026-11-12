@@ -29,7 +29,7 @@ export const GPU_MODEL_PREPARATION_VENDOR_RECIPE=immutable({
 } as const);
 // Historical vendor input remains immutable; never use its pins for the signed source build.
 export const GPU_MODEL_PREPARATION_VENDOR_RECIPE_SHA256='6739a173b5a3af38f3fb02b250a2fa4d3315972f62ea8592f1c5695ab5848d98';
-export const GPU_MODEL_PREPARATION_RECIPE=immutable({
+export const GPU_MODEL_PREPARATION_LEGACY_RECIPE=immutable({
  ...GPU_MODEL_PREPARATION_VENDOR_RECIPE,version:2,
  encoder:{...GPU_MODEL_PREPARATION_VENDOR_RECIPE.encoder,
   sha256:'4ec0c7fa5f123e91f8e2adb21c1b94e7119a0f396f11cc8fd747459b2a51620c',bytes:993520,
@@ -37,8 +37,16 @@ export const GPU_MODEL_PREPARATION_RECIPE=immutable({
   build:'source-noetc-v1',sourceCommit:'4d6fc70eaf62ad0558e63e8d97eb9766118327a6',etcUnpack:false,
   runtimePrefix:'platform/tools/ktx-4.4.2-noetc',signingTeam:'W563ZQD9G6'},
 } as const);
+// Preserve the exact failed signed recipe; corrected executions have their own identity.
+export const GPU_MODEL_PREPARATION_LEGACY_RECIPE_JSON=canonical(GPU_MODEL_PREPARATION_LEGACY_RECIPE);
+export const GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256='886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc';
+export const GPU_MODEL_PREPARATION_RECIPE=immutable({
+ ...GPU_MODEL_PREPARATION_LEGACY_RECIPE,version:3,
+ encoder:{...GPU_MODEL_PREPARATION_LEGACY_RECIPE.encoder,
+  options:GPU_MODEL_PREPARATION_LEGACY_RECIPE.encoder.options.map(option=>option==='--wmode'?'--wrapping':option)},
+} as const);
 export const GPU_MODEL_PREPARATION_RECIPE_JSON=canonical(GPU_MODEL_PREPARATION_RECIPE);
-export const GPU_MODEL_PREPARATION_RECIPE_SHA256='886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc';
+export const GPU_MODEL_PREPARATION_RECIPE_SHA256='82a7dd855788e590ba6698f1c3c5fc51b7638edd24c891391b20c20c09ac1fdf';
 
 export interface GpuModelPreparationInput {
  revision:number;assetId:string;sha256:string;bytes:number;idempotencyKey:string;generation:string;profile:typeof GPU_MODEL_PREPARATION_PROFILE;
@@ -48,7 +56,7 @@ export interface GpuModelPreparationBinding {
  tenantId:string;principalId:string;artworkId:string;approvalSHA256:string;rightsSHA256:string;
 }
 export interface GpuModelPreparationIntent {
- version:1;purpose:typeof GPU_MODEL_PREPARATION_PURPOSE;recipeSHA256:typeof GPU_MODEL_PREPARATION_RECIPE_SHA256;
+ version:1;purpose:typeof GPU_MODEL_PREPARATION_PURPOSE;recipeSHA256:typeof GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256;
  request:Readonly<GpuModelPreparationInput>;binding:Readonly<GpuModelPreparationBinding>;
 }
 type Fail=()=>never;
@@ -89,16 +97,18 @@ function binding(value:unknown,fail:Fail):Readonly<GpuModelPreparationBinding> {
 /** Only the explicit seven-field GPU branch calls this parser. */
 export function parseGpuModelPreparationInput(value:unknown):Readonly<GpuModelPreparationInput>{return input(value,invalidInput);}
 
-/** Binds a checked request to server-resolved source authority. The caller still
+/** The immutable049 intent envelope keeps its original recipe identity. Actual
+ * execution is separately pinned on the stored preparation, never inferred.
+ * Binds a checked request to server-resolved source authority. The caller still
  * owns authentication, source validation, locking and idempotency persistence. */
 export function bindGpuModelPreparationIntent(request:unknown,serverBinding:unknown):Readonly<GpuModelPreparationIntent>{
- return Object.freeze({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,
+ return Object.freeze({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256,
   request:input(request,invalidInput),binding:binding(serverBinding,invalidIntent)});
 }
 export function parseGpuModelPreparationIntent(value:unknown):Readonly<GpuModelPreparationIntent>{
  const v=record(value,['version','purpose','recipeSHA256','request','binding'],invalidIntent);
- if(v.version!==1||v.purpose!==GPU_MODEL_PREPARATION_PURPOSE||v.recipeSHA256!==GPU_MODEL_PREPARATION_RECIPE_SHA256)return invalidIntent();
- return Object.freeze({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,
+ if(v.version!==1||v.purpose!==GPU_MODEL_PREPARATION_PURPOSE||v.recipeSHA256!==GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256)return invalidIntent();
+ return Object.freeze({version:1,purpose:GPU_MODEL_PREPARATION_PURPOSE,recipeSHA256:v.recipeSHA256,
   request:input(v.request,invalidIntent),binding:binding(v.binding,invalidIntent)});
 }
 /** Compare durable, canonical intent digests for the same tenant/key. Tokens and

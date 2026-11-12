@@ -3,7 +3,7 @@
  * producer attestation, byte validator, or permission to load a decoder. */
 export const GPU_MODEL_NAMESPACE='org.exhibitos.viewer/gpu-model';
 export const GPU_MODEL_PROFILE='embedded-model-basecolor-uastc-512-mips-v1';
-export const GPU_MODEL_RECIPE_SHA256='886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc';
+export const GPU_MODEL_RECIPE_SHA256='82a7dd855788e590ba6698f1c3c5fc51b7638edd24c891391b20c20c09ac1fdf';
 // The ordinary producer inspects the existing bounded compact-source family.
 export const MAX_GPU_MODEL_TRIANGLES=200000;
 export type ArtworkGpuModel={

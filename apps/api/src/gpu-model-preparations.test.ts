@@ -33,7 +33,7 @@ vi.mock('./gpu-model-producer.ts',()=>({
 vi.mock('./gpu-source-preservation.ts',()=>({parseGpuModelSource:(bytes:Buffer)=>({doc:{images:[{bufferView:0}],bufferViews:[{byteOffset:0,byteLength:3}]},bin:bytes.subarray(bytes.length-3)})}));
 import {GpuModelPreparations,GPU_MODEL_MIGRATION_SHA256} from './gpu-model-preparations.ts';
 import {GpuModelEncoderError} from './gpu-model-encoder.ts';
-import {GPU_MODEL_PREPARATION_PROFILE,GPU_MODEL_PREPARATION_RECIPE as recipe,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
+import {GPU_MODEL_PREPARATION_PROFILE,GPU_MODEL_PREPARATION_RECIPE_SHA256,GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256,GPU_MODEL_PREPARATION_RECIPE as recipe,bindGpuModelPreparationIntent} from './gpu-model-preparation-contract.ts';
 import {gpuModelDigest,createGpuModelReceipt} from './gpu-model-preparation-state.ts';
 const tenant='11111111-1111-4111-8111-111111111111',principal='22222222-2222-4222-8222-222222222222',artworkId='33333333-3333-4333-8333-333333333333',sourceId='44444444-4444-4444-8444-444444444444',jobId='55555555-5555-4555-8555-555555555555';
 const hash=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex'),actor={tenantId:tenant,userId:principal};
@@ -43,7 +43,7 @@ const request={revision:7,assetId:sourceId,sha256:hash(source),bytes:source.leng
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row=Record<string,any>;
 type EncoderContext={signal:AbortSignal;assertCurrent:()=>Promise<void>;onSpawn:()=>void;writerFd?:number};
-function producer(){return {version:1,tool:{name:'toktx',version:'4.4.2',executableSHA256:recipe.encoder.sha256,librarySHA256:recipe.encoder.librarySHA256,recipeSHA256:'886e3815a386a46462e46d35ccb640498ebefcc853cefba61f76560b62cae4bc'},geometry:{algorithm:'glb-source-preservation-v1',sourceSHA256:'a'.repeat(64),outputSHA256:'a'.repeat(64),triangles:1,vertices:3},samplers:{sourceSHA256:'b'.repeat(64),outputSHA256:'b'.repeat(64),semantics:'source-preserved-implicit-repeat-mipmapped'},roles:['baseColor','normal','occlusion'].map((role,i)=>({role,textureIndex:i,sourceImageIndex:i+1,sourceSHA256:'c'.repeat(64),sourceBytes:24,outputPngImageIndex:i+1,outputPngSHA256:'c'.repeat(64),outputPngBytes:24,width:512,height:512,colorSpace:i===0?'srgb':'linear'})),ktx:{imageIndex:0,sha256:hash(Buffer.from('ktx')),bytes:3,width:512,height:512,levels:10,format:'uastc',transfer:'srgb',opaque:true,levelDimensions:[512,256,128,64,32,16,8,4,2,1]}};}
+function producer(){return {version:1,tool:{name:'toktx',version:'4.4.2',executableSHA256:recipe.encoder.sha256,librarySHA256:recipe.encoder.librarySHA256,recipeSHA256:'82a7dd855788e590ba6698f1c3c5fc51b7638edd24c891391b20c20c09ac1fdf'},geometry:{algorithm:'glb-source-preservation-v1',sourceSHA256:'a'.repeat(64),outputSHA256:'a'.repeat(64),triangles:1,vertices:3},samplers:{sourceSHA256:'b'.repeat(64),outputSHA256:'b'.repeat(64),semantics:'source-preserved-implicit-repeat-mipmapped'},roles:['baseColor','normal','occlusion'].map((role,i)=>({role,textureIndex:i,sourceImageIndex:i+1,sourceSHA256:'c'.repeat(64),sourceBytes:24,outputPngImageIndex:i+1,outputPngSHA256:'c'.repeat(64),outputPngBytes:24,width:512,height:512,colorSpace:i===0?'srgb':'linear'})),ktx:{imageIndex:0,sha256:hash(Buffer.from('ktx')),bytes:3,width:512,height:512,levels:10,format:'uastc',transfer:'srgb',opaque:true,levelDimensions:[512,256,128,64,32,16,8,4,2,1]}};}
 function deferred<T=void>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 class Fixture{
  row:Row;artwork:Row;snapshots:Map<number,Row>;assets=new Map<string,Row>();lineage:Row[]=[];events:string[]=[];objects=new Map<string,Buffer>([['source',Buffer.from(source)]]);
@@ -58,6 +58,7 @@ class Fixture{
   if(sql.startsWith('SELECT a.*,r.metadata'))return rows(this.assets.has(String(args[2]))?[this.assets.get(String(args[2]))!]:[]);
   if(sql.startsWith('SELECT metadata FROM asset_derivatives'))return rows(this.lineage);
   if(sql.startsWith('SELECT lease_until>'))return rows([{live:this.row.lease_id===args[2]&&this.row.lease_until==='live'}]);
+  if(sql.startsWith('INSERT INTO import_jobs')){this.row={...this.row,id:args[1],gpu_preparation:structuredClone(args[12])};this.priorExists=true;return rows([this.row]);}
   if(sql.startsWith('INSERT INTO rights')){this.events.push('rights');return rows([]);}
   if(sql.startsWith('INSERT INTO assets')){this.events.push('asset');this.assets.set(String(args[1]),{id:args[1],object_key:args[4],sha256:args[5],bytes:args[6],mime:'model/gltf-binary',scale_meters:args[7],current_rights:structuredClone(this.row.rights)});return rows([]);}
   if(sql.startsWith('INSERT INTO asset_derivatives')){this.events.push('lineage');this.lineage.push({metadata:structuredClone(args[3])});return rows([]);}
@@ -65,7 +66,7 @@ class Fixture{
   if(sql.startsWith("UPDATE import_jobs SET state='failed'")){if(this.row.state==='processing'&&this.row.lease_id===args[2])Object.assign(this.row,{state:'failed',error_code:args[3]});return rows([]);}
   if(sql.startsWith('UPDATE import_jobs SET lease_id=NULL')){if(this.row.lease_id===args[2]){this.events.push('drained');this.row.lease_id=null;this.row.lease_until=null;this.row.png_worker_tokens=this.row.png_worker_tokens.filter((x:string)=>x!==args[2]);}return rows([]);}
   if(sql.startsWith("UPDATE import_jobs SET state='cancelled'")){this.row.state='cancelled';return rows([]);}
-  if(sql.startsWith("UPDATE import_jobs SET state='queued'")){this.row.state='queued';this.row.error_code=null;return rows([]);}
+  if(sql.startsWith("UPDATE import_jobs SET state='queued'")){this.row.state='queued';this.row.error_code=null;this.row.gpu_preparation=structuredClone(args[2]);return rows([]);}
   if(sql.startsWith('SELECT id FROM import_jobs WHERE tenant_id'))return rows([]);
   if(sql.startsWith('SELECT * FROM import_jobs WHERE tenant_id')){if(sql.includes('idempotency_key')&&!this.priorExists)return rows([]);return rows(args[0]===this.row.tenant_id&&args[1]===(sql.includes('idempotency_key')?this.row.idempotency_key:this.row.id)?[this.row]:[]);}
   if(sql.startsWith('SELECT artwork_id,user_id'))return rows([{artwork_id:artworkId,user_id:this.row.user_id}]);
@@ -82,7 +83,7 @@ class Fixture{
   const approval={asset:{id:sourceId,mime:'model/gltf-binary',sha256:hash(source),bytes:source.length},metadata:{rights:structuredClone(rights)}};
   this.snapshots=new Map([[7,approval]]);this.artwork={revision:7,approved_revision:7,approved_asset_id:sourceId,metadata:{rights:structuredClone(rights)}};
   this.assets.set(sourceId,{id:sourceId,object_key:'source',mime:'model/gltf-binary',sha256:hash(source),bytes:source.length,scale_meters:1,current_rights:structuredClone(rights)});
-  this.row={tenant_id:tenant,id:jobId,user_id:principal,artwork_id:artworkId,idempotency_key:request.idempotencyKey,request_hash:gpuModelDigest({purpose:'approved-display-gpu-derivative',artworkId,...request}),expected_hash:request.sha256,expected_bytes:request.bytes,mime:'model/gltf-binary',object_key:'source',approved_key:'quarantine',rights:structuredClone(rights),scale_meters:1,state:'queued',progress:10,attempts:0,error_code:null,available_at:new Date(0).toISOString(),lease_id:null,png_drain_version:1,png_worker_tokens:[],gpu_preparation:{kind:'gpu-model-preparation',intent:bindGpuModelPreparationIntent(request,{tenantId:tenant,principalId:principal,artworkId,approvalSHA256:gpuModelDigest(approval),rightsSHA256:gpuModelDigest(rights)})}};
+  this.row={tenant_id:tenant,id:jobId,user_id:principal,artwork_id:artworkId,idempotency_key:request.idempotencyKey,request_hash:gpuModelDigest({purpose:'approved-display-gpu-derivative',artworkId,...request}),expected_hash:request.sha256,expected_bytes:request.bytes,mime:'model/gltf-binary',object_key:'source',approved_key:'quarantine',rights:structuredClone(rights),scale_meters:1,state:'queued',progress:10,attempts:0,error_code:null,available_at:new Date(0).toISOString(),lease_id:null,png_drain_version:1,png_worker_tokens:[],gpu_preparation:{kind:'gpu-model-preparation',executionRecipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,intent:bindGpuModelPreparationIntent(request,{tenantId:tenant,principalId:principal,artworkId,approvalSHA256:gpuModelDigest(approval),rightsSHA256:gpuModelDigest(rights)})}};
  }
 }
 let root:string,f:Fixture,jobs:GpuModelPreparations;
@@ -154,6 +155,52 @@ describe('ordinary GPU producer job lifecycle (mocked encoder, no conversion)',(
  });
  it.each([[false,true],[true,false]])('retains ownership when drain=%s cleanup=%s is unconfirmed',async(drained,cleanup)=>{
   f.encode=async()=>{throw new GpuModelEncoderError('GPU_MODEL_ENCODER_FAILED',drained,cleanup);};await jobs.work();expect(f.row.state).toBe('failed');expect(f.row.png_worker_tokens).toHaveLength(1);await expect(jobs.action(f.client,actor,jobId,'retry')).rejects.toMatchObject({code:'WORKER_DRAIN_UNCONFIRMED'});expect(await jobs.work()).toBe(false);
+ });
+ it('creates a current explicit execution under the unchanged049 immutable intent envelope',async()=>{
+  f.priorExists=false;const view=await jobs.create(f.client,actor,artworkId,request);
+  expect(view.gpuPreparation.recipeSHA256).toBe(GPU_MODEL_PREPARATION_RECIPE_SHA256);
+  expect(f.row.gpu_preparation.intent.recipeSHA256).toBe(GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256);
+  expect(f.row.gpu_preparation.executionRecipeSHA256).toBe(GPU_MODEL_PREPARATION_RECIPE_SHA256);
+  expect(f.row.gpu_preparation.intent.request).toEqual(request);expect(f.events).not.toContain('spawn');
+ });
+ it('reads the original failed recipe unchanged, then retries the same row with an explicit corrected execution and current receipt',async()=>{
+  delete f.row.gpu_preparation.executionRecipeSHA256;Object.assign(f.row,{state:'failed',progress:25,attempts:1,error_code:'GPU_MODEL_ENCODER_FAILED'});
+  const original=JSON.stringify(f.row.gpu_preparation.intent),originalID=f.row.id,originalRequestHash=f.row.request_hash;
+  expect(await jobs.access(f.client,actor,jobId)).toMatchObject({id:jobId,state:'failed'});
+  expect(jobs.view(f.row).gpuPreparation).toMatchObject({recipeSHA256:GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256,workerDrained:true,status:'failed'});
+  const recovery=await jobs.recover(f.client,actor,artworkId,request);expect(recovery.job!.gpuPreparation.recipeSHA256).toBe(GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256);
+  expect(await jobs.work()).toBe(false);expect(f.events).not.toContain('spawn');expect(f.row.attempts).toBe(1);
+  const queued=await jobs.action(f.client,actor,jobId,'retry');expect(queued).toMatchObject({id:originalID,state:'queued',attempts:1,gpuPreparation:{recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256}});
+  expect(JSON.stringify(f.row.gpu_preparation.intent)).toBe(original);expect(f.row.request_hash).toBe(originalRequestHash);
+  await jobs.work();expect(f.row.attempts).toBe(2);expect(f.row.id).toBe(originalID);expect(JSON.stringify(f.row.gpu_preparation.intent)).toBe(original);
+  const ready=jobs.view(f.row);expect(ready.gpuPreparation).toMatchObject({status:'ready',recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,serverReceipt:{recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256,producer:{tool:{recipeSHA256:GPU_MODEL_PREPARATION_RECIPE_SHA256}}}});
+ });
+ it('does not turn an untouched historical failed row into an unobservable cancelled legacy state',async()=>{
+  delete f.row.gpu_preparation.executionRecipeSHA256;Object.assign(f.row,{state:'failed',attempts:1});const before=structuredClone(f.row);
+  await expect(jobs.action(f.client,actor,jobId,'cancel')).rejects.toMatchObject({code:'JOB_STATE'});expect(f.row).toEqual(before);
+ });
+ it.each(['queued','processing','approved','cancelled'] as const)('refuses old %s rows without an explicit corrected execution',async state=>{
+  delete f.row.gpu_preparation.executionRecipeSHA256;f.row.state=state;
+  expect(()=>jobs.view(f.row)).toThrow('GPU_MODEL_PREPARATION_STATE_INVALID');
+  if(state==='queued')await expect(jobs.work()).rejects.toMatchObject({code:'GPU_MODEL_PREPARATION_STATE_INVALID'});
+  expect(f.events).not.toContain('spawn');
+ });
+ it.each(['unknown-intent','unknown-execution','legacy-execution','undrained','retained-lease','result'] as const)('fails closed on historical %s',async kind=>{
+  delete f.row.gpu_preparation.executionRecipeSHA256;Object.assign(f.row,{state:'failed',attempts:1});
+  if(kind==='unknown-intent')f.row.gpu_preparation.intent={...f.row.gpu_preparation.intent,recipeSHA256:'a'.repeat(64)};
+  if(kind==='unknown-execution')f.row.gpu_preparation.executionRecipeSHA256='a'.repeat(64);
+  if(kind==='legacy-execution')f.row.gpu_preparation.executionRecipeSHA256=GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256;
+  if(kind==='undrained')f.row.png_worker_tokens=[jobId];if(kind==='retained-lease')f.row.lease_until='retained';if(kind==='result')f.row.gpu_preparation.result={};
+  const before=structuredClone(f.row);await expect(jobs.action(f.client,actor,jobId,'retry')).rejects.toBeInstanceOf(ApiError);expect(f.row).toEqual(before);expect(f.events).not.toContain('spawn');
+ });
+ it.each(['future','attempts','rights','owner','unready'] as const)('preserves historical intent and execution absence when retry %s fails',async barrier=>{
+  delete f.row.gpu_preparation.executionRecipeSHA256;Object.assign(f.row,{state:'failed',attempts:1});
+  if(barrier==='future')f.row.available_at=new Date(Date.now()+60000).toISOString();if(barrier==='attempts')f.row.attempts=5;if(barrier==='rights')f.artwork.metadata.rights.export=false;if(barrier==='unready')f.encoderReady=false;
+  const before=structuredClone(f.row);await expect(jobs.action(f.client,barrier==='owner'?{...actor,userId:sourceId}:actor,jobId,'retry')).rejects.toBeInstanceOf(ApiError);expect(f.row).toEqual(before);
+ });
+ it('never accepts a legacy producer receipt under a corrected execution',async()=>{
+  await jobs.work();f.row.gpu_preparation.result.producer.tool.recipeSHA256=GPU_MODEL_PREPARATION_LEGACY_RECIPE_SHA256;
+  expect(()=>jobs.view(f.row)).toThrow('GPU_MODEL_PREPARATION_STATE_INVALID');
  });
  it('retries only a drained failed job with current source authority and preserves operation identity',async()=>{
   f.encode=async()=>{throw new GpuModelEncoderError('GPU_MODEL_ENCODER_FAILED',true,true);};await jobs.work();const intent=structuredClone(f.row.gpu_preparation.intent);expect(f.row.state).toBe('failed');
