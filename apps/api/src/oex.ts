@@ -1,3 +1,5 @@
+import {assertGpuModelBytes} from './approved-gpu-model.ts';
+import {GPU_MODEL_NAMESPACE,artworkGpuModelFor} from '@exhibitos/studio-contract';
 import {FURNISHING_WALKING_COLLISION_NAMESPACE,remapFurnishingWalkingCollision,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionSettings} from '@exhibitos/studio-contract';
 import {importedArtworkMetadata,approvedDimensionsMatch} from './imported-artwork-metadata.ts';
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
@@ -204,6 +206,8 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
   if(lod&&sourceLod)for(const[i,variant]of sourceLod.variants.entries())lod.variants[i]!.assetId=scopedId(variant.assetId);
   const thumbnail=target.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE] as {assetId:string}|undefined,sourceThumbnail=source.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE] as {assetId:string}|undefined;
   if(thumbnail&&sourceThumbnail)thumbnail.assetId=scopedId(sourceThumbnail.assetId);
+  const gpu=artworkGpuModelFor(source);
+  if(gpu){const binding=target.extensions![GPU_MODEL_NAMESPACE] as unknown as {sourceAssetId:string;candidateAssetId:string};binding.sourceAssetId=scopedId(gpu.binding.sourceAssetId);binding.candidateAssetId=scopedId(gpu.binding.candidateAssetId);}
   for(const[i,event]of source.provenance.events.entries())if(event.sourceAssetIds)target.provenance.events[i]!.sourceAssetIds=event.sourceAssetIds.map(scopedId);
   if(source.provenance.scaleConversion&&target.provenance.scaleConversion)target.provenance.scaleConversion.appliedToAssetIds=source.provenance.scaleConversion.appliedToAssetIds.map(scopedId);
  }
@@ -283,7 +287,12 @@ export class Oex {
  }
  /** Load and validate one currently approved asset without retaining other assets. */
  private async currentExportAsset(c:PoolClient,s:Session,a:Exhibition['artworks'][number],asset:Exhibition['artworks'][number]['assets'][number],m:ArtworkMetadata){
-  const stored=await this.currentExportAssetRecord(c,s,a,asset,m);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await checkAssetBytes(a,asset.id,bytes,asset.mime);
+  const stored=await this.currentExportAssetRecord(c,s,a,asset,m);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+  const gpu=artworkGpuModelFor(a);
+  if(gpu&&asset.id.toLowerCase()===gpu.candidate.id.toLowerCase()){
+   const source=await this.currentExportAssetRecord(c,s,a,gpu.source,m);
+   const original=Buffer.from(await this.blobs.get(source.object_key));assertGpuModelBytes(original,bytes,gpu);
+  }else await checkAssetBytes(a,asset.id,bytes,asset.mime);
   return {bytes,storedRights:stored.rights as unknown};
  }
  private async currentExportPreview(c:PoolClient,s:Session,a:Exhibition['artworks'][number],asset:NonNullable<ReturnType<typeof artworkThumbnailFor>>){
@@ -677,7 +686,9 @@ export class Oex {
    const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
    const qualified=new Map<string,Buffer>();
-   for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path)||artworkThumbnailFor(a)?.id.toLowerCase()===asset.id.toLowerCase())await checkAssetBytes(a,asset.id,bytes,asset.mime);qualified.set(asset.path,bytes);}
+   for(const a of parsed.exhibition.artworks){const gpu=artworkGpuModelFor(a);for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if((!gpu||asset.id.toLowerCase()!==gpu.candidate.id.toLowerCase())&&(!qualified.has(asset.path)||artworkThumbnailFor(a)?.id.toLowerCase()===asset.id.toLowerCase()))await checkAssetBytes(a,asset.id,bytes,asset.mime);qualified.set(asset.path,bytes);}
+    if(gpu)assertGpuModelBytes(Buffer.from(parsed.files.get(`assets/${gpu.source.path}`)!),Buffer.from(parsed.files.get(`assets/${gpu.candidate.path}`)!),gpu);
+   }
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
    for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}

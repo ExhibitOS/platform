@@ -1,3 +1,5 @@
+import {applyGpuModelApproval,assertGpuModelBytes} from './approved-gpu-model.ts';
+import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import type {Imports} from './imports.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
 import {preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
@@ -593,13 +595,23 @@ export class Cms {
     const m=approval.snapshot.metadata,asset=approval.snapshot.asset as {id:string;sha256:string;bytes:number;mime:string};
       const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
       const binding=imported?.extensions?.['org.exhibitos.studio/cms']as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
-      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||!validateArtworkThumbnail(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(imported.schemaVersion==='1.0.0-draft.2'?[IMPORTED_DISPLAY_REFERENCE]:[])].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(!validateArtwork(imported).valid||!validateArtworkGpuModel(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||!validateArtworkThumbnail(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,GPU_MODEL_NAMESPACE,...(imported.schemaVersion==='1.0.0-draft.2'?[IMPORTED_DISPLAY_REFERENCE]:[])].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
       if(imported.metadata.title!==m.title||(imported.metadata.description??'')!==m.description||imported.metadata.medium!==m.medium||(imported.metadata.artist??'Imported artist')!==artist||!approvedDimensionsMatch(imported,m)||creationYearFor(imported)!==m.creationYear||imported.provenance.authorship!==m.provenance.source||json(imported.rights)!==json(m.rights))throw new ApiError(409,'APPROVAL_INVALID');
       const primary=imported.assets.find(x=>x.id.toLowerCase()===imported.primaryAssetId.toLowerCase());
       if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
       const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
       const optionalPreview=artworkThumbnailFor(imported);
       for(const source of imported.assets){if(source.id.toLowerCase()===optionalPreview?.id.toLowerCase())continue;const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
+      const gpu=artworkGpuModelFor(imported);
+      if(gpu){
+        if(!this.blobs?.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+        const source=rows.find(x=>x.id===gpu.source.id),candidate=rows.find(x=>x.id===gpu.candidate.id);
+        if(!source||!candidate)throw new ApiError(409,'APPROVAL_INVALID');
+        const keys=(await c.query("SELECT id,object_key FROM assets WHERE tenant_id=$1 AND artwork_id=$2 AND id=ANY($3::uuid[]) AND state='approved' AND deleted_at IS NULL",[s.tenantId,id,[gpu.source.id,gpu.candidate.id]])).rows;
+        const sourceKey=keys.find(x=>x.id===gpu.source.id),candidateKey=keys.find(x=>x.id===gpu.candidate.id);
+        if(!sourceKey||!candidateKey)throw new ApiError(409,'APPROVAL_INVALID');
+        assertGpuModelBytes(Buffer.from(await this.blobs.getBounded(sourceKey.object_key,gpu.source.bytes)),Buffer.from(await this.blobs.getBounded(candidateKey.object_key,gpu.candidate.bytes)),gpu);
+      }
       qualifyDemoDisplay(imported);
       return imported;
   }
@@ -621,6 +633,7 @@ export class Cms {
       if(!validMetadata(approval.current_metadata)||json(approval.current_metadata)!==json(m)||approval.approved_asset_id!==asset.id)throw new ApiError(409,'APPROVAL_INVALID');
       const imported=await this.importedApproval(c,s,id,approval,display.artist);
       if(approval.snapshot.compactVariant!==undefined)await applyCompactVariantApproval(c,s,id,imported,approval.snapshot.compactVariant);
+      if(approval.snapshot.gpuVariant!==undefined)await applyGpuModelApproval(c,s,id,imported,approval.snapshot.gpuVariant,this.blobs);
       if(!validateViewerLod(imported).valid)throw new ApiError(409,'APPROVAL_INVALID');
       return {artwork:imported,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
     }
@@ -632,6 +645,7 @@ export class Cms {
     const artwork: Artwork={schemaVersion:reference?'1.0.0-draft.2':'1.0.0-draft.1',kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:reference?'unknown':'meter',coordinates:"right-handed-y-up",dimensions,transform:reference?structuredClone(reference.pose):{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}}),...(reference?{'org.exhibitos.studio/display-reference':{version:1,status:reference.status,assetSha256:reference.assetSha256,rawBounds:structuredClone(reference.rawBounds),referenceHeightMeters:reference.referenceHeightMeters,catalogueDimensions:structuredClone(m.dimensions),axisMapping:'unverified'}}:{})}} as Artwork;
     if(approval.snapshot.modelPair!==undefined)await applyModelPairApproval(c,s,id,artwork,approval.snapshot.modelPair);
     if(approval.snapshot.compactVariant!==undefined)await applyCompactVariantApproval(c,s,id,artwork,approval.snapshot.compactVariant);
+    if(approval.snapshot.gpuVariant!==undefined)await applyGpuModelApproval(c,s,id,artwork,approval.snapshot.gpuVariant,this.blobs);
     if(!validateArtwork(artwork).valid||!validateViewerLod(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }

@@ -278,3 +278,5 @@ export * from './artwork-detail-quality.js';
 export * from './workspace-fit-receipt.js';
 export * from './furnishing-walking-collision.js';
 export * from './bounded-mipped-ktx2.js';
+
+export * from './gpu-model.js';

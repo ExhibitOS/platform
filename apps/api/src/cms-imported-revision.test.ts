@@ -28,6 +28,7 @@ function setup(imported=true){
  const rows=(v:unknown[])=>({rows:v,rowCount:v.length});
  const query=vi.fn(async(sql:string,p:unknown[])=>{
   // This fixture models ordinary CMS without the native model preparation schema.
+  if(sql.startsWith('SELECT 1 FROM import_jobs j WHERE')&&sql.includes("to_jsonb(j)->>'gpu_preparation'"))return rows([]);
   if(sql.includes("attname='model_preparation'")&&sql.includes("conname='import_model_preparation_shape'"))return rows([{supported:false}]);
   if(sql.startsWith('UPDATE artworks SET metadata=')){if(p[2]!==article.revision)return rows([]);article.metadata=structuredClone(p[3] as ArtworkMetadata);article.revision++;article.approved_revision=null;article.approved_asset_id=null;article.updated_at='2026-01-02T00:00:00.000Z';return rows([{revision:article.revision}]);}
   if(sql.startsWith('INSERT INTO artwork_revisions')||sql.startsWith('INSERT INTO audit_events')||sql.startsWith('INSERT INTO publication_events'))return rows([]);

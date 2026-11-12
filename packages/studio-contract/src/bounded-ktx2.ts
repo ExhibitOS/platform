@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {boundedMippedKtx2} from './bounded-mipped-ktx2.js';
 /** Closed embedded opaque UASTC/sRGB profile. Structural validation is not a transcoding or visual-quality proof. */
 export function boundedKtx2(bytes: Uint8Array) {
   const bad=():never=>{throw Error('KTX2_PROFILE_INVALID');};
@@ -30,6 +31,13 @@ export function boundedKtx2(bytes: Uint8Array) {
 }
 /** Only texture-local optional KHR_texture_basisu is allowed; every compressed image has one PNG fallback. */
 export function embeddedBasisPairs(doc: ReturnType<typeof JSON.parse>, imageBytes: (index:number)=>Uint8Array) {
+  return embeddedPairs(doc,imageBytes,false);
+}
+/** Dedicated ten-level 512 UASTC LDR profile; legacy single-level admission stays separate. */
+export function embeddedMippedBasisPairs(doc: ReturnType<typeof JSON.parse>, imageBytes: (index:number)=>Uint8Array) {
+  return embeddedPairs(doc,imageBytes,true);
+}
+function embeddedPairs(doc: ReturnType<typeof JSON.parse>, imageBytes: (index:number)=>Uint8Array,mipped:boolean) {
   const bad=():never=>{throw Error('BASIS_GLTF_PROFILE_INVALID');};
   const pairs=new Map<number,number>();
   const used=doc.extensionsUsed;
@@ -42,7 +50,7 @@ export function embeddedBasisPairs(doc: ReturnType<typeof JSON.parse>, imageByte
     if(!ext||Object.keys(ext).length!==1||!Object.hasOwn(ext,'KHR_texture_basisu')||!ext.KHR_texture_basisu||Object.keys(ext.KHR_texture_basisu).length!==1)bad();
     const png=texture.source,ktx=ext.KHR_texture_basisu.source;
     if(!Number.isSafeInteger(png)||!Number.isSafeInteger(ktx)||png<0||ktx<0||png===ktx||compressed.has(ktx)||fallbacks.has(png)||doc.images?.[png]?.mimeType!=='image/png'||doc.images?.[ktx]?.mimeType!=='image/ktx2')bad();
-    const k=imageBytes(ktx),info=boundedKtx2(k),p=imageBytes(png);if(p.length<24)bad();
+    const k=imageBytes(ktx),info=mipped?boundedMippedKtx2(k):boundedKtx2(k),p=imageBytes(png);if(p.length<24)bad();
     const pv=new DataView(p.buffer,p.byteOffset,p.byteLength);
     if(info.width!==pv.getUint32(16)||info.height!==pv.getUint32(20))bad();
     pixels+=info.width*info.height;totalBytes+=k.length;if(pixels>2097152||totalBytes>8388608)bad();

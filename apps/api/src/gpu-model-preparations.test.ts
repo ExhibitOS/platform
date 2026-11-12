@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createHash} from 'node:crypto';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {lstat,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
@@ -11,7 +11,7 @@ import {ApiError} from './api-error.ts';
 const mocked=vi.hoisted(()=>({fixture:undefined as unknown as Fixture}));
 vi.mock('@exhibitos/storage',()=>({
  sha256:(b:Uint8Array)=>createHash('sha256').update(b).digest('hex'),
- artworkAccess:async(_c:unknown,s:{tenantId:string;userId:string},id:string)=>{const f=mocked.fixture;if(s.tenantId!==tenant||s.userId!==principal||id!==artworkId||!f.authorized)throw new ApiError(403,'FORBIDDEN');return structuredClone(f.artwork);},
+ artworkAccess:async(_c:unknown,s:{tenantId:string;userId:string},id:string)=>{const f=mocked.fixture;if(s.tenantId!==tenant||s.userId!==principal||!f.artworkIds.has(id)||!f.authorized)throw new ApiError(403,'FORBIDDEN');return structuredClone(f.artwork);},
  transaction:async(_pool:unknown,work:(c:PoolClient)=>Promise<unknown>)=>{
   const f=mocked.fixture,save=structuredClone({row:f.row,artwork:f.artwork,snapshots:[...f.snapshots],assets:[...f.assets],lineage:f.lineage});
   try{const value=await work(f.client);await f.onCommit?.();return value;}catch(error){f.row=save.row;f.artwork=save.artwork;f.snapshots=new Map(save.snapshots);f.assets=new Map(save.assets);f.lineage=save.lineage;throw error;}
@@ -47,7 +47,7 @@ function producer(){return {version:1,tool:{name:'toktx',version:'4.4.2',executa
 function deferred<T=void>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 class Fixture{
  row:Row;artwork:Row;snapshots:Map<number,Row>;assets=new Map<string,Row>();lineage:Row[]=[];events:string[]=[];objects=new Map<string,Buffer>([['source',Buffer.from(source)]]);
- capacityFailure=false;active=true;authorized=true;encoderReady=true;supported=true;onCommit?:()=>Promise<void>;encoderContext?:EncoderContext;encode?: (context:EncoderContext)=>Promise<{ktx:Buffer;workerDrained:true}>;
+ priorExists=true;artworkIds=new Set([artworkId]);capacityFailure=false;active=true;authorized=true;encoderReady=true;supported=true;onCommit?:()=>Promise<void>;encoderContext?:EncoderContext;encode?: (context:EncoderContext)=>Promise<{ktx:Buffer;workerDrained:true}>;
  query=vi.fn(async(sql:string,args:unknown[]=[]):Promise<{rows:Row[];rowCount:number}>=>{
   const rows=(items:Row[])=>({rows:structuredClone(items),rowCount:items.length});
   if(sql.includes('AS supported')){expect(args).toEqual(['049_gpu_model_preparation.sql',GPU_MODEL_MIGRATION_SHA256]);return rows([{supported:this.supported}]);}
@@ -67,7 +67,7 @@ class Fixture{
   if(sql.startsWith("UPDATE import_jobs SET state='cancelled'")){this.row.state='cancelled';return rows([]);}
   if(sql.startsWith("UPDATE import_jobs SET state='queued'")){this.row.state='queued';this.row.error_code=null;return rows([]);}
   if(sql.startsWith('SELECT id FROM import_jobs WHERE tenant_id'))return rows([]);
-  if(sql.startsWith('SELECT * FROM import_jobs WHERE tenant_id'))return rows(args[0]===this.row.tenant_id&&args[1]===(sql.includes('idempotency_key')?this.row.idempotency_key:this.row.id)?[this.row]:[]);
+  if(sql.startsWith('SELECT * FROM import_jobs WHERE tenant_id')){if(sql.includes('idempotency_key')&&!this.priorExists)return rows([]);return rows(args[0]===this.row.tenant_id&&args[1]===(sql.includes('idempotency_key')?this.row.idempotency_key:this.row.id)?[this.row]:[]);}
   if(sql.startsWith('SELECT artwork_id,user_id'))return rows([{artwork_id:artworkId,user_id:this.row.user_id}]);
   if(sql.startsWith('INSERT INTO artwork_approvals')){this.snapshots.set(Number(args[2]),structuredClone(args[4] as Row));return rows([]);}
   if(sql.startsWith('UPDATE artworks SET approved_revision')){this.artwork.approved_revision=args[2];this.artwork.approved_asset_id=args[3];return rows([]);}
@@ -170,6 +170,79 @@ describe('ordinary GPU producer job lifecycle (mocked encoder, no conversion)',(
   expect(await jobs.create(f.client,actor,artworkId,request)).toMatchObject({id:jobId,state:'queued'});
   await expect(jobs.create(f.client,actor,artworkId,{...request,bytes:33})).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
   f.row.user_id=sourceId;await expect(jobs.create(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});expect(f.row.attempts).toBe(0);
+ });
+ it.each(['runtime','encoder','revision','rights'] as const)('recovers a committed create response after %s readiness changed without reauthorizing candidate access',async barrier=>{
+  // The fixture row represents the committed create whose HTTP response was lost.
+  const first=await jobs.create(f.client,actor,artworkId,request);
+  if(barrier==='runtime')f.active=false;if(barrier==='encoder')f.encoderReady=false;if(barrier==='revision')f.artwork.revision++;if(barrier==='rights')f.artwork.metadata.rights.export=false;
+  f.events=[];f.query.mockClear();vi.mocked(f.base.assertReady).mockClear();
+  const recovered=await jobs.create(f.client,actor,artworkId,request);
+  expect(recovered).toEqual(first);expect(recovered).toMatchObject({id:jobId,state:'queued',gpuPreparation:{workerDrained:false}});expect(recovered).not.toHaveProperty('assetId');
+  expect(f.base.assertReady).not.toHaveBeenCalled();expect(f.events).toEqual([]);expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE)/.test(sql))).toBe(false);expect(f.blobs.getBounded).not.toHaveBeenCalled();expect(f.blobs.putDurable).not.toHaveBeenCalled();
+  const sql=f.query.mock.calls.map(([sql])=>sql),artworkLock=sql.findIndex(x=>x.startsWith('SELECT id FROM artworks')),keyLock=sql.findIndex(x=>x.includes('hashtextextended'));
+  expect(artworkLock).toBeGreaterThanOrEqual(0);expect(keyLock).toBeGreaterThan(artworkLock);
+  await expect(jobs.review(f.client,actor,artworkId,jobId)).rejects.toMatchObject({status:barrier==='runtime'||barrier==='encoder'?503:409});
+ });
+ it('returns an owned processing ID even while a worker drain token is retained, without restarting or clearing it',async()=>{
+  f.row.state='processing';f.row.progress=25;f.row.lease_id=sourceId;f.row.png_worker_tokens=[sourceId];f.active=false;f.encoderReady=false;
+  const before=structuredClone(f.row),response=await jobs.create(f.client,actor,artworkId,request);
+  expect(response).toMatchObject({id:jobId,state:'processing',gpuPreparation:{workerDrained:false}});expect(response).not.toHaveProperty('assetId');expect(f.row).toEqual(before);expect(f.events).toEqual([]);
+ });
+ it('recovers ready metadata after rights revocation while reviewed bytes and approval remain forbidden',async()=>{
+  await jobs.work();const receipt=f.row.gpu_preparation.result;f.artwork.metadata.rights.export=false;vi.mocked(f.blobs.getBounded!).mockClear();
+  const recovered=await jobs.create(f.client,actor,artworkId,request);expect(recovered).toMatchObject({id:jobId,state:'approved'});expect(f.blobs.getBounded).not.toHaveBeenCalled();
+  await expect(jobs.reviewedBytes(f.client,actor,artworkId,jobId,{receiptSHA256:receipt.sha256,candidateSHA256:receipt.candidate.sha256})).rejects.toMatchObject({code:'GPU_MODEL_PREPARATION_CONTEXT_CHANGED'});
+  await expect(jobs.approve(f.client,actor as import('./auth.ts').Session,artworkId,{revision:7,jobId,receiptSHA256:receipt.sha256,candidateSHA256:receipt.candidate.sha256,generation:request.generation},{} as import('./cms.ts').Cms)).rejects.toMatchObject({code:'GPU_MODEL_PREPARATION_CONTEXT_CHANGED'});
+ });
+ it('refuses replay discovery after artwork ownership loss and rejects foreign actors or conflicting artwork and closed intent',async()=>{
+  f.active=false;f.encoderReady=false;f.authorized=false;
+  await expect(jobs.create(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});expect(f.query).not.toHaveBeenCalled();f.authorized=true;
+  await expect(jobs.create(f.client,{...actor,userId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(jobs.create(f.client,{...actor,tenantId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  f.artworkIds.add(sourceId);await expect(jobs.create(f.client,actor,sourceId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  await expect(jobs.create(f.client,actor,artworkId,{...request,generation:'different-generation'})).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  f.row.gpu_preparation.intent=bindGpuModelPreparationIntent({...request,generation:'tampered-stored-generation'},f.row.gpu_preparation.intent.binding);
+  await expect(jobs.create(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});expect(f.events).toEqual([]);
+ });
+ it.each(['runtime','encoder','rights'] as const)('keeps NEW create gated when %s is unavailable despite metadata replay recovery',async barrier=>{
+  f.priorExists=false;if(barrier==='runtime')f.active=false;if(barrier==='encoder')f.encoderReady=false;if(barrier==='rights')f.artwork.metadata.rights.export=false;
+  await expect(jobs.create(f.client,actor,artworkId,request)).rejects.toMatchObject({status:barrier==='rights'?409:503});
+  expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO import_jobs'))).toBe(false);expect(f.events).not.toContain('spawn');expect(f.blobs.putDurable).not.toHaveBeenCalled();
+ });
+ it.each([true,false])('read-only recovery observes an absent key when readiness=%s without inserting or creating a job directory',async ready=>{
+  f.priorExists=false;f.active=ready;f.encoderReady=ready;
+  const absentRoot=join(root,'must-not-be-created'),lookup=new GpuModelPreparations({} as Pool,f.base,'/synthetic-managed-encoder',absentRoot);
+  try{
+   expect(await lookup.recover(f.client,actor,artworkId,request)).toEqual({artworkId,operationID:request.idempotencyKey,generation:request.generation,job:null});
+   expect(f.base.assertReady).not.toHaveBeenCalled();expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();expect(f.blobs.putDurable).not.toHaveBeenCalled();
+   expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+   expect(f.query.mock.calls.some(([sql])=>sql.startsWith('SELECT * FROM import_jobs')&&sql.includes('FOR UPDATE'))).toBe(false);
+   await expect(lstat(absentRoot)).rejects.toMatchObject({code:'ENOENT'});
+   const sql=f.query.mock.calls.map(([sql])=>sql);expect(sql.findIndex(x=>x.includes('hashtextextended'))).toBeGreaterThan(sql.findIndex(x=>x.startsWith('SELECT id FROM artworks')));
+  }finally{await lookup.close();}
+ });
+ it.each(['queued','processing','approved'] as const)('recovers committed %s metadata without producer readiness, bytes or invocation mutation',async state=>{
+  if(state==='approved')await jobs.work();
+  if(state==='processing'){f.row.state='processing';f.row.progress=25;f.row.lease_id=sourceId;f.row.png_worker_tokens=[sourceId];}
+  const before=structuredClone(f.row);f.active=false;f.encoderReady=false;f.artwork.metadata.rights.export=false;
+  f.events=[];f.query.mockClear();vi.mocked(f.base.assertReady).mockClear();vi.mocked(f.blobs.getBounded!).mockClear();vi.mocked(f.blobs.putDurable!).mockClear();
+  const response=await jobs.recover(f.client,actor,artworkId,request);
+  expect(response).toMatchObject({artworkId,operationID:request.idempotencyKey,generation:request.generation,job:{id:jobId,state,gpuPreparation:{workerDrained:state==='approved'}}});
+  expect(f.row).toEqual(before);expect(f.base.assertReady).not.toHaveBeenCalled();expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();expect(f.blobs.putDurable).not.toHaveBeenCalled();
+  expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql)||sql.startsWith('SELECT * FROM import_jobs')&&sql.includes('FOR UPDATE'))).toBe(false);
+  await expect(jobs.review(f.client,actor,artworkId,jobId)).rejects.toMatchObject({status:503});
+ });
+ it('requires the exact closed recovery body and current artwork ownership before revealing an operation',async()=>{
+  f.active=false;f.encoderReady=false;
+  await expect(jobs.recover(f.client,actor,artworkId,{...request,unknown:true})).rejects.toMatchObject({code:'INVALID_GPU_MODEL_PREPARATION'});
+  f.authorized=false;await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});expect(f.query).not.toHaveBeenCalled();f.authorized=true;
+  await expect(jobs.recover(f.client,{...actor,userId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(jobs.recover(f.client,{...actor,tenantId:sourceId},artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});
+  f.artworkIds.add(sourceId);await expect(jobs.recover(f.client,actor,sourceId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  await expect(jobs.recover(f.client,actor,artworkId,{...request,generation:'other-generation'})).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  f.row.user_id=sourceId;await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'FORBIDDEN'});f.row.user_id=principal;
+  f.row.gpu_preparation.intent=bindGpuModelPreparationIntent({...request,generation:'stored-conflict'},f.row.gpu_preparation.intent.binding);
+  await expect(jobs.recover(f.client,actor,artworkId,request)).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});expect(f.events).toEqual([]);expect(f.blobs.getBounded).not.toHaveBeenCalled();
  });
  it('approves only the exact reviewed receipt, preserves primary source, and replays after the approved revision increment',async()=>{
   await jobs.work();const before=structuredClone(f.snapshots.get(7)),receipt=f.row.gpu_preparation.result;
