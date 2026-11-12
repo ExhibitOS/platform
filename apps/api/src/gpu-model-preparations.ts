@@ -74,14 +74,25 @@ export class GpuModelPreparations {
  view(row:Row){return gpuModelJobView(row);}
  async create(c:PoolClient,s:Actor,artworkId:string,body:unknown){
   uuid(artworkId);artworkId=artworkId.toLowerCase();const request=parseGpuModelPreparationInput(body);
-  await this.base.assertReady(c,s);await assertGpuModelEncoderReady(this.managedPrefix);
-  try{await mkdir(this.jobRoot,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();}
-  await this.ready(c,s);await artworkAccess(c,s,artworkId,true);
+  // A lost create response must remain recoverable after producer/source
+  // readiness changes. Resource ownership is still checked before key lookup.
+  await artworkAccess(c,s,artworkId,true);
   await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,artworkId]);
   const requestHash=gpuModelDigest({purpose:'approved-display-gpu-derivative',artworkId,...request});
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:${request.idempotencyKey}`]);
   const prior=(await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND idempotency_key=$2',[s.tenantId,request.idempotencyKey])).rows[0];
-  if(prior){if(prior.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(prior.request_hash!==requestHash||prior.gpu_preparation==null)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');return this.view(await this.access(c,s,String(prior.id)));}
+  if(prior){
+   if(prior.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
+   if(prior.request_hash!==requestHash||prior.artwork_id!==artworkId||prior.gpu_preparation==null)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');
+   const owned=await this.owned(c,s,String(prior.id)),intent=storedGpuModelPreparation(owned)!.intent;
+   if(owned.request_hash!==requestHash||owned.artwork_id!==artworkId||!isDeepStrictEqual(intent.request,request))throw new ApiError(409,'IDEMPOTENCY_CONFLICT');
+   // Metadata only: this grants no candidate byte, review, retry or approval
+   // authority and performs no context refresh, durable write or worker start.
+   return this.view(owned);
+  }
+  await this.base.assertReady(c,s);await assertGpuModelEncoderReady(this.managedPrefix);
+  try{await mkdir(this.jobRoot,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();}
+  await this.ready(c,s);
   const artwork=await artworkAccess(c,s,artworkId,true);
   if(artwork.revision!==request.revision||artwork.approved_revision!==request.revision||artwork.approved_asset_id!==request.assetId||!allowedRights(artwork.metadata?.rights,'display')||!allowedRights(artwork.metadata?.rights,'export'))throw changed();
   const approval=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,artworkId,request.revision])).rows[0]?.snapshot;

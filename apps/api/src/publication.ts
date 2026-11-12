@@ -1,3 +1,5 @@
+import {approvedGpuModelPublicationSource} from './approved-gpu-model.ts';
+import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel,type ArtworkGpuModel} from '@exhibitos/studio-contract';
 import {publicationThumbnailsCurrent} from './publication-thumbnail-freshness.ts';
 import {FURNISHING_WALKING_COLLISION_NAMESPACE,remapFurnishingWalkingCollision,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionSettings} from '@exhibitos/studio-contract';
 import {modelReceiptDigest,type CompactVariantReceipt} from './model-preparation-intent.ts';
@@ -77,6 +79,7 @@ interface PreparedAsset {
     coarseSource?: {id:string;sha256:string};
     thumbnail?:{sourceAssetId:string;sourceSha256:string;bytes:PublicationBytes;receiptId?:string};
     thumbnailReceiptId?:string;
+    gpu?:{binding:ArtworkGpuModel;bytes:PublicationBytes};
 }
 interface PreparedFurnishing {source:FurnishingAsset;model:Buffer;notice:Buffer}
 /** Only explicitly selected, qualified catalogue identities are public sources.
@@ -150,6 +153,7 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
     const approval=snapshot as {compactVariant?:CompactVariantReceipt;metadata?:{rights?:unknown};asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork;modelPair?:{version:number;profileId:string;full:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number};reduced:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number}}};
     if(approval.asset?.id!==primary)return false;
     if(source.id===primary)return approval.asset.sha256===source.sha256&&approval.asset.bytes===source.bytes&&approval.asset.mime===source.mime;
+    if(approvedGpuModelPublicationSource(snapshot,source,primary))return true;
     if(approval.compactVariant?.coarse?.assetId===source.id){
       const {sha256:digest,...receipt}=approval.compactVariant,full=receipt.sourceFull,coarse=receipt.coarse;
       return receipt.version===1&&receipt.purpose==='approved-full-compact'&&receipt.publicationProfile===BUDGET_GEOMETRY_PAIR_PROFILE&&receipt.recipeSHA256===COMPACT_MODEL_RECIPE_SHA256&&modelReceiptDigest(receipt)===digest&&receipt.rightsSHA256===modelReceiptDigest(approval.metadata?.rights)&&full?.assetId===primary&&full.sha256===approval.asset.sha256&&full.bytes===approval.asset.bytes&&full.mime===approval.asset.mime&&coarse?.assetId===source.id&&coarse.sha256===source.sha256&&coarse.bytes===source.bytes&&coarse.mime===source.mime;
@@ -211,10 +215,11 @@ export function admitOptionalThumbnails(prepared:PreparedAsset[],requiredBytes:n
 export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = [],cover?:PreparedCover, furnishings:PreparedFurnishing[] = []) {
     // The exported projection retains its original byte-based integrity boundary.
     // Private staging never grants authority to caller-supplied descriptors.
-    if(prepared.some(p=>!Buffer.isBuffer(p.bytes)||p.thumbnail&&!Buffer.isBuffer(p.thumbnail.bytes)||p.variants?.bytes&&!Buffer.isBuffer(p.variants.bytes))||media.some(p=>!Buffer.isBuffer(p.bytes))||cover&&!Buffer.isBuffer(cover.bytes))throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(prepared.some(p=>!Buffer.isBuffer(p.bytes)||p.gpu&&!Buffer.isBuffer(p.gpu.bytes)||p.thumbnail&&!Buffer.isBuffer(p.thumbnail.bytes)||p.variants?.bytes&&!Buffer.isBuffer(p.variants.bytes))||media.some(p=>!Buffer.isBuffer(p.bytes))||cover&&!Buffer.isBuffer(cover.bytes))throw new ApiError(422,'PUBLICATION_NOT_READY');
     return projectPublicationCore(candidate,prepared,at,media,cover,furnishings,publicationBytesHash);
 }
 function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string,workspaceAuthorized=false,materialAuthorized=false){
+    if(candidate.artworks.some(artwork=>!validateArtworkGpuModel(artwork).valid))throw new ApiError(422,'PUBLICATION_NOT_READY');
     // A workspace map must never be silently dropped from a public projection.
     // Until byte authority and public resource delivery are connected, fail closed.
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE)&&!materialAuthorized)throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
@@ -284,6 +289,14 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
                 variants.push({assetId:coarseId,detail:"coarse",...metric(p.variants.coarse)});
             }
             a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants,...(p.variants.profile?{profile:p.variants.profile}:{})}};
+        }
+        const selectedGpu=artworkGpuModelFor(p.artwork);
+        if(selectedGpu||p.gpu){
+            if(!selectedGpu||!p.gpu||!equal(selectedGpu.binding,p.gpu.binding)||p.mime!=='model/gltf-binary'||p.sourceAssetId!==selectedGpu.source.id||p.bytes.length!==selectedGpu.source.bytes||byteHash(p.bytes)!==selectedGpu.source.sha256||byteHash(p.gpu.bytes)!==selectedGpu.candidate.sha256||p.gpu.bytes.length!==selectedGpu.candidate.bytes)throw new ApiError(422,'PUBLICATION_NOT_READY');
+            const gpuId=map(selectedGpu.candidate.id);
+            assets.push({id:gpuId,prepared:{...p,sourceAssetId:selectedGpu.candidate.id,sourceSha256:selectedGpu.candidate.sha256,bytes:p.gpu.bytes,gpu:undefined,thumbnail:undefined,variants:undefined,coarseSource:undefined}});
+            a.assets.push({...structuredClone(selectedGpu.candidate),path:`assets/${gpuId}/model.glb`});
+            a.extensions={...a.extensions,[GPU_MODEL_NAMESPACE]:{...structuredClone(selectedGpu.binding),sourceAssetId:map(selectedGpu.source.id),candidateAssetId:gpuId}};
         }
         a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: approvedDisplay?`Approved exact selected open-access display. Object ${approvedDisplay.officialObjectURL}; raw SHA256 ${approvedDisplay.rawSourceSha256}; canonical SHA256 ${approvedDisplay.canonicalAssetSha256}; recipe SHA256 ${approvedDisplay.recipeSha256}; rights evidence SHA256 ${approvedDisplay.rightsEvidenceSha256}.`:"Approved display derivative explicitly published by its authorized exhibition editor." }] };
         return a;
@@ -479,6 +492,15 @@ export class Publications {
                 // A cached/no-op file still needs a current authorization check
                 // after the final asynchronous derivative/variant work.
                 if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
+                let gpu:{binding:ArtworkGpuModel;bytes:Buffer}|undefined;
+                const selectedGpu=artworkGpuModelFor(artwork);
+                if(!validateArtworkGpuModel(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
+                if(selectedGpu){
+                    if(result.mime!=='model/gltf-binary'||sha256(result.bytes)!==selectedGpu.source.sha256||result.bytes.length!==selectedGpu.source.bytes)throw new ApiError(422,'GPU_MODEL_SOURCE_CHANGED');
+                    const bytes=await this.cms.approvedVariantOriginal(c,s,artwork.id,selectedGpu.candidate.id,artwork.revision);
+                    if(bytes.length!==selectedGpu.candidate.bytes||sha256(bytes)!==selectedGpu.candidate.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+                    gpu={binding:selectedGpu.binding,bytes};
+                }
                 let thumbnail:PreparedAsset['thumbnail'];
                 const selectedThumbnail=artworkThumbnailFor(artwork);
                 if(this.blobs){
@@ -504,7 +526,7 @@ export class Publications {
                     }catch{checkpoint?.();/* Optional preview failure leaves the artwork available without it. */}
                 }
                 if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
-                totalBytes += result.bytes.length + (variants?.bytes?.length??0);
+                totalBytes += result.bytes.length + (variants?.bytes?.length??0) + (gpu?.bytes.length??0);
                 if (totalBytes > budget) {
                     errors.push(issue("PUBLICATION_LIMIT", path, "Qualified display derivatives exceed the active publication budget.", "Use supported private staging or split the exhibition into smaller publication drafts."));
                     break;
@@ -513,7 +535,7 @@ export class Publications {
                 // Keep at most 64 bounded 512KiB previews until required
                 // content has its budget; discarded previews never fill disk.
                 const storedThumbnail=thumbnail;
-                prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: await store(result.bytes), mime: result.mime, variants:storedVariants, ...(coarseSource?{coarseSource}:{}),...(storedThumbnail?{thumbnail:storedThumbnail}:{}) });
+                prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: await store(result.bytes), mime: result.mime, variants:storedVariants, ...(coarseSource?{coarseSource}:{}),...(storedThumbnail?{thumbnail:storedThumbnail}:{}),...(gpu?{gpu:{binding:gpu.binding,bytes:await store(gpu.bytes)}}:{}) });
             }
             catch (error) {
                 checkpoint?.();
@@ -641,7 +663,7 @@ export class Publications {
         const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
         let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings,artworkIdentities}=projected,reservedIds=[...assets.map(a=>a.id),...media.map(a=>a.id),...(cover?[cover.id]:[]),...workspaceBindings.map(a=>a.publicId),...workspaceMaterialBindings.map(a=>a.publicId),...(furnishingsFor(snapshot)?.assets??[]).map(a=>a.id)],detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot,artworkIdentities,reservedIds):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
-        if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
+        if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
         detail?.assertCurrent(s);if(fileOperation)await fileOperation.manifest(publicationId,digest,[
@@ -712,7 +734,7 @@ export class Publications {
         // Read catalogue bytes before capturing the governing wall clock, so
         // this I/O cannot extend artwork/audio/cover grants past expiry.
         const now = Date.now();
-        if (!validateFurnishings(row.snapshot).valid || !validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateArchitecture(row.snapshot,true).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateStudioLightDetails(row.snapshot).valid || !validateLightAttachments(row.snapshot).valid || !validateArchitecturalFinishes(row.snapshot).valid || !validateStudioPlaques(row.snapshot).valid || !validateStudioBenches(row.snapshot).valid || !validateFurnishingWalkingCollision(row.snapshot).valid || !validateStudioInstallation(row.snapshot).valid || !validateStudioFloors(row.snapshot).valid || !validateSpatialProfile(row.snapshot).valid || !validateViewerCuration(row.snapshot).valid || !validateViewingPlan(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
+        if (!validateFurnishings(row.snapshot).valid || !validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateArchitecture(row.snapshot,true).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateStudioLightDetails(row.snapshot).valid || !validateLightAttachments(row.snapshot).valid || !validateArchitecturalFinishes(row.snapshot).valid || !validateStudioPlaques(row.snapshot).valid || !validateStudioBenches(row.snapshot).valid || !validateFurnishingWalkingCollision(row.snapshot).valid || !validateStudioInstallation(row.snapshot).valid || !validateStudioFloors(row.snapshot).valid || !validateSpatialProfile(row.snapshot).valid || !validateViewerCuration(row.snapshot).valid || !validateViewingPlan(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         const records = (await c.query("SELECT pa.*,a.revision AS current_revision,a.approved_revision,a.approved_asset_id,a.deleted_at AS artwork_deleted,a.metadata AS current_metadata,ar.deleted_at AS artist_deleted,t.deleted_at AS tenant_deleted,e.deleted_at AS exhibition_deleted,asset.deleted_at AS asset_deleted,asset.state AS asset_state,asset.sha256 AS current_source_sha256,asset.bytes AS current_source_bytes,asset.mime AS current_source_mime,asset.artwork_id AS source_artwork_id,ap.snapshot AS source_approval,r.deleted_at AS rights_deleted,r.metadata AS current_rights,b.artwork_id AS receipt_artwork_id,b.artwork_revision AS receipt_revision,b.source_asset_id AS receipt_source_id,b.source_sha256 AS receipt_source_sha256,b.thumbnail_asset_id AS receipt_thumbnail_id,b.sha256 AS receipt_sha256,b.bytes AS receipt_bytes FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN artists ar ON (ar.tenant_id,ar.id)=(a.tenant_id,a.artist_id) JOIN tenants t ON t.id=pa.tenant_id JOIN exhibitions e ON (e.tenant_id,e.id)=(pa.tenant_id,$2) JOIN assets asset ON (asset.tenant_id,asset.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(asset.tenant_id,asset.rights_id) JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(pa.tenant_id,pa.artwork_id,pa.artwork_revision) LEFT JOIN publication_thumbnail_bindings pb ON (pb.tenant_id,pb.publication_id,pb.asset_id)=(pa.tenant_id,pa.publication_id,pa.id) LEFT JOIN artwork_thumbnail_bindings b ON (b.tenant_id,b.id)=(pb.tenant_id,pb.binding_id) WHERE pa.publication_id=$1", [row.id, row.exhibition_id])).rows;
         let permitted=authorizedArtworkAssets(row.snapshot,records,now);

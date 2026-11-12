@@ -1,3 +1,4 @@
+import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
 import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
@@ -92,7 +93,7 @@ function checked(input: StudioInput, bounded=false) {
     !validateStudioFloors(input.draft.candidate).valid ||
     !validateViewerEntrance(input.draft.candidate).valid ||
     !validateSpatialProfile(input.draft.candidate).valid || !validateViewerCuration(input.draft.candidate).valid || !validateViewerExperience(input.draft.candidate).valid ||
-    input.draft.candidate.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)
+    input.draft.candidate.artworks.some(a=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)
   )
     throw new ApiError(422, "DRAFT_INVALID");
 }
@@ -174,7 +175,7 @@ export class Studio {
       !validateStudioLightDetails(row.metadata.candidate).valid || !validateLightAttachments(row.metadata.candidate).valid || !validateFurnishings(row.metadata.candidate).valid ||
       !validateViewerEntrance(row.metadata.candidate).valid ||
       !validateSpatialProfile(row.metadata.candidate).valid || !validateViewerCuration(row.metadata.candidate).valid || !validateViewerExperience(row.metadata.candidate).valid ||
-      row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)
+      row.metadata.candidate.artworks.some((a:unknown)=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)
     )
       throw new ApiError(409, "DRAFT_CORRUPT");
     return nativeBounded?{...row,nativeBounded:true}:row;
