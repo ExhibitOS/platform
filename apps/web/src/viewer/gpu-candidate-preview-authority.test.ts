@@ -15,7 +15,7 @@ async function fixture(){
  const job={id:request.jobId,state:'approved',assetId:request.candidate.assetId,gpuPreparation:preparation};
  const review:{artworkId:string;revision:number;jobId:string;receiptSHA256:string;source:typeof request.source;candidate:typeof request.candidate;serverReceipt:typeof receipt;selection:unknown}={artworkId:request.artworkId,revision:3,jobId:request.jobId,receiptSHA256:'',source:structuredClone(request.source),candidate:structuredClone(request.candidate),serverReceipt:receipt,selection:null};
  const headers=new Headers({'content-type':'model/gltf-binary','content-length':String(bytes.length),'cache-control':'private, no-store','x-content-type-options':'nosniff','x-exhibitos-sha256':candidateHash,'x-exhibitos-receipt-sha256':''});
- const sign=async()=>{const {sha256:_ignored,...body}=receipt;receipt.sha256=await sha(new TextEncoder().encode(JSON.stringify(canonical(body))));request.receiptSHA256=receipt.sha256;review.receiptSHA256=receipt.sha256;headers.set('x-exhibitos-receipt-sha256',receipt.sha256);};
+ const sign=async()=>{const {sha256:_ignored,...body}=receipt;void _ignored;receipt.sha256=await sha(new TextEncoder().encode(JSON.stringify(canonical(body))));request.receiptSHA256=receipt.sha256;review.receiptSHA256=receipt.sha256;headers.set('x-exhibitos-receipt-sha256',receipt.sha256);};
  await sign();
  let modelBody:BodyInit=bytes;let sessionCount=0;
  let changeSession:((value:typeof session,count:number)=>unknown)|undefined;
