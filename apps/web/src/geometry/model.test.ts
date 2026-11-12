@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MATERIAL_NAMESPACE,
   validateStudioMaterials,
-  roomBaseLight,lightDetailsFor,roomBaseLightRange,setLightDetails,lightAttachmentsFor,
+  roomBaseLight,lightDetailsFor,roomBaseLightRange,LIGHT_DETAILS_NAMESPACE,lightAttachmentsFor,
 } from "@exhibitos/studio-contract";
 import { newDraft } from "../drafts/example";
 import {newLight} from "../placement/model";
@@ -245,7 +245,7 @@ describe('atomic explicit room-base placement lifecycle',()=>{
   it('unknown legacy intent is never inferred from the former automatic coordinates or spatial edits',()=>{
     const draft=newDraft(),room=draft.candidate.rooms[0]!,light=newLight(room.id,'point'),{id,...fields}=light;
     light.transform.position=[0,room.dimensions.height*.9,0];draft.candidate.lights=[light];
-    draft.candidate=setLightDetails(draft.candidate,id,{...fields,transform:light.transform},{fixture:'none',purpose:'room-base',range:12});
+    draft.candidate.extensions={...draft.candidate.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[{lightId:id,fixture:'none',purpose:'room-base',range:12}]}};
     const state=createGeometryState(draft.candidate),before=lightDetailsFor(state.present),resized=applyGeometryCommand(state,{type:'set-room',id:room.id,room:{...room,dimensions:{width:14,height:6,depth:10}}});
     expect(roomBaseLight(resized.present,room.id)).toEqual(light);expect(lightDetailsFor(resized.present)).toEqual(before);
     const edited=applyGeometryCommand(state,{type:'set-light',id,light:{...fields,transform:{...light.transform,position:[1,2,1]}}});
