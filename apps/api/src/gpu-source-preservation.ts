@@ -36,7 +36,8 @@ function strictJson(text:string):Json {
  const result=value(0);space();if(at!==text.length)fail();return result;
 }
 
-function parse(bytes:Buffer,maxBytes:number){
+/** Strict structural parse only; source feature/role admission remains separate. */
+export function parseGpuModelSource(bytes:Buffer,maxBytes=33554432){
  if(bytes.length<28||bytes.length>maxBytes||bytes.readUInt32LE(0)!==0x46546c67||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length)fail();
  const jsonLength=bytes.readUInt32LE(12),binHeader=20+jsonLength;
  if(!jsonLength||jsonLength>8388608||jsonLength%4||bytes.readUInt32LE(16)!==0x4e4f534a||binHeader+8>bytes.length)fail();
@@ -67,7 +68,7 @@ export function verifyGpuSourcePreservation(source:Buffer,candidate:Buffer,bindi
  for(const [bytes,expected] of [[source,binding.source],[candidate,binding.candidate]] as const){
   if(!expected||!/^[a-f0-9]{64}$/.test(expected.sha256)||expected.bytes!==bytes.length||hash(bytes)!==expected.sha256)fail();
  }
- const a=parse(source,33554432),b=parse(candidate,41943040),index=integer(binding.textureIndex);
+ const a=parseGpuModelSource(source,33554432),b=parseGpuModelSource(candidate,41943040),index=integer(binding.textureIndex);
  const sourceImages=array(a.doc.images),sourceViews=array(a.doc.bufferViews),textures=array(a.doc.textures);
  const images=array(b.doc.images),views=array(b.doc.bufferViews),outTextures=array(b.doc.textures);
  if(images.length!==sourceImages.length+1||views.length!==sourceViews.length+1||outTextures.length!==textures.length||index>=textures.length)fail();

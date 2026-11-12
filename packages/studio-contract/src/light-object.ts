@@ -5,11 +5,12 @@ import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {freezeCanonical} from './freeze.js';
 import {benchesFor} from './benches.js';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
-import {lightDetailsFor,setLightDetails,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
+import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,manualizeRoomBaseLight,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
 
 export type LightObjectCommand=
  |{type:'set-light-object';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>|null}
+ |{type:'set-room-base-light-placement';lightId:string;basePlacement:'auto'|'manual'}
  |{type:'set-light-fixture';lightId:string;visual:null|{catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose}}
  |{type:'duplicate-light-object';lightId:string}
  |{type:'remove-light-object';lightId:string};
@@ -83,12 +84,21 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
    if(!closed(command,['type','lightId','light','settings'],['attachment'])||!object(command.light)||!object(command.settings)||Object.hasOwn(command.light,'id')||Object.hasOwn(command.settings,'lightId'))fail();
    next=setLightDetails(next,light.id,command.light,command.settings);
    if(Object.hasOwn(command,'attachment')){
+    if(command.attachment!==null)next=manualizeRoomBaseLight(next,light.id);
     if(command.attachment===undefined||command.attachment!==null&&(!closed(command.attachment,['surfaceId','anchor','gap'])||Object.hasOwn(command.attachment,'lightId')))return fail();
     const bindings=lightAttachmentsFor(next),index=bindings.findIndex(v=>same(v.lightId,light.id));
     if(command.attachment===null){if(index>=0)bindings.splice(index,1);}else{const value={...structuredClone(command.attachment),lightId:light.id};if(index>=0)bindings[index]=value;else bindings.push(value);}
     if(next.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined||command.attachment!==null)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,bindings);
    }
    break;
+  }
+  case 'set-room-base-light-placement':{
+   if(!closed(command,['type','lightId','basePlacement']))fail();
+   if(command.basePlacement==='auto'){
+    const bindings=lightAttachmentsFor(next);
+    if(next.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,bindings.filter(v=>!same(v.lightId,light.id)));
+   }
+   next=setRoomBaseLightPlacement(next,light.id,command.basePlacement);break;
   }
   case 'set-light-fixture':{
    if(!closed(command,['type','lightId','visual']))fail();

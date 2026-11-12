@@ -2,12 +2,12 @@
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
 import {validateLifecycle,type Exhibition} from '@exhibitos/spec';
-import {LIGHT_DETAILS_NAMESPACE,lightDetailsFor,validateStudioLightDetails,type ExhibitionLight,type LightDetails} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE,lightDetailsFor,validateStudioLightDetails,type ExhibitionLight,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {nativeSceneProposal} from './native-scene-proposal.ts';
 
 const light=(roomId:string):ExhibitionLight=>({id:randomUUID(),roomId,type:'point',transform:{position:[0,2,0],rotation:[0,0,0,1],scale:[1,1,1]},color:[1,1,1],intensity:16,unit:'candela',castsShadow:false});
-const settings={fixture:'none',purpose:'room-base',range:12} as const;
+const settings={fixture:'none',purpose:'room-base',basePlacement:'manual',range:12} as const;
 
 it('creates a caller-ID room base light atomically and deterministically from the saved head',()=>{
  const draft=newDraft(),source=structuredClone(draft.candidate),created=light(source.rooms[0]!.id),command={type:'add-light' as const,light:created,settings};
@@ -45,5 +45,12 @@ it('does not make existing light purpose, room, shadow, scale or units mutable',
  const changed:Partial<Omit<ExhibitionLight,'id'>>[]=[{roomId:randomUUID()},{castsShadow:true},{transform:{...fields.transform,scale:[2,2,2]}},{unit:'lux'}];
  for(const delta of changed)expect(()=>nativeSceneProposal(valid,{type:'set-light-details',lightId:id,light:{...fields,...delta},settings:{fixture:'none'}})).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
  const edited=nativeSceneProposal(valid,{type:'set-light-details',lightId:id,light:{...fields,intensity:20},settings:{fixture:'none'}}).candidate;
- expect(lightDetailsFor(edited)).toEqual([{lightId:id,fixture:'none',purpose:'room-base'} satisfies LightDetails]);
+ expect(lightDetailsFor(edited)).toEqual([{lightId:id,fixture:'none',purpose:'room-base',basePlacement:'manual'} satisfies LightDetails]);
+});
+
+it('new automatic base requires canonical local placement, and colour/off edits retain explicitauto without generatedrange echo',()=>{
+ const source=newDraft().candidate,reference=ensureRoomBaseLight(source,source.rooms[0]!.id),light=reference.lights[0]!,{lightId,...settings}=lightDetailsFor(reference)[0]!;void lightId;
+ const proposed=nativeSceneProposal(source,{type:'add-light',light,settings}).candidate;expect(lightDetailsFor(proposed)[0]!.basePlacement).toBe('auto');
+ const {id,...fields}=light,edited=nativeSceneProposal(proposed,{type:'set-light-details',lightId:id,light:{...fields,intensity:0,color:[.2,.3,.4]},settings:{fixture:'none'}}).candidate;expect(lightDetailsFor(edited)[0]!.basePlacement).toBe('auto');expect(edited.lights[0]!.intensity).toBe(0);
+ const stale={...structuredClone(light),transform:{...light.transform,position:[1,1,1] as [number,number,number]}};expect(()=>nativeSceneProposal(source,{type:'add-light',light:stale,settings})).toThrow('LIGHT_DETAILS_INVALID');
 });

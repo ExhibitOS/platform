@@ -2,6 +2,8 @@
 import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
+  applyLightObjectCommand, type LightObjectCommand,
+  reflowRoomBaseLight, manualizeRoomBaseLight, sameLightPose,
   reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
   roomBaseLight,
@@ -30,6 +32,7 @@ export type GeometryCommand =
   | {type:"resize-room-envelope";roomId:string;dimensions:Room["dimensions"]}
   | {type:"complete-room-ceiling";roomId:string}
   | {type:"set-light-attachment";lightId:string;attachment:Omit<LightAttachment,"lightId">|null}
+  | Extract<LightObjectCommand,{type:"set-room-base-light-placement"}>
   | SurfaceMaterialTextureCommand
   | { type: "replace-architecture"; candidate: Exhibition }
   | { type: "add-artwork"; artwork: Artwork }
@@ -201,14 +204,17 @@ export function applyGeometryCommand(
     case "remove-placement": find(doc.placements,command.id); doc.placements=doc.placements.filter(p=>!same(p.id,command.id)); doc.accessibility.artworkDescriptions=doc.accessibility.artworkDescriptions.filter(d=>!same(d.placementId,command.id)); break;
     case "align-placement": { const p=find(doc.placements,command.id); const result=alignPlacement(doc,p,find(doc.surfaces,command.surfaceId),command.offset,command.snap); replace(doc.placements,p.id,result); break; }
     case "add-light": doc.lights.push(clone(command.light)); break;
-    case "set-light": replace(doc.lights,command.id,command.light); break;
+    case "set-light": {
+      const previous=find(doc.lights,command.id);
+      if(!same(previous.roomId,command.light.roomId)||!sameLightPose(previous.transform,command.light.transform))doc=manualizeRoomBaseLight(doc,command.id);
+      replace(doc.lights,command.id,command.light);break;
+    }
+    case "set-room-base-light-placement": doc=applyLightObjectCommand(doc,command,{verifiedBaseline:options?.verifiedDoorBaseline}).candidate;break;
     case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id);if(doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)doc=setLightAttachment(doc,command.id,null,options?.verifiedDoorBaseline); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
     case "set-title": doc.title=command.title; break;
     case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
     case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;
     case "add-room":
-      doc.rooms.push(clone(command.room));
-      break;
     case "add-room-with-base-light":
       doc.rooms.push(clone(command.room));
       doc=ensureRoomBaseLight(doc,command.room.id);
@@ -221,6 +227,7 @@ export function applyGeometryCommand(
     }
     case "set-room":
       replace(doc.rooms, command.id, command.room);
+      doc=reflowRoomBaseLight(doc,command.id);
       break;
     case "white-cube": {
       const room = find(doc.rooms, command.roomId);
