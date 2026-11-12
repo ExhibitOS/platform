@@ -4,7 +4,7 @@
 import {createHash,createHmac,timingSafeEqual} from 'node:crypto';
 
 const kinds=['furnishing-ordinary-admission','furnishing-ordinary-admission-ack','furnishing-ordinary-stop','furnishing-ordinary-drained'];
-const admissions=['fresh-empty','clean-reopen','verified-restore','catalog-upgrade-039-to-040','catalog-upgrade-040-to-044','catalog-upgrade-044-to-045','interrupted-reopen','catalog-upgrade-045-to-050'];
+const admissions=['fresh-empty','clean-reopen','verified-restore','catalog-upgrade-039-to-040','catalog-upgrade-040-to-044','catalog-upgrade-044-to-045','interrupted-reopen','catalog-upgrade-045-to-050','catalog-upgrade-045-to-049'];
 const keys=['runtimeGeneration','leaseTranscriptSHA256','admissionKind','activeBindingSHA256'];
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const hash=/^[a-f0-9]{64}$/;
@@ -41,7 +41,7 @@ function checked(value){
  const result=Object.fromEntries(keys.map(k=>[k,value[k]]));
  if(Object.hasOwn(value,'restoreProof')){if(!['verified-restore','clean-reopen'].includes(value.admissionKind))throw invalid();result.restoreProof=checkedProof(value.restoreProof);}
  if(Object.hasOwn(value,'carriedRestoreProof')){
-  if(Object.hasOwn(value,'restoreProof')||!['verified-restore','clean-reopen','catalog-upgrade-045-to-050'].includes(value.admissionKind))throw invalid();
+  if(Object.hasOwn(value,'restoreProof')||!['verified-restore','clean-reopen','catalog-upgrade-045-to-050','catalog-upgrade-045-to-049'].includes(value.admissionKind))throw invalid();
   result.carriedRestoreProof=checkedCarriedProof(value.carriedRestoreProof);
  }
  if(value.admissionKind==='interrupted-reopen'){
