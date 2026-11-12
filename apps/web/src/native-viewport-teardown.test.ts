@@ -18,6 +18,7 @@ it('does not apply a delayed frame after viewport unmount and remount',async()=>
  let release!:(response:Response)=>void;vi.stubGlobal('fetch',vi.fn(()=>new Promise<Response>(r=>{release=r;})));
  await import('./native-viewport');const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false};
  const pending=browser.exhibitosViewport!.accept(frame),rejected=expect(pending).rejects.toThrow('VIEWPORT_FRAME_STALE');
+ await vi.waitFor(()=>expect(release).toBeTypeOf('function'));
  for(const cleanup of hooks.cleanups.splice(0))cleanup();hooks.setCalls=0;hooks.render!();
  release(Response.json({tenantId:frame.tenantId,userId:frame.principalId,role:'admin'}));await rejected;expect(hooks.setCalls).toBe(0);
 });

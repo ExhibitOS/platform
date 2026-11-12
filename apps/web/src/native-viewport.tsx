@@ -153,9 +153,8 @@ window.addEventListener('pagehide',invalidatePendingAccept);
 window.addEventListener('exhibitos-auth-changed',invalidatePendingAccept);
 window.addEventListener('pagehide',()=>entrancePreview.invalidate());
 window.addEventListener('exhibitos-auth-changed',()=>entrancePreview.invalidate());
-let gpuPreviewEditorPending=0;
 const gpuCandidatePreview=new NativeGpuCandidatePreview({
- unavailable:()=>!!current||acceptPending||gpuPreviewEditorPending>0||document.hidden,
+ unavailable:()=>!!current||acceptPending||document.hidden,
  host:()=>{
   const host=document.createElement('div');host.className='native-gpu-candidate-preview';
   host.style.cssText='position:fixed;inset:0;z-index:30;overflow:hidden;background:Canvas';
@@ -165,17 +164,17 @@ const gpuCandidatePreview=new NativeGpuCandidatePreview({
 });
 window.addEventListener('pagehide',()=>{void gpuCandidatePreview.invalidate('disposed').catch(()=>{});});
 window.addEventListener('exhibitos-auth-changed',()=>{void gpuCandidatePreview.invalidate('authority-changed').catch(()=>{});});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)void gpuCandidatePreview.invalidate('hidden').catch(()=>{});});
+document.addEventListener?.('visibilitychange',()=>{if(document.hidden)void gpuCandidatePreview.invalidate('hidden').catch(()=>{});});
 window.exhibitosViewport={
  gpuCandidatePreview:value=>gpuCandidatePreview.request(value),
  entrancePreview:value=>entrancePreview.request(value),
  entrancePreviewState:value=>entrancePreview.state(value),
  accept:async value=>{
-  gpuPreviewEditorPending++;
-  try{await gpuCandidatePreview.invalidate('editor-frame');}finally{gpuPreviewEditorPending--;}
   catalogDropRenderer?.preview.clearHighlight();
   const generation=++acceptGeneration;acceptPending=true;if(currentBoundedEditable){currentBoundedEditable=false;currentReadOnly=true;}viewportChanged?.();
-  try{let frame:NativeViewportFrame,needsAuthority=false,editingCapability:NativeBoundedEditingCapability|undefined;
+  try{await gpuCandidatePreview.invalidate('editor-frame');
+  if(generation!==acceptGeneration)throw Error('VIEWPORT_FRAME_STALE');
+  let frame:NativeViewportFrame,needsAuthority=false,editingCapability:NativeBoundedEditingCapability|undefined;
   try{frame=checkedFrame(value,current);}catch{
    frame=checkedFrame(value,current,'bounded-file-v1');const ordinary=validateDraft(frame.draft);
    if(ordinary.valid||!ordinary.errors.length||!ordinary.errors.every(e=>e.code==='ASSET_TOTAL_LIMIT'&&e.path==='/candidate/artworks'))throw Error('VIEWPORT_FRAME_INVALID');

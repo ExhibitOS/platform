@@ -68,6 +68,7 @@ it('retains the ordinary path for a valid single asset larger than 32 MiB',async
 it('invalidates a pending accept on auth change and allows a newly authenticated ordinary frame',async()=>{
  const s=await sample();let release!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
  const pending=s.vm.accept({...s.frame,sequence:2}),rejected=expect(pending).rejects.toThrow('VIEWPORT_FRAME_STALE');
+ await vi.waitFor(()=>expect(release).toBeTypeOf('function'));
  window.dispatchEvent(new Event('exhibitos-auth-changed'));release(s.session());await rejected;
  s.fetcher.mockImplementation(async()=>s.session());expect((await s.vm.accept({...s.frame,sequence:3})).boundedReadOnly).toBe(false);
  expect(()=>s.vm.action({type:'add-light',roomId:s.frame.draft.candidate.rooms[0]!.id})).not.toThrow();
