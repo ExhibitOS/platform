@@ -1,6 +1,7 @@
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
 import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
+import {ordinaryWorkspaceBenchVisualReplacementDelta} from './workspace-bench-visual-replacement-delta.ts';
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
 import {nativeFixtureProposal,type NativeFixtureCommand} from './native-fixture-proposal.ts';
 import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
@@ -197,10 +198,12 @@ export class Studio {
     const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
     const benchSeatDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft);
     const benchSeatNoop=isDeepStrictEqual(row.metadata,input?.draft)&&benchesFor(row.metadata.candidate).some(bench=>!!bench.workspaceVisual);
+    const benchVisualDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchVisualReplacementDelta(row.metadata,input.draft);
+    if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);
     const infoStandDelta=!!input?.draft?.candidate&&ordinaryWorkspaceInfoStandReplacementDelta(row.metadata,input.draft);
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if((benchSeatDelta||benchSeatNoop)&&!this.workspaceFurnishing)throw new ApiError(403,'FORBIDDEN');
-    if(frameDelta||frameNoop||portalDelta||portalNoop||benchSeatDelta||benchSeatNoop||infoStandDelta){
+    if(frameDelta||frameNoop||portalDelta||portalNoop||benchSeatDelta||benchSeatNoop||infoStandDelta||benchVisualDelta){
       if((frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
       await this.workspaceFurnishing!.authorize(c,s);
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
@@ -213,7 +216,7 @@ export class Studio {
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
-    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta&&!benchVisualDelta)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
   async proposeNativeDefaultSeats(c:PoolClient,s:Session,input:NativeDefaultSeatProposalInput) {
@@ -386,6 +389,17 @@ export class Studio {
     draft.candidate=replaceArtworkReferences(draft.candidate,prior,next,placementId,mode) as Draft['candidate'];
     return this.putInternal(c,s,id,{draft,requestId},match,{prior,next,placementId,mode});
   }
+  private async assertBenchVisualReplacement(c:PoolClient,s:Session,before:Draft,after:Draft){
+    const service=this.workspaceFurnishing,owner=this.nativeOexWorkspace;
+    if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId||!service?.hasWriterLease()||!service.supportsRoomVisual())throw new ApiError(403,'FORBIDDEN');
+    await owner.assertDatabase(c);await service.authorize(c,s);
+    const old=before.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as {placements:{id:string}[]};
+    const next=after.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as {placements:{id:string;furnishingId:string;furnishingVersion:1}[]};
+    const changed=next.placements.find((p,i)=>!isDeepStrictEqual(p,old.placements[i]));
+    if(!changed)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');
+    await service.checkDisplay(c,s,changed.furnishingId,changed.furnishingVersion);
+  }
+
   /** A closed composite edit still earns authority through the live registry and model bytes. */
   private async assertInfoStandReplacement(c:PoolClient,s:Session,before:Draft,after:Draft){
     const service=this.workspaceFurnishing,owner=this.nativeOexWorkspace;
@@ -409,10 +423,11 @@ export class Studio {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
+    const benchVisualDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceBenchVisualReplacementDelta(row.metadata,input.draft);
     const infoStandDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceInfoStandReplacementDelta(row.metadata,input.draft);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||benchVisualDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
@@ -428,6 +443,7 @@ export class Studio {
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
+    if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     // This row is the private active draft. Published snapshots and their
