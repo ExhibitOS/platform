@@ -2222,7 +2222,7 @@ export function GeometryPreview({
         };
         const preparedBytes=()=>[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
         const evictPrepared=(deficit:()=>number)=>{
-          for(const [id,value] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
+          for(const [id] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
             if(deficit()<=0)break;
             retireArtworkEntry(prepared,id,value=>destroy(value.object));stage(id,'evicted-preparation');
           }
