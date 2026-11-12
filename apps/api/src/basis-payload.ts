@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {dirname} from 'node:path';
-import {boundedKtx2} from '@exhibitos/studio-contract';
+import {boundedKtx2,boundedMippedKtx2} from '@exhibitos/studio-contract';
 interface BasisFile {
   isValid():boolean; isUASTC():boolean; getWidth():number; getHeight():number;
   getLayers():number; getLevels():number; getFaces():number; getHasAlpha():boolean;
@@ -31,15 +31,26 @@ function basisModule() {
 }
 /** Actual bounded RGBA transcoding precedes public approval. Headers alone are not proof. */
 export async function verifyBasisPayload(bytes:Uint8Array) {
-  const expected=boundedKtx2(bytes),module=await basisModule();
+  const expected=boundedKtx2(bytes);
+  await verifyLevels(bytes,expected.width,expected.height,1);
+}
+/** Dedicated closed GPU-model recipe; legacy one-level admission stays unchanged. */
+export async function verifyGpuModelBasisPayload(bytes:Uint8Array) {
+  const expected=boundedMippedKtx2(bytes);
+  await verifyLevels(bytes,expected.width,expected.height,expected.levelCount);
+}
+async function verifyLevels(bytes:Uint8Array,width:number,height:number,levels:number) {
+  const module=await basisModule();
   const file=new module.KTX2File(bytes);
   try {
-    if(!file.isValid()||!file.isUASTC()||file.getWidth()!==expected.width||file.getHeight()!==expected.height||file.getLayers()!==0||file.getLevels()!==1||file.getFaces()!==1||file.getHasAlpha()||!file.startTranscoding())throw Error('BASIS_PAYLOAD_INVALID');
+    if(!file.isValid()||!file.isUASTC()||file.getWidth()!==width||file.getHeight()!==height||file.getLayers()!==0||file.getLevels()!==levels||file.getFaces()!==1||file.getHasAlpha()||!file.startTranscoding())throw Error('BASIS_PAYLOAD_INVALID');
     // RGBA32 is the pinned public Basis TranscoderFormat 13. Output is discarded.
-    const size=file.getImageTranscodedSizeInBytes(0,0,0,13);
-    if(size!==expected.width*expected.height*4||size>8*1024*1024)throw Error('BASIS_PAYLOAD_INVALID');
-    const output=new Uint8Array(size);
-    if(!file.transcodeImage(output,0,0,0,13,0,-1,-1))throw Error('BASIS_PAYLOAD_INVALID');
-    for(let i=3;i<size;i+=4)if(output[i]!==255)throw Error('BASIS_PAYLOAD_INVALID');
+    for(let level=0;level<levels;level++){
+      const size=file.getImageTranscodedSizeInBytes(level,0,0,13);
+      if(size!==Math.max(1,width>>level)*Math.max(1,height>>level)*4||size>8*1024*1024)throw Error('BASIS_PAYLOAD_INVALID');
+      const output=new Uint8Array(size);
+      if(!file.transcodeImage(output,level,0,0,13,0,-1,-1))throw Error('BASIS_PAYLOAD_INVALID');
+      for(let i=3;i<size;i+=4)if(output[i]!==255)throw Error('BASIS_PAYLOAD_INVALID');
+    }
   }finally{file.close();file.delete();}
 }

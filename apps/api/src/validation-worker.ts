@@ -3,8 +3,8 @@ import {createHash} from 'node:crypto';
 import {artworkFrameModel} from '@exhibitos/studio-contract';
 import {prepareTextureDerivative} from './approved-lod-pair.ts';
 import {decodePngPixels as png,pngCrc as crc,PngPixelLimitError} from "./png-pixels.ts";
-import {verifyBasisPayload} from './basis-payload.ts';
-import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
+import {verifyBasisPayload,verifyGpuModelBasisPayload} from './basis-payload.ts';
+import {embeddedBasisPairs,embeddedMippedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
 import { deflateSync } from "node:zlib";
 import { validateBytes } from "gltf-validator";
 import {normalizeDisplayWatermark} from '@exhibitos/studio-contract';
@@ -26,7 +26,7 @@ function closed(value: unknown, required: string[], optional: string[] = []) {
   const object = value as Record<string, unknown>;
   return required.every(k => Object.hasOwn(object, k)) && Object.keys(object).every(k => required.includes(k) || optional.includes(k));
 }
-async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number, fixedFrame: boolean) {
+async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number, fixedFrame: boolean, gpuModel=false) {
   const ordinaryRoles=ordinaryPngRoleSet(doc), imageBytesLimit=8*1024*1024;
   if (binHeader + 8 > data.length || binHeader % 4 || data.readUInt32LE(binHeader + 4) !== 0x004e4942 || data.readUInt32LE(binHeader) % 4 || binHeader + 8 + data.readUInt32LE(binHeader) !== data.length || !Array.isArray(doc.buffers) || doc.buffers.length !== 1 || !closed(doc.buffers[0], ["byteLength"]) || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength < 1 || doc.buffers[0].byteLength > data.length - binHeader - 8 || data.length - binHeader - 8 - doc.buffers[0].byteLength > 3) fail();
   if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 16 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined) fail();
@@ -39,21 +39,32 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   };
   // The expanded ordinary budget is RGB8 only. Existing RGBA PBR models
   // must still use the smaller legacy budget and stricter sampler rules.
-  const ordinary=ordinaryRoles&&doc.images.every((image:{bufferView:number})=>{const bytes=view(image.bufferView);return bytes.length>=33&&bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&bytes.readUInt32BE(8)===13&&bytes.toString('ascii',12,16)==='IHDR'&&bytes[24]===8&&bytes[25]===2;});
+  const ordinary=!gpuModel&&ordinaryRoles&&doc.images.every((image:{bufferView:number})=>{const bytes=view(image.bufferView);return bytes.length>=33&&bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&bytes.readUInt32BE(8)===13&&bytes.toString('ascii',12,16)==='IHDR'&&bytes[24]===8&&bytes[25]===2;});
   const texturePixels=(ordinary?12:2)*1024*1024,textureBytes=(ordinary?24:8)*1024*1024;
-  if(!(ordinary&&doc.samplers===undefined)&&(!Array.isArray(doc.samplers)||doc.samplers.length<1||doc.samplers.length>8))fail();
-  const basis=embeddedBasisPairs(doc,(i)=>view(doc.images[i].bufferView));
+  if(!gpuModel&&!(ordinary&&doc.samplers===undefined)&&(!Array.isArray(doc.samplers)||doc.samplers.length<1||doc.samplers.length>8))fail();
+  const basis=(gpuModel?embeddedMippedBasisPairs:embeddedBasisPairs)(doc,(i)=>view(doc.images[i].bufferView));
+  if(gpuModel){
+    // The same closed three-PNG role recipe as the product GPU loader.
+    if(basis.size!==1||doc.images.length!==4||doc.textures.length!==3)fail();
+    const colour=doc.materials?.[0]?.pbrMetallicRoughness?.baseColorTexture?.index;
+    if(!basis.has(doc.textures[colour]?.extensions?.KHR_texture_basisu?.source)||
+      doc.samplers!==undefined&&(!Array.isArray(doc.samplers)||doc.samplers.length>8||doc.samplers.some((sampler:object)=>!sampler||typeof sampler!=='object'||Array.isArray(sampler)||Object.keys(sampler).length)))fail();
+    const pngIndices=doc.images.map((image:{mimeType:string},index:number)=>image.mimeType==='image/png'?index:-1).filter((index:number)=>index>=0);
+    const fallback=structuredClone(doc);fallback.images=pngIndices.map((index:number)=>fallback.images[index]);
+    for(const texture of fallback.textures){texture.source=pngIndices.indexOf(texture.source);delete texture.extensions;}
+    if(!ordinaryPngRoleSet(fallback))fail();
+  }
   let compressed = 0, pixels = 0;
   // Sum all image declarations before any expansion or third-party validator.
   const imageBytes: Buffer[] = [];
   for (const image of doc.images) {
     if (!closed(image, ["bufferView", "mimeType"], ["name"]) || !["image/png","image/ktx2"].includes(image.mimeType)) fail();
     const bytes = view(image.bufferView), v = doc.bufferViews[image.bufferView];
-    if(image.mimeType==="image/ktx2"){if(!basis.has(doc.images.indexOf(image))||!closed(v,["buffer","byteLength"],["byteOffset","name"]))fail();compressed+=bytes.length;if(compressed>textureBytes)fail();await verifyBasisPayload(bytes);continue;}
-    if (!closed(v, ["buffer", "byteLength"], ["byteOffset", "name"]) || bytes.length < 33 || bytes.length > imageBytesLimit || ordinary && (bytes[24]!==8 || bytes[25]!==2) || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii",12,16) !== "IHDR") fail();
+    if(image.mimeType==="image/ktx2"){if(!basis.has(doc.images.indexOf(image))||!closed(v,["buffer","byteLength"],["byteOffset","name"]))fail();compressed+=bytes.length;if(compressed>textureBytes)fail();await (gpuModel?verifyGpuModelBasisPayload:verifyBasisPayload)(bytes);continue;}
+    if (!closed(v, ["buffer", "byteLength"], ["byteOffset", "name"]) || bytes.length < 33 || bytes.length > imageBytesLimit || (ordinary||gpuModel) && (bytes[24]!==8 || bytes[25]!==2) || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii",12,16) !== "IHDR") fail();
     compressed += bytes.length; const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
     pixels += w * h;
-    if (!w || !h || w > 2048 || h > 2048 || pixels > texturePixels || compressed > textureBytes) fail();
+    if (gpuModel&&(w!==512||h!==512)||!w || !h || w > 2048 || h > 2048 || pixels > texturePixels || compressed > textureBytes) fail();
     imageBytes.push(bytes);
   }
   // The bounded ordinary role producer emits 16 KiB IDAT packets. An 8 MiB
@@ -61,13 +72,14 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   // Keep legacy admission unchanged and retain all CRC/metadata/scanline checks.
   for (const bytes of imageBytes) png(bytes, ordinary?4*1024*1024:texturePixels, 2048, ordinary?1024:256, fixedFrame);
   for (const sampler of doc.samplers??[]) {
+    if(gpuModel)continue;
     if(ordinary||fixedFrame){
       if(!closed(sampler,[],["magFilter","minFilter","wrapS","wrapT","name"]) || sampler.magFilter!==undefined && ![9728,9729].includes(sampler.magFilter) || sampler.minFilter!==undefined && ![9728,9729,9984,9985,9986,9987].includes(sampler.minFilter) || [sampler.wrapS,sampler.wrapT].some(v=>v!==undefined && ![33071,10497,33648].includes(v)))fail();
       continue;
     }
     if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || ![9728,9729].includes(sampler.magFilter) || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
   }
-  for (const t of doc.textures) if (!closed(t,(ordinary||fixedFrame)?["source"]:["source","sampler"],(ordinary||fixedFrame)?["sampler","name"]:["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !((ordinary||fixedFrame) && t.sampler===undefined) && (!integer(t.sampler) || t.sampler >= (doc.samplers?.length??0))) fail();
+  for (const t of doc.textures) if (!closed(t,(ordinary||fixedFrame||gpuModel)?["source"]:["source","sampler"],(ordinary||fixedFrame)?["sampler","name"]:gpuModel?["sampler","name","extensions"]:["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !((ordinary||fixedFrame||gpuModel) && t.sampler===undefined) && (!integer(t.sampler) || t.sampler >= (doc.samplers?.length??0))) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
   const usedTextures = new Set<number>(), colourImages=new Set<number>(), linearImages=new Set<number>();
   for (const m of doc.materials) {
@@ -112,7 +124,7 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
     }
   }
 }
-async function glb(data: Buffer) {
+async function glb(data: Buffer,gpuModel=false) {
   if (
     data.length < 20 ||
     data.toString("ascii", 0, 4) !== "glTF" ||
@@ -150,8 +162,9 @@ async function glb(data: Buffer) {
   for(const texture of scanned.textures??[])delete texture.extensions;
   if(document.images===undefined&&document.textures===undefined&&((document.extensionsUsed?.length??0)||(document.extensionsRequired?.length??0)))fail();
   scan(scanned);
+  if(gpuModel&&(document.images===undefined||document.textures===undefined))fail();
   if (document.images !== undefined || document.textures !== undefined)
-    await embeddedPngProfile(document, data, 20 + jsonSize, process.argv[3]==='workspace-furnishing-glb'&&!!artworkFrameModel(createHash('sha256').update(data).digest('hex'),data.length));
+    await embeddedPngProfile(document, data, 20 + jsonSize, process.argv[3]==='workspace-furnishing-glb'&&!!artworkFrameModel(createHash('sha256').update(data).digest('hex'),data.length),gpuModel);
   const report = await validateBytes(data, {
     maxIssues: 64,
     externalResourceFunction: () =>
@@ -330,7 +343,7 @@ try {
     if(!geometry)fail();
     process.stdout.write(JSON.stringify(geometry)+'\n');
   } else if (process.argv[2] === "image/png") png(bytes);
-  else if (process.argv[2] === "model/gltf-binary") await glb(bytes);
+  else if (process.argv[2] === "model/gltf-binary") await glb(bytes,process.argv[3]==='gpu-model-v1');
   else fail();
   if (!["derivative","texture-pair","workspace-furnishing-fit"].includes(process.argv[3]??"")) process.stdout.write("VALID\n");
 } catch (error) {
