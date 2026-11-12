@@ -3,7 +3,7 @@
 // Mocked PG/auth and poisoned services prove ordering without a live database.
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {createHash} from 'node:crypto';
-const f=vi.hoisted(()=>({events:[] as string[],failDrain:false,failCommit:false,open:true,seen:undefined as unknown,proof:undefined as unknown,realProof:false,rows:[] as string[],cursorSent:false,cursorPair:undefined as unknown,missingInventoryMethod:false,waitForever:false,rejectStop:undefined as undefined|((error:Error)=>void),holdPool:false,finishPool:undefined as undefined|(()=>void),client:undefined as unknown}));
+const f=vi.hoisted(()=>({events:[] as string[],failDrain:false,failCommit:false,gpuCapability:false,open:true,seen:undefined as unknown,proof:undefined as unknown,realProof:false,rows:[] as string[],cursorSent:false,cursorPair:undefined as unknown,missingInventoryMethod:false,waitForever:false,rejectStop:undefined as undefined|((error:Error)=>void),holdPool:false,finishPool:undefined as undefined|(()=>void),client:undefined as unknown}));
 vi.mock('pg',()=>({Pool:class{on(){}async end(){f.events.push('POOL_END');if(f.holdPool)await new Promise<void>(resolve=>{f.finishPool=resolve;});}}}));
 vi.mock('node:http',()=>({createServer:()=>{throw Error('UNEXPECTED_HTTP_SERVER');},request:()=>{throw Error('UNEXPECTED_HTTP_REQUEST');}}));
 vi.mock('../../../packages/storage/dist/index.js',()=>({transaction:async(_pool:unknown,work:(c:unknown)=>Promise<unknown>)=>{f.events.push('BEGIN');try{const result=await work(f.client??{});f.events.push('COMMIT');if(f.failCommit)throw Error('commit outcome unknown');return result;}catch(error){f.events.push('ROLLBACK');throw error;}},migrate:()=>{throw Error('UNEXPECTED_MIGRATION');},migrateInTransaction:()=>{throw Error('UNEXPECTED_MIGRATION');},FileBlobStore:class{constructor(){throw Error('UNEXPECTED_BLOB_STORE');}}}));
@@ -26,7 +26,13 @@ vi.mock('./workspace-material-intakes.ts',()=>({WorkspaceMaterialIntakes:class{c
 vi.mock('./workspace-furnishing-intakes.ts',()=>({WorkspaceFurnishingIntakes:class{constructor(){throw Error('UNEXPECTED_FURNISHING');}}}));
 vi.mock('../../../scripts/native-detail-capability.mjs',()=>({hasNativeDetailCapability:async()=>false,hasNativeDetailRequiredFiles:async()=>false,NATIVE_DETAIL_CAPABILITY:''}));
 vi.mock('../../../scripts/native-owner-channel.mjs',()=>({closeNativeOwnerDescriptor:()=>{},unpackNativeOwnerInput:()=>{},openNativeOwnerChannel:async()=>({isOpen:()=>f.open,whenClosed:()=>new Promise(()=>{}),close:async()=>{f.events.push('OWNER_CLOSE');f.open=false;f.rejectStop?.(Error('owner closed'));}})}));
-vi.mock('../../../scripts/native-oex-normal-catalog.mjs',async importOriginal=>{const real=await importOriginal<Record<string,unknown>>();return Object.fromEntries(Object.entries(real).map(([name,value])=>[name,name.startsWith('has')?async()=>!['hasFreshImageCapability','hasLargeModelCapability','hasLargeModelRecoveryCapability','hasInfoStandPreparationCapability','hasCatalog045PreReadyCapability'].includes(name):value]));});
+vi.mock('../../../scripts/native-oex-normal-catalog.mjs',async importOriginal=>{
+ const real=await importOriginal<Record<string,unknown>>();
+ // This fixture selects the closed parent45+050 family. New optional markers
+ // must remain absent unless a test explicitly introduces a mixed family.
+ const selected=new Set(['hasWorkspaceFurnishingThumbnailCapability', 'hasWorkspaceWallImportCapability', 'hasWorkspaceFurnishingCapability', 'hasWorkspaceFurnishingWriterCapability', 'hasWorkspaceFurnishingPublicationCapability', 'hasWorkspaceMaterialPublicationCapability', 'hasWorkspaceFurnishingArtworkFrameCapability', 'hasWorkspaceFurnishingArtworkFrameModelsCapability', 'hasWorkspacePortalFinishCapability', 'hasWorkspaceFurnishingRoomVisualCapability', 'hasWorkspaceFurnishingStoolCapability', 'hasWorkspaceMaterialMultimapCapability', 'hasWorkspaceFramePreparationCapability', 'hasHayesReleaseCapability', 'hasModelPreparationCapability', 'hasHayesDispositionCapability', 'hasHayesOriginalCapability', 'hasWorkspaceMaterialCapability', 'hasWorkspaceImportCapability']);
+ return Object.fromEntries(Object.entries(real).map(([name,value])=>[name,name.startsWith('has')?async()=>name==='hasGpuModelPreparationCapability'?f.gpuCapability:selected.has(name):value]));
+});
 vi.mock('../../../scripts/native-workspace-furnishing-bootstrap.mjs',async importOriginal=>({...await importOriginal<Record<string,unknown>>(),assertWorkspaceFurnishingRuntimeAdmission:async()=>{},upgradeWorkspaceFurnishingThumbnailCatalog:async()=>{f.events.push('UPGRADE');return{state:'applied'};}}));
 vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',async importOriginal=>{
  const real=await importOriginal<Record<string,unknown>>(),writer={identity:{payloadManifestSHA256:'a'.repeat(64)},assertLive:async()=>{f.events.push('LEASE');}};
@@ -38,7 +44,7 @@ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const env={PORT:'43115',DATABASE_URL:'postgresql://unused-local-test',TENANT_ID:id(2),EXHIBITOS_AUTHORING_MODE:'personal',EXHIBITOS_RUNTIME_MODE:'native',EXHIBITOS_NATIVE_OWNER_FD:'20',EXHIBITOS_NATIVE_FURNISHING_WRITER_FD:'21'};
 const workspace={format:1,workspaceId:id(1),tenantId:id(2),principalId:id(3),ownerUid:process.getuid?.()??501,sessionToken:'session-secret',csrfToken:'csrf-secret'};
 const owner={mode:'workspace-furnishing-045-to-050-upgrade-v1',runtimeGeneration:id(4),secret:'b'.repeat(64)};
-beforeEach(()=>{f.events.length=0;f.failDrain=false;f.failCommit=false;f.open=true;f.seen=undefined;f.realProof=false;f.proof=undefined;f.rows=[];f.cursorSent=false;f.cursorPair=undefined;f.missingInventoryMethod=false;f.waitForever=false;f.rejectStop=undefined;f.holdPool=false;f.finishPool=undefined;f.client=undefined;});
+beforeEach(()=>{f.events.length=0;f.failDrain=false;f.failCommit=false;f.gpuCapability=false;f.open=true;f.seen=undefined;f.realProof=false;f.proof=undefined;f.rows=[];f.cursorSent=false;f.cursorPair=undefined;f.missingInventoryMethod=false;f.waitForever=false;f.rejectStop=undefined;f.holdPool=false;f.finishPool=undefined;f.client=undefined;});
 it('returns a bounded result only afterCOMMIT, queuedstop and complete pool/payload/owner drain, before any service or session construction',async()=>{
  const runtime=await startLocalRuntime(env,workspace,owner);expect(runtime.helperCompleted).toBe(true);expect(runtime.result).toMatchObject({mode:owner.mode,state:'applied',catalogRows:46,payloadManifestSha256:'a'.repeat(64),drained:true});
  expect(f.events.indexOf('COMMIT')).toBeLessThan(f.events.indexOf('STOP_WAIT'));expect(f.events.indexOf('PROVENANCE')).toBeLessThan(f.events.indexOf('INVENTORY'));expect(f.events.indexOf('INVENTORY')).toBeLessThan(f.events.indexOf('COMMIT'));expect(f.events.indexOf('POOL_END')).toBeLessThan(f.events.indexOf('DRAINED'));expect(f.events.indexOf('PAYLOAD_CLOSE')).toBeLessThan(f.events.indexOf('DRAINED'));expect(f.events.indexOf('DRAINED')).toBeLessThan(f.events.indexOf('OWNER_CLOSE'));
@@ -47,6 +53,12 @@ it('returns a bounded result only afterCOMMIT, queuedstop and complete pool/payl
 it.each(['drain','commit'])('never returns a success or starts services after unknown %s outcome',async kind=>{
  f.failDrain=kind==='drain';f.failCommit=kind==='commit';await expect(startLocalRuntime(env,workspace,owner)).rejects.toThrow(kind==='drain'?'LOCAL_RUNTIME_START_FAILED_THUMBNAIL_UPGRADE_DRAIN':'LOCAL_RUNTIME_START_FAILED_THUMBNAIL_UPGRADE');
  expect(f.events).not.toContain('DRAINED');if(kind==='commit')expect(f.events).not.toContain('STOP_WAIT');expect(f.events).toContain('POOL_END');expect(f.events).toContain('OWNER_CLOSE');
+});
+it('rejects simultaneous049 and050 capabilities before writer admission, DDL or services',async()=>{
+ f.gpuCapability=true;
+ await expect(startLocalRuntime(env,workspace,owner)).rejects.toThrow('LOCAL_RUNTIME_START_FAILED_MIGRATIONS');
+ expect(f.events).not.toContain('WRITER_ACCEPT');expect(f.events).not.toContain('UPGRADE');expect(f.events).not.toContain('BEGIN');expect(f.events).not.toContain('COMMIT');expect(f.events).not.toContain('DRAINED');
+ expect(f.events).toContain('POOL_END');expect(f.events).toContain('OWNER_CLOSE');
 });
 it('rejects helper worker/probe input before opening a runtime service',async()=>{
  await expect(startLocalRuntime(env,workspace,owner,undefined,{run:()=>{}})).rejects.toThrow('LOCAL_THUMBNAIL_UPGRADE_CONFIGURATION_INVALID');expect(f.events).toEqual([]);
