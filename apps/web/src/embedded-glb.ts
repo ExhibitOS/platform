@@ -12,6 +12,42 @@ function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<str
     owned.clear();manager.setURLModifier(()=>reject());return true;
   }};
 }
+/** Optional DEBUG host observation only; never part of decode authority or drain. */
+function observeGPUCall(png:Uint8Array,blob:Blob,imageIndex:number,callId:number,isDisposed:()=>boolean){
+  try{
+    if(callId>31||imageIndex>31)return;
+    const host=(globalThis as typeof globalThis & {webkit?:{messageHandlers?:{exhibitosGPUDecodeObservation?:{postMessage(value:unknown):void}}}}).webkit?.messageHandlers?.exhibitosGPUDecodeObservation;
+    if(typeof host?.postMessage!=='function')return;
+    const visibility=document.visibilityState;
+    if(!['hidden','visible','prerender'].includes(visibility))return;
+    const base={version:1,callId,imageIndex};
+    const send=(value:Record<string,unknown>)=>{try{host.postMessage({...base,...value});}catch{/* Dropped observations are unknown. */}};
+    send({phase:'call',bytes:png.byteLength,byteOffset:png.byteOffset,bufferBytes:png.buffer.byteLength,blobBytes:blob.size,blobType:'image/png',disposed:isDisposed(),visibility,hasFocus:document.hasFocus(),secureContext:globalThis.isSecureContext,nativeViewportPath:location.pathname==='/native-viewport.html'});
+    let hashing=false;
+    return {
+      settled(outcome:'success'|'decoder-error',error?:unknown){
+        try{
+          if(outcome==='success')send({phase:'settled',outcome,disposed:isDisposed()});
+          else{
+            const name=error instanceof Error?error.name:'';
+            const errorName=['Error','TypeError','RangeError','EncodingError','InvalidStateError','NotSupportedError','SecurityError','AbortError'].includes(name)?name:'UnknownError';
+            send({phase:'settled',outcome:'decoder-error',errorName,disposed:isDisposed()});
+          }
+        }catch{/* Observation must not replace the original decoder result. */}
+      },
+      hash(){
+        if(hashing)return;hashing=true;
+        // Called only after the decoder invocation, even if it threw synchronously.
+        // This independent task retains the actual Blob argument, never delays drain.
+        void Promise.resolve().then(()=>blob.arrayBuffer()).then(bytes=>crypto.subtle.digest('SHA-256',bytes)).then(digest=>{
+          const sha256=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+          if(!/^[a-f0-9]{64}$/.test(sha256))throw Error('OBSERVATION_HASH');
+          send({phase:'hash',outcome:'success',sha256});
+        }).catch(()=>send({phase:'hash',outcome:'observation-failed'}));
+      }
+    };
+  }catch{return;}
+}
 /** Each GLB image is served from a predeclared immutable embedded buffer, never a URL supplied by the model. */
 export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}, acquiredTextures?:readonly Readonly<DetailTextureFeatures>[], mode:'legacy-single'|'gpu-model-v1'='legacy-single') {
   const bytes = new Uint8Array(input), view = new DataView(input);
@@ -24,7 +60,7 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
   const pairs=(doc:ReturnType<typeof JSON.parse>,read:(index:number)=>Uint8Array)=>{try{return (gpuModel?embeddedMippedBasisPairs:embeddedBasisPairs)(doc,read);}catch{return reject();}};
   const doc = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(20,20+size)));
   const compressedImages=new Map<string,Uint8Array>();
-  const owned = new Set<string>(), textures=new Set<Texture>(),ownedTextures=new WeakSet<Texture>(), bitmaps=new Set<ImageBitmap>(),handlers:RegExp[]=[],pending=new Set<Promise<void>>();let disposed=false,phasedPng=false,cleanupFailed=false;
+  const owned = new Set<string>(), textures=new Set<Texture>(),ownedTextures=new WeakSet<Texture>(), bitmaps=new Set<ImageBitmap>(),handlers:RegExp[]=[],pending=new Set<Promise<void>>();let disposed=false,phasedPng=false,cleanupFailed=false,observationCallId=0;
   const attempt=(fn:()=>void)=>{try{fn();}catch{cleanupFailed=true;}};
   const dispose=()=>{if(disposed)return;disposed=true;for(const t of textures)attempt(()=>t.dispose());textures.clear();for(const b of bitmaps)attempt(()=>b.close());bitmaps.clear();};
   const track=()=>{let done!:()=>void;const task=new Promise<void>(resolve=>{done=resolve;});pending.add(task);return ()=>{pending.delete(task);done();};};
@@ -91,7 +127,14 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
         load(_url: string,onLoad: (texture: unknown)=>void,_progress: unknown,onError: (error: unknown)=>void) {
           if(disposed){onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}const finish=track();
           import('three').then(async three=>{
-            const bitmap=await createImageBitmap(new Blob([png],{type:jpeg?'image/jpeg':'image/png'}),{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
+            const blob=new Blob([png],{type:jpeg?'image/jpeg':'image/png'});
+            const observation=gpuModel?observeGPUCall(png,blob,doc.images.indexOf(image),observationCallId++,()=>disposed):undefined;
+            let bitmap:ImageBitmap;
+            try{
+              const decoding=createImageBitmap(blob,{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
+              observation?.hash();bitmap=await decoding;
+            }catch(error){observation?.hash();observation?.settled('decoder-error',error);throw error;}
+            observation?.settled('success');
             if(disposed||original&&(bitmap.width!==w||bitmap.height!==h)){attempt(()=>bitmap.close());throw Error('EMBEDDED_IMAGE_DISPOSED');}
             bitmaps.add(bitmap);const texture=new three.Texture(bitmap);texture.needsUpdate=true;textures.add(texture);ownedTextures.add(texture);onLoad(texture);
           }).catch(error=>{childFailure('PNG',doc.images.indexOf(image),error);onError(error);}).finally(finish);
