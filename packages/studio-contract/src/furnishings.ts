@@ -18,6 +18,7 @@ export const SUPPORTED_FURNISHINGS=Object.freeze({
  'backless-oak-bench':'bench',
  'sculpture-bench-refined':'bench',
  'museum-track-spot':'light',
+ 'recessed-downlight':'light',
  'museum-wallwasher':'light',
  'museum-wallwasher-rear-relief':'light',
  'gallery-open-portal':'opening',
@@ -74,7 +75,15 @@ export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:Furnish
  }else if(b.hostKind==='light'){
   const light=e.lights.find(v=>same(v.id,b.hostId)),f=source.functional;
   if(!light||light.type!=='spot'||f?.kind!=='light'||!near(b.pose.yaw,0)||!b.pose.position.every((n,i)=>near(n,-f.apertureCentre[i]!*b.pose.scale)))throw Error('FURNISHING_FUNCTION');
-  const details=lightDetailsFor(e).find(v=>same(v.lightId,light.id))??{lightId:light.id,fixture:'none' as const};parent={...light.transform,rotation:lightDetailsOrientation(e,light,details)};roomId=light.roomId;
+  const details=lightDetailsFor(e).find(v=>same(v.lightId,light.id))??{lightId:light.id,fixture:'none' as const};
+  let rotation=lightDetailsOrientation(e,light,details);
+  if(asset.catalogId==='recessed-downlight'){
+   // The unchanged source faces -Y; spot lights face -Z. Compose the source
+   // basis after the host orientation, retaining the source-space aperture pose.
+   const [x,y,z,w]=rotation,s=Math.SQRT1_2;
+   rotation=[(x+w)*s,(y+z)*s,(z-y)*s,(w-x)*s];
+  }
+  parent={...light.transform,rotation};roomId=light.roomId;
  }else{
   const opening=e.openings.find(v=>same(v.id,b.hostId)),surface=opening&&e.surfaces.find(v=>same(v.id,opening.surfaceId)),f=source.functional;
   if(!opening||opening.type!=='door'||!surface||surface.type!=='wall'||f?.kind!=='portal'||!near(b.pose.yaw,0)||!near(opening.dimensions.width,f.clearOpening.width*b.pose.scale)||!near(opening.dimensions.height,f.clearOpening.height*b.pose.scale)||!near(b.pose.position[0],opening.offset[0])||!near(b.pose.position[1],opening.offset[1]-opening.dimensions.height/2)||!near(b.pose.position[2],0))throw Error('FURNISHING_FUNCTION');

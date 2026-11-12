@@ -76,3 +76,19 @@ test('refined backed collision uses its actual thirteen component bounds and pre
  if(REFINED_BENCH.functional?.kind!=='bench')throw Error('fixture');expect(REFINED_BENCH.functional.seats[0]).not.toHaveProperty('measuredVerticalContactY');expect(next).toEqual(before);
  const boundary=fixture();boundary.rooms[0]!.dimensions.height=.8;expect(()=>applyFurnishingCommand(boundary,{type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'sculpture-bench-refined',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}})).toThrow();
 });
+
+test('declared downlight keeps its original bytes and maps the authored aperture and -Y axis to the spot host',()=>{
+ for(const rotation of [[0,0,0,1],[0,Math.SQRT1_2,0,Math.SQRT1_2]] as [number,number,number,number][]){
+  const original=fixture(),light=original.lights[0]!;light.transform.rotation=rotation;
+  const candidate=applyFurnishingCommand(original,{type:'set-furnishing-visual',hostKind:'light',hostId:light.id,catalogId:'recessed-downlight',catalogVersion:1,pose:{position:[0,.008,0],yaw:0,scale:1}});
+  expect(validateFurnishings(candidate).valid).toBe(true);
+  const value=furnishingsFor(candidate)!,asset=value.assets[0]!,binding=value.bindings[0]!,resolved=resolveFurnishing(candidate,binding,asset);
+  if('wallwasher' in resolved)throw Error('UNEXPECTED_COUPLED_FIXTURE');
+  expect(asset).toMatchObject({bytes:86480,sha256:'041c6c2c340a039f1eb82f70d925c1ecbe913276deaba5b447e540d67fc2e7bf',provenance:{sourceSha256:'041c6c2c340a039f1eb82f70d925c1ecbe913276deaba5b447e540d67fc2e7bf',recipe:'original-v1'}});
+  const aperture=artifactPoint([0,-.008,0],resolved.pose,resolved.parent),aim=artifactPoint([0,-1.008,0],resolved.pose,resolved.parent),expected=artifactPoint([0,0,-1],light.transform);
+  for(let i=0;i<3;i++){expect(aperture[i]).toBeCloseTo(light.transform.position[i]!,12);expect(aim[i]).toBeCloseTo(expected[i]!,12);}
+  expect(candidate.lights).toEqual(original.lights);
+  const moved=structuredClone(candidate);(moved.extensions![FURNISHING_NAMESPACE] as unknown as {bindings:{pose:{position:number[]}}[]}).bindings[0]!.pose.position[1]=.106;
+  expect(validateFurnishings(moved).valid).toBe(false);
+ }
+});

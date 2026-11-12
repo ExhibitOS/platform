@@ -18,7 +18,7 @@ test('authenticated ordinary catalogue exposes only the admitted refined bench a
  const base=`/api/v1/tenants/${tenant}/studio/furnishings`;
  try{
   const catalog=await app.inject({method:'GET',url:base,headers});expect(catalog.statusCode).toBe(200);
-  const body=catalog.json();expect(body.items).toHaveLength(7);expect(body.items.filter((v:{catalogId:string})=>v.catalogId==='sculpture-bench-refined')).toEqual([expect.objectContaining({catalogVersion:1,name:'조각 벤치',hostKinds:['bench'],bytes:345608,sha256:REFINED_BENCH.sha256,functional:REFINED_BENCH.functional})]);
+  const body=catalog.json();expect(body.items).toHaveLength(8);expect(body.items.filter((v:{catalogId:string})=>v.catalogId==='sculpture-bench-refined')).toEqual([expect.objectContaining({catalogVersion:1,name:'조각 벤치',hostKinds:['bench'],bytes:345608,sha256:REFINED_BENCH.sha256,functional:REFINED_BENCH.functional})]);
   for(const resource of ['model','notice']){
    const response=await app.inject({method:'GET',url:base+'/sculpture-bench-refined/1/'+resource,headers});expect(response.statusCode).toBe(200);expect(response.body).toBe('synthetic '+resource);expect(read).toHaveBeenLastCalledWith(furnishingAsset('10000000-0000-4000-8000-000000000001','sculpture-bench-refined'),resource);
   }

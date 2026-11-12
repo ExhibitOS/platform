@@ -8,7 +8,7 @@ import {validateArchitecture,validateStudioInstallation,applyFurnishingCommand,a
 import {checkOexProfile,remapOex,checkedOexFurnishingFiles} from './oex.ts';
 
 const pose=()=>({position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]});
-async function fixture(){
+async function fixture(lightCatalog:'museum-track-spot'|'recessed-downlight'='museum-track-spot'){
  let e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
  const room=e.rooms[0]!,benchId=randomUUID(),viewpointId=randomUUID();room.dimensions={width:10,height:3,depth:10};room.transform=pose();
  e=applyBenchCommand(e,{type:'add-bench',bench:{id:benchId,name:'Bench',roomId:room.id,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:1.5,height:.45,depth:.5},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId:room.id,position:[0,1.15,0],target:[0,1.15,-2],fov:50}});
@@ -17,7 +17,7 @@ async function fixture(){
  const opening=e.openings[0]!;opening.type='door';opening.surfaceId=wall.id;opening.offset=[0,-.4];opening.dimensions={width:1.1,height:2.2};
  const commands:FurnishingCommand[]=[
   {type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'backless-oak-bench',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}},
-  {type:'set-furnishing-visual',hostKind:'light',hostId:light.id,catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}},
+  {type:'set-furnishing-visual',hostKind:'light',hostId:light.id,catalogId:lightCatalog,catalogVersion:1,pose:{position:lightCatalog==='recessed-downlight'?[0,.008,0]:[0,.15,.0755],yaw:0,scale:1}},
   {type:'set-furnishing-visual',hostKind:'opening',hostId:opening.id,catalogId:'gallery-open-portal',catalogVersion:1,pose:{position:[0,-1.5,0],yaw:0,scale:1}},
   {type:'set-furnishing-visual',hostKind:'pedestal',hostId:e.placements[0]!.id,catalogId:'rectangular-plinth',catalogVersion:1,pose:{position:[-2,0,0],yaw:0,scale:1}},
  ];
@@ -29,8 +29,8 @@ async function sourceFiles(e:Exhibition){
  for(const asset of furnishingsFor(e)!.assets){const entry=furnishingCatalogueEntry(asset.catalogId);files.set('assets/'+asset.path,await readFile(new URL('../../../'+entry.path,import.meta.url)));files.set('resources/'+asset.rights.notice.path,await readFile(new URL('../../../'+entry.rights.noticePath,import.meta.url)));}
  return files;
 }
-it('admits only qualified four-host furnishings and remaps every model, notice and host identity together',async()=>{
- const e=await fixture(),before=structuredClone(e),files=await sourceFiles(e);
+it.each(['museum-track-spot','recessed-downlight'] as const)('admits %s and remaps every model, notice and host identity together',async lightCatalog=>{
+ const e=await fixture(lightCatalog),before=structuredClone(e),files=await sourceFiles(e);
  expect([...validateExhibition(e).errors,...validateArchitecture(e,true).errors,...validateStudioInstallation(e).errors]).toEqual([]);expect(()=>checkOexProfile(e)).not.toThrow();expect(checkedOexFurnishingFiles(e,files).size).toBe(8);
  const mapped=remapOex(e),source=furnishingsFor(e)!,target=furnishingsFor(mapped.exhibition)!;
  expect(validateFurnishings(mapped.exhibition).valid).toBe(true);expect(()=>checkOexProfile(mapped.exhibition)).not.toThrow();expect(e).toEqual(before);
