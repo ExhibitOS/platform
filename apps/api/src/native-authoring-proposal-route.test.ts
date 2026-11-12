@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
@@ -44,7 +44,7 @@ it('proposes only a checked change to the current saved draft through the instal
  const before=structuredClone(draft);
  try{
   const response=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(response.json()).toMatchObject({nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1',nativeLightObjectAuthoringProposalProfile:'saved-head-light-object-v1'});
+  expect(response.json()).toMatchObject({roomBaseLightPlacementProfile:'room-base-light-placement-v1',nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1',nativeLightObjectAuthoringProposalProfile:'saved-head-light-object-v1'});
   expect((await ordinary.inject({method:'POST',url,headers,payload})).statusCode).toBe(404);
   expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...payload,expectedRevision:revision-1})).statusCode).toBe(412);
@@ -138,6 +138,17 @@ it('proposes only a checked change to the current saved draft through the instal
    {...selectedPayload.request,visual:{...selectedPayload.request.visual,assetId:randomUUID()}},
    {...selectedPayload.request,visual:{...selectedPayload.request.visual,catalogId:'unadmitted-light'}},
   ])expect((await post({...payload,request})).statusCode).toBe(400);
+  const originalCandidate=draft.candidate,automatic=ensureRoomBaseLight(originalCandidate,roomId),base=automatic.lights.find(l=>l.id!==originalId)!;
+  const {id:baseId,...baseFields}=base;
+  draft.candidate=setLightDetails(automatic,baseId,{...baseFields,intensity:0,transform:{...baseFields.transform,position:[1,2,0]}},{fixture:'none'});
+  const restorePayload={...payload,request:{...binding,type:'set-room-base-light-placement',lightId:baseId,basePlacement:'auto'}};
+  const restoreReply=await post(restorePayload,{'if-match':etag(revision,draft)});expect(restoreReply.statusCode,restoreReply.body).toBe(200);
+  expect(restoreReply.json().candidate.lights.find((l:{id:string})=>l.id===baseId)).toMatchObject({intensity:0,transform:{position:[0,draft.candidate.rooms[0]!.dimensions.height*.9,0]}});
+  expect(lightDetailsFor(restoreReply.json().candidate).find(d=>d.lightId===baseId)!.basePlacement).toBe('auto');
+  expect((await post({...restorePayload,request:{...restorePayload.request,basePlacement:'inferred'}},{'if-match':etag(revision,draft)})).statusCode).toBe(400);
+  expect((await post({...restorePayload,request:{...restorePayload.request,lightId:originalId}},{'if-match':etag(revision,draft)})).statusCode).toBe(422);
+  expect((await post(restorePayload,{'if-match':etag(revision-1,draft)})).statusCode).toBe(412);
+  draft.candidate=originalCandidate;
   const savedExtensions=draft.candidate.extensions;
   draft.candidate.extensions={...savedExtensions,'org.exhibitos.studio/furnishing-visuals':{version:1,assets:[],bindings:[{hostKind:'light',hostId:originalId,assetId:randomUUID(),pose:{position:[0,0,0],yaw:0,scale:1}}]}};
   const corruptReply=await post(clonePayload,{'if-match':etag(revision,draft)});

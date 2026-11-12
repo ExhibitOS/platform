@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint,artifactCorners,artifactBounds,validateArtifactPose,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
-import {validateStudioLightDetails} from './light-details.js';
+import {validateStudioLightDetails,reflowRoomBaseLight,manualizeRoomBaseLight} from './light-details.js';
 import {resolveInstallations} from './installation-resolver.js';
 import {validateStudioBenches} from './benches.js';
 import {surfacePanels} from './surface-panels.js';
@@ -76,7 +76,7 @@ export function setLightAttachment(document:Exhibition,lightId:string,value:Omit
  assertAttachments(document);const next=structuredClone(document),light=next.lights.find(l=>same(l.id,lightId));if(!light)fail('ROOM_ENVELOPE_REFERENCE',lightId,'조명을 다시 선택해 주세요.');
  const bindings=lightAttachmentsFor(next).filter(b=>!same(b.lightId,lightId));
  if(value){const surface=next.surfaces.find(s=>same(s.id,value.surfaceId));if(!surface)fail('ROOM_ENVELOPE_REFERENCE',value.surfaceId,'부착할 벽이나 천장을 선택해 주세요.');const binding={...structuredClone(value),lightId:light.id};light.transform=lightAttachmentPose(surface,binding);bindings.push(binding);}
- writeAttachments(next,bindings);assertAttachments(next);if(verifiedBaseline)assertRoomEnvelopeContentsAgainstBaseline(next,verifiedBaseline,light.roomId);else assertRoomEnvelopeContents(next,light.roomId);return next;
+ writeAttachments(next,bindings);const result=value?manualizeRoomBaseLight(next,lightId):next;assertAttachments(result);if(verifiedBaseline)assertRoomEnvelopeContentsAgainstBaseline(result,verifiedBaseline,light.roomId);else assertRoomEnvelopeContents(result,light.roomId);return result;
 }
 export function remapLightAttachments(value:StudioLightAttachments,ids:ReadonlyMap<string,string>):StudioLightAttachments {
  const mapped=(id:string)=>{const value=ids.get(id.toLowerCase());if(!uuid(value))throw Error('LIGHT_ATTACHMENT_REFERENCE');return value;};
@@ -167,12 +167,13 @@ function assertNoLostWallAlignment(before:Exhibition,after:Exhibition,roomId:str
 export function resizeRoomEnvelope(document:Exhibition,roomId:string,dimensions:Room['dimensions']):Exhibition {
  try{
  const source=roomFor(document,roomId);assertRoom(source);assertAttachments(document);
- const next=structuredClone(document),room=roomFor(next,roomId);room.dimensions=structuredClone(dimensions);assertRoom(room);
+ let next=structuredClone(document);const room=roomFor(next,roomId);room.dimensions=structuredClone(dimensions);assertRoom(room);
  const envelope=new Map<Side,Surface>();
  for(const surface of document.surfaces.filter(s=>same(s.roomId,roomId))){let kind:Side|undefined;try{kind=side(surface,source);}catch{fail('ROOM_ENVELOPE_UNSUPPORTED',surface.id,'회전·크기 표현을 지원하지 않는 구조 표면이에요. 원본을 유지합니다.');}if(kind){if(envelope.has(kind))fail('ROOM_ENVELOPE_AMBIGUOUS',surface.id,'같은 바깥 면이 겹쳐 있어요. 방의 구조 표면을 명확하게 선택해 주세요.');envelope.set(kind,surface);}}
  if(envelope.size!==6)fail('ROOM_ENVELOPE_INCOMPLETE',roomId,'네 벽·바닥·천장이 하나씩 있는 직사각형 방을 선택해 주세요. 누락된 천장은 먼저 추가할 수 있어요.');
  for(const [kind,surface]of envelope){const i=next.surfaces.findIndex(s=>same(s.id,surface.id));next.surfaces[i]=movedSurface(surface,kind,dimensions);if(surface.type==='wall')for(const opening of next.openings.filter(o=>same(o.surfaceId,surface.id)))opening.offset[1]+=(source.dimensions.height-dimensions.height)/2;}
  for(const binding of lightAttachmentsFor(next)){const surface=next.surfaces.find(s=>same(s.id,binding.surfaceId));if(surface&&same(surface.roomId,roomId)){const light=next.lights.find(l=>same(l.id,binding.lightId))!;light.transform=lightAttachmentPose(surface,binding);}}
+ next=reflowRoomBaseLight(next,roomId);
  assertNoLostWallAlignment(document,next,roomId);assertRoomEnvelopeContents(next,roomId);assertAttachments(next);return next;
  }catch(error){if(error instanceof RoomEnvelopeError)throw error;fail('ROOM_ENVELOPE_GEOMETRY',roomId,'변환된 구조나 물체가 지원 범위를 벗어나요. 방과 배치의 위치·회전·크기를 확인해 주세요.');}
 }
