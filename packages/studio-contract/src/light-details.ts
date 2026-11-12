@@ -187,6 +187,14 @@ export function remapStudioLightDetails(value:StudioLightDetails,ids:ReadonlyMap
 export function removeLightDetails(candidate:Exhibition,lightId:string):Exhibition {
   const next=structuredClone(candidate);if(next.extensions?.[LIGHT_DETAILS_NAMESPACE]!==undefined)next.extensions[LIGHT_DETAILS_NAMESPACE]={version:1,lights:lightDetailsFor(next).filter(b=>!same(b.lightId,lightId))} as unknown as NonNullable<Exhibition['extensions']>[string];return next;
 }
+/** The same physical light pose may use either quaternion sign or a near-unit
+ * representation. Position/scale remain exact; callers still validate the pose. */
+export function sameLightPose(a:ExhibitionLight['transform'],b:ExhibitionLight['transform']):boolean {
+  if(!a.position.every((n,i)=>n===b.position[i])||!a.scale.every((n,i)=>n===b.scale[i]))return false;
+  const an=Math.hypot(...a.rotation),bn=Math.hypot(...b.rotation);
+  if(!Number.isFinite(an)||!Number.isFinite(bn)||an===0||bn===0)return false;
+  return [1,-1].some(sign=>a.rotation.every((n,i)=>Math.abs(n/an-sign*b.rotation[i]!/bn)<=1e-12));
+}
 export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<ExhibitionLight,'id'>,settings:Omit<LightDetails,'lightId'>):Exhibition {
   const next=structuredClone(candidate),index=next.lights.findIndex(l=>same(l.id,lightId));if(index<0)throw Error('LIGHT_DETAILS_REFERENCE');
   const original=next.lights[index]!;
@@ -196,8 +204,8 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   const bindings=lightDetailsFor(next),at=bindings.findIndex(b=>same(b.lightId,lightId));
   const prior=bindings[at],purpose=prior?.purpose;
   if(settings.basePlacement!==undefined&&settings.basePlacement!==prior?.basePlacement)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
-  const spatial=(l:Omit<ExhibitionLight,'id'>)=>[l.type,l.transform,l.dimensions??null,l.beamAngle??null,l.targetPlacementId??null];
-  const changedPose=freezeCanonical(spatial(original))!==freezeCanonical(spatial(light))||(settings.aim!==undefined&&freezeCanonical(prior?.aim??null)!==freezeCanonical(settings.aim))||(settings.range!==undefined&&prior?.range!==settings.range);
+  const spatial=(l:Omit<ExhibitionLight,'id'>)=>[l.type,l.dimensions??null,l.beamAngle??null,l.targetPlacementId??null];
+  const changedPose=!sameLightPose(original.transform,light.transform)||freezeCanonical(spatial(original))!==freezeCanonical(spatial(light))||(settings.aim!==undefined&&freezeCanonical(prior?.aim??null)!==freezeCanonical(settings.aim))||(settings.range!==undefined&&prior?.range!==settings.range);
   const basePlacement=prior?.basePlacement==='auto'&&changedPose?'manual':prior?.basePlacement;
   if(settings.purpose!==undefined&&settings.purpose!==purpose)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
   const entry={...structuredClone(settings),...(basePlacement==='auto'&&settings.range===undefined?{range:prior!.range}:{}),...(purpose?{purpose}:{}),...(basePlacement?{basePlacement}:{}),lightId:original.id};
