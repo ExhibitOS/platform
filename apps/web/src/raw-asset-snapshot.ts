@@ -4,6 +4,8 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES} from './scene-snapshot';
 import {DEVICE_BUDGETS,modelDecodeReserve} from './viewer/loading';
+import {loadGpuModel} from './viewer/gpu-model-loader';
+import {retireArtworkResources} from './viewer/artwork-ownership';
 
 type Vector = [number,number,number];
 type Camera = {position:Vector;target:Vector;fov:number};
@@ -11,7 +13,8 @@ type Camera = {position:Vector;target:Vector;fov:number};
 // The desktop trial's byte capacity applies only to this single-model consumer.
 const budget = {...DEVICE_BUDGETS.desktop, maxCacheBytes:320*1024*1024, maxTransitionBytes:416*1024*1024};
 
-export async function captureRawAsset(input:{role:'reference'|'candidate';bytes:number;sha256:string;camera:Camera}, signal:AbortSignal) {
+export async function captureRawAsset(input:{role:'reference'|'candidate';bytes:number;sha256:string;camera:Camera;profile?:'gpu-model-v1'}, signal:AbortSignal) {
+  if (input.profile !== undefined && (input.role !== 'candidate' || input.profile !== 'gpu-model-v1')) throw Error('AGENT_INPUT_INVALID');
   const response = await fetch(location.pathname+'/raw/'+input.role, {signal});
   if (!response.ok) throw Error('AGENT_STALE');
   const bytes = await response.arrayBuffer();
@@ -21,16 +24,28 @@ export async function captureRawAsset(input:{role:'reference'|'candidate';bytes:
   const estimate = modelDecodeReserve(input.bytes,budget,bytes,undefined,'complete') + SCENE_SNAPSHOT_RESERVE_BYTES;
   if (estimate > budget.maxTransitionBytes) throw Error('AGENT_MODEL_TRANSITION_BUDGET');
 
-  const manager = new three.LoadingManager();
   const resources = new Set<{dispose():void}>();
-  const protectedBytes = embeddedPNGManager(manager,bytes);
+  let protectedBytes:ReturnType<typeof embeddedPNGManager>|undefined;
   let renderer:three.WebGLRenderer|undefined;
-  const cancel = () => protectedBytes.dispose();
+  const cancel = () => protectedBytes?.dispose();
   signal.addEventListener('abort',cancel,{once:true});
   try {
-    const gltf = await new GLTFLoader(manager).parseAsync(protectedBytes.bytes,'');
+    let object:three.Object3D;
+    let targetFormat:'astc-4x4'|'bc7'|null = null;
+    if (input.profile === 'gpu-model-v1') {
+      renderer = new three.WebGLRenderer();
+      const loaded = await loadGpuModel(three,renderer,bytes,signal,budget,budget.maxTriangles);
+      protectedBytes = loaded.backing;
+      for (const resource of loaded.resources) resources.add(resource);
+      object = loaded.object;
+      targetFormat = loaded.targetFormat;
+    } else {
+      const manager = new three.LoadingManager();
+      protectedBytes = embeddedPNGManager(manager,bytes);
+      object = (await new GLTFLoader(manager).parseAsync(protectedBytes.bytes,'')).scene;
+    }
     let triangles = 0;
-    gltf.scene.traverse(node=>{
+    object.traverse(node=>{
       if (!(node instanceof three.Mesh)) return;
       triangles += (node.geometry.index?.count ?? node.geometry.getAttribute('position').count)/3;
       resources.add(node.geometry);
@@ -43,25 +58,25 @@ export async function captureRawAsset(input:{role:'reference'|'candidate';bytes:
     protectedBytes.assertLoaded();
     signal.throwIfAborted();
 
-    renderer = new three.WebGLRenderer();
+    renderer ??= new three.WebGLRenderer();
     const scene = new three.Scene();
     scene.background = new three.Color(0xe5e5e5);
     const key = new three.DirectionalLight(0xffffff,2);
     key.position.set(3,5,4);
-    scene.add(gltf.scene,key,new three.HemisphereLight(0xffffff,0x888888,1.5));
+    scene.add(object,key,new three.HemisphereLight(0xffffff,0x888888,1.5));
     const image = await captureScenePng({
-      three, renderer, scene, near:.01, far:30000, target:gltf.scene, occluders:gltf.scene,
+      three, renderer, scene, near:.01, far:30000, target:object, occluders:object,
       camera:{...input.camera,inspection:true,roomId:'',localPosition:input.camera.position,localTarget:input.camera.target},
       placementId:'',artworkRevisionId:'',assetId:input.sha256, signal,
       withoutOverlays:draw=>draw(), valid:()=>true,
     });
     if (!image.target.inFrustum) throw Error('AGENT_MODEL_OUT_OF_FRAME');
-    return {pngBase64:image.pngBase64,triangles,estimatedPeakBytes:estimate,residentLimitBytes:budget.maxCacheBytes,transitionLimitBytes:budget.maxTransitionBytes};
+    // Format is the loader-validated active compressed texture, never the GLB's
+    // declared extension or its PNG fallback. Accounting is not measured VRAM.
+    return {pngBase64:image.pngBase64,triangles,textureBranch:input.profile??'embedded-png',targetFormat,estimatedPeakBytes:estimate,residentLimitBytes:budget.maxCacheBytes,transitionLimitBytes:budget.maxTransitionBytes};
   } finally {
     signal.removeEventListener('abort',cancel);
-    protectedBytes.dispose();
-    for (const resource of resources) resource.dispose();
-    renderer?.dispose();
-    renderer?.forceContextLoss();
+    try {await retireArtworkResources([...resources],protectedBytes);}
+    finally {try {renderer?.dispose();} finally {renderer?.forceContextLoss();}}
   }
 }
