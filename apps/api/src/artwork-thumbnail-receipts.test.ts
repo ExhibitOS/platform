@@ -57,3 +57,47 @@ describe('historical thumbnail receipt lookup',()=>{
   const extraPin={...pin,extra:true};await expect(f.service.pinnedForExport(client,f.session,extraPin)).rejects.toMatchObject({code:'OEX_SOURCE_CHANGED'});
  });
 });
+
+describe('exact current selected PNG body',()=>{
+ function selectedFixture(){
+  const f=fixture(),binding='10000000-0000-4000-8000-000000000007';
+  const selected={id:binding,source_asset_id:source,source_sha256:input.sourceSha256,thumbnail_asset_id:preview,sha256:input.thumbnailSha256,bytes:previewBytes.length,object_key:'preview',current_key:'preview',current_hash:input.thumbnailSha256,current_bytes:previewBytes.length,mime:'image/png',state:'approved',deleted_at:null,rights_deleted:null,rights};
+  const choice={binding_id:binding,version:1};
+  const query=vi.fn(async(sql:string)=>{
+   if(sql.startsWith('SELECT binding_id,version'))return {rows:[choice]};
+   if(sql.startsWith('SELECT * FROM artworks'))return {rows:[f.row]};
+   if(sql.includes('FROM artwork_thumbnail_selections sel JOIN'))return {rows:[selected]};
+   throw Error('unexpected query');
+  });
+  vi.spyOn(f.service.cms,'studioArtwork').mockResolvedValue({artwork:{revision:1,primaryAssetId:source,assets:[{id:source,sha256:input.sourceSha256}],rights}} as never);
+  f.service.blobs.getBounded=vi.fn(async()=>previewBytes);
+  return {...f,c:{query} as unknown as PoolClient,query,binding,selected,choice};
+ }
+ it('serves the bound body with display-only rights and bounded storage, without changing selection or approval',async()=>{
+  const f=selectedFixture(),result=await f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,new AbortController().signal);
+  expect(result).toMatchObject({id:f.binding,assetId:preview,bytes:previewBytes,revision:1,selectionVersion:1});
+  expect(f.service.blobs.getBounded).toHaveBeenCalledWith('preview',previewBytes.length,expect.any(AbortSignal));
+  expect(rights.permissions.export).toBe(false);expect(f.query.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+ });
+ it('refuses stale revision, another selection version and another binding before reading bytes',async()=>{
+  const f=selectedFixture();
+  for(const [revision,binding,version,code] of [[2,f.binding,1,'REVISION_CONFLICT'],[1,f.binding,2,'SELECTION_CONFLICT'],[1,preview,1,'SELECTION_CONFLICT']] as const){
+   await expect(f.service.selectedPreview(f.c,f.session,artwork,revision,binding,version,new AbortController().signal)).rejects.toMatchObject({code});
+  }
+  expect(f.service.blobs.getBounded).not.toHaveBeenCalled();
+ });
+ it('rejects altered or missing payloads and a selection changed during the bounded read',async()=>{
+  const f=selectedFixture();vi.mocked(f.service.blobs.getBounded!).mockResolvedValueOnce(Buffer.from('altered'));
+  await expect(f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,new AbortController().signal)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+  vi.mocked(f.service.blobs.getBounded!).mockRejectedValueOnce(Error('missing'));
+  await expect(f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,new AbortController().signal)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+  vi.mocked(f.service.blobs.getBounded!).mockImplementationOnce(async()=>{f.choice.version=2;return previewBytes;});
+  await expect(f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,new AbortController().signal)).rejects.toMatchObject({code:'SELECTION_CONFLICT'});
+ });
+ it('keeps denied thumbnail rights and cancelled reads closed',async()=>{
+  const f=selectedFixture();f.selected.rights={...rights,permissions:{...rights.permissions,display:false}};
+  await expect(f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,new AbortController().signal)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+  const abort=new AbortController();abort.abort();
+  await expect(f.service.selectedPreview(f.c,f.session,artwork,1,f.binding,1,abort.signal)).rejects.toMatchObject({code:'THUMBNAIL_READ_UNAVAILABLE'});
+ });
+});
