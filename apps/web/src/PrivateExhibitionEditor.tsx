@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useCallback,useEffect,useMemo,useRef,useState,type ComponentProps} from 'react';
+import {useCallback,useEffect,useId,useMemo,useRef,useState,type ComponentProps} from 'react';
 import {Vector3,Quaternion} from 'three';
 import type {Artwork} from '@exhibitos/spec';
 import {alignedDoorPair,materialFor,lodVariantsFor,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError,artifactBounds,artifactCorners} from '@exhibitos/studio-contract';
@@ -66,6 +66,7 @@ export async function preparePrivateSave(seed:PrivateSeed,store:Pick<DraftStore,
 }
 
 export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSeed;demoSession?:boolean}){
+ const catalogueId=useId();
  const store=useMemo(()=>demoSession?null:new DraftStore(seed.storeName,{privateHistory:true}),[seed,demoSession]);
  const [modelThumbnailState,setModelThumbnailState]=useState<{source:PrivateSeed['source'];items:Readonly<Record<string,string>>}|null>(null);
  const modelThumbnails=modelThumbnailState?.source===seed.source?modelThumbnailState.items:{};
@@ -213,7 +214,7 @@ export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSe
     {mode==='walk'&&<details className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={walkAudio.current} state={walkAudioState} zones={doc.audioZones}/></details>}
    </section>
    <div className="private-panel-host" hidden={mode!=='edit'}>
-    <ToolPanel showCopies={!demoSession} active={activePanel} open={panelOpen} collapsed={panelCollapsed} disabled={busy||preview!==null} onSelect={value=>{interactionSerial.current++;setActivePanel(value);setPanelOpen(true);setPanelCollapsed(false);}} onClose={closePanel} onCollapse={()=>{setPreview(null);interactionSerial.current++;setPanelCollapsed(value=>!value);}}>
+    <ToolPanel externalControls={{artwork:catalogueId,bench:catalogueId}} settingsEmpty={activePanel==='bench'||activePanel==='artwork'&&!selected} showCopies={!demoSession} active={activePanel} open={panelOpen} collapsed={panelCollapsed} disabled={busy||preview!==null} onSelect={value=>{interactionSerial.current++;setActivePanel(value);setPanelOpen(true);setPanelCollapsed(false);}} onClose={closePanel} onCollapse={()=>{setPreview(null);interactionSerial.current++;setPanelCollapsed(value=>!value);}}>
      <div className="private-selection-settings" hidden={!selection||(selectedArt?activePanel!=='artwork':activePanel!=='space')}>
       <h3>{selectedArt?.metadata.title??(selection?.kind==='room'?room.name:'선택한 공간 요소')}</h3>
       <p>장면의 손잡이 또는 아래 버튼으로 옮겨보세요.</p>
@@ -227,7 +228,7 @@ export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSe
      {!demoSession&&<section hidden={activePanel!=='copies'} aria-label="사본과 저장 안내"><label>이 브라우저의 저장 사본<select value={record.current?.id??''} disabled={busy} onChange={e=>void openCopy(e.target.value)}>{copies.map((copy,i)=><option key={copy.id} value={copy.id}>저장 사본 {copies.length-i} · {new Date(copy.updatedAt).toLocaleString('ko-KR')}</option>)}</select></label><p>이 기기의 현재 브라우저에만 저장합니다. 공개 전시나 일반 Studio 저장본은 바뀌지 않습니다. 브라우저 데이터를 지우면 사본도 사라질 수 있어요.</p><details><summary>사용 안내</summary><p>일부 편집 도구를 사용할 수 있어요. 작품 배치·크기, 공간, 조명과 표면 색을 바꾸고 걸어볼 수 있습니다. 설정을 적용한 뒤 이 브라우저에 저장하세요.</p></details><button disabled={busy||preview!==null} onClick={()=>setResetOpen(true)}>현재 사본 초기화</button><button disabled={busy||preview!==null||!previousAvailable} onClick={()=>void replaceCurrent(true)}>직전 상태 복구</button>{resetOpen&&<div><p>현재 사본을 공개 원본 상태로 되돌립니다. 저장하지 않은 편집도 직전 상태로 보관해 복구할 수 있어요.</p><button disabled={busy} onClick={()=>void replaceCurrent(false)}>초기화</button><button disabled={busy} onClick={()=>setResetOpen(false)}>취소</button></div>}</section>}
     </ToolPanel>
    </div>
-   <section className="private-catalogue-host" aria-label={activePanel==='bench'?'전시 벤치':'작품 썸네일'} tabIndex={0} hidden={mode!=='edit'||!panelOpen||panelCollapsed||(activePanel!=='artwork'&&activePanel!=='bench')} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){const chooser=event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('.private-tool-chooser button[aria-pressed="true"]');closePanel();chooser?.focus();}}}>
+   <section id={catalogueId} className="private-catalogue-host" aria-label={activePanel==='bench'?'전시 벤치':'작품 썸네일'} tabIndex={0} hidden={mode!=='edit'||!panelOpen||panelCollapsed||(activePanel!=='artwork'&&activePanel!=='bench')} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){const chooser=event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('.private-tool-chooser button[aria-pressed="true"]');closePanel();chooser?.focus();}}}>
       <div className="private-art-dock" hidden={activePanel!=='artwork'} aria-label="작품 썸네일"><h3>작품 선택</h3><p>눌러 선택하거나 장면으로 끌어 놓으세요.</p><div className="private-art-list">{seed.source.exhibition.artworks.map(art=><button key={art.revisionId} disabled={busy||preview!==null} draggable={!busy&&preview===null} onDragStart={e=>{e.dataTransfer.setData('application/x-exhibitos-artwork',art.revisionId);e.dataTransfer.effectAllowed='copy';}} aria-pressed={selectedArt?.revisionId===art.revisionId} onClick={()=>{const placement=doc.placements.find(p=>p.roomId===room.id&&p.artworkRevisionId===art.revisionId);if(placement)setSelection({kind:'placement',id:placement.id});else add(art);}}><Thumbnail art={art} seed={seed} modelPreview={modelThumbnails[art.revisionId.toLowerCase()]}/><span>{art.metadata.title}</span></button>)}</div></div>
      <div hidden={activePanel!=='bench'}><CatalogBenchControls document={doc} seed={seed} roomId={room.id} disabled={busy||preview!==null||mode!=='edit'} execute={commit} error={setError}/></div>
    </section>

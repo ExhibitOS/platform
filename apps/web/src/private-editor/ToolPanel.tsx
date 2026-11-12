@@ -6,15 +6,16 @@ export type PrivateTool=typeof privateTools[number][0];
 
 /** Visibility changes only: keep settings mounted so draft inputs survive a
  * tool switch, collapse, close and responsive layout changes. */
-export function ToolPanel({active,open,collapsed,disabled,onSelect,onClose,onCollapse,children,showCopies=true}:{active:PrivateTool;open:boolean;collapsed:boolean;disabled:boolean;onSelect:(tool:PrivateTool)=>void;onClose:()=>void;onCollapse:()=>void;children:ReactNode;showCopies?:boolean}){
+export function ToolPanel({active,open,collapsed,disabled,onSelect,onClose,onCollapse,children,showCopies=true,externalControls,settingsEmpty=false}:{active:PrivateTool;open:boolean;collapsed:boolean;disabled:boolean;onSelect:(tool:PrivateTool)=>void;onClose:()=>void;onCollapse:()=>void;children:ReactNode;showCopies?:boolean;externalControls?:Partial<Record<PrivateTool,string>>;settingsEmpty?:boolean}){
  const id=useId(),buttons=useRef<Partial<Record<PrivateTool,HTMLButtonElement|null>>>({});
  const label=privateTools.find(([key])=>key===active)![1];
+ function controlledRegions(tool:PrivateTool){return [id,externalControls?.[tool]].filter(Boolean).join(' ');}
  function close(){onClose();buttons.current[active]?.focus();}
  return <aside className="private-tool-panel" data-open={open} data-collapsed={collapsed} aria-label="꾸미기 도구와 설정">
-  <nav className="private-tool-chooser" aria-label="꾸미기 도구">{privateTools.filter(([key])=>showCopies||key!=='copies').map(([key,name])=><button key={key} ref={button=>{buttons.current[key]=button;}} disabled={disabled} aria-pressed={open&&active===key} aria-controls={id} onClick={()=>onSelect(key)}>{name}</button>)}</nav>
+  <nav className="private-tool-chooser" aria-label="꾸미기 도구">{privateTools.filter(([key])=>showCopies||key!=='copies').map(([key,name])=><button key={key} ref={button=>{buttons.current[key]=button;}} disabled={disabled} aria-pressed={open&&active===key} aria-controls={controlledRegions(key)} onClick={()=>onSelect(key)}>{name}</button>)}</nav>
   <section className="private-tool-settings" hidden={!open} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented)close();}} aria-labelledby={id+'-heading'}>
-   <header className="private-tool-heading"><h2 id={id+'-heading'}>{label}</h2><div><button aria-label={collapsed?'설정 펼치기':'설정 접기'} aria-expanded={!collapsed} aria-controls={id} onClick={onCollapse}>{collapsed?'펼치기':'접기'}</button><button aria-label="설정 닫기" onClick={close}>닫기</button></div></header>
-   <div id={id} className="private-tool-scroll" role="region" aria-label={label+' 설정 내용'} tabIndex={0} hidden={collapsed}>{children}</div>
+   <header className="private-tool-heading"><h2 id={id+'-heading'}>{label}</h2><div><button aria-label={collapsed?'설정 펼치기':'설정 접기'} aria-expanded={!collapsed} aria-controls={controlledRegions(active)} onClick={onCollapse}>{collapsed?'펼치기':'접기'}</button><button aria-label="설정 닫기" onClick={close}>닫기</button></div></header>
+   <div id={id} className="private-tool-scroll" role="region" aria-label={label+' 설정 내용'} tabIndex={0} hidden={collapsed||settingsEmpty}>{children}</div>
   </section>
  </aside>;
 }
