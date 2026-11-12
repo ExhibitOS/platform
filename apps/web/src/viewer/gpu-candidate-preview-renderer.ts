@@ -5,7 +5,7 @@ import {centerMetricModel,metricCameraFit} from './metric-model';
 import {applyReferenceOutput} from './render-quality';
 import {retireArtworkResources} from './artwork-ownership';
 import {completeDetailCommands} from './detail-command-completion';
-import {AssetReleaseUnconfirmedError,DEVICE_BUDGETS} from './loading';
+import {AssetPeakBudget,AssetReleaseUnconfirmedError,DEVICE_BUDGETS,modelDecodeReserve} from './loading';
 
 export type GpuCandidatePreviewInvalidation='context-lost'|'hidden'|'render-failed';
 export interface GpuCandidatePreviewMount {
@@ -24,8 +24,9 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
   let loaded:Awaited<ReturnType<typeof loadGpuModel>>|undefined,pending:Promise<Awaited<ReturnType<typeof loadGpuModel>>>|undefined;
   let controls:InstanceType<typeof OrbitControls>|undefined,observer:ResizeObserver|undefined;
   let onControlsChange:(()=>void)|undefined;
-  let frame=0,ready=false,retiring=false,invalidated=false,drawAttempted=false,drawGeneration=0;
+  let frame=0,ready=false,retiring=false,invalidated=false,gpuCommandsAttempted=false,drawGeneration=0;
   let retirement:Promise<void>|undefined;
+  let peak:AssetPeakBudget|undefined,framebufferResident=0;
   const hooks:{node:Three.Mesh;previous:Three.Mesh['onAfterRender']}[]=[];
   const visible=()=>{
     if(doc.hidden||!host.isConnected||!canvas.isConnected||host.closest('[hidden],[inert],details:not([open])'))return false;
@@ -50,7 +51,7 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
       if(pending)try{loaded=await pending;}catch(error){if(error instanceof AssetReleaseUnconfirmedError){if(!failed)cause=error;failed=true;}}
       for(const hook of hooks)await attempt(()=>{hook.node.onAfterRender=hook.previous;});
       if(loaded)await attempt(()=>retireArtworkResources(loaded!.resources,loaded!.backing));
-      if(drawAttempted)await attempt(()=>{
+      if(gpuCommandsAttempted)await attempt(()=>{
         const gl=renderer.getContext();
         if(!('fenceSync' in gl)||typeof gl.fenceSync!=='function')throw Error('GPU_PREVIEW_FENCE_UNAVAILABLE');
         return completeDetailCommands(gl as WebGL2RenderingContext);
@@ -59,6 +60,7 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
       await attempt(()=>renderer.forceContextLoss());
       await attempt(()=>canvas.remove());
       if(failed)throw new AssetReleaseUnconfirmedError({cause});
+      framebufferResident=0;peak?.release('candidate');
     });
     controller.abort(Error('GPU_PREVIEW_RETIRED'));
     // Event-driven retirement has no awaiter, but its rejected receipt remains
@@ -82,7 +84,13 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
     // Non-MSAA RGBA/depth buffers plus conservative driver copies stay inside
     // the existing local steady allowance, never an extra resource grant.
     const framebufferBytes=width*height*16;
-    renderer.setSize(width,height,false);
+    framebufferResident=framebufferBytes;
+    peak=new AssetPeakBudget(budget.maxCacheBytes,()=>framebufferResident);
+    // Admit encoded copies, header-derived geometry and every image binding
+    // before starting a decoder. Retain this conservative charge through the
+    // renderer's positively acknowledged retirement; steady fit is insufficient.
+    peak.reserve('candidate',modelDecodeReserve(input.bytes.byteLength,budget,input.bytes,512,'complete'));
+    gpuCommandsAttempted=true;renderer.setSize(width,height,false);
     canvas.addEventListener('webglcontextlost',lost);doc.addEventListener('visibilitychange',visibility);
     pending=loadGpuModel(three,renderer,input.bytes,localSignal,{...budget,maxCacheBytes:budget.maxCacheBytes-framebufferBytes},Math.min(input.maxTriangles,budget.maxTriangles));
     localSignal.addEventListener('abort',aborted,{once:true});
@@ -108,7 +116,7 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
       if(renderer.getContext().isContextLost()){invalidate('context-lost');return false;}
       try{
         if(renderer.getRenderTarget()!==null)throw Error('GPU_PREVIEW_RENDER_TARGET');
-        drawn=false;drawAttempted=true;renderer.render(scene,camera);
+        drawn=false;gpuCommandsAttempted=true;renderer.render(scene,camera);
         if(renderer.getContext().isContextLost()||renderer.getRenderTarget()!==null)throw Error('GPU_PREVIEW_DRAW_UNCONFIRMED');
         if(drawn)drawGeneration++;return drawn;
       }catch(error){invalidate('render-failed');throw error;}
