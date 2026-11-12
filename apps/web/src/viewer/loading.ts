@@ -395,7 +395,7 @@ export class AssetScheduler<T> {
  private readonly tasks=new Map<string,Task<T>>();private active=0;private order=0;private completed=0;private failed=0;private cancelled=0;private stopped=false;
  private releaseError:AssetReleaseUnconfirmedError|undefined;
  private readonly drainWaiters=new Set<{resolve:()=>void;reject:(error:AssetReleaseUnconfirmedError)=>void}>();
- constructor(private readonly options:{concurrency:number;load:(key:string,signal:AbortSignal)=>Promise<T>;onState?:(event:LoadingEvent)=>void;onDiscard?:((value:T)=>void)|((value:T)=>Promise<void>)}){if(!Number.isInteger(options.concurrency)||options.concurrency<1||options.concurrency>8)throw Error("CONCURRENCY_INVALID");}
+ constructor(private readonly options:{concurrency:number;load:(key:string,signal:AbortSignal)=>Promise<T>;onState?:(event:LoadingEvent)=>void;onDiscard?:((value:T)=>void)|((value:T)=>Promise<void>);onLoad?:(value:T)=>void}){if(!Number.isInteger(options.concurrency)||options.concurrency<1||options.concurrency>8)throw Error("CONCURRENCY_INVALID");}
  request(key:string,priority=0):Promise<T>{if(this.releaseError)return Promise.reject(this.releaseError);if(this.stopped)return Promise.reject(cancelled());if(!Number.isFinite(priority))return Promise.reject(Error("PRIORITY_INVALID"));const existing=this.tasks.get(key);if(existing){if(existing.status==="queued")existing.priority=Math.min(existing.priority,priority);return existing.promise;}
  let resolve!:(v:T)=>void,reject!:(e:unknown)=>void;const promise=new Promise<T>((r,j)=>{resolve=r;reject=j;});const task:Task<T>={key,priority,order:this.order++,controller:new AbortController(),promise,resolve,reject,status:"queued",settled:false};this.tasks.set(key,task);this.emit(task,"queued");queueMicrotask(()=>this.pump());return promise;}
  /** Override only a queued request; clearing it restores the ordinary priority. */
@@ -419,7 +419,7 @@ export class AssetScheduler<T> {
   for(const waiter of this.drainWaiters){if(this.releaseError)waiter.reject(this.releaseError);else waiter.resolve();}
   this.drainWaiters.clear();
  }
- private stopUnconfirmed(error:AssetReleaseUnconfirmedError){this.releaseError??=error;this.stopped=true;this.cancelAll();this.settleDrainers();}
+ stopUnconfirmed(error:AssetReleaseUnconfirmedError){this.releaseError??=error;this.stopped=true;this.cancelAll();this.settleDrainers();}
  private pump(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>(a.priorityOverride??a.priority)-(b.priorityOverride??b.priority)||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
  private async run(task:Task<T>){
   try{
@@ -428,6 +428,7 @@ export class AssetScheduler<T> {
     try{await this.options.onDiscard?.(value);}catch(error){throw error instanceof AssetReleaseUnconfirmedError?error:new AssetReleaseUnconfirmedError({cause:error});}
     return;
    }
+   this.options.onLoad?.(value);
    task.settled=true;this.completed++;this.emit(task,"loaded");task.resolve(value);
   }catch(error){
    // A cancelled caller already received AbortError, but its underlying cleanup

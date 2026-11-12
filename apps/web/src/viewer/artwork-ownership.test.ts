@@ -52,3 +52,20 @@ test('a failed source release blocks successor construction rather than reportin
  const barrier=joinArtworkRetirement(Promise.resolve(),()=>{throw new AssetReleaseUnconfirmedError();});
  await expect(waitForArtworkRetirement(barrier,new AbortController().signal)).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
 });
+
+test('a rejected child drain retains the worker and encoded pin',async()=>{
+ const events:string[]=[];
+ await expect(retireArtworkResources([{dispose(){events.push('worker');}},{dispose(){events.push('pin');}}],{dispose(){events.push('closed');},async drain(){throw Error('uncertain');},retire(){events.push('retired');},cleanupOK:()=>true})).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+ expect(events).toEqual(['closed']);
+});
+test('prepared eviction keeps its charged owner and blocks admission when disposal throws a falsy value',async()=>{
+ const {retireArtworkEntry,disposeArtworkResources}=await import('./artwork-ownership');
+ const {AssetScheduler,AssetPeakBudget}=await import('./loading');
+ const prepared=new Map([['asset',{bytes:8,dispose(){throw undefined;}}]]),started:string[]=[];
+ const peak=new AssetPeakBudget(10,()=>[...prepared.values()].reduce((sum,value)=>sum+value.bytes,0));
+ const scheduler=new AssetScheduler({concurrency:1,load:async key=>{started.push(key);return key;}});
+ expect(()=>retireArtworkEntry(prepared,'asset',value=>{try{disposeArtworkResources([value]);}catch(error){scheduler.stopUnconfirmed(error as AssetReleaseUnconfirmedError);throw error;}})).toThrow(AssetReleaseUnconfirmedError);
+ expect(prepared.has('asset')).toBe(true);expect(peak.total()).toBe(8);expect(()=>peak.reserve('next',3)).toThrow('ASSET_TRANSITION_PEAK');
+ await expect(scheduler.request('next')).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+ await expect(scheduler.drain()).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);expect(started).toEqual([]);
+});

@@ -37,7 +37,7 @@ import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfi
 import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
-import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {retireDetailCanvas,completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
 import {acquiredModelRuntime,acquiredModelTransitionCap,checkAcquiredModelGeometry,eligibleAcquiredModel} from './viewer/detail-model-admission';
@@ -75,7 +75,7 @@ import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import {prepareArtwork} from './viewer/artwork-preparation';
-import {claimPreparedArtwork,retireArtworkResources,waitForArtworkRetirement,joinArtworkRetirement} from './viewer/artwork-ownership';
+import {claimPreparedArtwork,retireArtworkResources,waitForArtworkRetirement,joinArtworkRetirement,retireArtworkEntry,disposeArtworkResources} from './viewer/artwork-ownership';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
@@ -490,7 +490,7 @@ export function GeometryPreview({
     let sharedDetail:ReturnType<typeof borrowedDetailPreview>|undefined;
     let sharedDetailUnavailable:((reason:'rights'|'graphics')=>void)|undefined;
     let cancelSharedDetail=()=>{},guardOriginalDetail=()=>{},canvasReturnEpoch=0,detailMountEpoch=0,deferredCanvasRestore=false;
-    let canvasRestorePromise:Promise<void>=Promise.resolve();
+    let canvasRestorePromise:Promise<void>=Promise.resolve(),detailRetirementWork:()=>Promise<void>=()=>Promise.resolve();
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);setSeatTransitioning(false);
     setReadyWorkspaceBenches(null);
@@ -2048,11 +2048,14 @@ export function GeometryPreview({
         renderer.domElement.ownerDocument.addEventListener('scroll',stopSculptureOrbit,true);
         renderer.domElement.ownerDocument.addEventListener('contextmenu',stopSculptureOrbit,true);
         orbitRoot?.addEventListener('toggle',orbitPanel,true);
+        let artworkReleaseFailure:AssetReleaseUnconfirmedError|undefined;
+        const failedArtworkRetirements=new Set<InstanceType<typeof three.Object3D>>();
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
-          let failure:unknown;
-          for(const resource of decodedResources.get(object)??[])try{resource.dispose();}catch(error){failure??=error;}
-          if(failure)throw new AssetReleaseUnconfirmedError({cause:failure});
+          try{disposeArtworkResources(decodedResources.get(object)??[]);}catch(cause){
+            const failure=cause instanceof AssetReleaseUnconfirmedError?cause:new AssetReleaseUnconfirmedError({cause});
+            failedArtworkRetirements.add(object);artworkReleaseFailure??=failure;scheduler.stopUnconfirmed(failure);throw failure;
+          }
           decodedResources.delete(object);
         };
         const active = new Map<string, string>(),
@@ -2098,7 +2101,11 @@ export function GeometryPreview({
         let sequence=0, automatic=true, manualFull=false;
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
-        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
+        const resident=()=>{
+          const sceneObjects=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+          const charged=new Set([...sceneObjects,detailPinned,detailImageCandidate]);
+          return sceneObjects.reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+[...failedArtworkRetirements].filter(value=>!charged.has(value)).reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        };
         const selectedBudget=(art:(typeof arts)[number],asset?:typeof art.assets[number])=>{
           const image=selectedImageDetail(art,viewerBudget)?.budget;
           if(image||art.artworkType!=='sculpture')return image;
@@ -2217,7 +2224,7 @@ export function GeometryPreview({
         const evictPrepared=(deficit:()=>number)=>{
           for(const [id,value] of [...prepared].sort((a,b)=>interestRank(b[1].artId)-interestRank(a[1].artId)||a[1].lastUseful-b[1].lastUseful)){
             if(deficit()<=0)break;
-            prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
+            retireArtworkEntry(prepared,id,value=>destroy(value.object));stage(id,'evicted-preparation');
           }
         };
         const reserve=(key:string,bytes:number,probe=false)=>{
@@ -2226,7 +2233,7 @@ export function GeometryPreview({
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           reclaimEncoded(()=>peak.total(key)+bytes-limit);
           if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
-          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
+          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;retireArtworkEntry(minimumObjects,id,value=>destroy(value.object));stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           if(probe){peak.assertFits(key,bytes,limit);return;}
           try{peak.reserve(key,bytes,limit);}catch(error){
@@ -2244,7 +2251,7 @@ export function GeometryPreview({
             inventory: Document["artworks"][number]["assets"][number];
             prepareOnly:boolean; downloadOnly:boolean;full?:boolean;manual?:boolean;
             detailBudget?:DeviceBudget;detailPromotion?:boolean;detailTransfer?:DetailTransfer;
-            thumbnailWork?:(signal:AbortSignal)=>Promise<void>;started?:boolean;
+            thumbnailWork?:(signal:AbortSignal)=>Promise<void>;started?:boolean;accept?:(result:LoadResult)=>void;
           }
         >();
         type LoadResult={object?:InstanceType<typeof three.Object3D>;key:string;borrowedMinimum?:{artId:string;assetId:string}};
@@ -2333,6 +2340,7 @@ export function GeometryPreview({
               peak.release(key);tasks.delete(key);throw error;
             }
           },
+          onLoad:result=>tasks.get(result.key)?.accept?.(result),
           onDiscard: result=>{const task=tasks.get(result.key);discardResult(result);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);},
         });
         type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;coverCurrent?:()=>boolean;drain?:Promise<void>};
@@ -2570,24 +2578,20 @@ export function GeometryPreview({
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
           const detailTransfer=detailPromotion?beginDetailTransfer?.('approved-full',inventory.bytes):undefined;
-          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,detailBudget,detailPromotion,detailTransfer };
+          const task:NonNullable<ReturnType<typeof tasks.get>>={ art, inventory, prepareOnly, downloadOnly,full,manual,detailBudget,detailPromotion,detailTransfer };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
-          const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
-          syncPinnedPriority(art.revisionId);
-          void scheduled
-            .then(result => {
+          task.accept=result=>{
+            try{
               const {object}=result;
-              peak.release(key);
               const current=settleAssetGeneration(pending,art.revisionId,key);
-              tasks.delete(key);
               if(!object){update();return;}
               if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
                 discardResult(result);
                 return;
               }
               const steady=requestLimits(task).resident;
-              const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
+              const deficit=()=>peak.total(key)+(object.userData.viewer?.decodedBytes??0)-steady;
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
               if(deficit()>0)releaseCachedOriginal();
@@ -2674,8 +2678,20 @@ export function GeometryPreview({
               render();
               stage(inventory.id,'display-attached-render-requested',undefined,key);
               update();
-            })
+
+            }catch(cause){
+              // Admission itself still owns the result and reservation. Unknown
+              // cleanup/attachment failure cannot open headroom for a successor.
+              if(result.object)failedArtworkRetirements.add(result.object);
+              const failure=cause instanceof AssetReleaseUnconfirmedError?cause:new AssetReleaseUnconfirmedError({cause});
+              artworkReleaseFailure??=failure;throw failure;
+            }finally{if(!artworkReleaseFailure){peak.release(key);tasks.delete(key);}}
+          };
+          const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
+          syncPinnedPriority(art.revisionId);
+          void scheduled
             .catch((error) => {
+              if(error instanceof AssetReleaseUnconfirmedError){artworkReleaseFailure??=error;stage(inventory.id,'release-unconfirmed',error,key);if(!disposed)update();return;}
               const current=settleAssetGeneration(pending,art.revisionId,key);
               // A late non-abort failure belongs to its old request, not its successor.
               if(!current){if(error?.name==='AbortError'&&!task.started)tasks.delete(key);if(!disposed)update();return;}
@@ -3067,7 +3083,7 @@ export function GeometryPreview({
           for(const id of coldQueuedSince.keys())if(!pending.has(id))coldQueuedSince.delete(id);
           for(const [id,value] of prepared){
             if(preparing.has(value.artId)||value.artId===currentArtwork)value.lastUseful=now;
-            else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+            else if(now-value.lastUseful>=1800){retireArtworkEntry(prepared,id,value=>destroy(value.object));stage(id,'evicted-preparation');}
           }
           const sorted=[...observations].sort((a,b)=>viewQueuePriority(viewInterests.get(a.art.revisionId),a.art.revisionId===currentArtwork,false)-viewQueuePriority(viewInterests.get(b.art.revisionId),b.art.revisionId===currentArtwork,false));
           const missingMinimum=sorted.filter(({art,visible,minimumEligible})=>(visible||minimumEligible)&&
@@ -3285,6 +3301,8 @@ export function GeometryPreview({
           let recheckAcquiredModel=async()=>{};
           const previousCanvasVisibility=renderer.domElement.style.visibility;
           let guardOriginalDraw=()=>true,resumeLegacy=()=>{},restoreHold:{key:string;bytes:number}|undefined;
+          let restoreDrawAttempted=false,restoreCommandDrain:Promise<void>|undefined;
+          detailRetirementWork=()=>retireDetailCanvas({cleanup:originalAttempt?.close()??Promise.resolve(),restoration:canvasRestorePromise,commands:()=>restoreCommandDrain,drawAttempted:()=>restoreDrawAttempted,complete:()=>completeDetailCommands(renderer.getContext() as WebGL2RenderingContext),retire:()=>{if(restoreHold){peak.release(restoreHold.key);restoreHold=undefined;}}});
           const retireOriginal=()=>{if(originalAttempt)void originalAttempt.close().then(()=>{originalSettled=true;if(originalDrawSuppressed){originalDrawSuppressed=false;redrawSettledBaseline();}},()=>{if(alive&&!signal.aborted&&!disposed)input.unavailable('recovery');});};
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
@@ -3313,14 +3331,15 @@ export function GeometryPreview({
               // until original-owned work, texture deletion and fence settle.
               deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('restoring');
               canvasRestorePromise=originalDrain.then(async()=>{
-                if(disposed||gpuLost||publicDisplayStopped||sharedDetail)throw Error('DETAIL_RESTORE_UNAVAILABLE');
+                if(disposed)return;
+                if(gpuLost||publicDisplayStopped||sharedDetail)throw Error('DETAIL_RESTORE_UNAVAILABLE');
                 try{
                   const context=renderer.getContext();
                   if(!imageProfile||typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))throw Error('DETAIL_FENCE_UNAVAILABLE');
                   const hold=restoreHold;if(!hold)throw Error('DETAIL_RESTORE_BUDGET');
                   const restoreFits=()=>!!host.current&&host.current.clientWidth>0&&host.current.clientHeight>0&&host.current.clientWidth<=imageProfile.maxRestoreWidth&&host.current.clientHeight<=imageProfile.maxRestoreHeight&&globalThis.devicePixelRatio===imageProfile.devicePixelRatio;
                   let drawnWidth=0,drawnHeight=0;
-                  await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
+                  await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{restoreDrawAttempted=true;if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>restoreCommandDrain=completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
                   if(!disposed&&!gpuLost&&!publicDisplayStopped){setDetailRestoreStatus(null);try{requestAnimationFrame(()=>{focusRestoredDetailCanvas(renderer.domElement,()=>returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!deferredCanvasRestore&&!suspendedRef.current&&!xrActive.current&&!!host.current?.contains(renderer.domElement));});}catch{/* Focus recovery must not undo a completed canvas restoration. */}}
                 }catch(error){deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';throw error;}
               });
@@ -3643,8 +3662,9 @@ export function GeometryPreview({
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         drainArtworkWork=()=>{
           scheduler.dispose();
+          if(artworkReleaseFailure)return Promise.reject(artworkReleaseFailure);
           renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-draining',...scheduler.stats(),chargedBytes:peak.total()});
-          return Promise.all([scheduler.drain(),acquiredModelDrain,canvasRestorePromise,originalDetailSlot.whenAvailable(new AbortController().signal)]).then(()=>{
+          return Promise.all([scheduler.drain(),acquiredModelDrain,detailRetirementWork(),originalDetailSlot.whenAvailable(new AbortController().signal)]).then(()=>{
             renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-drained',...scheduler.stats(),chargedBytes:peak.total()});
           },error=>{renderer.domElement.dataset.artworkRelease=JSON.stringify({phase:'work-unconfirmed',...scheduler.stats(),chargedBytes:peak.total()});throw error;});
         };

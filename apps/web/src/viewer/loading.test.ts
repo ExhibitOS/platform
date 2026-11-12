@@ -494,3 +494,11 @@ describe('verified artwork wait attribution',()=>{
   expect(events).toEqual(['availability-precheck','authority','asset-response-wait','fetch','asset-body','asset-integrity']);
  });
 });
+
+it('retains the serial slot through ownership admission and stops before a successor on failed release',async()=>{
+ const started:string[]=[],admitted:string[]=[];
+ const scheduler=new AssetScheduler<string>({concurrency:1,load:async key=>{started.push(key);return key;},onLoad:value=>{admitted.push(value);if(value==='first')throw new AssetReleaseUnconfirmedError();}});
+ const first=scheduler.request('first'),next=scheduler.request('next');
+ await expect(first).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);await expect(next).rejects.toMatchObject({name:'AbortError'});
+ expect(started).toEqual(['first']);expect(admitted).toEqual(['first']);await expect(scheduler.drain()).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);
+});

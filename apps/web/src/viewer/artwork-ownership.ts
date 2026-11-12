@@ -10,7 +10,7 @@ type DecodeBacking={dispose():void;drain():Promise<void>;retire():void;cleanupOK
 export async function retireArtworkResources(resources:readonly Resource[],backing?:DecodeBacking){
  let failed=false,cause:unknown;
  const attempt=async(work:()=>void|Promise<void>)=>{try{await work();}catch(error){failed=true;cause??=error;}};
- if(backing){await attempt(()=>backing.dispose());await attempt(()=>backing.drain());}
+ if(backing){await attempt(()=>backing.dispose());try{await backing.drain();}catch(cause){throw new AssetReleaseUnconfirmedError({cause});}}
  for(const resource of new Set(resources))await attempt(()=>resource.dispose());
  if(backing){await attempt(()=>backing.retire());try{if(!backing.cleanupOK())failed=true;}catch(error){failed=true;cause??=error;}}
  if(failed)throw new AssetReleaseUnconfirmedError({cause});
@@ -45,4 +45,15 @@ export function joinArtworkRetirement(previous:Promise<void>,release:()=>void|Pr
  // React cleanup cannot await. Keep the rejected barrier for successors while
  // attaching a sink to avoid an unhandled rejection after a full unmount.
  void joined.catch(()=>{});return joined;
+}
+
+/** Preserve the charged cache owner if any resource cannot be retired. */
+export function retireArtworkEntry<T>(pool:Map<string,T>,key:string,dispose:(value:T)=>void){
+ const value=pool.get(key);if(value===undefined)return;
+ dispose(value);pool.delete(key);
+}
+export function disposeArtworkResources(resources:readonly {dispose():void}[]){
+ let failed=false,cause:unknown;
+ for(const resource of new Set(resources))try{resource.dispose();}catch(error){failed=true;cause??=error;}
+ if(failed)throw new AssetReleaseUnconfirmedError({cause});
 }
