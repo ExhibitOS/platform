@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {artifactCorners,benchBoxes,benchesFor,installationFor,installationPlane,wallFinishesFor} from '@exhibitos/studio-contract';
+import {artifactCorners,benchBoxes,benchesFor,furnishingsFor,installationFor,installationPlane,wallFinishesFor} from '@exhibitos/studio-contract';
 import type {SupportContact} from './shadows';
 import {rectangularGroundContact,type RectangularGroundContact} from './ground-contact-footprint';
 
@@ -117,8 +117,13 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
         addFoot(center,Math.min(.18,size.x+.07),Math.min(.18,size.z+.07),floorRotation);
       }
     }else if(catalogBench?.hostId.toLowerCase()===bench.id.toLowerCase()){ 
-      for(const name of ['Leg','Leg001','Leg002','Leg003']){
-        const leg=catalogBench.model.getObjectByName(name);
+      const legs:Three.Object3D[]=[];
+      const catalog=furnishingsFor(document),binding=catalog?.bindings.find(row=>row.hostKind==='bench'&&row.hostId.toLowerCase()===bench.id.toLowerCase());
+      if(catalog?.assets.some(asset=>asset.id.toLowerCase()===binding?.assetId.toLowerCase()&&asset.catalogId==='sculpture-bench-refined')){
+        // Discover the four actual small ground pads; never reuse the old model's node names.
+        catalogBench.model.traverseVisible(node=>{if(!(node instanceof three.Mesh))return;const bounds=visibleLegBounds(node,room),size=bounds?.getSize(new three.Vector3());if(bounds&&size&&Math.abs(bounds.min.y-bench.position[1])<.002&&size.x<=.26&&size.z<=.31)legs.push(node);});
+      }else for(const name of ['Leg','Leg001','Leg002','Leg003']){const leg=catalogBench.model.getObjectByName(name);if(leg)legs.push(leg);}
+      for(const leg of legs){
         if(!leg)continue;
         const bounds=visibleLegBounds(leg,room);
         if(!bounds||Math.abs(bounds.min.y-bench.position[1])>.014)continue;
@@ -130,7 +135,7 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
         addFoot(center,Math.min(.18,size.x+.07),Math.min(.18,size.z+.07),floorRotation);
       }
     }else{
-      for(const box of benchBoxes(bench)){
+      for(const box of benchBoxes(bench,1,document)){
         if(Math.abs(box.position[1]-box.dimensions.height/2)>.001)continue;
         const center=point(box.position).applyQuaternion(yaw).add(point(bench.position));center.y=bench.position[1];
         addGroundRectangle(room,floor,{position:center.toArray(),rotation:yaw.toArray(),width:box.dimensions.width,depth:box.dimensions.depth});

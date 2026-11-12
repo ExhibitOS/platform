@@ -10,9 +10,10 @@ type Evidence = {
   readonly consumerBehavior: 'unverified';
 };
 type Functional = Evidence & (
-  | { readonly kind: 'bench'; readonly front: Point; readonly seatEnvelopeY: number;
+  | { readonly kind: 'bench'; readonly benchKind?: 'slab'|'backed'; readonly front: Point; readonly seatEnvelopeY: number;
+      readonly collision?: {readonly kind:'component-aabbs';readonly qualification:'proxy-only';readonly boxes:readonly {readonly position:Point;readonly dimensions:{readonly width:number;readonly height:number;readonly depth:number}}[]};
       readonly seats: readonly { readonly point: Point; readonly designation: 'authored-virtual-seat';
-        readonly directSurfaceContactVerified: boolean; readonly measuredVerticalContactY: number }[] }
+        readonly directSurfaceContactVerified: boolean; readonly measuredVerticalContactY?: number }[] }
   | { readonly kind: 'light'; readonly apertureCentre: Point; readonly apertureDesignation: 'authored-reference';
       readonly aim: Point; readonly pivot?: Point; readonly pivotAxis?: Point; readonly opaqueLensContact: Point }
   | { readonly kind: 'portal'; readonly front: Point;

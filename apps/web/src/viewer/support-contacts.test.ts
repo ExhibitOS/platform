@@ -161,3 +161,12 @@ it('retains the budget denial when encoded bytes are pinned or insufficient and 
   peak.release('decode');expect(peak.reservationBytes('contact')).toBe(SUPPORT_CONTACT_RESERVE_BYTES);
   peak.release('contact');expect(peak.total()).toBe(resident);
  });
+
+it('grounds the refined catalogue on its four visible pads without legacy node names',()=>{
+ const room=new three.Group(),floor=new three.Group(),model=new three.Group();floor.rotation.x=-Math.PI/2;room.add(floor,model);
+ const geometry=new three.BoxGeometry(.055,.008,.075),material=new three.MeshBasicMaterial();
+ for(const x of [-.709,.709])for(const z of [-.198,.207]){const pad=new three.Mesh(geometry,material);pad.position.set(x,.004,z);model.add(pad);}
+ const document={surfaces:[{id:'floor',type:'floor',roomId:'room'}],placements:[],artworks:[],extensions:{[BENCH_NAMESPACE]:{version:1,benches:[{id:'bench',roomId:'room',position:[0,0,0],yaw:0}]},'org.exhibitos.studio/furnishing-visuals':{version:1,bindings:[{hostKind:'bench',hostId:'bench',assetId:'asset'}],assets:[{id:'asset',catalogId:'sculpture-bench-refined'}]}}} as unknown as Exhibition;
+ const get=()=>supportContacts(three,document,new Map([['room',room]]),new Map([['floor',floor]]),[[{x:0,y:0,width:4,height:4}]],new Map(),{hostId:'bench',model});
+ expect(get()).toHaveLength(4);model.visible=false;expect(get()).toEqual([]);geometry.dispose();material.dispose();
+});

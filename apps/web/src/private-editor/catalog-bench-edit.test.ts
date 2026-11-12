@@ -37,3 +37,13 @@ it('creates a fresh camera over the measured oak slat in the placed pose',()=>{
  expect(view.target[0]-view.position[0]).toBeCloseTo(-2);
  expect(view.target[2]).toBeCloseTo(view.position[2]);
 });
+
+it('authors the refined backed seat facing the model front and keeps an unrelated authored view intact',()=>{
+ const original=newDraft().candidate,roomId=original.rooms[0]!.id,before=structuredClone(original);
+ const added=addCatalogBench(original,roomId,{position:[1,0,1],yaw:Math.PI/2,scale:1.25},'sculpture-bench-refined'),bench=benchesFor(added)[0]!;
+ const view=presentationFor(added).viewpoints.find(row=>row.id===bench.viewpointId)!;
+ expect(bench.kind).toBe('backed');expect(bench.dimensions.width).toBeCloseTo(1.47299993*1.25);
+ expect(view.position).toEqual([1,.45*1.25+.7,1]);expect(view.target[0]-view.position[0]).toBeCloseTo(2);expect(view.target[2]).toBeCloseTo(1);
+ expect(furnishingsFor(added)!.assets[0]!.catalogId).toBe('sculpture-bench-refined');expect(original).toEqual(before);
+ const removed=removeCatalogBench(added,bench.id);expect(benchesFor(removed)).toHaveLength(0);expect(presentationFor(removed).viewpoints).toEqual(presentationFor(added).viewpoints);
+});

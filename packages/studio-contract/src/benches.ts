@@ -105,7 +105,7 @@ export function validateStudioBenches(candidate: unknown) {
     if (b.position[1] < 0 || Math.abs(b.position[0])+halfX > Number(room.dimensions.width)/2 || Math.abs(b.position[2])+halfZ > Number(room.dimensions.depth)/2 || b.position[1]+d.height+(b.kind==='backed'?.4:0) > Number(room.dimensions.height)) add('BENCH_BOUNDS',path,'Complete bench must fit inside its room');
     try {
       const bench=b as unknown as StudioBench,pose:ArtifactPose={position:bench.position,rotation:[0,Math.sin(bench.yaw/2),0,Math.cos(bench.yaw/2)],scale:[1,1,1]};
-      for(const box of benchBoxes(bench,geometryScale))artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},pose,room.transform as unknown as ArtifactPose],true);
+      for(const box of benchBoxes(bench,geometryScale,candidate as unknown as Exhibition))artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},pose,room.transform as unknown as ArtifactPose],true);
     } catch {add('BENCH_BOUNDS',path,'Generated world geometry must satisfy finite affine and Float32 hull limits');}
     const dx=view.position[0]-b.position[0], dz=view.position[2]-b.position[2], x=c*dx-s*dz, z=s*dx+c*dz, eye=view.position[1]-b.position[1];
     if (Math.abs(x)>d.width/2-.05*geometryScale || Math.abs(z)>d.depth/2-.05*geometryScale || eye<d.height+.5 || eye>d.height+1.1 || Math.hypot(view.target[0]-view.position[0],view.target[2]-view.position[2])<.001) add('BENCH_VIEWPOINT',path+'/viewpointId','Seated eye must be above the seat footprint with a horizontal viewing direction');
