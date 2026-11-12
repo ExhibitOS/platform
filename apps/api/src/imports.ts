@@ -1,3 +1,4 @@
+import {storedCurrentImageThumbnail,currentImageThumbnailView,assertCurrentImageThumbnail,createCurrentImageThumbnail,workCurrentImageThumbnail} from './current-image-thumbnail.ts';
 import {createCompactVariant,type CompactVariantInput} from './compact-model-variant.ts';
 import {modelPreparationIntent,storedModelPreparation,modelPreparationView,type ModelPreparationIntent} from './model-preparation-intent.ts';
 import {assertModelPreparationContext,assertModelPreparationSlot,workRequiredModelPreparation,assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
@@ -40,11 +41,18 @@ export class Imports {
  async createCompact(c:PoolClient,s:Session,artworkId:string,input:CompactVariantInput){await this.requiredModelReady(c,s);return this.view(await createCompactVariant(c,s,artworkId,input,this.modelExecution!));}
  async coarseOwner(c:PoolClient,tenantId:string,principalId:string,workspaceId?:string){const owner=this.nativeWorkspace;if(!owner||owner.tenantId!==tenantId||owner.principalId!==principalId||(workspaceId!==undefined&&owner.workspaceId!==workspaceId))throw new ApiError(403,'FORBIDDEN');await owner.assertDatabase(c);return owner;}
  async boundedBlob(key:string,bytes:number){const read=this.blobs.getBounded;if(!read)throw new ApiError(503,'STORAGE_UNAVAILABLE');return read.call(this.blobs,key,bytes);}
- async access(c:PoolClient,s:Session,id:string) {
+ async access(c:PoolClient,s:Session,id:string,currentThumbnail=true) {
   const result=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id]);
   const row=result.rows[0];if(!row)throw new ApiError(403,'FORBIDDEN');
   if(row.gpu_preparation!=null)throw new ApiError(503,'GPU_MODEL_PREPARATION_UNAVAILABLE');
   await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);
+  const thumbnail=storedCurrentImageThumbnail(row);
+  if(thumbnail){
+   if(thumbnail.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
+   if(currentThumbnail)await assertCurrentImageThumbnail(this,c,s,row);
+   else{await this.requiredModelReady(c,s);await this.coarseOwner(c,s.tenantId,s.userId,thumbnail.workspaceId);}
+   return row;
+  }
   const product=storedPreparedImage(row);
   if(product){
    if(product.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
@@ -55,6 +63,7 @@ export class Imports {
   }
   if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}const modelPreparation=storedModelPreparation(row);if(modelPreparation){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(modelPreparation.profileId===LARGE_MODEL_RECIPE.id)await this.largeModelReady(c,s);if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
  }
+ async createCurrentThumbnail(c:PoolClient,s:Session,artworkId:string,input:unknown){return createCurrentImageThumbnail(this,c,s,artworkId,input);}
  async create(c:PoolClient,s:Session,input:ImportInput) {
   if(input.imagePreparation!==undefined||isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
   const preparation=modelPreparationIntent(input.modelPreparation);
@@ -111,19 +120,21 @@ export class Imports {
   return modelDerivationInput(value.request);
  }
  view(row:Record<string,unknown>){
+  const thumbnail=currentImageThumbnailView(row);
   const product=productImageView(row);
   const coarse=storedImageCoarse(row),preparation=modelPreparationView(row);
   const model=this.model(row),result=(row.model_derivation as {result?:Record<string,unknown>}|null)?.result;
   const recipe=(row.derived as {recipe?:{colourConversion?:unknown}}|null)?.recipe;
   const imagePreparation=!model&&row.mime==='image/jpeg'&&recipe&&Object.hasOwn(recipe,'colourConversion')?this.prepared(row):undefined;
-  return {id:row.id,state:row.state,progress:row.progress,attempts:row.attempts,errorCode:row.error_code,assetId:product?product.full?.assetId:!preparation||preparation.status==='ready'?row.asset_id:undefined,retryAt:row.available_at,
+  return {id:row.id,state:row.state,progress:row.progress,attempts:row.attempts,errorCode:row.error_code,assetId:thumbnail?(thumbnail.status==='ready'?thumbnail.serverReceipt?.thumbnail.assetId:undefined):product?product.full?.assetId:!preparation||preparation.status==='ready'?row.asset_id:undefined,retryAt:row.available_at,
+   ...(thumbnail?{thumbnailPreparation:thumbnail}:{}),
    ...(preparation?{modelPreparation:preparation}:{}),
    ...(product?{imagePreparation:product}:imagePreparation?{imagePreparation:{provenance:'client-declared' as const,originalSha256:row.expected_hash,derivedSha256:imagePreparation.sha256,recipe:imagePreparation.recipe}}:{}),
    ...(coarse?{coarsePreparation:{profile:coarse.intent.profile,approvalId:coarse.intent.approvalId,artworkRevision:coarse.intent.artworkRevision,status:row.state==='approved'&&coarse.assetId?'ready':['failed','cancelled'].includes(String(row.state))?'failed':'pending',...(coarse.assetId?{assetId:coarse.assetId,sha256:coarse.sha256,bytes:coarse.bytes}:{}),workerDrained:row.png_drain_version===1&&row.lease_id==null&&Array.isArray(row.png_worker_tokens)&&row.png_worker_tokens.length===0&&['approved','failed','cancelled'].includes(String(row.state))}}:{}),
    ...(row.mime==='image/png'?{workerDrainVersion:row.png_drain_version===1?1:0,workerDrained:row.png_drain_version===1&&row.lease_id==null&&Array.isArray(row.png_worker_tokens)&&row.png_worker_tokens.length===0&&['approved','failed','cancelled'].includes(String(row.state))}:{}),
    ...(model?{modelDerivation:{...(result??{}),operationID:model.operationID,generation:model.generation,profileId:model.profileId,status:result?.status??(['failed','cancelled'].includes(String(row.state))?'failed':'pending'),workerDrained:row.lease_id==null}}:row.derived==null?{}:{originalAssetId:product?product.original?.assetId:row.original_asset_id})};
  }
- prepared(row:Record<string,unknown>){if(storedPreparedImage(row)||this.model(row))return undefined;const state=storedImageCoarse(row),raw=row.derived as Record<string,unknown>|null;const input=state&&raw?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='viewerCoarse')):raw;const derived=preparedImageInput(input??undefined);if((row.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(422,'FORMAT_REJECTED');return derived;}
+ prepared(row:Record<string,unknown>){if(storedCurrentImageThumbnail(row)||storedPreparedImage(row)||this.model(row))return undefined;const state=storedImageCoarse(row),raw=row.derived as Record<string,unknown>|null;const input=state&&raw?Object.fromEntries(Object.entries(raw).filter(([key])=>key!=='viewerCoarse')):raw;const derived=preparedImageInput(input??undefined);if((row.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(422,'FORMAT_REJECTED');return derived;}
  async preparedBytes(row:Record<string,unknown>,derived:PreparedImage){
   let bytes:Buffer;try{const coarse=storedImageCoarse(row);bytes=Buffer.from(coarse?await this.boundedBlob(String(row.derived_object_key),derived.bytes):await this.blobs.get(String(row.derived_object_key)));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==derived.bytes||sha256(bytes)!==derived.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');return bytes;
@@ -157,9 +168,9 @@ export class Imports {
  async action(c:PoolClient,s:Session,id:string,action:'cancel'|'retry'){
   if(action==='retry'){
    const peek=(await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0];
-   if(peek&&storedModelPreparation(peek)){await artworkAccess(c,s,peek.artwork_id,true);await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,peek.artwork_id]);}
+   if(peek&&(storedModelPreparation(peek)||storedCurrentImageThumbnail(peek))){await artworkAccess(c,s,peek.artwork_id,true);await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,peek.artwork_id]);}
   }
-  const row=await this.access(c,s,id);
+  const row=await this.access(c,s,id,action!=='cancel');
   if(action==='cancel'){
    if(row.hayes_attempt_id!=null){await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing'",[s.tenantId,id]);return this.view((await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);}
    if(row.state==='approved')throw new ApiError(409,'JOB_STATE');
@@ -186,7 +197,7 @@ export class Imports {
    const feature=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='hayes_attempt_id' AND NOT attisdropped) AS selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AS model_selected, EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='gpu_preparation' AND NOT attisdropped) AS gpu_selected");
    const inactive=!this.modelExecution?.isActive();
    const modelFilter=(feature.rows[0]?.model_selected===true&&inactive?' AND model_preparation IS NULL':'')
-    +(inactive?" AND COALESCE(derived->>'kind','') NOT IN ('product-image-pair','fresh-product-image')":'')
+    +(inactive?" AND COALESCE(derived->>'kind','') NOT IN ('product-image-pair','fresh-product-image','current-approved-image-thumbnail')":'')
     +(feature.rows[0]?.gpu_selected===true?' AND gpu_preparation IS NULL':'');
    const hayesFilter=feature.rows[0]?.selected===true?" AND hayes_attempt_id IS NULL AND NOT (state='queued' AND mime='model/gltf-binary' AND expected_hash='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6' AND expected_bytes=8383096)":'';
    await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter);
@@ -196,6 +207,16 @@ export class Imports {
    if(preparation){
     const actor={tenantId:r.tenant_id,userId:r.user_id};
     if(preparation.profileId===LARGE_MODEL_RECIPE.id)await this.largeModelReady(c,actor);else await this.requiredModelReady(c,actor);const writer=this.modelExecution?.writer;if(writer){const value={...r.model_preparation,claim:{token:lease,...writer.identity}};await c.query('UPDATE import_jobs SET model_preparation=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.model_preparation=value;}}
+   const thumbnail=storedCurrentImageThumbnail(r);
+   if(thumbnail){
+    const actor={tenantId:r.tenant_id,userId:r.user_id} as Session;
+    await this.requiredModelReady(c,actor);await this.coarseOwner(c,actor.tenantId,actor.userId,thumbnail.workspaceId);
+    const writer=this.modelExecution?.writer;
+    if(!writer||thumbnail.claim)throw new ApiError(503,'IMAGE_THUMBNAIL_PREPARATION_UNAVAILABLE');
+    await writer.assertLive();
+    const value={...thumbnail,claim:{token:lease,...writer.identity}};
+    await c.query('UPDATE import_jobs SET derived=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.derived=value;
+   }
    const prepared=storedPreparedImage(r);
    if(prepared?.kind==='fresh-product-image'){
     await this.freshImageReady(c,{tenantId:r.tenant_id,userId:r.user_id});
@@ -206,13 +227,14 @@ export class Imports {
     r.derived=value;
    }
    await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);
-   if(prepared?.kind==='fresh-product-image'){
+   if(thumbnail||prepared?.kind==='fresh-product-image'){
     r.state='processing';r.lease_id=lease;r.png_worker_tokens=[lease];
    }
    return r;
   });if(!row)return false;
   try{
    if(storedModelPreparation(row)){await workRequiredModelPreparation(this.pool,this.blobs,row,lease,hooks,this.modelExecution?.writer,this.nativeWorkspace);return true;}
+   if(storedCurrentImageThumbnail(row)){await workCurrentImageThumbnail(this,row,lease,hooks);return true;}
    if(storedPreparedImage(row)){await workProductImageImport(this,row,lease,hooks);return true;}
    const coarse=storedImageCoarse(row);if(coarse&&!this.blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
    const bytes=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return Buffer.from(coarse?await this.boundedBlob(String(row.object_key),Number(row.expected_bytes)):await this.blobs.get(row.object_key));});if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
@@ -279,7 +301,8 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   const fresh=(row.derived as {kind?:string}|null)?.kind==='fresh-product-image';
+   const kind=(row.derived as {kind?:string}|null)?.kind;
+   const fresh=kind==='fresh-product-image'||kind==='current-approved-image-thumbnail';
    const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
    if(fresh||large){
     const field=fresh?'derived':'model_preparation';

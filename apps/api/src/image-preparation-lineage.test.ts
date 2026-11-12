@@ -3,9 +3,10 @@ import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {expect,it,vi} from 'vitest';
 import type {Session} from './auth.ts';
+import {CURRENT_IMAGE_THUMBNAIL_PROFILE} from './current-image-thumbnail.ts';
 import {imagePreparationLineage} from './image-preparation-lineage.ts';
 import {canonicalImageHash} from './product-image-intent.ts';
-import {PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
+import {FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
 
 function fixture(){
  const artworkId=randomUUID(),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),assetId=randomUUID(),jobId=randomUUID(),originalId=randomUUID();
@@ -61,4 +62,14 @@ it('bounds pages to twenty authorized jobs and makes an empty result only a scop
 it('fails closed on revoked rights and a changed current primary before returning the page',async()=>{
  const f=fixture();f.art.metadata.rights.permissions.display=false;await expect(f.read()).rejects.toMatchObject({code:'RIGHTS_DENIED'});expect(f.query).not.toHaveBeenCalled();
  const g=fixture();vi.mocked(g.cms.ownArtwork).mockResolvedValueOnce(g.art).mockResolvedValueOnce({...g.art,approved_asset_id:randomUUID()});await expect(g.read()).rejects.toMatchObject({code:'REVISION_CONFLICT'});
+});
+
+it('offers a generated current-Full thumbnail for separate selection without inventing a replacement repair',async()=>{
+ const f=fixture(),requestId=randomUUID(),source={assetId:f.input.approvedAssetId,sha256:f.graph.assets[0]!.sha256,bytes:f.graph.assets[0]!.bytes,mime:'image/png' as const};
+ const request={requestId,expectedRevision:2},producer={...f.result.producer,recipeSHA256:FRESH_IMAGE_RECIPE_SHA256,source:{...f.result.producer.source,sha256:source.sha256,bytes:source.bytes,mime:'image/png' as const}};
+ const body={version:1,profile:CURRENT_IMAGE_THUMBNAIL_PROFILE,jobId:f.row.id,artworkId:f.artworkId,artworkRevision:2,workspaceId:f.workspaceId,principalId:f.session.userId,rightsSHA256:canonicalImageHash(f.row.rights),source,thumbnail:{assetId:randomUUID(),sha256:'d'.repeat(64),bytes:500,mime:'image/png',width:256,height:256},producer};
+ const receipt={...body,sha256:canonicalImageHash(body)},key=`${f.session.tenantId}/approved/${source.sha256}`;
+ Object.assign(f.row,{mime:'image/png',original_asset_id:null,expected_hash:source.sha256,expected_bytes:source.bytes,object_key:key,approved_key:key,derived_object_key:`${f.session.tenantId}/quarantine/import-${f.row.id}/image-thumbnail.png`,idempotency_key:`image-thumbnail:${requestId}`,request_hash:canonicalImageHash({profile:CURRENT_IMAGE_THUMBNAIL_PROFILE,artworkId:f.artworkId,...request,source,rights:f.row.rights,workspaceId:f.workspaceId,principalId:f.session.userId}),derived:{kind:'current-approved-image-thumbnail',request,workspaceId:f.workspaceId,principalId:f.session.userId,source,result:receipt}});
+ const result=await f.read();expect(result.items[0]).toMatchObject({kind:'current-approved-image-thumbnail',disposition:'reviewable-thumbnail-selection',repair:null,thumbnailPreparation:{status:'ready',workerDrained:true,selectionCandidate:{sourceAssetId:source.assetId,thumbnailAssetId:receipt.thumbnail.assetId}}});
+ f.selection.rowCount=1;expect((await f.read()).items[0]).toMatchObject({disposition:'thumbnail-already-selected',repair:null});
 });
