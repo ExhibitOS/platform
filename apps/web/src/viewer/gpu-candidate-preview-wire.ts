@@ -23,7 +23,7 @@ export interface GpuCandidatePreviewEnded {
   version:1;epoch:string;sequence:number;type:'gpu-candidate-preview-ended';
   body:{requestId:string;workspaceId:string;tenantId:string;principalId:string;artworkId:string;artworkRevision:number;jobId:string;generation:string;receiptSHA256:string;candidateSHA256:string;reason:GpuCandidatePreviewEndReason;drained:boolean};
 }
-const fail=():never=>{throw Error('GPU_CANDIDATE_PREVIEW_WIRE_INVALID');};
+function fail():never{throw Error('GPU_CANDIDATE_PREVIEW_WIRE_INVALID');}
 const uuid=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const sha=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const integer=(v:unknown,min:number,max=Number.MAX_SAFE_INTEGER)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=min&&v<=max;
@@ -59,7 +59,7 @@ export function checkedGpuCandidatePreviewRequest(value:unknown):GpuCandidatePre
       if((v.source as GpuCandidatePreviewSource).assetId.toLowerCase()===(v.candidate as GpuCandidatePreviewAsset).assetId.toLowerCase())fail();
     }
   }
-  return structuredClone(value) as GpuCandidatePreviewRequest;
+  return structuredClone(value) as unknown as GpuCandidatePreviewRequest;
 }
 /** Cancellation belongs to precisely one accepted request, including its sequence. */
 export function gpuCandidatePreviewOwnerMatches(begin:GpuCandidatePreviewBegin,cancel:GpuCandidatePreviewCancel):boolean{
