@@ -349,6 +349,14 @@ export const R115_MODEL_CATALOGUE_REFERENCE=Object.freeze({...R115_REFERENCE,
  viewerBuildId:'a596926b7726edea7a8bb68317375c1957f92101b366ddb381dc3d111f9f1b58',
  viewerInventorySha256:'cec207bf046d59cb3db653be361ce5b6c2488b0aa711e19ad494f73c9e4327e3',
 });
+// Separate bottom-layout candidate; retain the qualified model-catalogue tuple.
+export const R115_BOTTOM_LAYOUT_REFERENCE=Object.freeze({...R115_REFERENCE,
+ viewerSourceCommit:'3e125eaaef0b11457f2120ea603532f7ff264544',
+ viewerSourceTree:'97aa992ae55dfc352c44fc3e7892d47a7d5d16e2',
+ viewerLockSha256:'4a226d782ddab607233436195474f1b792a34926d312ed3f4721cf082f04072d',
+ viewerBuildId:'a5ff805540c0b3e5ce0ef7ee48314fa0d866e29a3348c051c588bcff9302d94d',
+ viewerInventorySha256:'e41bd12c493b8b1a33fc429996b62ea836e21745c1ecfa5828be89b0c8354c76',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",

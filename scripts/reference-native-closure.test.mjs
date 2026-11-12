@@ -157,3 +157,15 @@ test('reads the exact R115 content and independently built Viewer closure withou
  assert.equal(source.sourceEntries.size,146);
  assert.equal(source.webEntries.size,36);
 });
+
+const layoutReadonly=process.env.EXHIBITOS_R115_LAYOUT_REFERENCE_READONLY_INPUT,layoutReadonlyPin=process.env.EXHIBITOS_R115_LAYOUT_REFERENCE_READONLY_SHA256;
+test('reads the distinct bottom-layout tuple while preserving the previous R115 Viewer',{skip:!layoutReadonly||!layoutReadonlyPin},async()=>{
+ const source=await readNativeReferenceClosure({inputRoot:await realpath(resolve(layoutReadonly)),inventorySha256:layoutReadonlyPin});
+ assert.equal(source.reference.publicationId,'69dd586c-112a-48fb-b2ce-3218016df9aa');
+ assert.equal(source.reference.viewerSourceCommit,'3e125eaaef0b11457f2120ea603532f7ff264544');
+ assert.equal(source.reference.viewerBuildId,'a5ff805540c0b3e5ce0ef7ee48314fa0d866e29a3348c051c588bcff9302d94d');
+ assert.equal(source.sourceEntries.size,146);
+ assert.equal(source.webEntries.size,36);
+ const {R115_MODEL_CATALOGUE_REFERENCE}=await import('./qualified-wheat-reference.mjs');
+ assert.equal(R115_MODEL_CATALOGUE_REFERENCE.viewerBuildId,'a596926b7726edea7a8bb68317375c1957f92101b366ddb381dc3d111f9f1b58');
+});
