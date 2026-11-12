@@ -3,6 +3,8 @@ import {readFileSync} from 'node:fs';
 import {fixtureURL,type Exhibition} from '@exhibitos/spec';
 import {test,expect} from 'vitest';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,resolveFurnishing,remapFurnishings,FURNISHING_NAMESPACE,type FurnishingCommand} from './furnishings.js';
+import {benchSolids} from './bench-geometry.js';
+import {REFINED_BENCH} from './refined-bench.js';
 import {artifactPoint} from './artifact-affine.js';
 import {BENCH_NAMESPACE,validateStudioBenches} from './benches.js';
 const benchId='a0000000-0000-4000-8000-000000000001',viewId='a0000000-0000-4000-8000-000000000002';
@@ -51,4 +53,25 @@ test('a visual spot follows the existing legacy placement target when no light-d
  const next=applyFurnishingCommand(e,commands(e)[1]!),value=furnishingsFor(next)!,binding=value.bindings[0]!,resolved=resolveFurnishing(next,binding,value.assets[0]!);
  const start=artifactPoint([0,0,0],resolved.parent),end=artifactPoint([0,0,-1],resolved.parent),direction=end.map((n,i)=>n-start[i]!),target=placement.transform.position.map((n,i)=>n-start[i]!),norm=Math.hypot(...target);
  direction.forEach((n,i)=>expect(n).toBeCloseTo(target[i]!/norm,6));
+});
+
+test('refined bench selects its original backed host without altering authored identity or viewpoint',()=>{
+ const source=fixture(),before=structuredClone(source),command:FurnishingCommand={type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'sculpture-bench-refined',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}};
+ const next=applyFurnishingCommand(source,command),value=furnishingsFor(next)!,bench=(next.extensions![BENCH_NAMESPACE] as unknown as {benches:{kind:string;dimensions:unknown;viewpointId:string}[]}).benches[0]!;
+ expect(source).toEqual(before);expect(validateFurnishings(next).errors).toEqual([]);expect(validateStudioBenches(next).errors).toEqual([]);
+ expect(bench.kind).toBe('backed');expect(bench.dimensions).toEqual({width:1.472999930381775,depth:.557610958814621,height:.45});expect(bench.viewpointId).toBe(viewId);
+ expect(next.extensions!['org.exhibitos.studio/presentation']).toEqual(source.extensions!['org.exhibitos.studio/presentation']);
+ expect(value.assets[0]).toMatchObject({catalogId:'sculpture-bench-refined',bytes:345608,sha256:'e22f0acdda9f0e33f00fbe5c874eb12bc2799062e34ad2939fa0d88721bef1f9',rights:{notice:{bytes:892,sha256:'4e14161b2a63d79429a0f4861d0e8400691ad84d80f4b8974f48b1644db359b9'}},provenance:{recipe:'original-v1'}});
+ for(const edit of [(d:Exhibition)=>{(d.extensions![BENCH_NAMESPACE] as unknown as {benches:{kind:string}[]}).benches[0]!.kind='slab';},d=>{(d.extensions![FURNISHING_NAMESPACE] as unknown as {assets:{sha256:string}[]}).assets[0]!.sha256='0'.repeat(64);},d=>{(d.extensions![FURNISHING_NAMESPACE] as unknown as {bindings:{pose:{position:number[]}}[]}).bindings[0]!.pose.position[0]=10;}]){const changed=structuredClone(next);edit(changed);expect(validateFurnishings(changed).valid).toBe(false);}
+});
+
+
+test('refined backed collision uses its actual thirteen component bounds and preserves original orientation',()=>{
+ const next=applyFurnishingCommand(fixture(),{type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'sculpture-bench-refined',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}}),before=structuredClone(next);
+ const solids=benchSolids(next);expect(solids).toHaveLength(13);
+ const back=solids[0]!;expect(Math.max(...back.vertices.map(v=>v[2]))).toBeLessThan(0);
+ const floorPads=solids.filter(s=>Math.min(...s.vertices.map(v=>v[1]))<1e-8);expect(floorPads).toHaveLength(4);
+ expect(REFINED_BENCH.functional).toMatchObject({benchKind:'backed',front:[0,0,1],seatEnvelopeY:.45,consumerBehavior:'unverified',collision:{kind:'component-aabbs',qualification:'proxy-only'}});
+ if(REFINED_BENCH.functional?.kind!=='bench')throw Error('fixture');expect(REFINED_BENCH.functional.seats[0]).not.toHaveProperty('measuredVerticalContactY');expect(next).toEqual(before);
+ const boundary=fixture();boundary.rooms[0]!.dimensions.height=.8;expect(()=>applyFurnishingCommand(boundary,{type:'set-furnishing-visual',hostKind:'bench',hostId:benchId,catalogId:'sculpture-bench-refined',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}})).toThrow();
 });

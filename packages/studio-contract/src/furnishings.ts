@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {REFINED_BENCH} from './refined-bench.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {PREPARED_SHARED_FIXTURES} from './prepared-shared-fixture.js';
 import {USER_ASSET_CATALOGUE,type UserAssetCatalogueEntry} from './user-asset-catalogue.js';
@@ -15,6 +16,7 @@ export const FURNISHING_LIMITS=Object.freeze({assets:8,bindings:32,bytes:32768})
  * list only with the corresponding host, inventory and consumer checks. */
 export const SUPPORTED_FURNISHINGS=Object.freeze({
  'backless-oak-bench':'bench',
+ 'sculpture-bench-refined':'bench',
  'museum-track-spot':'light',
  'museum-wallwasher':'light',
  'museum-wallwasher-rear-relief':'light',
@@ -42,7 +44,7 @@ const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):object(v)
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 export function furnishingCatalogueEntry(id:unknown):UserAssetCatalogueEntry {
  if(typeof id!=='string'||!Object.hasOwn(SUPPORTED_FURNISHINGS,id))throw Error('FURNISHING_UNSUPPORTED');
- const entry=PREPARED_SHARED_FIXTURES[id]??USER_ASSET_CATALOGUE.find(e=>e.id===id);if(!entry)throw Error('FURNISHING_UNSUPPORTED');return entry;
+ const entry=(id===REFINED_BENCH.id?REFINED_BENCH:undefined)??PREPARED_SHARED_FIXTURES[id]??USER_ASSET_CATALOGUE.find(e=>e.id===id);if(!entry)throw Error('FURNISHING_UNSUPPORTED');return entry;
 }
 export function furnishingAsset(id:string,catalogId:FurnishingCatalogId):FurnishingAsset {
  if(!uuid(id))throw Error('FURNISHING_REFERENCE');const e=furnishingCatalogueEntry(catalogId);
@@ -65,7 +67,7 @@ export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:Furnish
  if(asset.catalogId==='museum-wallwasher-rear-relief')return resolveCoupledWallwasher(e,b,asset,source);
  if(b.hostKind==='bench'){
   const bench=benchesFor(e).find(v=>same(v.id,b.hostId));if(!bench||bench.workspaceVisual)throw Error('FURNISHING_REFERENCE');roomId=bench.roomId;
-  const f=source.functional;if(f?.kind!=='bench'||bench.kind!=='slab'||!near(bench.yaw,b.pose.yaw)||!bench.position.every((n,i)=>near(n,b.pose.position[i]!))||!near(bench.dimensions.height,f.seatEnvelopeY*b.pose.scale)||!near(bench.dimensions.width,(source.bounds.max[0]-source.bounds.min[0])*b.pose.scale)||!near(bench.dimensions.depth,(source.bounds.max[2]-source.bounds.min[2])*b.pose.scale))throw Error('FURNISHING_FUNCTION');
+  const f=source.functional;if(f?.kind!=='bench'||bench.kind!==(f.benchKind??'slab')||!near(bench.yaw,b.pose.yaw)||!bench.position.every((n,i)=>near(n,b.pose.position[i]!))||!near(bench.dimensions.height,f.seatEnvelopeY*b.pose.scale)||!near(bench.dimensions.width,(source.bounds.max[0]-source.bounds.min[0])*b.pose.scale)||!near(bench.dimensions.depth,(source.bounds.max[2]-source.bounds.min[2])*b.pose.scale))throw Error('FURNISHING_FUNCTION');
  }else if(b.hostKind==='pedestal'){
   const placement=e.placements.find(v=>same(v.id,b.hostId)),legacy=installationFor(e,b.hostId)?.pedestal,expected=pedestal(source,b.pose);
   if(!placement||!legacy||legacy.kind!=='box'||!near(legacy.yaw,expected.yaw)||!legacy.position.every((n,i)=>near(n,expected.position[i]!))||!Object.keys(expected.dimensions).every(k=>near(legacy.dimensions[k as keyof typeof expected.dimensions],expected.dimensions[k as keyof typeof expected.dimensions])))throw Error('FURNISHING_FUNCTION');roomId=placement.roomId;
@@ -120,7 +122,7 @@ export function applyFurnishingCommand(candidate:Exhibition,input:FurnishingComm
   if(input.hostKind==='pedestal'){
    if(!next.placements.some(p=>same(p.id,input.hostId)))throw Error('FURNISHING_REFERENCE');const installation=(next.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined)??{version:1,placements:[]},existing=installation.placements.find(p=>same(p.placementId,input.hostId)),binding=existing??{placementId:input.hostId};binding.pedestal=pedestal(source,pose);if(!existing)installation.placements.push(binding);next.extensions={...next.extensions,[INSTALLATION_NAMESPACE]:installation as unknown as NonNullable<Exhibition['extensions']>[string]};
   }else if(input.hostKind==='bench'){
-   const benches=next.extensions?.[BENCH_NAMESPACE] as unknown as StudioBenches|undefined,bench=benches?.benches.find(b=>same(b.id,input.hostId)),f=source.functional;if(!bench||f?.kind!=='bench')throw Error('FURNISHING_REFERENCE');bench.position=[...pose.position];bench.yaw=pose.yaw;bench.kind='slab';bench.dimensions={...dimensions(source,pose.scale),height:f.seatEnvelopeY*pose.scale};
+   const benches=next.extensions?.[BENCH_NAMESPACE] as unknown as StudioBenches|undefined,bench=benches?.benches.find(b=>same(b.id,input.hostId)),f=source.functional;if(!bench||f?.kind!=='bench')throw Error('FURNISHING_REFERENCE');bench.position=[...pose.position];bench.yaw=pose.yaw;bench.kind=f.benchKind??'slab';bench.dimensions={...dimensions(source,pose.scale),height:f.seatEnvelopeY*pose.scale};
   }else if(input.hostKind==='opening'){
    const opening=next.openings.find(v=>same(v.id,input.hostId)),f=source.functional;if(!opening||f?.kind!=='portal')throw Error('FURNISHING_REFERENCE');const dimensions={width:f.clearOpening.width*pose.scale,height:f.clearOpening.height*pose.scale};if(opening.connectsToOpeningId&&(!near(opening.dimensions.width,dimensions.width)||!near(opening.dimensions.height,dimensions.height)))throw Error('FURNISHING_CONNECTED_APERTURE');opening.dimensions=dimensions;
   }

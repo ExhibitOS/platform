@@ -267,9 +267,9 @@ async function requirePinnedFurnishingsRelease(root,expected){
 }
 export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
-  const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher','museum-wallwasher-rear-relief'];
+  const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher','museum-wallwasher-rear-relief','sculpture-bench-refined'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== functionalIds.length || functionalIds.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  const ids=functionalIds.filter(id=>!release||(id==='museum-wallwasher-rear-relief'?isDefaultRelease(release,['1.9.0','1.10.0']):id==='museum-wallwasher'?isDefaultRelease(release,['1.8.0','1.9.0','1.10.0']):true));
+  const ids=functionalIds.filter(id=>!release||(id==='sculpture-bench-refined'?isDefaultRelease(release,['1.10.0']):id==='museum-wallwasher-rear-relief'?isDefaultRelease(release,['1.9.0','1.10.0']):id==='museum-wallwasher'?isDefaultRelease(release,['1.8.0','1.9.0','1.10.0']):true));
   const includesExitOriginals=isDefaultRelease(release,DEFAULT_EXIT_RELEASES);
   const includesWorkspaceOriginals=isDefaultRelease(release,DEFAULT_WORKSPACE_RELEASES);
   const bundled=includesWorkspaceOriginals?await readDefaultFurnishingsManifest(sourceRoot):undefined;
@@ -280,7 +280,6 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(['1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_SCULPTURE_BENCH_ID);
   if(['1.6.0','1.7.0','1.8.0','1.9.0','1.10.0'].includes(bundled?.manifest.bundleVersion))ids.push(...Object.keys(DEFAULT_PORTAL_ORIGINALS));
   if(['1.7.0','1.8.0','1.9.0','1.10.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_COMPACT_STAND_ID);
-  if(bundled?.manifest.bundleVersion==='1.10.0')ids.push(DEFAULT_REFINED_SCULPTURE_BENCH_ID);
   const seen = new Set();
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);

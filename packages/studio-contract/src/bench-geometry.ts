@@ -21,7 +21,7 @@ export function benchSolids(document:Exhibition){
     const faces=[[0,2,6,4],[1,5,7,3],[0,4,5,1],[2,3,7,6],[0,1,3,2],[4,6,7,5]],indices=faces.flatMap(f=>[f[0]!,f[2]!,f[1]!,f[0]!,f[3]!,f[2]!]);
     const linked=bench.workspaceVisual?.placementId.toLowerCase();
     const scale=linked?workspace?.placements.find(placement=>placement.id.toLowerCase()===linked)?.scale:undefined;
-    return benchBoxes(bench,scale).map(box=>{const vertices=artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},benchPose(bench),room.transform],true);return {benchId:bench.id,workspacePlacementId:bench.workspaceVisual?.placementId,roomId:bench.roomId,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};});
+    return benchBoxes(bench,scale,document).map(box=>{const vertices=artifactCorners(box.dimensions,[{position:box.position,rotation:[0,0,0,1],scale:[1,1,1]},benchPose(bench),room.transform],true);return {benchId:bench.id,workspacePlacementId:bench.workspaceVisual?.placementId,roomId:bench.roomId,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};});
   });
 }
 export function benchSeat(document:Exhibition,benchId:string){
