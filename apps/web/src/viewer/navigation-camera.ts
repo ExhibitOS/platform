@@ -412,9 +412,16 @@ export async function createWalkingCamera({
     freeViewing:()=>{if(disposed||seated)return false;if(!orderedViewing)return true;orderedViewing=false;orderedViewpointId=undefined;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
     sit: benchId => {
       if(disposed||seated||orderedViewing)return;
+      const refusalOrigin=camera.position.toArray();let refusalEye:number[]|undefined;
+      try{delete canvas.dataset.benchSeatRefusal;}catch{/* Diagnostics cannot alter seat safety. */}
+      const recordRefusal=(reason:string)=>{
+        const point=(value:number[]|undefined)=>value?.length===3&&value.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000)?value:null;
+        try{canvas.dataset.benchSeatRefusal=JSON.stringify({version:1,reason,benchId:/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(benchId)?benchId.toLowerCase():null,origin:point(refusalOrigin),seatEye:point(refusalEye)});}catch{/* Missing evidence remains unknown. */}
+      };
       try {
-        const {bench, floor, floorCorners, eye, target, fov} = seatPose(benchId);
+        const {bench, floor, floorCorners, eye, target, fov} = seatPose(benchId);refusalEye=[...eye];
         if(bench.workspaceVisual&&workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready'){
+          recordRefusal('BENCH_WORKSPACE_UNAVAILABLE');
           onMessage('벤치가 아직 표시되지 않아 앉을 수 없어요.');
           return;
         }
@@ -426,7 +433,14 @@ export async function createWalkingCamera({
         onMessage('벤치에 앉습니다.');
         animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
         if(seated)onSeat?.(bench.id);
-      } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
+      } catch(error) {
+        const known=['BENCH_REFERENCE','BENCH_ORIENTATION_UNSUPPORTED','BENCH_SEAT_UNSAFE','BENCH_VIEW_PATH_UNSAFE'];
+        const reason=error instanceof Error&&known.includes(error.message)?error.message:'BENCH_SIT_UNAVAILABLE';
+        recordRefusal(reason);
+        onMessage(reason==='BENCH_VIEW_PATH_UNSAFE'
+          ?'벤치까지 안전하게 이동할 경로를 확인할 수 없습니다. 다른 관람 위치에서 벤치와 가까운 위치로 이동한 뒤 다시 선택하세요. 현재 위치와 작품 목록을 유지합니다.'
+          :'이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');
+      }
     },
     sitNearby: expectedBenchId => {
       if (disposed || !nearbyBenchId || expectedBenchId !== nearbyBenchId) return false;

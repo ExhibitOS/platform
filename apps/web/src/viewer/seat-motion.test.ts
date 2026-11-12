@@ -94,7 +94,8 @@ test('a newly loaded surrounding obstacle prevents an unqualified standing desti
 });
 test('sitting never interpolates the camera through an intervening wall, even with reduced motion',async()=>{
  const h=await harness(true,d=>{const wall=d.surfaces.find(s=>s.type==='wall')!;d.surfaces.push({...structuredClone(wall),id:crypto.randomUUID(),transform:{position:[0,1.5,1],rotation:[0,0,0,1],scale:[1,1,1]},dimensions:{width:2,height:3}});});
- try{h.adapter.actions.start();const before=h.camera.position.toArray(),walking=h.state().walking;h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual(before);expect(h.state().walking).toBe(walking);expect(h.state().seatTransition).toBeNull();expect(h.messages.at(-1)).toContain('안전');}
+ try{h.adapter.actions.start();const before=h.camera.position.toArray(),walking=h.state().walking;h.adapter.actions.sit!(h.benchId);expect(h.camera.position.toArray()).toEqual(before);expect(h.state().walking).toBe(walking);expect(h.state().seatTransition).toBeNull();expect(h.messages.at(-1)).toContain('다른 관람 위치');
+  expect(JSON.parse(h.canvas.dataset.benchSeatRefusal!)).toEqual({version:1,reason:'BENCH_VIEW_PATH_UNSAFE',benchId:h.benchId,origin:before,seatEye:[0,1.15,-.08]});}
  finally{h.adapter.dispose();}
 });
 
@@ -140,4 +141,35 @@ test('embedding focus waits for the complete seat motion, while a real blur stil
   h.adapter.actions.stand!();h.advance(450);expect(h.state().seatTransition.phase).toBe('stand');
   h.canvas.dispatchEvent(new Event('blur'));expect(h.state().seatTransition).toBeNull();expect(h.state().paused).toBe(true);expect(h.camera.position.z).toBeCloseTo(-.61);expect(h.frames.size).toBe(0);expect(events.at(-1)).toEqual({kind:'motion',value:false});
  }finally{h.adapter.dispose();}
+});
+
+test('a bad seat reference retains the current camera and records no arbitrary request text',async()=>{
+ const h=await harness(true);try{
+  const before=h.camera.position.toArray(),rotation=h.camera.quaternion.clone();h.adapter.actions.sit!('https://private.invalid/token');
+  expect(h.camera.position.toArray()).toEqual(before);expect(h.camera.quaternion.angleTo(rotation)).toBeLessThan(1e-7);
+  expect(h.state().seatedBenchId).toBeUndefined();expect(h.state().seatTransition).toBeNull();
+  expect(h.messages.at(-1)).not.toContain('다른 관람 위치');
+  expect(JSON.parse(h.canvas.dataset.benchSeatRefusal!)).toEqual({version:1,reason:'BENCH_REFERENCE',benchId:null,origin:before,seatEye:null});
+  expect(h.canvas.dataset.benchSeatRefusal).not.toContain('private');
+ }finally{h.adapter.dispose();}
+});
+test('an actual seat-head obstruction records seat clearance, not a path-only suggestion',async()=>{
+ const h=await harness(true),group=new Three.Group();try{
+  const obstacle=new Three.Mesh(new Three.BoxGeometry(.3,.3,.3));obstacle.position.set(0,1.15,-.08);group.add(obstacle);
+  h.setSources([{id:'seat-head-block',mesh:furnishingCollisionMesh(Three,group)!,active:()=>true}]);
+  const before=h.camera.position.toArray();h.adapter.actions.sit!(h.benchId);
+  expect(h.camera.position.toArray()).toEqual(before);expect(h.state().seatTransition).toBeNull();
+  expect(JSON.parse(h.canvas.dataset.benchSeatRefusal!)).toMatchObject({reason:'BENCH_SEAT_UNSAFE',origin:before});
+  expect(h.messages.at(-1)).not.toContain('다른 관람 위치');
+ }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
+});
+test('a subsequently clear real head path succeeds and clears a stale refusal record',async()=>{
+ const h=await harness(true),group=new Three.Group();try{
+  const wall=new Three.Mesh(new Three.BoxGeometry(2,3,.02));wall.position.set(0,1.5,1);group.add(wall);
+  h.setSources([{id:'temporary-seat-corridor',mesh:furnishingCollisionMesh(Three,group)!,active:()=>true}]);
+  h.adapter.actions.sit!(h.benchId);expect(JSON.parse(h.canvas.dataset.benchSeatRefusal!).reason).toBe('BENCH_VIEW_PATH_UNSAFE');
+  h.setSources([]);h.adapter.actions.sit!(h.benchId);
+  expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);expect(h.canvas.dataset.benchSeatRefusal).toBeUndefined();
+  expect(h.messages.at(-1)).toContain('앉은 위치');
+ }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
 });
