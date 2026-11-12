@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {PublicationAssetFetcher} from '../publication-client';
+import {sourceVariantForInventory} from './gpu-model-representation';
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
@@ -299,7 +300,7 @@ export function modelGeometryResidentBytes(doc:{accessors?:Array<{bufferView?:nu
 }
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
 export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer,phase:'complete'|'cpu'='complete'):number {
- const variant=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase());
+ const variant=sourceVariantForInventory(artwork,inventory.id);
  if(artwork.artworkType==='image'){
   const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
   const w=header.getUint32(16),h=header.getUint32(20);if(!w||!h)throw Error('IMAGE_DECODE_BUDGET');

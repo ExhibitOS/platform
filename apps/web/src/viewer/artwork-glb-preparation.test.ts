@@ -23,3 +23,20 @@ test('failed Basis cleanup leaves asynchronous ownership uncertain',async()=>{
  await expect(prepareArtworkGlb(renderer,new ArrayBuffer(0),controller.signal,value=>flags.push(value),loaderImport)).rejects.toThrow('cleanup');
  expect(flags).toEqual([true]);
 });
+
+test('new GPU recipe can fall back after positively retired setup, while legacy uncertainty stays unchanged',async()=>{
+ const setupError=Error('TRANSCODER_UNAVAILABLE');
+ basis.mockImplementation(async(_renderer:unknown,_bytes:unknown,_signal:unknown,retired?:()=>void)=>{retired?.();throw setupError;});
+ const confirmed:boolean[]=[];
+ await expect(prepareArtworkGlb(renderer,new ArrayBuffer(0),new AbortController().signal,value=>confirmed.push(value),loaderImport,true)).rejects.toBe(setupError);
+ expect(confirmed).toEqual([true,false]);
+ const legacy:boolean[]=[];
+ await expect(prepareArtworkGlb(renderer,new ArrayBuffer(0),new AbortController().signal,value=>legacy.push(value),loaderImport)).rejects.toBe(setupError);
+ expect(legacy).toEqual([true]);
+ basis.mockReset();
+});
+test('new GPU setup without a retirement acknowledgement remains uncertain',async()=>{
+ basis.mockRejectedValueOnce(Error('CLEANUP_UNCONFIRMED'));const flags:boolean[]=[];
+ await expect(prepareArtworkGlb(renderer,new ArrayBuffer(0),new AbortController().signal,value=>flags.push(value),loaderImport,true)).rejects.toThrow('CLEANUP_UNCONFIRMED');
+ expect(flags).toEqual([true]);
+});

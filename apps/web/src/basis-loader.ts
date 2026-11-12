@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { WebGLRenderer } from 'three';
-/** Transcoding runs only in the fixed same-origin worker with its own narrow CSP. */
-export async function basisLoader(renderer:WebGLRenderer,input:ArrayBuffer,signal?:AbortSignal) {
+/** Transcoding runs only in the fixed same-origin worker with its own narrow CSP.
+ * Optional setup-retirement acknowledgement runs only after failed initialization
+ * has positively disposed its resources. Legacy callers retain their behavior. */
+export async function basisLoader(renderer:WebGLRenderer,input:ArrayBuffer,signal?:AbortSignal,onSetupRetired?:()=>void) {
   signal?.throwIfAborted();
   const view=new DataView(input);const n=input.byteLength>=20?view.getUint32(12,true):0;
   if(!n||n>1048576||20+n>input.byteLength)return undefined;
@@ -22,5 +24,5 @@ export async function basisLoader(renderer:WebGLRenderer,input:ArrayBuffer,signa
     signal?.throwIfAborted();
     internal.workerPool.setWorkerCreator(()=>{const worker=new Worker('/basis/exhibitos-basis-worker.js');const binary=internal.transcoderBinary!.slice(0);worker.postMessage({type:'init',config:internal.workerConfig,transcoderBinary:binary},[binary]);return worker;});
     return loader;
-  }catch(error){loader.dispose();if(retired)clearLate();throw error;}finally{signal?.removeEventListener('abort',cancel);}
+  }catch(error){loader.dispose();if(retired)clearLate();onSetupRetired?.();throw error;}finally{signal?.removeEventListener('abort',cancel);}
 }
