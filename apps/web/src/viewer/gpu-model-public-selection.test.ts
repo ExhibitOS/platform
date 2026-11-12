@@ -72,10 +72,21 @@ test('real entrance ledger drops the failed GPU requirement and completes only a
 
 test('source replacement waits for its capability-probe build and both renderer releases before successor admission',async()=>{
  let settle!:()=>void;const built=new Promise<void>(resolve=>{settle=resolve;}),events:string[]=[];
- const retired=retirePublicGpuProbeRenderer({dispose:()=>{events.push('dispose');},forceContextLoss:()=>{events.push('force-loss');}},built);
- const successor=retired.then(()=>{events.push('successor');});await Promise.resolve();expect(events).toEqual([]);settle();await successor;expect(events).toEqual(['dispose','force-loss','successor']);
+ const retired=retirePublicGpuProbeRenderer({dispose:()=>{events.push('dispose');},forceContextLoss:()=>{events.push('force-loss');}},built,async()=>{events.push('fence');});
+ const successor=retired.then(()=>{events.push('successor');});await Promise.resolve();expect(events).toEqual([]);settle();await successor;expect(events).toEqual(['fence','dispose','force-loss','successor']);
 });
 test.each(['dispose','force-loss'] as const)('unknown %s cleanup still attempts both releases and blocks successor',async failing=>{
- const events:string[]=[],retired=retirePublicGpuProbeRenderer({dispose(){events.push('dispose');if(failing==='dispose')throw undefined;},forceContextLoss(){events.push('force-loss');if(failing==='force-loss')throw false;}},Promise.resolve());
+ const events:string[]=[],retired=retirePublicGpuProbeRenderer({dispose(){events.push('dispose');if(failing==='dispose')throw undefined;},forceContextLoss(){events.push('force-loss');if(failing==='force-loss')throw false;}},Promise.resolve(),async()=>{});
  const admit=vi.fn();await expect(retired.then(admit)).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);expect(events).toEqual(['dispose','force-loss']);expect(admit).not.toHaveBeenCalled();
+});
+test('a pending initialization fence holds the old renderer and successor barrier',async()=>{
+ let finish!:()=>void;const fence=new Promise<void>(resolve=>{finish=resolve;}),events:string[]=[];
+ const retired=retirePublicGpuProbeRenderer({dispose:()=>{events.push('dispose');},forceContextLoss:()=>{events.push('force-loss');}},Promise.resolve(),async()=>{events.push('fence');await fence;});
+ const successor=retired.then(()=>{events.push('successor');});await vi.waitFor(()=>expect(events).toEqual(['fence']));
+ finish();await successor;expect(events).toEqual(['fence','dispose','force-loss','successor']);
+});
+test.each([['undefined',undefined],['false',false],['error',Error('FENCE_UNCONFIRMED')]] as const)('a rejected %s fence attempts both releases and refuses a successor',async(_name,error)=>{
+ const events:string[]=[],admit=vi.fn();
+ const retired=retirePublicGpuProbeRenderer({dispose:()=>{events.push('dispose');},forceContextLoss:()=>{events.push('force-loss');}},Promise.resolve(),async()=>{throw error;});
+ await expect(retired.then(admit)).rejects.toBeInstanceOf(AssetReleaseUnconfirmedError);expect(events).toEqual(['dispose','force-loss']);expect(admit).not.toHaveBeenCalled();
 });

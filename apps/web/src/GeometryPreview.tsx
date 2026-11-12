@@ -573,7 +573,7 @@ export function GeometryPreview({
       const hasGpuCandidate=publicGpuEnabled&&document.artworks.some(art=>art.assets.some(asset=>!!publicGpuCandidate(art,asset)));
       // A source change during the capability import must still own this
       // already-created renderer until the in-flight build has returned.
-      if(hasGpuCandidate)release=()=>retirePublicGpuProbeRenderer(renderer,buildSettled);
+      if(hasGpuCandidate)release=()=>retirePublicGpuProbeRenderer(renderer,buildSettled,()=>completeDetailCommands(renderer.getContext() as WebGL2RenderingContext));
       const gpuCaps=hasGpuCandidate?await gpuModelCapability(renderer).catch(()=>({astcSupported:false,bptcSupported:false})):{astcSupported:false,bptcSupported:false};
       if(disposed||abort.signal.aborted||gpuLost)return;
       const logicalAsset=(art:Document['artworks'][number],id:string)=>publicGpuEnabled?logicalSourceAssetId(art,id):id;

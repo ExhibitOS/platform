@@ -25,9 +25,13 @@ export function fallbackPublicGpuAsset(art:Artwork,inventory:Inventory,error:unk
 
 /** The probe import can outlive a source change after renderer construction.
  * The old build returns before either renderer release or successor admission. */
-export async function retirePublicGpuProbeRenderer(renderer:{dispose():void;forceContextLoss():void},buildSettled:Promise<void>){
- await buildSettled;
+export async function retirePublicGpuProbeRenderer(renderer:{dispose():void;forceContextLoss():void},buildSettled:Promise<void>,complete:()=>Promise<void>){
  let failed=false,cause:unknown;
- for(const release of [()=>renderer.dispose(),()=>renderer.forceContextLoss()])try{release();}catch(error){failed=true;cause??=error;}
+ const attempt=async(release:()=>void|Promise<void>)=>{try{await release();}catch(error){if(!failed)cause=error;failed=true;}};
+ await attempt(()=>buildSettled);
+ // setPixelRatio already submits setSize/viewport commands before the probe.
+ // A context-loss request is not a positive completion acknowledgement.
+ await attempt(complete);
+ for(const release of [()=>renderer.dispose(),()=>renderer.forceContextLoss()])await attempt(release);
  if(failed)throw new AssetReleaseUnconfirmedError({cause});
 }
