@@ -125,3 +125,13 @@ it('includes only the explicitly selected exact050 migration in the current read
  await writeFile(join(migrations,'051_unselected.sql'),'SELECT 1;');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,'051_unselected.sql'));
  await writeFile(join(migrations,name),'changed');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,name));await symlink(new URL('../../../database/native-workspace-furnishing-thumbnail/'+name,import.meta.url),join(migrations,name));expect((await readiness(pool,selected)).ready).toBe(false);
 });
+
+it('includes only the explicitly selected exact049 migration in the current readiness catalog and rejects filename/hash drift',async()=>{
+ const {config,pool,rows}=await fixture(),migrations=join(config.migrationDirectory,'..','gpu-model');await mkdir(migrations);
+ const name='049_gpu_model_preparation.sql',sql=await readFile(new URL('../../../database/native-gpu-model-preparation/'+name,import.meta.url));
+ await writeFile(join(migrations,name),sql);rows.push({name,sha256:createHash('sha256').update(sql).digest('hex')});
+ expect((await readiness(pool,config)).ready).toBe(false);const selected={...config,gpuModelPreparationMigrationDirectory:migrations};expect((await readiness(pool,selected)).ready).toBe(true);
+ rows[1]!.sha256='0'.repeat(64);expect((await readiness(pool,selected)).ready).toBe(false);rows[1]!.sha256=createHash('sha256').update(sql).digest('hex');
+ await writeFile(join(migrations,'051_unselected.sql'),'SELECT 1;');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,'051_unselected.sql'));
+ await writeFile(join(migrations,name),'changed');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,name));await symlink(new URL('../../../database/native-gpu-model-preparation/'+name,import.meta.url),join(migrations,name));expect((await readiness(pool,selected)).ready).toBe(false);
+});
