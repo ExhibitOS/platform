@@ -15,7 +15,7 @@ vi.mock('three',async importOriginal=>{
   return {...actual,WebGLRenderer:class {
     domElement=state.canvas;constructor(){state.renderer=this;}
     setPixelRatio=vi.fn();setSize=vi.fn();getRenderTarget(){return null;}
-    getContext(){return {isContextLost:()=>state.lost};}
+    getContext(){return {isContextLost:()=>state.lost,fenceSync(){}};}
     render(scene:three.Scene,camera:three.Camera){state.events.push('draw');if(state.draw)scene.traverse(node=>{if(node instanceof actual.Mesh){const material=Array.isArray(node.material)?node.material[0]!:node.material;node.onAfterRender(this as unknown as three.WebGLRenderer,scene,camera,node.geometry,material,null as never);}});}
     dispose(){state.events.push('renderer');if(state.failDispose)throw undefined;}forceContextLoss(){state.events.push('lose');}
   }};

@@ -50,7 +50,11 @@ export async function mountGpuCandidatePreview(input:{host:HTMLElement;bytes:Arr
       if(pending)try{loaded=await pending;}catch(error){if(error instanceof AssetReleaseUnconfirmedError){if(!failed)cause=error;failed=true;}}
       for(const hook of hooks)await attempt(()=>{hook.node.onAfterRender=hook.previous;});
       if(loaded)await attempt(()=>retireArtworkResources(loaded!.resources,loaded!.backing));
-      if(drawAttempted)await attempt(()=>completeDetailCommands(renderer.getContext()));
+      if(drawAttempted)await attempt(()=>{
+        const gl=renderer.getContext();
+        if(!('fenceSync' in gl)||typeof gl.fenceSync!=='function')throw Error('GPU_PREVIEW_FENCE_UNAVAILABLE');
+        return completeDetailCommands(gl as WebGL2RenderingContext);
+      });
       await attempt(()=>renderer.dispose());
       await attempt(()=>renderer.forceContextLoss());
       await attempt(()=>canvas.remove());
