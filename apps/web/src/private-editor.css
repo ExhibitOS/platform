@@ -21,8 +21,8 @@
 .private-editor .private-primary { background:var(--private-accent); border-color:var(--private-accent); color:#fff; }
 .private-editor button.private-primary:hover:not(:disabled) { background:#00665c; }
 .private-save-status { margin:.65rem 0; font-size:.9375rem; line-height:1.5; min-block-size:1.5rem; flex:none; }
-.private-editor-workspace { position:relative; flex:1; min-block-size:0; display:grid; grid-template-columns:minmax(0,1fr) var(--private-panel-clearance); grid-template-rows:minmax(min-content,1fr) auto; }
-.private-scene { grid-area:1 / 1 / 2 / -1; min-inline-size:0; min-block-size:0; display:flex; flex-direction:column; }
+.private-editor-workspace { position:relative; flex:1; min-block-size:0; display:grid; grid-template-columns:minmax(0,1fr) var(--private-panel-clearance); grid-template-rows:minmax(auto,1fr) auto; }
+.private-scene { grid-area:1 / 1 / 2 / -1; min-inline-size:0; min-block-size:min-content; display:flex; flex-direction:column; }
 .private-scene-tools { justify-content:space-between; margin-bottom:.5rem; flex:none; padding-inline-end:var(--private-panel-clearance); }
 .private-scene > .studio-floorplan { margin-inline-end:var(--private-panel-clearance); }
 .private-scene .geometry-preview { margin:0; padding:0; background:var(--private-canvas); border:0; flex:1; min-block-size:0; display:flex; flex-direction:column; }
