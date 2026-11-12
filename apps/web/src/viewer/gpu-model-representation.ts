@@ -12,7 +12,7 @@ export type DisplayRepresentation={
 };
 const sameId=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 function gpuBinding(art:Artwork){try{return artworkGpuModelFor(art);}catch{return undefined;}}
-function ordinaryVariant(art:Artwork,id:string){try{return lodVariantsFor(art).find(value=>sameId(value.assetId,id));}catch{return undefined;}}
+function ordinaryVariant(art:Artwork,id:string){return lodVariantsFor(art).find(value=>sameId(value.assetId,id));}
 
 /** A physical GPU inventory is a representation of its source tier, not an
  * extra coarse/full tier. Invalid metadata never grants an alias. */

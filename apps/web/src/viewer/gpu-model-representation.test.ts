@@ -62,3 +62,9 @@ test('source variant mapping preserves logical detail and only tightens candidat
  binding(art).triangles=21000;expect(sourceVariantForInventory(art,candidate.id)?.triangles).toBe(20000);
  expect(logicalSourceAssetId(art,id(99))).toBe(id(99));expect(sourceVariantForInventory(art,id(99))).toBeUndefined();
 });
+
+test('invalid source LOD remains invalid rather than receiving an encoding fallback',()=>{
+ const art=fixture(),source=art.assets[0]!;art.extensions![LOD_NAMESPACE]={version:1,variants:[]};
+ expect(()=>sourceVariantForInventory(art,source.id)).toThrow('VIEWER_LOD_INVALID');
+ expect(()=>resolve(art,source,budget,astc,new Set(),true)).toThrow('VIEWER_LOD_INVALID');
+});
