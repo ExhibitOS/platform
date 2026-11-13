@@ -406,3 +406,25 @@ it('authorizes immutable installed cards before and after reading, without regis
   expect(f.query.mock.calls.filter(([sql])=>/INSERT|UPDATE|DELETE|workspace_furnishing_thumbnail/.test(sql))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{vi.mocked(readInstalledFrameById).mockReset();vi.mocked(readInstalledFrameThumbnail).mockReset();}
 });
+
+
+it('registers an ordinary ceiling rail without caller fitProfile and returns the immutable measured fit after read and reopen',async()=>{
+ const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer),declaration={...f.declaration,kind:'ceiling-rail'};
+ expect(Object.hasOwn(declaration,'fitProfile')).toBe(false);
+ const geometry={profile:'passive-ceiling-rail-v1' as const,min:[-.5,-.035,-.0175] as [number,number,number],max:[.5,0,.0175] as [number,number,number]},fit={version:1,sourceSha256:declaration.model.sha256,sourceBytes:f.bytes.length,geometry};
+ const first=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,first.intakeId,f.bytes);await service.complete(f.client,f.session,first.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);expect(await service.work(f.pool)).toBe(true);
+ expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(declaration.model,f.bytes,expect.objectContaining({writerFd:12}),'passive-ceiling-rail-v1');
+ const done=await service.read(f.client,f.session,first.intakeId);expect(done.phase).toBe('registered');expect(done.furnishing).toMatchObject({kind:'ceiling-rail',model:declaration.model,fit});expect(done.fitProfile).toBeUndefined();
+ expect(f.getRow()!.worker_token).toBeNull();expect(f.getRow()!.declaration).toEqual(declaration);
+ const reopened=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);expect(await reopened.create(f.client,f.session,declaration)).toEqual(done);expect(await reopened.readVersion(f.client,f.session,done.furnishing!.id,1)).toEqual(done.furnishing);
+ expect((await reopened.model(f.client,f.session,done.furnishing!.id,1,'display')).bytes).toEqual(f.bytes);
+ await expect(reopened.read(f.client,{...f.session,userId:id(9)},first.intakeId)).rejects.toMatchObject({code:'FORBIDDEN'});
+});
+it('does not register an implicit-profile rail if its original claim source changes during validation',async()=>{
+ const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const},service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer),declaration={...f.declaration,kind:'ceiling-rail'};
+ const first=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,first.intakeId,f.bytes);await service.complete(f.client,f.session,first.intakeId);
+ vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(async()=>{(f.getRow()!.declaration as typeof declaration).model={...declaration.model,sha256:'f'.repeat(64)};return {profile:'passive-ceiling-rail-v1',min:[-.5,-.035,-.0175],max:[.5,0,.0175]};});
+ await expect(service.work(f.pool)).rejects.toMatchObject({code:'UPLOAD_INCOMPLETE'});expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_versions'))).toBe(false);
+});
