@@ -10,7 +10,7 @@ import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost,FurnishingSceneCapacityError} from './workspace-furnishing/owner-scene';
-import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
 import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
@@ -1785,6 +1785,9 @@ export function GeometryPreview({
           read:(signal:AbortSignal)=>Promise<ArrayBuffer>;
         },
       ) => {
+        // Issued primary-image proportions are shared with the frame aperture.
+        // Resolve before loading a tier; rounded derivative sizes are not fit authority.
+        const canonicalImageFootprint=artwork.artworkType==='image'?frameImageFootprintForArtwork(document,artwork):undefined;
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await (acquiredModel?acquiredModel.read(signal):readArtworkBytes(artwork,inventory,signal,progress,true,stage));
         stage?.('verified-download');
@@ -1813,7 +1816,7 @@ export function GeometryPreview({
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
             resources.push(texture);
-            const face=containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
+            const face=canonicalImageFootprint??containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
             const geometry = new three.PlaneGeometry(face.width,face.height);
             const material = new three.MeshStandardMaterial({
               map: texture,

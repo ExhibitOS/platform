@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {afterEach,expect,it,vi} from 'vitest';
 import * as three from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,frameImageFootprintForArtwork} from '@exhibitos/studio-contract';
 import {AssetPeakBudget,DEVICE_BUDGETS} from '../viewer/loading';
 import {mountOwnerWorkspacePlacement} from './owner-placement';
 import {loadWorkspaceFurnishingModel} from './model-loader';
@@ -48,7 +48,7 @@ function legacyRing(){
   geometry.setAttribute('position',new three.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();
   const object=new three.Group();object.add(new three.Mesh(geometry,new three.MeshStandardMaterial({color:0x584634})));return object;
 }
-async function fixture(width:number,height:number,profile:'straight-miter-ring-v1'|'straight-ring-v1'='straight-miter-ring-v1',bytes?:Buffer){
+async function fixture(width:number,height:number,profile:'straight-miter-ring-v1'|'straight-ring-v1'='straight-miter-ring-v1',bytes?:Buffer,imagePixels?:readonly[number,number]){
   const input=bytes??await original(),object=profile==='straight-miter-ring-v1'?await decoded(input):legacyRing();
   const mesh=firstMesh(object),geometry=mesh.geometry as three.BufferGeometry;
   const sha=profile==='straight-miter-ring-v1'?createHash('sha256').update(input).digest('hex'):'b'.repeat(64);
@@ -56,12 +56,14 @@ async function fixture(width:number,height:number,profile:'straight-miter-ring-v
   const descriptor={id:id(2),version:1 as const,kind:'artwork-frame' as const,name:'Synthetic frame renderer target',
     rights:{permissions:{display:true}},provenance:'CC0 fixture or synthetic legacy geometry; not live owner adoption',model,
     fit:{version:1 as const,sourceSha256:sha,sourceBytes:model.bytes,geometry:{profile,openingWidth:.6,openingHeight:.8,imagePlaneZ:-.012}}};
-  const attachment={placementId:id(4),artworkRevisionId:id(5),assetId:id(6),furnishingId:id(2),furnishingVersion:1 as const,modelSha256:sha};
+  const attachment={placementId:id(4),artworkRevisionId:id(5),assetId:id(6),furnishingId:id(2),furnishingVersion:1 as const,modelSha256:sha,
+    ...(imagePixels?{imageFit:{version:1 as const,profile:'contain-contact-v1' as const,sourceSha256:'c'.repeat(64),pixelWidth:imagePixels[0],pixelHeight:imagePixels[1]}}:{})};
   const roomPose=pose([3,0,-4],roomRotation),placementPose=pose([1,1.5,-2],placementRotation),artPose=pose([.01,-.02,.003],artRotation);
   const candidate={rooms:[{id:id(1),dimensions:{width:8,height:4,depth:8},transform:roomPose}],
     placements:[{id:id(4),roomId:id(1),artworkRevisionId:id(5),assetId:id(6),transform:placementPose}],
-    artworks:[{revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width,height},transform:artPose}],
-    extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:profile==='straight-miter-ring-v1'?9:7,furnishings:[descriptor],placements:[],frameAttachments:[attachment],openingAttachments:[]}}};
+    artworks:[{revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width,height},transform:artPose,
+      assets:[{id:id(6),role:'image',mime:'image/png',path:'assets/image.png',bytes:100,sha256:'c'.repeat(64)}]}],
+    extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:imagePixels?10:profile==='straight-miter-ring-v1'?9:7,furnishings:[descriptor],placements:[],frameAttachments:[attachment],openingAttachments:[]}}};
   const room=new three.Group();room.position.fromArray(roomPose.position);room.quaternion.copy(roomRotation);
   const controller=new AbortController(),dispose=vi.fn(()=>object.removeFromParent()),check=vi.fn(async()=>{});
   vi.mocked(ownerWorkspaceModelSource).mockReturnValue({check,open:vi.fn()});
@@ -103,6 +105,36 @@ it.each([[.934,.732],[1.365,1.435]])('fits the unchanged eight-level brass origi
     expect(new three.Vector3().applyMatrix4(f.object.matrixWorld).sub(expected).dot(front)).toBeCloseTo(-.012,9);
     expect(f.object.matrixWorld.determinant()).toBeCloseTo(1,9);expect(f.object.matrixAutoUpdate).toBe(false);
     expect(f.input).toEqual(source);mounted.dispose();expect(f.object.parent).toBeNull();expect(f.dispose).toHaveBeenCalledOnce();
+  }finally{f.cleanup();}
+});
+it.each([
+  {width:.934,height:.732,pixels:[2048,1630] as const,faceWidth:.9197153374233129,faceHeight:.732},
+  {width:1.365,height:1.435,pixels:[1942,2048] as const,faceWidth:1.3607275390625,faceHeight:1.435},
+])('seats the original brass opening on the issued photo footprint $width×$height without a wall strip',async({width,height,pixels,faceWidth,faceHeight})=>{
+  const f=await fixture(width,height,'straight-miter-ring-v1',undefined,pixels),before=structuredClone(f.candidate),
+    source=Buffer.from(f.input),attributes=attributeBytes(f.geometry),section=sectionSignature(f.geometry,.6,.8);
+  expect(validateWorkspaceFurnishings(f.candidate).valid).toBe(true);
+  const face=frameImageFootprintForArtwork(f.candidate,f.candidate.artworks[0]!);
+  expect(face?.width).toBeCloseTo(faceWidth,12);expect(face?.height).toBeCloseTo(faceHeight,12);
+  try{
+    const mounted=await mountOwnerWorkspacePlacement(f.options),positions=f.geometry.getAttribute('position');
+    // These are the actually fitted inner rail vertices, not declared bounds.
+    const openingWidth=2*Math.min(...Array.from({length:positions.count},(_,i)=>Math.abs(positions.getX(i)))),
+      openingHeight=2*Math.min(...Array.from({length:positions.count},(_,i)=>Math.abs(positions.getY(i))));
+    expect(Math.abs(openingWidth-faceWidth)).toBeLessThan(1e-6);
+    expect(Math.abs(openingHeight-faceHeight)).toBeLessThan(1e-6);
+    expect(sectionSignature(f.geometry,faceWidth,faceHeight)).toEqual(section);
+    expect(attributeBytes(f.geometry)).toEqual(attributes);expect(f.input).toEqual(source);
+    expect(f.candidate).toEqual(before);expect(f.object.scale.toArray()).toEqual([1,1,1]);
+    mounted.dispose();expect(f.dispose).toHaveBeenCalledOnce();
+  }finally{f.cleanup();}
+});
+it('refuses a changed issued source binding instead of silently using legacy clearance',async()=>{
+  const f=await fixture(.934,.732,'straight-miter-ring-v1',undefined,[2048,1630]);
+  f.attachment.imageFit!.sourceSha256='d'.repeat(64);
+  try{
+    await expect(mountOwnerWorkspacePlacement(f.options)).rejects.toThrow();
+    expect(loadWorkspaceFurnishingModel).not.toHaveBeenCalled();
   }finally{f.cleanup();}
 });
 it('fits the same supported section without a source-hash or material-name rendering allowlist',async()=>{
