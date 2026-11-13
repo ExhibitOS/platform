@@ -137,6 +137,46 @@ it('refuses a changed issued source binding instead of silently using legacy cle
     expect(loadWorkspaceFurnishingModel).not.toHaveBeenCalled();
   }finally{f.cleanup();}
 });
+it.each([
+ {scaleX:1.000709099666411,scaleY:1,pixels:[2048,1630] as const},
+ {scaleX:.9906979398504822,scaleY:1,pixels:[2048,1630] as const},
+ {scaleX:1.000709099666411,scaleY:.9,pixels:undefined},
+])('keeps original rail sections metric at qualified placement scale $scaleX/$scaleY',async({scaleX,scaleY,pixels})=>{
+ const f=await fixture(.934,.732,'straight-miter-ring-v1',undefined,pixels);
+ f.candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].version=10;
+ const placement=f.candidate.placements[0]!,art=f.candidate.artworks[0]!;
+ const rotation=new three.Quaternion().setFromAxisAngle(new three.Vector3(0,1,0),Math.PI/2);
+ placement.transform.rotation=rotation.toArray() as [number,number,number,number];
+ placement.transform.scale=[scaleX,scaleY,1];art.transform.rotation=[0,0,0,1];
+ const before=structuredClone(f.candidate),attributes=attributeBytes(f.geometry),source=Buffer.from(f.input),section=sectionSignature(f.geometry,.6,.8);
+ const face=frameImageFootprintForArtwork(f.candidate,art),openingWidth=(face?.width??art.dimensions.width)*scaleX+(pixels?0:.006),openingHeight=(face?.height??art.dimensions.height)*scaleY+(pixels?0:.006);
+ expect(validateWorkspaceFurnishings(f.candidate).valid).toBe(true);
+ try{
+  const mounted=await mountOwnerWorkspacePlacement(f.options),positions=f.geometry.getAttribute('position');
+  const actualWidth=2*Math.min(...Array.from({length:positions.count},(_,i)=>Math.abs(positions.getX(i)))),actualHeight=2*Math.min(...Array.from({length:positions.count},(_,i)=>Math.abs(positions.getY(i))));
+  expect(actualWidth).toBeCloseTo(openingWidth,6);expect(actualHeight).toBeCloseTo(openingHeight,6);
+  expect(sectionSignature(f.geometry,openingWidth,openingHeight)).toEqual(section);
+  expect(attributeBytes(f.geometry)).toEqual(attributes);expect(f.input).toEqual(source);expect(f.candidate).toEqual(before);
+  f.room.updateMatrixWorld(true);expect(f.object.matrixWorld.determinant()).toBeCloseTo(1,9);
+  const placementMatrix=new three.Matrix4().compose(new three.Vector3(...placement.transform.position),rotation,new three.Vector3(...placement.transform.scale));
+  const center=new three.Vector3(...art.transform.position).applyMatrix4(placementMatrix).applyMatrix4(f.room.matrixWorld);
+  expect(new three.Vector3(0,0,-.012).applyMatrix4(f.object.matrixWorld).distanceTo(center)).toBeLessThan(1e-9);
+  mounted.dispose();expect(f.dispose).toHaveBeenCalledOnce();
+ }finally{f.cleanup();}
+});
+it.each(['rotated-art','scaled-room','scaled-z','legacy-namespace'] as const)('rejects unsupported nonunit frame %s before loading its model',async kind=>{
+ const f=await fixture(.934,.732,'straight-miter-ring-v1',undefined,kind==='legacy-namespace'?undefined:[2048,1630]);
+ f.candidate.placements[0]!.transform.scale=[1.000709099666411,1,1];
+ f.candidate.artworks[0]!.transform.rotation=[0,0,0,1];
+ if(kind==='rotated-art')f.candidate.artworks[0]!.transform.rotation=new three.Quaternion().setFromAxisAngle(new three.Vector3(0,0,1),Math.PI/4).toArray() as [number,number,number,number];
+ if(kind==='scaled-room')f.candidate.rooms[0]!.transform.scale=[1.01,1,1];
+ if(kind==='scaled-z')f.candidate.placements[0]!.transform.scale[2]=1.01;
+ if(kind==='legacy-namespace')f.candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].version=9;
+ try{
+  expect(validateWorkspaceFurnishings(f.candidate).valid).toBe(false);
+  await expect(mountOwnerWorkspacePlacement(f.options)).rejects.toThrow();expect(loadWorkspaceFurnishingModel).not.toHaveBeenCalled();
+ }finally{f.cleanup();}
+});
 it('fits the same supported section without a source-hash or material-name rendering allowlist',async()=>{
   const originalBytes=await original(),length=originalBytes.readUInt32LE(12),doc=JSON.parse(originalBytes.toString('utf8',20,20+length));
   doc.materials[0].name='Synthetic alternative finish';

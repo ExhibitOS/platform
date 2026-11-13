@@ -2,10 +2,18 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 type Transform=Exhibition['placements'][number]['transform'];
-/** Fixed GLB front is −Z; artwork front is +Z. Both are rigid unit-scale. */
-export function artworkFrameMatrix(three:typeof Three,placement:Transform,artwork:Transform,imagePlaneZ=-.012){
+/** Fixed GLB front is −Z; artwork front is +Z. */
+export function artworkFrameMatrix(three:typeof Three,placement:Transform,artwork:Transform,imagePlaneZ=-.012,rigidFrame=false){
  const matrix=(t:Transform)=>new three.Matrix4().compose(new three.Vector3(...t.position),new three.Quaternion(...t.rotation),new three.Vector3(...t.scale));
- return matrix(placement).multiply(matrix(artwork)).multiply(new three.Matrix4().makeTranslation(0,0,imagePlaneZ)).multiply(new three.Matrix4().makeRotationY(Math.PI));
+ const frame=matrix(placement).multiply(matrix(artwork)).multiply(new three.Matrix4().makeTranslation(0,0,imagePlaneZ)).multiply(new three.Matrix4().makeRotationY(Math.PI));
+ if(rigidFrame){
+  // The shared contract admits only an unsheared XY placement scale here.
+  // Keep the fully transformed image anchor, while rail sections stay metric.
+  const position=new three.Vector3(),rotation=new three.Quaternion(),scale=new three.Vector3();
+  frame.decompose(position,rotation,scale);
+  frame.compose(position,rotation,new three.Vector3(1,1,1));
+ }
+ return frame;
 }
 
 /** The measured ring uses straight rails and four rigid bevel profiles. */
