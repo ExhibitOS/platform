@@ -9,12 +9,12 @@ import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
 describe('OEX service boundaries',()=>{
- it('remaps a portable frame and its artwork attachment without changing measured source identity',async()=>{
+ it.each([{profile:'straight-ring-v1',version:7},{profile:'straight-miter-ring-v1',version:9}] as const)('remaps portable $profile without changing measured source identity',async({profile,version})=>{
   const e=await fixture(),art=e.artworks.find(a=>a.artworkType==='image')!;
   const placement=e.placements.find(p=>p.artworkRevisionId===art.revisionId)!;
   art.dimensions={width:.8,height:.6};
   const id='70000000-0000-4000-8000-000000000001',sha256='a'.repeat(64);
-  const source:WorkspaceFurnishings={version:7,furnishings:[{id,version:1,kind:'artwork-frame',name:'Frame',rights:art.rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256},fit:{version:1,sourceSha256:sha256,sourceBytes:100,geometry:{profile:'straight-ring-v1',openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012}}}],placements:[],openingAttachments:[],frameAttachments:[{placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:id,furnishingVersion:1,modelSha256:sha256}]};
+  const source:WorkspaceFurnishings={version,furnishings:[{id,version:1,kind:'artwork-frame',name:'Frame',rights:art.rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256},fit:{version:1,sourceSha256:sha256,sourceBytes:100,geometry:{profile,openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012}}}],placements:[],openingAttachments:[],frameAttachments:[{placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:id,furnishingVersion:1,modelSha256:sha256}]};
   e.extensions={...e.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:source as unknown as NonNullable<Exhibition['extensions']>[string]};
   expect(()=>checkOexProfile(e)).toThrow('OEX_EXTENSION_UNSUPPORTED');
   const {exhibition,idMap}=remapOex(e,source),mapped=exhibition.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;

@@ -13,7 +13,7 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===2&&!service.supportsStool())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===3&&!service.supportsRoomVisual())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  const snapshot=extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
- if(snapshot.version===7&&(!service.supportsReusableFit()||!!snapshot.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
+ if((snapshot.version===7||snapshot.version===9)&&(!service.supportsReusableFit()||!!snapshot.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if(snapshot.version===6&&!service.supportsPortalFinish())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===5&&!service.supportsArtworkFrameModels())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===4&&!service.supportsArtworkFrame())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
