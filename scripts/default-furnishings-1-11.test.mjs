@@ -20,7 +20,7 @@ test('1.11 preserves every prior descriptor and adds the unchanged declared down
  const changed=JSON.parse(fixture);changed.assets[17].hostKind='pedestal';await writeFile(join(root,'manifest.json'),JSON.stringify(changed,null,2)+'\n');await assert.rejects(verifyDefaultFurnishingsManifest(root));
 });
 test('the frozen 1.11 source copies both downlight bytes and all retained pairs through the normal producer',{skip:!producer},async t=>{
- await requireCurrentFurnishingsRelease(producer);await assert.rejects(requireGpuModelPreparationFurnishingsRelease(producer));
+ await assert.rejects(requireCurrentFurnishingsRelease(producer));await assert.rejects(requireGpuModelPreparationFurnishingsRelease(producer));
  const root=await temporary(t),out=join(root,'output');await mkdir(out);await copyNativeFurnishings(producer,out,release);
  for(const asset of JSON.parse(fixture).assets)for(const row of [asset.model,asset.rights.notice]){const bytes=await readFile(join(out,row.path));assert.equal(bytes.length,row.bytes);assert.equal(hash(bytes),row.sha256);}
  assert.deepEqual(await readFile(join(out,'assets/furnishings/default-manifest.json')),fixture);
