@@ -32,9 +32,25 @@ it('prepares the selected JPEG in the product worker and preserves the source id
  const preview=await sharp(thumb).raw().toBuffer({resolveWithObject:true});
  const full=await sharp(result.full).raw().toBuffer();
  expect(preview.info).toMatchObject({width:256,height:171,channels:3});
- const x=111,y=72,sx=Math.floor((x+.5)*width/256),sy=Math.floor((y+.5)*height/171);
- expect(preview.data.subarray((y*256+x)*3,(y*256+x)*3+3)).toEqual(full.subarray((sy*width+sx)*3,(sy*width+sx)*3+3));
+ const x=111,y=72,left=x*width/256,right=(x+1)*width/256,top=y*height/171,bottom=(y+1)*height/171;
+ const expected=[0,0,0];
+ for(let sy=Math.floor(top);sy<Math.ceil(bottom);sy++)for(let sx=Math.floor(left);sx<Math.ceil(right);sx++){
+  const area=(Math.min(right,sx+1)-Math.max(left,sx))*(Math.min(bottom,sy+1)-Math.max(top,sy));
+  for(let c=0;c<3;c++)expected[c]!+=full[(sy*width+sx)*3+c]!*area;
+ }
+ expect([...preview.data.subarray((y*256+x)*3,(y*256+x)*3+3)]).toEqual(expected.map(sum=>Math.round(sum/((right-left)*(bottom-top)))));
  await expect(prepareProductImageInWorker(jpeg,{...identity,sha256:'f'.repeat(64)})).rejects.toMatchObject({code:'IMAGE_PREPARATION_INPUT_INTEGRITY'});
+},30000);
+
+it('integrates high-frequency thumbnail detail instead of aliasing centre samples',async()=>{
+ const width=1024,height=1024,rgb=Buffer.alloc(width*height*3);
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++)rgb.fill((x+y)%2?255:0,(y*width+x)*3,(y*width+x+1)*3);
+ const png=await sharp(rgb,{raw:{width,height,channels:3}}).png().toBuffer();
+ const normalized=await prepareFreshImageInWorker(png,{mime:'image/png',sha256:imageHash(png),bytes:png.length});
+ const thumbnail=prepareProductImageThumbnail(normalized.full,normalized.receipt.full);
+ const decoded=await sharp(thumbnail).raw().toBuffer({resolveWithObject:true});
+ expect(decoded.info).toMatchObject({width:256,height:256,channels:3});
+ expect(decoded.data.equals(Buffer.alloc(256*256*3,128))).toBe(true);
 },30000);
 
 it('accepts the bounded fallback in the durable ready receipt',async()=>{
