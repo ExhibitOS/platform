@@ -13,7 +13,7 @@ import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation.ts';
 import {prepareFrameInWorker,prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
-import {INSTALLED_FRAME_ID,installedFrameDescriptor,installedFrameDescriptors,installedFrameDescriptorFor,readInstalledFrameById} from './installed-artwork-frame.ts';
+import {INSTALLED_FRAME_ID,installedFrameDescriptor,installedFrameDescriptors,installedFrameDescriptorFor,readInstalledFrameById,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
 import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
 import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
@@ -192,6 +192,7 @@ export class WorkspaceFurnishingIntakes {
   return {
    items:rows.map(({id,version,descriptor})=>({id,version,kind:descriptor.kind,name:descriptor.name,
     rightsAvailability:{display:allowedRights(descriptor.rights,'display'),download:allowedRights(descriptor.rights,'download'),export:allowedRights(descriptor.rights,'export')},
+    ...(installedFrameThumbnail(id)?{installedThumbnailProfile:installedFrameThumbnail(id)!.profile}:{}),
    })),
    nextCursor:candidates.length>50&&last?Buffer.from(last.id).toString('base64url'):null,
   };
@@ -203,6 +204,13 @@ export class WorkspaceFurnishingIntakes {
   if(!model)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.writer?.assertLive();
   return model;
+ }
+ async installedThumbnail(c:PoolClient,s:Session,id:string,version:number){
+  await this.installedFrame(c,s,version,id);uuid(id);
+  const descriptor=installedFrameDescriptorFor(id)!;
+  if(!allowedRights(descriptor.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+  const result=await readInstalledFrameThumbnail(id);if(!result)throw new ApiError(404,'FURNISHING_NOT_FOUND');
+  await this.checkOwner(c,s);return result;
  }
  private async version(c:PoolClient,s:Session,id:string,version:number){await this.checkOwner(c,s);uuid(id);if(!Number.isSafeInteger(version)||version!==1)throw new ApiError(400,'INVALID_INPUT');const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(result.rowCount!==1)throw new ApiError(404,'FURNISHING_NOT_FOUND');return result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string};}
  async readVersion(c:PoolClient,s:Session,id:string,version:number){

@@ -144,7 +144,7 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Verify the selected release's exact models and notices before and after
 // copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
-  '1.12.0':{commit:'5dedb84fac497237d9742efc20b3fd6725ca5703',manifestSHA256:'241cb694e2cc7ae96ac6ae369eb37462ffb848e55803e602ae831f8895c3617b',bytes:18561},
+  '1.12.0':{commit:'7b2f8334a379bfcac80da4ad656fdb2e1db60f0a',manifestSHA256:'b265727004a7be3255b424c0d77dd649e601bd3409eb72fca522116c491c05ab',bytes:19618},
   '1.11.0':{commit:'6d338e8af0b7bed681c1cb7c6515241cb6c2ee57',manifestSHA256:'827048c2722f7ed6ecf4c77ec7a3d13f944e9987c2cdc0b36ae01b9d2175c9bd',bytes:16322},
   '1.10.0':{commit:'6625b27c5ebfdac09d0e97c0747740a6ebd4039c',manifestSHA256:'de68b06af7edd6ab36d60ba44400059ec00f52f57d0dc4a46cb5245d55951096',bytes:15460},
   '1.9.0':{commit:'8dee4eebb0d36d74d3d8cd955c9faf2c6bd2904a',manifestSHA256:'957af345c80951c287ce5492e0078769b800b3f889c19c24365b31b5e1c591ad',bytes:14567},
@@ -177,7 +177,7 @@ const DEFAULT_EXIT_SIGN_SOURCE={
 const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256);
 const DEFAULT_FRAME_ID='black-aluminum-frame';
 const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice);
-const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:frame.custodyFiles??[]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
+const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:[...(frame.custodyFiles??[]),...(frame.thumbnail?[{path:frame.thumbnail.path,bytes:frame.thumbnail.png.bytes,sha256:frame.thumbnail.png.sha256}]:[])]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
   version:1,path:DEFAULT_FRAME_ROOT+'/model.glb',mime:'model/gltf-binary',bytes:101720,
@@ -238,7 +238,7 @@ async function readDefaultFurnishingsManifest(root){
       continue;
     }
     const addedFrame=version==='1.12.0'?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
-    if(addedFrame&&(!isDeepStrictEqual(item.workspaceFurnishing,addedFrame.descriptor)||!isDeepStrictEqual(item.provenance?.sourceNotice,addedFrame.custodyFiles[0])))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+    if(addedFrame&&(!isDeepStrictEqual(item.workspaceFurnishing,addedFrame.descriptor)||!isDeepStrictEqual(item.provenance?.sourceNotice,addedFrame.custodyFiles[0])||!isDeepStrictEqual(item.thumbnail,addedFrame.thumbnail)))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     const workspaceOriginal=Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_COMPACT_STAND_ID;
     const entry=addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?USER_ASSET_CATALOGUE.find(asset=>asset.id===id):id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
     const model=item.model,notice=item.rights?.notice;

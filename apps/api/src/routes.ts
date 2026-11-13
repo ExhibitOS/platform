@@ -176,6 +176,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
    app.post(`${path}/thumbnail-selection`,{bodyLimit:4096},thumbnailCall(true,async(c,s,req)=>thumbnails.select(c,s,params(req).id,version(req),req.body)));
   }
   app.get(library,ownedCall(false,async(c,s,req)=>workspaceFurnishing.list(c,s,cursor(req))));
+  const installedThumbnailPath=`${library}/:id/versions/:version/installed-thumbnail`;
+  app.get(installedThumbnailPath,ownedCall(false,async(c,s,req)=>{const result=await workspaceFurnishing.installedThumbnail(c,s,params(req).id,version(req));return result.thumbnail;}));
+  const installedThumbnailImage=ownedCall(false,async(c,s,req)=>workspaceFurnishing.installedThumbnail(c,s,params(req).id,version(req)));
+  app.get(`${installedThumbnailPath}/image`,async(req,reply)=>{const result=await installedThumbnailImage(req,reply) as Awaited<ReturnType<WorkspaceFurnishingIntakes['installedThumbnail']>>;return reply.header('cache-control','no-store').header('content-type','image/png').header('content-length',result.bytes.length).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.thumbnail.png.sha256).send(result.bytes);});
   app.get(`${library}/:id/versions/:version`,ownedCall(false,async(c,s,req)=>workspaceFurnishing.readVersion(c,s,params(req).id,version(req))));
   app.get(`${library}/:id/versions/:version/display-check`,ownedCall(false,async(c,s,req,reply)=>{const result=await workspaceFurnishing.checkDisplay(c,s,params(req).id,version(req));reply.header('cache-control','no-store');return result;}));
   const previewRead=ownedCall(false,async(c,s,req)=>workspaceFurnishing.model(c,s,params(req).id,version(req),'display'));

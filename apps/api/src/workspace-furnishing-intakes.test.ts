@@ -9,10 +9,11 @@ import {INFO_STAND_PREPARATION_POLICY} from '@exhibitos/studio-contract';
 import {prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
-import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrameById} from './installed-artwork-frame.ts';
+import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrameById,readInstalledFrameThumbnail,installedFrameThumbnail} from './installed-artwork-frame.ts';
 vi.mock('./installed-artwork-frame.ts',async importOriginal=>({
  ...await importOriginal<typeof import('./installed-artwork-frame.ts')>(),
  readInstalledFrameById:vi.fn(),
+ readInstalledFrameThumbnail:vi.fn(),
 }));
 vi.mock('./frame-preparation-process.ts',async original=>({...await original<typeof import('./frame-preparation-process.ts')>(),prepareInfoStandInWorker:vi.fn()}));
 vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.fn(async()=>{})}));
@@ -384,6 +385,7 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
  try{
   expect(thin.id).not.toBe('66d45ba8-457e-4d23-999d-f242fc1c7590');
   const list=await service.list(f.client,f.session);expect(list.items.map(item=>item.id)).toEqual(descriptors.map(d=>d.id).sort());
+  expect(list.items.find(item=>item.id===thin.id)).toHaveProperty('installedThumbnailProfile','installed-furnishing-thumbnail-v1');expect(list.items.find(item=>item.id===INSTALLED_FRAME_ID)).not.toHaveProperty('installedThumbnailProfile');
   expect((await service.list(f.client,f.session,Buffer.from(INSTALLED_FRAME_ID).toString('base64url'))).items.map(item=>item.id)).toEqual([thin.id]);
   expect((await service.list(f.client,f.session,Buffer.from(thin.id).toString('base64url'))).items).toEqual([]);
   expect(await service.readVersion(f.client,f.session,thin.id,1)).toEqual(thin);expect(await service.checkDisplay(f.client,f.session,thin.id,1)).toEqual(thin);
@@ -392,4 +394,15 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
   read.mockResolvedValue(undefined);await expect(service.readVersion(f.client,f.session,thin.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
   expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing'))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockReset();}
+});
+it('authorizes immutable installed cards before and after reading, without registry or selection writes',async()=>{
+ const f=fixture(true),id='af88109b-27e2-4d10-a08c-3ddc0224451a',thumbnail=installedFrameThumbnail(id)!,png=Buffer.alloc(5176),service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true},f.writer);
+ vi.mocked(readInstalledFrameById).mockResolvedValue({bytes:Buffer.alloc(7892),mime:'model/gltf-binary',sha256:thumbnail.source.modelSha256});vi.mocked(readInstalledFrameThumbnail).mockResolvedValue({bytes:png,thumbnail});
+ try{
+  await expect(service.installedThumbnail(f.client,{...f.session,userId:id},id,1)).rejects.toMatchObject({code:'FORBIDDEN'});expect(readInstalledFrameThumbnail).not.toHaveBeenCalled();
+  expect(await service.installedThumbnail(f.client,f.session,id,1)).toEqual({bytes:png,thumbnail});
+  await expect(service.installedThumbnail(f.client,f.session,id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
+  vi.mocked(readInstalledFrameThumbnail).mockImplementationOnce(async()=>{f.writer.assertLive.mockRejectedValue(new Error('revoked'));return {bytes:png,thumbnail};});await expect(service.installedThumbnail(f.client,f.session,id,1)).rejects.toThrow('revoked');
+  expect(f.query.mock.calls.filter(([sql])=>/INSERT|UPDATE|DELETE|workspace_furnishing_thumbnail/.test(sql))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
+ }finally{vi.mocked(readInstalledFrameById).mockReset();vi.mocked(readInstalledFrameThumbnail).mockReset();}
 });
