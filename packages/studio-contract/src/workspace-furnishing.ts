@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {frameImageContactFit,type FrameImageFit,qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {frameImageContactFit,frameAttachmentMetricFit,qualifiedFrameAttachmentTransform,type FrameImageFit,qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artifactCorners,type ArtifactPose} from './artifact-affine.js';
 import {USER_ASSET_CATALOGUE} from './user-asset-catalogue.js';
 import type {WorkspaceFitProfile,WorkspaceFitReceipt} from './workspace-fit-receipt.js';
@@ -121,8 +121,9 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
   const dimensions=art.dimensions;if(art.artworkType!=='image'||art.schemaVersion!=='1.0.0-draft.1'||!object(dimensions)||typeof dimensions.width!=='number'||typeof dimensions.height!=='number'||!(qualified?qualifiedFrameTargetFit(qualified,dimensions.width,dimensions.height):frame&&artworkFrameFit(frame,dimensions.width,dimensions.height)))fail('FRAME_SIZE_UNSUPPORTED',i);
   if(Object.hasOwn(a,'imageFit'))try{if(!qualified||!frameImageContactFit(candidate,a,art,qualified))throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');}catch(error){fail(error instanceof Error&&error.message.startsWith('FRAME_IMAGE_FIT_')?error.message:'FRAME_IMAGE_FIT_INVALID',i);}
   if(object(dimensions)&&Object.hasOwn(dimensions,'depth'))fail('FRAME_DEPTH_UNSUPPORTED',i);
-  const room=typeof placement.roomId==='string'?rooms.get(placement.roomId):undefined;
-  if(![art.transform,placement.transform,room?.transform].every(t=>object(t)&&Array.isArray(t.scale)&&t.scale.length===3&&t.scale.every(n=>n===1)))fail('FRAME_TRANSFORM_UNSUPPORTED',i);
+  const metricTransform=qualifiedFrameAttachmentTransform(candidate,placement,art,qualified,version);
+  if(!metricTransform)fail('FRAME_TRANSFORM_UNSUPPORTED',i);
+  else if(metricTransform.rigidFrame&&Object.hasOwn(a,'imageFit'))try{if(!frameAttachmentMetricFit(candidate,a,art,qualified!))fail('FRAME_IMAGE_FIT_UNSUPPORTED',i);}catch{/* The canonical imageFit check above reports malformed/stale bindings. */}
   if(object(installation)&&Array.isArray(installation.placements)&&installation.placements.some(b=>object(b)&&typeof b.placementId==='string'&&b.placementId.toLowerCase()===(a.placementId as string).toLowerCase()&&object(b.frame)&&b.frame.kind!=='none'))fail('FRAME_PROCEDURAL_CONFLICT',i);
  }
  if(errors.length)return {valid:false,errors};

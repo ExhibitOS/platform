@@ -53,3 +53,14 @@ it('serves the closed ordinary proposal with owner/head fencing and never persis
   expect(queries.filter(sql=>/^(UPDATE|INSERT|DELETE)/.test(sql))).toEqual([]);
  }finally{await app.close();}
 });
+
+it('reconciles supported metric placement scale through the existing proposal and snapshot checks',async()=>{
+ for(const sx of [1.000709099666411,.9906979398504822]){
+  const f=fixture();f.value.version=10;f.placement.transform.scale=[sx,1,1];f.placement.transform.rotation=[0,Math.SQRT1_2,0,Math.SQRT1_2];f.art.transform.position=[.02,.03,.04];
+  const before=structuredClone(f.draft),out=nativeFrameImageFitProposal(f.draft.candidate,f.command,f.imageFit),after=structuredClone(before);after.candidate=out.candidate;
+  expect(f.draft).toEqual(before);expect(ordinaryFrameDelta(before,after,W)).toBe(true);
+  expect(out.candidate.placements).toEqual(before.candidate.placements);expect(out.candidate.artworks).toEqual(before.candidate.artworks);expect(out.candidate.rooms).toEqual(before.candidate.rooms);
+  expect((out.candidate.extensions![W] as unknown as WorkspaceFurnishings).frameAttachments![0]!.imageFit).toEqual(f.imageFit);
+  await expect(assertWorkspaceFurnishingSnapshot({} as PoolClient,{} as Session,out.candidate,f.service as never)).resolves.toBeUndefined();
+ }
+});
