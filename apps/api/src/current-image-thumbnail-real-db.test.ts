@@ -16,6 +16,8 @@ import {acceptFurnishingOrdinaryAdmission,acceptFurnishingWriterLease} from '../
 import {encodeFurnishingLeaseFrame} from '../../../scripts/native-workspace-furnishing-lease.mjs';
 // @ts-expect-error Existing private native admission encoder is JavaScript.
 import {encodeFurnishingOrdinaryAssertion} from '../../../scripts/native-workspace-furnishing-ordinary-assertion.mjs';
+// @ts-expect-error Existing private sealed catalog adapter is JavaScript.
+import {upgradeCombinedThumbnailCatalog} from '../../../scripts/native-workspace-furnishing-bootstrap.mjs';
 import {buildApp} from './app.ts';
 import {Imports} from './imports.ts';
 import {createNativeModelPreparationExecution} from './model-preparation-import.ts';
@@ -28,6 +30,7 @@ it.skipIf(!process.env.EXHIBITOS_CURRENT_THUMBNAIL_TEST_PG)('reproduces SQL45 re
  const blobs=new FileBlobStore(join(root,'blobs')),configRoot=join(root,'config');
  const descriptors:number[]=[];
  let app:ReturnType<typeof buildApp>|undefined;
+ let combinedVerification:Record<string,unknown>|undefined;
  try{
   await mkdir(blobs.root,{mode:0o700});
   await mkdir(configRoot,{mode:0o700});
@@ -40,13 +43,13 @@ it.skipIf(!process.env.EXHIBITOS_CURRENT_THUMBNAIL_TEST_PG)('reproduces SQL45 re
   while(fd<10){fd=openSync(lock,constants.O_RDWR);descriptors.push(fd);}
   const rootStat=lstatSync(root,{bigint:true}),lockStat=fstatSync(fd,{bigint:true});
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID();
-  const issueWriter=async(previousRuntimeGeneration?:string)=>{
-   const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
+  const issueWriter=async(previousRuntimeGeneration?:string,mode='workspace-furnishing-036-reopen-v1')=>{
+   const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode};
    const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
    let open=true;
    const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
    const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
-   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:previousRuntimeGeneration?'interrupted-reopen':'clean-reopen',activeBindingSHA256:'b'.repeat(64),...(previousRuntimeGeneration?{previousRuntimeGeneration}:{})},secret);
+   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:mode==='workspace-furnishing-051-to-050-051-upgrade-v1'?'catalog-upgrade-051-to-050-051':previousRuntimeGeneration?'interrupted-reopen':'clean-reopen',activeBindingSHA256:'b'.repeat(64),...(previousRuntimeGeneration?{previousRuntimeGeneration}:{})},secret);
    const admission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});
    return {writer,admission,channel};
   };
@@ -125,6 +128,28 @@ it.skipIf(!process.env.EXHIBITOS_CURRENT_THUMBNAIL_TEST_PG)('reproduces SQL45 re
   for(const mutation of ["derived=derived-'source'","mime='image/jpeg'","png_drain_version=0","derived_object_key='foreign'","derived=jsonb_set(derived,'{request,expectedRevision}','2')"]){
    await expect(transaction(pool,c=>c.query(`UPDATE import_jobs SET ${mutation} WHERE id=$1`,[jobId]))).rejects.toBeDefined();
   }
+  if(process.env.EXHIBITOS_COMBINED_THUMBNAIL_TEST==='1'){
+   const preserved=async()=>{
+    const snapshot:Record<string,unknown>={};
+    for(const table of ['artworks','assets','rights','artwork_approvals','import_jobs','artwork_thumbnail_bindings','artwork_thumbnail_selections','local_workspaces','auth_sessions'])snapshot[table]=(await pool.query(`SELECT to_jsonb(t) AS value FROM ${table} t ORDER BY to_jsonb(t)::text`)).rows;
+    return snapshot;
+   };
+   const oldData=await preserved(),oldLedger=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
+   expect(oldLedger).toHaveLength(46);
+   const mode='workspace-furnishing-051-to-050-051-upgrade-v1',issued=await issueWriter(undefined,mode);
+   const dirs={workspaceImportDirectory:'native-oex-workspace-import',workspaceWallImportDirectory:'native-oex-workspace-import-wall',workspaceFurnishingDirectory:'native-workspace-furnishing',workspaceFurnishingWriterDirectory:'native-workspace-furnishing-writer',workspaceFurnishingPublicationDirectory:'native-workspace-furnishing-publication',workspaceMaterialPublicationDirectory:'native-workspace-material-publication',workspaceMaterialMultimapDirectory:'native-workspace-material-multimap',workspaceFramePreparationDirectory:'native-workspace-frame-preparation',hayesOriginalDirectory:'native-hayes-original',hayesDispositionDirectory:'native-hayes-disposition',hayesReleaseDirectory:'native-hayes-release',modelPreparationDirectory:'native-model-preparation',currentImageThumbnailDirectory:'native-current-image-thumbnail',workspaceFurnishingThumbnailDirectory:'native-workspace-furnishing-thumbnail'};
+   const catalog={base:migrationDirectory,normal:supplementalMigrationDirectory,...Object.fromEntries(Object.entries(dirs).map(([key,value])=>[key,migrationPath(value)]))};
+   const apply=()=>transaction(pool,c=>upgradeCombinedThumbnailCatalog(c,{mode,ownerUid:process.getuid!(),writer:issued.writer,ordinaryAdmission:issued.admission,channel:issued.channel,isStopped:()=>false,catalog}));
+   expect(await apply()).toEqual({state:'applied'});
+   const ledger=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
+   expect(ledger).toHaveLength(47);expect(ledger.filter(row=>row.name!=='050_workspace_furnishing_thumbnail.sql')).toEqual(oldLedger);
+   expect(ledger.find(row=>row.name==='050_workspace_furnishing_thumbnail.sql')?.sha256).toBe('8461cad231b80c109b1aaedcef6e1a4d599143313faf00f366f52e79780219fc');
+   expect(await preserved()).toEqual(oldData);expect(await apply()).toEqual({state:'already-applied'});expect(await preserved()).toEqual(oldData);
+   const tables=(await pool.query("SELECT to_regclass('public.workspace_furnishing_thumbnail_candidates')::text AS candidates,to_regclass('public.workspace_furnishing_thumbnail_selections')::text AS selections")).rows[0];
+   expect(tables).toEqual({candidates:'workspace_furnishing_thumbnail_candidates',selections:'workspace_furnishing_thumbnail_selections'});
+   expect((await current()).json().selectionVersion).toBe(1);expect((await app.inject({method:'GET',url:`${api}/imports/${jobId}`,headers})).json().thumbnailPreparation.status).toBe('ready');
+   await issued.channel.close();combinedVerification={sealed050AppliedOnce:true,ledger47:true,existing46LedgerRowsUnchanged:true,allNineExistingTableSnapshotsUnchanged:true,selected051ReadyReceiptStillReadable:true,tables};
+  }
   const shapeProbe=async(change:(row:Record<string,unknown>)=>void)=>{
    const id=randomUUID(),requestId=randomUUID(),state={kind:'current-approved-image-thumbnail',request:{requestId,expectedRevision:1},workspaceId,principalId:userId,source:{assetId:fullId,mime:'image/png',sha256:sha256(source),bytes:source.length}};
    const row:Record<string,unknown>={id,requestId,mime:'image/png',derived:state,key:`${tenantId}/quarantine/import-${id}/image-thumbnail.png`,drain:1};change(row);
@@ -146,7 +171,7 @@ it.skipIf(!process.env.EXHIBITOS_CURRENT_THUMBNAIL_TEST_PG)('reproduces SQL45 re
    for(const mime of ['image/png','model/gltf-binary','image/jpeg'])await c.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$6,100,$8,'quarantine','approved',1,$9,$10)",[tenantId,randomUUID(),userId,artworkId,randomUUID(),'a'.repeat(64),mime,rights,mime==='image/jpeg'?{}:null,mime==='image/jpeg'?'prepared':null]);
    await c.query('ROLLBACK TO SAVEPOINT legacy');});
   const evidence=process.env.EXHIBITOS_CURRENT_THUMBNAIL_EVIDENCE;
-  if(evidence)await writeFile(join(evidence,'actual-ready-and-selection.json'),JSON.stringify({ready,selected:selected.json(),legacyLedgerUnchanged:true,sourceAndArtworkUnchanged:true,oldSQL45Rejected:true,newAPIUnavailableOnSQL45:true,distinctSelectionRequired:true},null,2)+'\n');
+  if(evidence)await writeFile(join(evidence,'actual-ready-and-selection.json'),JSON.stringify({ready,selected:selected.json(),...(combinedVerification?{combinedVerification}:{}),legacyLedgerUnchanged:true,sourceAndArtworkUnchanged:true,oldSQL45Rejected:true,newAPIUnavailableOnSQL45:true,distinctSelectionRequired:true},null,2)+'\n');
  }finally{
   await app?.close();for(const fd of descriptors.reverse())closeSync(fd);await pool.end();await rm(root,{recursive:true,force:true});
  }
