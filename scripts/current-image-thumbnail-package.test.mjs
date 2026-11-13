@@ -2,7 +2,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,copyFile,readFile,writeFile,readdir,rm,symlink,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath} from 'node:url';import {createHash} from 'node:crypto';
-import {nativePackageExcludedFiles,copyCurrentImageThumbnailSelectedFiles,packageNativeRuntime} from './package-native-runtime.mjs';
+import {nativePackageExcludedFiles,copyWorkspaceFurnishingThumbnailSelectedFiles,copyCurrentImageThumbnailSelectedFiles,packageNativeRuntime} from './package-native-runtime.mjs';
 import {CURRENT_IMAGE_THUMBNAIL_MIGRATION as migration,CURRENT_IMAGE_THUMBNAIL_SHA256 as digest,CURRENT_IMAGE_THUMBNAIL_BYTES as size,CURRENT_IMAGE_THUMBNAIL_MARKER as marker,CURRENT_IMAGE_THUMBNAIL_CAPABILITY as capability,hasCurrentImageThumbnailCapability,verifyCurrentImageThumbnailMigration} from './native-oex-normal-catalog.mjs';
 const relative='database/native-current-image-thumbnail/'+migration,sha=b=>createHash('sha256').update(b).digest('hex');
 async function fixture(){const root=await realpath(await mkdtemp(join(tmpdir(),'thumbnail-package-'))),source=join(root,'source'),output=join(root,'output');await mkdir(join(source,'database/native-current-image-thumbnail'),{recursive:true});await mkdir(join(output,'scripts'),{recursive:true});await copyFile(fileURLToPath(new URL('../'+relative,import.meta.url)),join(source,relative));return{root,source,output,tracked:new Map([['database',new Set()]])};}
@@ -20,4 +20,17 @@ test('missing/tampered/symlinked schema or nonexact marker refuse without accept
 test('opt-in rejects missing parent and incompatible048/046/047/catalog045-adoption combinations before any command or destination write',async()=>{
  const base={currentImageThumbnailSelected:true,modelPreparationSelected:true,workspaceFurnishingWriterSelected:true};
  for(const change of[{modelPreparationSelected:false},{workspaceFurnishingWriterSelected:false},{infoStandPreparationSelected:true},{freshImageSelected:true},{largeModelSelected:true},{modelAdoptionSelected:true},{modelAdoptionCarriedTargetSelected:true},{catalog045PreReadyPreservation:true},{currentImageThumbnailSelected:'true'}])await assert.rejects(packageNativeRuntime('/never-created-thumbnail-package',{...base,...change}),/NATIVE_PACKAGE_INPUT_INVALID/);
+});
+
+test('explicit pair copies both unchanged050 and051 markers and SQL without altering prior isolated capabilities',async()=>{
+ const f=await fixture();try{
+  const name='050_workspace_furnishing_thumbnail.sql',relative050='database/native-workspace-furnishing-thumbnail/'+name;
+  await mkdir(join(f.source,'database/native-workspace-furnishing-thumbnail'),{recursive:true});
+  await copyFile(fileURLToPath(new URL('../'+relative050,import.meta.url)),join(f.source,relative050));
+  await copyCurrentImageThumbnailSelectedFiles(f.source,f.output,f.tracked,true);await copyWorkspaceFurnishingThumbnailSelectedFiles(f.source,f.output,f.tracked,true);
+  assert.equal(sha(await readFile(join(f.output,relative050))),'8461cad231b80c109b1aaedcef6e1a4d599143313faf00f366f52e79780219fc');
+  assert.equal(sha(await readFile(join(f.output,relative))),digest);
+  const names=await readdir(join(f.output,'scripts'));assert(names.includes(marker));assert(names.includes('native-workspace-furnishing-thumbnail-capability-v1.json'));
+  assert.equal(sha(await readFile(join(f.output,'scripts/native-workspace-furnishing-thumbnail-capability-v1.json'))),'3c3e6a6cea3f0d83c55996cab5a4e98d48d92cce28ea090fe6b969a7764014f5');
+ }finally{await rm(f.root,{recursive:true,force:true});}
 });

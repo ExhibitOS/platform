@@ -2,13 +2,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {readFile,readdir,mkdtemp,rm} from 'node:fs/promises';import {constants,openSync,closeSync,fstatSync,realpathSync} from 'node:fs';
 import {join} from 'node:path';import {tmpdir} from 'node:os';import {fileURLToPath} from 'node:url';import {createHash} from 'node:crypto';
-import {recognizeNormalOexCatalog,assertExactCurrentImageThumbnailCatalog,CURRENT_IMAGE_THUMBNAIL_MIGRATION as migration,CURRENT_IMAGE_THUMBNAIL_SHA256 as digest} from './native-oex-normal-catalog.mjs';
-import {assertFurnishingBeforeCommit,upgradeCurrentImageThumbnailCatalog,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {recognizeNormalOexCatalog,assertExactCombinedThumbnailCatalog,assertExactCurrentImageThumbnailCatalog,CURRENT_IMAGE_THUMBNAIL_MIGRATION as migration,CURRENT_IMAGE_THUMBNAIL_SHA256 as digest} from './native-oex-normal-catalog.mjs';
+import {assertFurnishingBeforeCommit,upgradeCombinedThumbnailCatalog,upgradeCurrentImageThumbnailCatalog,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';import {encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
 const db=fileURLToPath(new URL('../database/',import.meta.url)),base=join(db,'migrations'),normal=join(db,'native-oex-normal');
 const options={workspaceImportDirectory:join(db,'native-oex-workspace-import'),workspaceWallImportDirectory:join(db,'native-oex-workspace-import-wall'),workspaceFurnishingDirectory:join(db,'native-workspace-furnishing'),workspaceFurnishingWriterDirectory:join(db,'native-workspace-furnishing-writer'),workspaceFurnishingPublicationDirectory:join(db,'native-workspace-furnishing-publication'),workspaceMaterialPublicationDirectory:join(db,'native-workspace-material-publication'),workspaceMaterialMultimapDirectory:join(db,'native-workspace-material-multimap'),workspaceFramePreparationDirectory:join(db,'native-workspace-frame-preparation'),hayesOriginalDirectory:join(db,'native-hayes-original'),hayesDispositionDirectory:join(db,'native-hayes-disposition'),hayesReleaseDirectory:join(db,'native-hayes-release'),modelPreparationDirectory:join(db,'native-model-preparation'),currentImageThumbnailDirectory:join(db,'native-current-image-thumbnail')};
-async function ledger(){const rows=[];for(const directory of[base,normal,...Object.values(options)])for(const name of(await readdir(directory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});return rows.sort((a,b)=>a.name<b.name?-1:1);}
+async function ledger(selected=options){const rows=[];for(const directory of[base,normal,...Object.values(selected)])for(const name of(await readdir(directory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});return rows.sort((a,b)=>a.name<b.name?-1:1);}
 test('recognizes only exact parent45 plus051 with explicit thumbnail directory and no optional branch mixing',async()=>{
  const rows=await ledger();assert.equal(rows.length,46);const pool={query:async()=>({rows})};assert.equal(await recognizeNormalOexCatalog(pool,base,normal,options),normal);await assertExactCurrentImageThumbnailCatalog(pool);
  for(const edit of[r=>r.pop(),r=>r[45].sha256='0'.repeat(64),r=>r.push({name:'049_unknown.sql',sha256:'0'.repeat(64)}),r=>r[45].name='048_workspace_info_stand_preparation.sql']){const changed=structuredClone(rows);edit(changed);await assert.rejects(assertExactCurrentImageThumbnailCatalog({query:async()=>({rows:changed})}),/NATIVE_OEX_CATALOG/);}
@@ -20,7 +20,7 @@ async function admission(mode){
  const root=realpathSync(await mkdtemp(join(tmpdir(),'thumbnail-catalog-'))),lock=join(root,'native-workspace-furnishing-writers.lock'),extra=[];let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);while(fd<10){extra.push(fd);fd=openSync(lock,constants.O_RDWR);}const rootFd=openSync(root,constants.O_RDONLY|constants.O_DIRECTORY),r=fstatSync(rootFd,{bigint:true}),w=fstatSync(fd,{bigint:true});closeSync(rootFd);
  const scope={workspaceId:id(1),tenantId:id(2),principalId:id(3),runtimeGeneration:id(4),mode},fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(r.dev),rootInode:String(r.ino),lockDevice:String(w.dev),lockInode:String(w.ino)};
  const channel={isOpen:()=>true,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{}},writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:'1023',blobRoot:join(root,'blobs'),configRoot:join(root,'config')});
- channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:mode==='workspace-furnishing-045-to-051-upgrade-v1'?'catalog-upgrade-045-to-051':mode==='workspace-furnishing-036-initialize-v1'?'fresh-empty':'clean-reopen',activeBindingSHA256:'b'.repeat(64)},secret);
+ channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:mode==='workspace-furnishing-051-to-050-051-upgrade-v1'?'catalog-upgrade-051-to-050-051':mode==='workspace-furnishing-045-to-051-upgrade-v1'?'catalog-upgrade-045-to-051':mode==='workspace-furnishing-036-initialize-v1'?'fresh-empty':'clean-reopen',activeBindingSHA256:'b'.repeat(64)},secret);
  const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});return {root,writer,channel,ordinaryAdmission,cleanup:async()=>{closeSync(fd);for(const n of extra)closeSync(n);await rm(root,{recursive:true,force:true});}};
 }
 const bootstrapOptions={base,normal,imports:options.workspaceImportDirectory,wall:options.workspaceWallImportDirectory,furnishing:options.workspaceFurnishingDirectory,writerDirectory:options.workspaceFurnishingWriterDirectory,publicationDirectory:options.workspaceFurnishingPublicationDirectory,materialPublicationDirectory:options.workspaceMaterialPublicationDirectory,materialMultimapDirectory:options.workspaceMaterialMultimapDirectory,framePreparationDirectory:options.workspaceFramePreparationDirectory,hayesOriginalDirectory:options.hayesOriginalDirectory,hayesDispositionDirectory:options.hayesDispositionDirectory,hayesReleaseDirectory:options.hayesReleaseDirectory,modelPreparationDirectory:options.modelPreparationDirectory,currentImageThumbnailDirectory:options.currentImageThumbnailDirectory};
@@ -36,7 +36,7 @@ test('only authenticated explicit fresh-empty initialization includes051 in the 
 });
 
 const upgradeMode='workspace-furnishing-045-to-051-upgrade-v1';
-function upgradeClient(initial,change){const rows=structuredClone(initial),calls=[];return {rows,calls,query:async(sql,args)=>{calls.push(sql);if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows};if(sql.startsWith('SELECT 1 FROM local_workspaces'))return {rowCount:change==='foreign-owner'?0:1,rows:[]};if(sql.startsWith('SELECT EXISTS (SELECT 1 FROM workspace_furnishing_intakes'))return {rows:[{pending:change==='pending'}]};if(sql.startsWith('INSERT INTO schema_migrations'))rows.push({name:args[0],sha256:args[1]});return {rows:[]};}};}
+function upgradeClient(initial,change){const rows=structuredClone(initial),calls=[];return {rows,calls,query:async(sql,args)=>{calls.push(sql);if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows};if(sql.startsWith('SELECT 1 FROM local_workspaces'))return {rowCount:change==='foreign-owner'?0:1,rows:[]};if(sql.startsWith('SELECT EXISTS (SELECT 1 FROM workspace_furnishing_intakes'))return {rows:[{pending:change==='pending'}]};if(sql.startsWith('INSERT INTO schema_migrations')){rows.push({name:args[0],sha256:args[1]});rows.sort((a,b)=>a.name<b.name?-1:1);}return {rows:[]};}};}
 test('sealed upgrade applies only051, retries exact46 withoutDDL, and preserves owner/provenance/session data',async()=>{
  const f=await admission(upgradeMode);try{for(const count of[45,46]){const c=upgradeClient((await ledger()).slice(0,count));const result=await upgradeCurrentImageThumbnailCatalog(c,{mode:upgradeMode,ownerUid:process.getuid(),writer:f.writer,ordinaryAdmission:f.ordinaryAdmission,channel:f.channel,isStopped:()=>false,catalog:{base,normal,...options}});assert.equal(result.state,count===45?'applied':'already-applied');assert.equal(c.rows.length,46);assert.equal(c.rows.at(-1).name,migration);const writes=c.calls.filter(sql=>!/^(SELECT|SET)/.test(sql));assert.equal(writes.length,count===45?2:0);assert(writes.every(sql=>sql.startsWith('-- SPDX')&&sql.includes('ADD CONSTRAINT import_current_image_thumbnail_shape')||sql.startsWith('INSERT INTO schema_migrations')));assert(!c.calls.some(sql=>/^(INSERT|UPDATE|DELETE).*(local_workspaces|auth_sessions|native_oex_exhibition_provenance)/.test(sql)));assert.deepEqual(c.calls.filter(sql=>sql.startsWith('SELECT pg_advisory_xact_lock')),['SELECT pg_advisory_xact_lock(82003)','SELECT pg_advisory_xact_lock(82002)','SELECT pg_advisory_xact_lock(82001)']);}}finally{await f.cleanup();}
 });
@@ -51,7 +51,52 @@ test('final commit fence accepts exact051 on init/reopen and rejects parent45 or
    const run=(catalog,extra={})=>assertFurnishingBeforeCommit({query:async()=>({rows:catalog})},{mode,...f,isStopped:()=>false,modelPreparation:true,currentImageThumbnail:true,...extra});
    await run(rows);
    await assert.rejects(run(rows.slice(0,45)),/NATIVE_OEX_CATALOG/);
-   for(const change of [{modelPreparation:false},{workspaceFurnishingThumbnail:true},{gpuModelPreparation:true},{infoStandPreparation:true},{freshImage:true},{largeModel:true},{currentImageThumbnail:'true'}])await assert.rejects(run(rows,change),/FURNISHING_ADMISSION_INVALID/);
+   await assert.rejects(run(rows,{workspaceFurnishingThumbnail:true}),/NATIVE_OEX_CATALOG/);
+   for(const change of [{modelPreparation:false},{gpuModelPreparation:true},{infoStandPreparation:true},{freshImage:true},{largeModel:true},{currentImageThumbnail:'true'}])await assert.rejects(run(rows,change),/FURNISHING_ADMISSION_INVALID/);
   }finally{await f.cleanup();}
  }
+});
+
+const combinedOptions={...options,workspaceFurnishingThumbnailDirectory:join(db,'native-workspace-furnishing-thumbnail')};
+const combinedMode='workspace-furnishing-051-to-050-051-upgrade-v1';
+test('admits only the exact050+051 pair and preserves old single-supplement assertions',async()=>{
+ const rows=await ledger(combinedOptions),pool={query:async()=>({rows})};assert.equal(rows.length,47);
+ assert.equal(await recognizeNormalOexCatalog(pool,base,normal,combinedOptions),normal);await assertExactCombinedThumbnailCatalog(pool);
+ await assert.rejects(assertExactCurrentImageThumbnailCatalog(pool),/NATIVE_OEX_CATALOG/);
+ for(const edit of [r=>r.pop(),r=>r[45].sha256='0'.repeat(64),r=>r[46].sha256='0'.repeat(64),r=>r[45].name='048_unknown.sql',r=>r.push({name:'052_unallocated.sql',sha256:'0'.repeat(64)})]){const altered=structuredClone(rows);edit(altered);await assert.rejects(assertExactCombinedThumbnailCatalog({query:async()=>({rows:altered})}),/NATIVE_OEX_CATALOG/);}
+ await assert.rejects(recognizeNormalOexCatalog(pool,base,normal,options),/NATIVE_OEX_CATALOG/);
+});
+test('sealed051 to combined upgrade adds only050 and rechecks exact47 withoutDDL',async()=>{
+ const f=await admission(combinedMode);try{for(const initial of [await ledger(),await ledger(combinedOptions)]){
+  const c=upgradeClient(initial),before=structuredClone(initial),result=await upgradeCombinedThumbnailCatalog(c,{mode:combinedMode,ownerUid:process.getuid(),writer:f.writer,ordinaryAdmission:f.ordinaryAdmission,channel:f.channel,isStopped:()=>false,catalog:{base,normal,...combinedOptions}});
+  assert.equal(result.state,initial.length===46?'applied':'already-applied');assert.deepEqual(c.rows,await ledger(combinedOptions));
+  assert.deepEqual(c.rows.filter(row=>row.name!=='050_workspace_furnishing_thumbnail.sql'),before.filter(row=>row.name!=='050_workspace_furnishing_thumbnail.sql'));
+  const writes=c.calls.filter(sql=>!/^(SELECT|SET)/.test(sql));assert.equal(writes.length,initial.length===46?2:0);
+  assert(!writes.some(sql=>sql.includes('ADD CONSTRAINT import_current_image_thumbnail_shape')));assert(writes.every(sql=>sql.includes('CREATE TABLE workspace_furnishing_thumbnail_candidates')||sql.startsWith('INSERT INTO schema_migrations')));
+ }}finally{await f.cleanup();}
+});
+test('combined upgrade rejects parent45, old050, altered051, foreignowner, pendingwork and ordinary mode beforeDDL',async()=>{
+ const f=await admission(combinedMode),ordinary=await admission('workspace-furnishing-036-reopen-v1');try{
+ for(const kind of ['parent45','old050','hash','foreign-owner','pending','ordinary','stopped']){
+  const initial=await ledger();if(kind==='parent45')initial.pop();if(kind==='old050')initial[45]=(await ledger(combinedOptions))[45];if(kind==='hash')initial[45].sha256='0'.repeat(64);
+  const c=upgradeClient(initial,kind),auth=kind==='ordinary'?ordinary:f;
+  await assert.rejects(upgradeCombinedThumbnailCatalog(c,{mode:combinedMode,ownerUid:process.getuid(),writer:auth.writer,ordinaryAdmission:auth.ordinaryAdmission,channel:auth.channel,isStopped:()=>kind==='stopped',catalog:{base,normal,...combinedOptions}}));
+  assert(!c.calls.some(sql=>sql.startsWith('-- SPDX')||/^(CREATE|INSERT|UPDATE|DELETE)/.test(sql)));
+ }}finally{await f.cleanup();await ordinary.cleanup();}
+});
+test('combined ordinary final fence requires exact47; single051 payload cannot reopen combined ledger',async()=>{
+ const f=await admission('workspace-furnishing-036-reopen-v1');try{
+  const run=(rows,extra={})=>assertFurnishingBeforeCommit({query:async()=>({rows})},{mode:'workspace-furnishing-036-reopen-v1',...f,isStopped:()=>false,modelPreparation:true,currentImageThumbnail:true,workspaceFurnishingThumbnail:true,...extra});
+  await run(await ledger(combinedOptions));await assert.rejects(run(await ledger()),/NATIVE_OEX_CATALOG/);
+  await assert.rejects(run(await ledger(combinedOptions),{workspaceFurnishingThumbnail:false}),/NATIVE_OEX_CATALOG/);
+ }finally{await f.cleanup();}
+});
+
+test('ordinary combined reopen requires exact47 and never applies050 or051',async()=>{
+ const f=await admission('workspace-furnishing-036-reopen-v1');try{for(const combined of [false,true]){
+  const rows=await ledger(combined?combinedOptions:options),calls=[],client={query:async sql=>{calls.push(sql);return {rows:sql.startsWith('SELECT EXISTS')?[{occupied:true}]:sql.startsWith('SELECT to_regclass')?[{name:'schema_migrations'}]:rows};}};
+  const run=()=>prepareWorkspaceFurnishingCatalog(client,{...bootstrapOptions,workspaceFurnishingThumbnailDirectory:combinedOptions.workspaceFurnishingThumbnailDirectory,mode:'workspace-furnishing-036-reopen-v1',...f});
+  if(combined)assert.deepEqual(await run(),{requireExisting:true});else await assert.rejects(run(),/NATIVE_OEX_CATALOG/);
+  assert(!calls.some(sql=>/^(CREATE|INSERT|UPDATE|DELETE)/.test(sql)));
+ }}finally{await f.cleanup();}
 });

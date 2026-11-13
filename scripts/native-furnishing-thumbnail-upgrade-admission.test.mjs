@@ -52,3 +52,22 @@ test('rejects payload/generation/physical-identity and authenticated binding/pro
  const bad=JSON.parse(frame);bad.carriedRestoreProof.observation.targetDatabaseSystemId='12';assert.throws(()=>authenticateFurnishingOrdinaryAssertion(Buffer.from(JSON.stringify(bad)),'furnishing-ordinary-admission',secret),/FURNISHING_ADMISSION_INVALID/);
  assert.throws(()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{...fields,restoreProof:fields.carriedRestoreProof.observation.priorRestoreProof},secret),/FURNISHING_ADMISSION_INVALID/);
 });
+
+test('appends combined lease12/admission11 with carried proof and keeps051 wire values11/10',async()=>{
+ const combined='workspace-furnishing-051-to-050-051-upgrade-v1',kind='catalog-upgrade-051-to-050-051',f=await fixture(combined);
+ try{
+  for(const [selectedMode,ordinal] of [[combined,12],['workspace-furnishing-045-to-051-upgrade-v1',11]]){
+   const fields={...f.fields,mode:selectedMode},frame=encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret);assert.equal(JSON.parse(frame).mac,leaseMac(fields,ordinal));
+  }
+  const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:id(4),leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64),carriedRestoreProof:carried()};
+  const frame=encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);assert.equal(JSON.parse(frame).mac,ordinaryMac(fields,11));
+  assert.equal(JSON.parse(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{...fields,admissionKind:'catalog-upgrade-045-to-051'},secret)).mac,ordinaryMac({...fields,admissionKind:'catalog-upgrade-045-to-051'},10));
+  f.input.channel.receive=async()=>frame;const admission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});assert.deepEqual(admission.fields,fields);
+  for(const step of ['furnishing-ordinary-stop','furnishing-ordinary-drained'])assert.deepEqual(verifyFurnishingOrdinaryAssertion(encodeFurnishingOrdinaryAssertion(step,fields,secret),step,fields,secret),fields);
+ }finally{await cleanup(f);}
+});
+test('ordinary and051-only modes cannot claim the combined admission',async()=>{
+ for(const selectedMode of ['workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-051-upgrade-v1']){
+  const f=await fixture(selectedMode);try{const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:id(4),leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'catalog-upgrade-051-to-050-051',activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);await assert.rejects(acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),/FURNISHING_ADMISSION_INVALID/);}finally{await cleanup(f);}
+ }
+});
