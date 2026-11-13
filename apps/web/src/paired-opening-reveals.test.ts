@@ -38,7 +38,22 @@ it.each([false,true])('draws each connected reveal once across the entire depth 
   expect(JSON.stringify(f.document)).toBe(input);expect(JSON.stringify(architecturalSolids(f.document))).toBe(physical);
  }finally{result.dispose();for(const material of f.materials.values())material.dispose();}
 });
-it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled'])('leaves %s geometry on its original safe path',kind=>{
+it.each([['painted-edge','plain'],['plain','painted-edge'],['dark-edge','painted-edge']] as const)('preserves exterior %s / %s finishes while removing only buried trim from the common reveal',(...presets)=>{
+ const f=fixture(),walls=wallFinishesFor(f.document);walls.forEach((w,i)=>{w.preset=presets[i]!;});f.document.extensions![ARCHITECTURAL_FINISH_NAMESPACE]={version:1,walls:walls.map(w=>({...w}))};
+ const input=JSON.stringify(f.document),physical=JSON.stringify(architecturalSolids(f.document)),result=installArchitecturalFinishes(three,f.document,f.surfaces,f.materials);f.world.updateMatrixWorld(true);
+ try{
+  for(const offset of [-.051,0,.051]){const hits=new three.Raycaster(new three.Vector3(0,1.5,-4+offset),new three.Vector3(-1,0,0)).intersectObjects(result.meshes,false).filter(h=>Math.abs(h.distance-1.2)<1e-6);expect(new Set(hits.map(h=>h.object.uuid)).size).toBe(1);}
+  for(const wall of walls.filter(w=>w.preset!=='plain')){
+   const surface=f.document.surfaces.find(s=>s.id===wall.surfaceId)!,expected=architecturalWallBoxes(surface,f.document.openings,wall).filter(b=>b.kind==='finish'&&b.position[2]>0).map(b=>new three.Matrix4().compose(new three.Vector3(...b.position),new three.Quaternion(),new three.Vector3(b.dimensions.width,b.dimensions.height,b.dimensions.depth)).elements.map(Math.fround));
+   const mesh=result.meshes.find(m=>m.userData.architecturalFinish.surfaceId===surface.id&&m.userData.architecturalFinish.kind==='finish')!;expect(mesh).toBeInstanceOf(three.InstancedMesh);const instances=mesh as three.InstancedMesh,front:number[][]=[];
+   for(let i=0;i<instances.count;i++){const m=new three.Matrix4();instances.getMatrixAt(i,m);if(m.elements[14]!>0)front.push(m.elements);}expect(front).toEqual(expected);
+  }
+  const bounds=new three.Box3().setFromObject(f.world),points=architecturalSolids(f.document).flatMap(s=>s.vertices);for(const axis of [0,1,2]){expect(bounds.min.getComponent(axis)).toBeCloseTo(Math.min(...points.map(p=>p[axis]!)),6);expect(bounds.max.getComponent(axis)).toBeCloseTo(Math.max(...points.map(p=>p[axis]!)),6);}
+  expect(JSON.stringify(f.document)).toBe(input);expect(JSON.stringify(architecturalSolids(f.document))).toBe(physical);
+ }finally{result.dispose();for(const m of f.materials.values())m.dispose();}
+});
+it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled','multiple'])('leaves %s geometry on its original safe path',kind=>{
  const f=fixture();if(kind==='unpaired')delete f.first.connectsToOpeningId;if(kind==='oneway')delete f.second.connectsToOpeningId;if(kind==='width')f.second.dimensions.width=2;if(kind==='height')f.second.dimensions.height=2.5;if(kind==='shift')f.second.offset[0]=.1;if(kind==='tilt')f.surfaces.get(f.b.id)!.rotation.x=.1;if(kind==='disjoint')f.surfaces.get(f.b.id)!.position.z=3.7;
+ if(kind==='multiple')f.document.openings.push(newDoor(f.a.id,{width:.8,height:2},[2.5,-1]));
  const walls=wallFinishesFor(f.document);if(kind==='unstyled')walls.pop();expect(pairedOpeningRevealCoverage(three,f.document,f.surfaces,walls).size).toBe(0);for(const material of f.materials.values())material.dispose();
 });

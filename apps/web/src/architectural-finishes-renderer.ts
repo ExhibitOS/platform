@@ -2,7 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {wallFinishesFor,architecturalWallBoxes,validateArchitecturalFinishes,surfaceTextureFor,type SurfaceTextureBinding} from '@exhibitos/studio-contract';
-import {wallOpeningShell,pairedOpeningRevealCoverage,type OpeningRevealCoverage} from './wall-opening-shell';
+import {wallOpeningShell,pairedOpeningRevealCoverage,buriedPairedFinish,type OpeningRevealCoverage} from './wall-opening-shell';
 /** One draw per wall structure, as before, with continuous metre UVs across
  * opening-split front faces and real depth on reveals. No unit-box stretch. */
 export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof architecturalWallBoxes>,parent:Three.Object3D,binding:Pick<SurfaceTextureBinding,'repeatMeters'|'rotation'>,coverage?:readonly OpeningRevealCoverage[]){
@@ -31,7 +31,7 @@ export function installArchitecturalFinishes(three:typeof Three,document:Exhibit
   const boxes=architecturalWallBoxes(surface,document.openings,wall),pose=new three.Object3D();
   const openingWidths=document.openings.filter(o=>o.surfaceId.toLowerCase()===surface.id.toLowerCase()).map(o=>o.dimensions.width);
   let triangles=0;
-  for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind);if(!items.length)continue;let material=base;
+  for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind&&!buriedPairedFinish(b,coverage.get(surface.id.toLowerCase())));if(!items.length)continue;let material=base;
    if(kind==='finish'){let own=materials.get(wall.preset);if(!own){own=new three.MeshStandardMaterial(wall.preset==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(wall.preset,own);}material=own;}
    const binding=kind==='structure'?(workspaceBindings?.get(surface.id.toLowerCase())??surfaceTextureFor(document,surface.id)):undefined;let mesh:Three.Mesh;
    if(binding||kind==='structure'&&items.length>1){
