@@ -11,7 +11,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@exhibitos/spec": "0.1.0-draft.29",
+    "@exhibitos/spec": "0.1.0-draft.31",
     "@exhibitos/storage": "0.1.0",
     "@exhibitos/studio-contract": "0.1.0",
     "ajv": "8.20.0",

@@ -60,11 +60,11 @@ it('retains one owner-scoped intake across replay and registers original model a
 });
 
 
-it('binds a server-generated fit to the uploaded model and reopens the immutable registration',async()=>{
+it.each(['straight-ring-v1','straight-miter-ring-v1'] as const)('binds a server-generated %s fit to the unchanged model and reopens registration',async(profile)=>{
  const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const};
  const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
- const declaration={...f.declaration,kind:'artwork-frame',fitProfile:'straight-ring-v1'};
- const geometry={profile:'straight-ring-v1' as const,openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012};
+ const declaration={...f.declaration,kind:'artwork-frame',fitProfile:profile};
+ const geometry={profile,openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012};
  const fit={version:1,sourceSha256:declaration.model.sha256,sourceBytes:declaration.model.bytes,geometry};
  await expect(service.create(f.client,f.session,{...declaration,fit})).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
  const first=await service.create(f.client,f.session,declaration);
@@ -72,7 +72,7 @@ it('binds a server-generated fit to the uploaded model and reopens the immutable
  await service.complete(f.client,f.session,first.intakeId);
  vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);
  expect(await service.work(f.pool)).toBe(true);
- expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(declaration.model,f.bytes,expect.objectContaining({writerFd:12}),'straight-ring-v1');
+ expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(declaration.model,f.bytes,expect.objectContaining({writerFd:12}),profile);
  const done=await service.read(f.client,f.session,first.intakeId);
  expect(done.furnishing).toMatchObject({model:declaration.model,fit});
  const reopened=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);

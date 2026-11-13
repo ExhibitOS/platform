@@ -1,13 +1,13 @@
 {
   "package": "@exhibitos/spec",
-  "packageVersion": "0.1.0-draft.29",
+  "packageVersion": "0.1.0-draft.31",
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
-  "file": "vendor/exhibitos-spec-0.1.0-draft.29.tgz",
-  "bytes": 183627,
-  "sha256": "568520548c886918fb6fe3f4e1b400f9205f574308d4069ac209cde627ebbe6d",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.31.tgz",
+  "bytes": 185591,
+  "sha256": "ca48ff110714e04e729b58c121e81be9e0a5b0a3a12d3be64e3a643beae955d8",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "72e1fc4eaf26d8a68a70cd8cb096af5d885e7b7c",
+  "upstreamSourceCommit": "5c8864f34b452efe29ece435bfa53cbad08a0b14",
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
     "originalSyntheticAssets": "CC0-1.0",
@@ -20,8 +20,8 @@
     "fixtures/synthetic/manifest.json",
     "fixtures/synthetic/audio.wav"
   ],
-  "proposedTag": "spec-package-v0.1.0-draft.29",
-  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.29.tgz",
+  "proposedTag": "spec-package-v0.1.0-draft.31",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.31.tgz",
   "oexContractVersions": [
     "1.0.0-draft.1",
     "1.0.0-draft.2",
@@ -40,7 +40,8 @@
     "1.0.0-draft.16",
     "1.0.0-draft.17",
     "1.0.0-draft.18",
-    "1.0.0-draft.19"
+    "1.0.0-draft.19",
+    "1.0.0-draft.21"
   ],
   "oesContractVersions": [
     "1.0.0-draft.1",

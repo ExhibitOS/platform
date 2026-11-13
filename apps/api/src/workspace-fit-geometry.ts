@@ -13,6 +13,8 @@ const metres = (value:number) => Math.round(value*1e6)/1e6;
 // lexicographically ordered geometric corners, independent of vertex splits,
 // accessors, materials, or GLB byte identity.
 const ringTriangles = '0,1,3 0,2,4 0,3,2 0,4,18 0,18,20 0,20,1 1,9,11 1,11,3 1,20,21 1,21,9 2,3,23 2,5,4 2,22,5 2,23,22 3,11,15 3,15,23 4,5,6 4,6,16 4,16,18 5,7,6 5,19,7 5,22,19 6,7,8 6,8,12 6,12,16 7,10,8 7,17,10 7,19,17 8,9,13 8,10,9 8,13,12 9,10,11 9,21,13 10,14,11 10,17,14 11,14,15 12,13,15 12,14,16 12,15,14 13,21,23 13,23,15 14,17,16 16,17,18 17,19,18 18,19,20 19,22,20 20,22,21 21,22,23';
+// Eight-level 15 mm straight-miter family; independent of source bytes and vertex splits.
+const miterRingTriangles = '13,17,16 13,16,12 17,19,18 17,18,16 19,15,14 19,14,18 15,13,12 15,12,14 12,16,20 12,20,10 16,18,21 16,21,20 18,14,11 18,11,21 14,12,10 14,10,11 10,20,22 10,22,8 20,21,23 20,23,22 21,11,9 21,9,23 11,10,8 11,8,9 8,22,24 8,24,6 22,23,25 22,25,24 23,9,7 23,7,25 9,8,6 9,6,7 6,24,26 6,26,4 24,25,27 24,27,26 25,7,5 25,5,27 7,6,4 7,4,5 4,26,28 4,28,0 26,27,30 26,30,28 27,5,2 27,2,30 5,4,0 5,0,2 0,28,29 0,29,1 28,30,31 28,31,29 30,2,3 30,3,31 2,0,1 2,1,3 1,29,17 1,17,13 29,31,19 29,19,17 31,3,15 31,15,19 3,1,13 3,13,15';
 const portalTriangles = '0,1,2 0,2,4 0,4,5 0,5,1 1,3,2 1,5,3 2,3,14 2,6,4 2,14,6 3,5,7 3,7,11 3,11,15 3,15,14 4,6,7 4,7,5 6,10,11 6,11,7 6,14,10 8,9,10 8,10,14 8,12,13 8,13,9 8,14,12 9,11,10 9,13,15 9,15,11 12,14,15 12,15,13';
 
 interface Layout {
@@ -179,14 +181,21 @@ export function qualifyWorkspaceFitGeometry(bytes:Buffer,profile:WorkspaceFitPro
  const node=doc.nodes?.[0],primitive=doc.meshes?.[0]?.primitives?.[0];
  if(doc.nodes?.length!==1||doc.meshes?.length!==1||doc.meshes[0].primitives.length!==1||doc.scenes?.length!==1||doc.scenes[0].nodes?.join()!=='0'||(doc.scene??0)!==0||
   node?.mesh!==0||Object.keys(node).some(k=>k!=='mesh'&&k!=='name'&&k!=='extras')||!primitive||primitive.targets||(primitive.mode??4)!==4||
-  Object.keys(primitive.attributes).sort().join(',')!=='NORMAL,POSITION'||doc.textures?.length||doc.images?.length||doc.animations?.length||doc.skins?.length||doc.buffers?.length!==1)return;
+  !(profile==='straight-miter-ring-v1'?Object.keys(primitive.attributes).every(key=>['POSITION','NORMAL','TANGENT','TEXCOORD_0'].includes(key))&&Object.hasOwn(primitive.attributes,'POSITION')&&Object.hasOwn(primitive.attributes,'NORMAL'):Object.keys(primitive.attributes).sort().join(',')==='NORMAL,POSITION')||doc.textures?.length||doc.images?.length||doc.animations?.length||doc.skins?.length||doc.buffers?.length!==1)return;
  const positions=readAccessor(bin,doc.accessors[primitive.attributes.POSITION],doc.bufferViews,true);
  const indices=readAccessor(bin,doc.accessors[primitive.indices],doc.bufferViews,false);
  if(!positions||!indices||indices.some(i=>i>=positions.length/3))return;
  const points:Point[]=[];
  for(let i=0;i<positions.length;i+=3)points.push([positions[i]!,positions[i+1]!,positions[i+2]!]);
  const halfWidth=metres(Math.min(...points.map(([x])=>Math.abs(x))));
- if(profile==='straight-ring-v1'){
+ if(profile==='straight-miter-ring-v1'){
+  const halfHeight=metres(Math.min(...points.map(([,y])=>Math.abs(y))));
+  if(halfWidth<.20||halfWidth>1||halfHeight<.20||halfHeight>1)return;
+  const corners:Point[]=[];
+  for(const [offset,z] of [[0,0],[0,-.0238],[.0005,-.0246],[.001,-.025],[.014,-.025],[.0147,-.0245],[.015,-.0238],[.015,0]] as const)
+   for(const x of [-1,1])for(const y of [-1,1])corners.push([x*(halfWidth+offset),y*(halfHeight+offset),z]);
+  if(matchesFaces(points,indices,corners,miterRingTriangles))return {profile,openingWidth:2*halfWidth,openingHeight:2*halfHeight,imagePlaneZ:-.012};
+ }else if(profile==='straight-ring-v1'){
   const halfHeight=metres(Math.min(...points.map(([,y])=>Math.abs(y))));
   if(halfWidth<.20||halfWidth>1||halfHeight<.20||halfHeight>1)return;
   const corners:Point[]=[];

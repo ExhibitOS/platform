@@ -11,7 +11,7 @@ export function isWorkspaceFitGeometry(value:unknown,profile:WorkspaceFitProfile
  if(!record(value)||value.profile!==profile)return false;
  const keys=Object.keys(value).sort().join(',');
  if(profile==='modular-portal-v1')return modularPortalParts(value);
- if(profile==='straight-ring-v1')return keys==='imagePlaneZ,openingHeight,openingWidth,profile'&&finite(value.openingWidth,.4,2)&&finite(value.openingHeight,.4,2)&&value.imagePlaneZ===-.012;
+ if(profile==='straight-ring-v1'||profile==='straight-miter-ring-v1')return keys==='imagePlaneZ,openingHeight,openingWidth,profile'&&finite(value.openingWidth,.4,2)&&finite(value.openingHeight,.4,2)&&value.imagePlaneZ===-.012;
  return keys==='maxZ,minZ,openingHeight,openingWidth,profile'&&finite(value.openingWidth,.9,3)&&finite(value.openingHeight,2,3.2)&&finite(value.minZ,-.15,-.015)&&finite(value.maxZ,.015,.15);
 }
 

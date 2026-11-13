@@ -19,3 +19,9 @@ test('allows v4 to v5 upgrade but never silently downgrades a v5 document',()=>{
  assert.equal(ordinaryFrameDelta(before,after,namespace),true);
  assert.equal(ordinaryFrameDelta(after,before,namespace),false);
 });
+
+test('allows one source-bound v9 frame edit while retaining portals and rejects reserved v8',()=>{
+ const before=base();before.candidate.extensions![namespace]={version:7,furnishings:[{id:'portal',kind:'portal-finish'}],placements:[],frameAttachments:[],openingAttachments:[{openingId:'door',furnishingId:'portal'}]} as never;
+ const after=structuredClone(before),ext=after.candidate.extensions![namespace] as unknown as {version:number;furnishings:object[];frameAttachments:object[];openingAttachments:object[]};ext.version=9;ext.furnishings.push({id:'miter',kind:'artwork-frame'});ext.frameAttachments.push({placementId:'image',furnishingId:'miter'});
+ assert.equal(ordinaryFrameDelta(before,after,namespace),true);assert.equal(ordinaryFrameDelta(after,before,namespace),true);ext.version=8;assert.equal(ordinaryFrameDelta(before,after,namespace),false);ext.version=9;ext.openingAttachments=[];assert.equal(ordinaryFrameDelta(before,after,namespace),false);
+});
