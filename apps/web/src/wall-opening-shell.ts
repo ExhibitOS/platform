@@ -7,24 +7,29 @@ type Point = readonly [number, number];
 type Edge = readonly [Point, Point];
 type Axis = 0 | 1;
 type Panel = { min: Point; max: Point };
-export type OpeningRevealCoverage={left:number;right:number;bottom:number;top:number;minZ:number;maxZ:number;omit:boolean};
+type Slab={left:number;right:number;bottom:number;top:number;minZ:number;maxZ:number};
+export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab};
 
 /** Two explicitly connected slabs can overlap along the same reveal plane.
  * Draw their depth union once, on a deterministic world-normal side. Front/back
  * panels and physical solids remain unchanged. Only aligned, matching apertures
  * with overlapping depths qualify; other geometry retains the original shell. */
-export function pairedOpeningRevealCoverage(three:typeof Three,document:Pick<Exhibition,'openings'>,surfaces:ReadonlyMap<string,Three.Group>,walls:readonly WallFinish[]){
+export function pairedOpeningRevealCoverage(three:typeof Three,document:Pick<Exhibition,'openings'|'surfaces'>,surfaces:ReadonlyMap<string,Three.Group>,walls:readonly WallFinish[]){
  const result=new Map<string,OpeningRevealCoverage[]>(),depths=new Map(walls.map(w=>[w.surfaceId.toLowerCase(),w.depth])),visited=new Set<string>(),epsilon=1e-6;
- const put=(opening:Exhibition['openings'][number],minZ:number,maxZ:number,omit:boolean)=>{
+ const put=(opening:Exhibition['openings'][number],minZ:number,maxZ:number,omit:boolean,peer:Slab)=>{
   const id=opening.surfaceId.toLowerCase(),rows=result.get(id)??[];
-  rows.push({left:Math.fround(opening.offset[0]-opening.dimensions.width/2),right:Math.fround(opening.offset[0]+opening.dimensions.width/2),bottom:Math.fround(opening.offset[1]-opening.dimensions.height/2),top:Math.fround(opening.offset[1]+opening.dimensions.height/2),minZ,maxZ,omit});result.set(id,rows);
+  rows.push({left:Math.fround(opening.offset[0]-opening.dimensions.width/2),right:Math.fround(opening.offset[0]+opening.dimensions.width/2),bottom:Math.fround(opening.offset[1]-opening.dimensions.height/2),top:Math.fround(opening.offset[1]+opening.dimensions.height/2),minZ,maxZ,omit,peer});result.set(id,rows);
  };
  for(const opening of document.openings){
   const id=opening.id.toLowerCase(),mate=document.openings.find(o=>o.id.toLowerCase()===opening.connectsToOpeningId?.toLowerCase());
   if(visited.has(id)||!mate||mate.id.toLowerCase()===id||mate.connectsToOpeningId?.toLowerCase()!==id||mate.surfaceId.toLowerCase()===opening.surfaceId.toLowerCase())continue;
   visited.add(id);visited.add(mate.id.toLowerCase());
+  // The peer solid is a rectangle minus this one matching aperture. Multiple
+  // cuts retain their existing rendering until their entire coverage is known.
+  if(document.openings.filter(o=>o.surfaceId.toLowerCase()===opening.surfaceId.toLowerCase()).length!==1||document.openings.filter(o=>o.surfaceId.toLowerCase()===mate.surfaceId.toLowerCase()).length!==1)continue;
   const a=surfaces.get(opening.surfaceId.toLowerCase()),b=surfaces.get(mate.surfaceId.toLowerCase()),depthA=depths.get(opening.surfaceId.toLowerCase()),depthB=depths.get(mate.surfaceId.toLowerCase());
   if(!a||!b||depthA===undefined||depthB===undefined)continue;
+  const surfaceA=document.surfaces.find(s=>s.id.toLowerCase()===opening.surfaceId.toLowerCase()),surfaceB=document.surfaces.find(s=>s.id.toLowerCase()===mate.surfaceId.toLowerCase());if(!surfaceA||!surfaceB)continue;
   a.updateWorldMatrix(true,false);b.updateWorldMatrix(true,false);
   const relative=a.matrixWorld.clone().invert().multiply(b.matrixWorld),e=relative.elements;
   // Relative X/Z reverse, Y agrees. Reject skew, tilted/nonmatching apertures,
@@ -34,10 +39,21 @@ export function pairedOpeningRevealCoverage(three:typeof Three,document:Pick<Exh
   if(Math.abs(center.x-opening.offset[0])>epsilon||Math.abs(center.y-opening.offset[1])>epsilon||Math.abs(Math.abs(e[0]!)*mate.dimensions.width-opening.dimensions.width)>epsilon||Math.abs(e[5]!*mate.dimensions.height-opening.dimensions.height)>epsilon||Math.min(depthA/2,center.z+peerHalf)-Math.max(-depthA/2,center.z-peerHalf)<=epsilon)continue;
   const normal=new three.Vector3(0,0,1).applyMatrix3(new three.Matrix3().getNormalMatrix(a.matrixWorld)).normalize(),owns=normal.toArray().find(n=>Math.abs(n)>1e-8)!>0;
   const inverse=relative.clone().invert().elements;if(!inverse.every(Number.isFinite)||Math.abs(inverse[15]!-1)>1e-9)continue;const otherHalf=Math.abs(inverse[10]!)*depthA/2;
-  put(opening,Math.min(-depthA/2,center.z-peerHalf),Math.max(depthA/2,center.z+peerHalf),!owns);
-  put(mate,Math.min(-depthB/2,inverse[14]!-otherHalf),Math.max(depthB/2,inverse[14]!+otherHalf),owns);
+  const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:center.z-peerHalf,maxZ:center.z+peerHalf};
+  const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!-otherHalf,maxZ:inverse[14]!+otherHalf};
+  put(opening,Math.min(-depthA/2,peerA.minZ),Math.max(depthA/2,peerA.maxZ),!owns,peerA);
+  put(mate,Math.min(-depthB/2,peerB.minZ),Math.max(depthB/2,peerB.maxZ),owns,peerB);
  }
  return result;
+}
+
+/** A backside trim cell entirely inside the connected peer solid is not an
+ * exterior finish. Keep every exposed or partly exposed cell and its UV/pose;
+ * only these fully buried instances would duplicate the shared reveal plane. */
+export function buriedPairedFinish(box:ReturnType<typeof architecturalWallBoxes>[number],coverage:readonly OpeningRevealCoverage[]|undefined){
+ if(box.kind!=='finish'||!coverage)return false;
+ const [x,y,z]=box.position,{width,height,depth}=box.dimensions,e=1e-9;
+ return coverage.some(({peer:p})=>x-width/2>=p.left-e&&x+width/2<=p.right+e&&y-height/2>=p.bottom-e&&y+height/2<=p.top+e&&z-depth/2>=p.minZ-e&&z+depth/2<=p.maxZ+e);
 }
 
 function coverageForEdge([a,b]:Edge,coverage:readonly OpeningRevealCoverage[]){
