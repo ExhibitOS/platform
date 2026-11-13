@@ -107,7 +107,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    visual.matrix.copy(wallMatrix.multiply(new three.Matrix4().makeTranslation(opening.offset[0],opening.offset[1]-height/2,0)));visual.matrixAutoUpdate=false;
   }else if(attachment){
    const doc=candidate as unknown as Exhibition,target=doc.placements.find(p=>p.id===attachment.placementId&&p.roomId===options.roomId),art=doc.artworks.find(a=>a.revisionId===attachment.artworkRevisionId);if(!target||!art)throw Error('WORKSPACE_PLACEMENT_INVALID');
-   const measured=workspaceFitGeometry(descriptor),ring=measured?.profile==='straight-ring-v1'?measured:undefined;
+   const measured=workspaceFitGeometry(descriptor),ring=(measured?.profile==='straight-ring-v1'||measured?.profile==='straight-miter-ring-v1')?measured:undefined;
    const model=artworkFrameModel(descriptor.model.sha256,descriptor.model.bytes);
    const fit=ring?qualifiedFrameTargetFit(ring,art.dimensions.width,art.dimensions.height):model&&artworkFrameFit(model,art.dimensions.width,art.dimensions.height);
    const imagePlaneZ=ring?.imagePlaneZ??model?.imagePlaneZ;
