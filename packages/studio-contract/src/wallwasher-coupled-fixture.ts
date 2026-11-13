@@ -40,9 +40,11 @@ export function resolveCoupledWallwasher(document:Exhibition,binding:FurnishingB
   if(extension?.version!==11||!validateWorkspaceFurnishings(document).valid)throw Error('TRACK_SPOT_RAIL_REQUIRED');
   const matches=[];
   for(const placement of extension.placements){
+   const railAttachment=extension.ceilingAttachments?.find(row=>same(row.placementId,placement.id));
+   if(!railAttachment||!same(railAttachment.surfaceId,surface.id))continue;
    const descriptor=extension.furnishings.find(item=>same(item.id,placement.furnishingId)),g=descriptor?.fit?.geometry;
    if(descriptor?.kind!=='ceiling-rail'||g?.profile!=='passive-ceiling-rail-v1'||!same(placement.roomId,light.roomId))continue;
-   const contactPlane={pose:{...surface.transform,position:[surface.transform.position[0],surface.transform.position[1]+g.min[1],surface.transform.position[2]] as [number,number,number]},dimensions:surface.dimensions};
+   const contactPlane={pose:{...surface.transform,position:[surface.transform.position[0],placement.position[1]+g.min[1],surface.transform.position[2]] as [number,number,number]},dimensions:surface.dimensions};
    let resolved;try{resolved=resolveWallwasherFromEmitter({profile,opticalPose,ceilingSurface:contactPlane});}catch{continue;}
    const mount=resolved.fixedPose,c=Math.cos(placement.yaw),s=Math.sin(placement.yaw),dx=mount.position[0]-placement.position[0],dz=mount.position[2]-placement.position[2],x=c*dx-s*dz,z=s*dx+c*dz;
    // A unique geometric contact, not a serialized linkage or electrical claim.

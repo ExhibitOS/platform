@@ -35,3 +35,21 @@ it.each(['wrong-pitch','no-contact','ambiguous-contact'])('fails closed after st
  if(kind==='ambiguous-contact'){const id='b0000000-0000-4000-8000-000000000003';rail.placements.push({...structuredClone(rail.placements[0]!),id});rail.ceilingAttachments.push({...structuredClone(rail.ceilingAttachments[0]!),placementId:id});}
  expect(trackSpotStaticRailContext(e,lightId)).toBe(true);expect(validateFurnishings(e).valid).toBe(false);
 });
+
+it('uses only contact rails on the selected ceiling and ignores other-surface contact duplicates',()=>{
+ const e=staticTrackCandidate(),rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{id:string;position:number[]}[];ceilingAttachments:{placementId:string;surfaceId:string;anchor:number[]}[]};
+ const other='b0000000-0000-4000-8000-000000000004',duplicate='b0000000-0000-4000-8000-000000000005';
+ e.surfaces.push({...structuredClone(e.surfaces[0]!),id:other});rail.placements.push({...structuredClone(rail.placements[0]!),id:duplicate});rail.ceilingAttachments.push({...structuredClone(rail.ceilingAttachments[0]!),placementId:duplicate,surfaceId:other});
+ expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(validateFurnishings(e).valid).toBe(true);
+ rail.placements[0]!.position[0]+=.2;rail.ceilingAttachments[0]!.anchor[0]+=.2;
+ expect(trackSpotStaticRailContext(e,lightId)).toBe(true);expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(validateFurnishings(e).valid).toBe(false);
+});
+it('uses the actual admitted rail height for nonzero ceiling gap',()=>{
+ const e=staticTrackCandidate(),rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{position:number[]}[];ceilingAttachments:{gap:number}[]};
+ rail.placements[0]!.position[1]-=.02;rail.ceilingAttachments[0]!.gap=.02;
+ e.lights[0]!.transform.position[1]-=.02;
+ const attached=e.extensions!['org.exhibitos.studio/light-attachments'] as unknown as {lights:{gap:number}[]};attached.lights[0]!.gap+=.02;
+ const details=e.extensions!['org.exhibitos.studio/light-details'] as unknown as {lights:{aim:{position:number[]}}[]};details.lights[0]!.aim.position[1]-=.02;
+ expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(validateFurnishings(e).valid).toBe(true);
+ const r=resolve(e);if(!('wallwasher'in r))throw Error('expected static');expect(r.wallwasher.fixedPose.position[1]).toBeCloseTo(3.945,9);
+});

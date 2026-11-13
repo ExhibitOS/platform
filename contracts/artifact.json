@@ -1,13 +1,13 @@
 {
   "package": "@exhibitos/spec",
-  "packageVersion": "0.1.0-draft.34",
+  "packageVersion": "0.1.0-draft.35",
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
-  "file": "vendor/exhibitos-spec-0.1.0-draft.34.tgz",
-  "bytes": 191443,
-  "sha256": "dacb6f67ed029f127c64d9180541b49b77bdc79805f45396c8ed803e73af91fd",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.35.tgz",
+  "bytes": 234701,
+  "sha256": "dc9b0f75ab735abe36c64fb34df3230f2564b295f744874943c735424114bc2b",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "ef5ae51cb0b52242646023ca2ce3b1139c5511bf",
+  "upstreamSourceCommit": "35370202bd67bffb39480855b21caf9dd110e136",
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
     "originalSyntheticAssets": "CC0-1.0",
@@ -18,10 +18,12 @@
     "fixtures/synthetic/painting.png",
     "fixtures/synthetic/reference-scene.json",
     "fixtures/synthetic/manifest.json",
-    "fixtures/synthetic/audio.wav"
+    "fixtures/synthetic/audio.wav",
+    "fixtures/rail-v11/linear-track.glb",
+    "fixtures/rail-v11/LICENSE-NOTICE.txt"
   ],
-  "proposedTag": "spec-package-v0.1.0-draft.34",
-  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.34.tgz",
+  "proposedTag": "spec-package-v0.1.0-draft.35",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.35.tgz",
   "oexContractVersions": [
     "1.0.0-draft.1",
     "1.0.0-draft.2",
@@ -42,7 +44,8 @@
     "1.0.0-draft.18",
     "1.0.0-draft.19",
     "1.0.0-draft.21",
-    "1.0.0-draft.22"
+    "1.0.0-draft.22",
+    "1.0.0-draft.23"
   ],
   "oesContractVersions": [
     "1.0.0-draft.1",
