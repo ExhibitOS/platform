@@ -10,6 +10,8 @@ export const PRODUCT_IMAGE_RECIPE_SHA256=imageHash(PRODUCT_IMAGE_RECIPE);
 export const FRESH_IMAGE_PROFILE='ordinary-image-preparation-v1' as const;
 export const FRESH_IMAGE_RECIPE={...PRODUCT_IMAGE_RECIPE,id:FRESH_IMAGE_PROFILE,source:'baseline-rgb8-jpeg-orientation1-or-strict-rgb8-png-with-optional-pixel-density'} as const;
 export const FRESH_IMAGE_RECIPE_SHA256=imageHash(FRESH_IMAGE_RECIPE);
+export const CURRENT_IMAGE_THUMBNAIL_RECIPE={version:1,normalizationRecipeSHA256:FRESH_IMAGE_RECIPE_SHA256,reduction:'area-weighted-rgb8-encoded-srgb-256-no-upscale-round-nearest',png:PRODUCT_IMAGE_RECIPE.png} as const;
+export const CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256=imageHash(CURRENT_IMAGE_THUMBNAIL_RECIPE);
 type SourceMime='image/jpeg'|'image/png';
 export interface ImageMetric {sha256:string;bytes:number;width:number;height:number}
 export interface ProductImageProducerReceipt<Mime extends SourceMime='image/jpeg'> {version:1;recipeSHA256:string;decoder:string;source:ImageMetric&{mime:Mime;iccSHA256:string|null};full:ImageMetric;coarse?:ImageMetric}
@@ -47,6 +49,29 @@ export function prepareProductImageThumbnail(source:Buffer,full:ImageMetric):Buf
  const decoded=decodePngPixels(source);
  if(decoded.width!==full.width||decoded.height!==full.height||decoded.channels!==3||decoded.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
  return prepareFull(decoded.pixels,decoded.width,decoded.height,256,1).bytes;
+}
+/** Current-approved-image jobs use an explicitly recipe-bound area reduction. */
+export function prepareCurrentImageThumbnail(source:Buffer,full:ImageMetric):Buffer {
+ const decoded=decodePngPixels(source);
+ if(decoded.width!==full.width||decoded.height!==full.height||decoded.channels!==3||decoded.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
+ const {width,height}=fullDimensions(decoded.width,decoded.height,256);
+ const pixels=Buffer.alloc(width*height*3);
+ // Integer overlap weights integrate each entire source footprint. Sampling
+ // only its centre aliases fine brushwork into high-contrast thumbnail noise.
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const left=x*decoded.width,right=(x+1)*decoded.width,top=y*decoded.height,bottom=(y+1)*decoded.height;
+  const sums=[0,0,0];
+  for(let sy=Math.floor(top/height);sy<Math.ceil(bottom/height);sy++){
+   const wy=Math.min(bottom,(sy+1)*height)-Math.max(top,sy*height);
+   for(let sx=Math.floor(left/width);sx<Math.ceil(right/width);sx++){
+    const wx=Math.min(right,(sx+1)*width)-Math.max(left,sx*width),weight=wx*wy;
+    const offset=sy*(decoded.width*3+1)+1+sx*3;
+    for(let c=0;c<3;c++)sums[c]!+=decoded.pixels[offset+c]!*weight;
+   }
+  }
+  for(let c=0;c<3;c++)pixels[(y*width+x)*3+c]=Math.round(sums[c]!/(decoded.width*decoded.height));
+ }
+ return png(width,height,pixels);
 }
 const metric=(b:Buffer,width:number,height:number):ImageMetric=>({sha256:imageHash(b),bytes:b.length,width,height});
 export function validateProductImageOutput<Mime extends SourceMime>(result:ProductImageOutput<Mime>,source:{sha256:string;bytes:number},freshMime?:Mime){

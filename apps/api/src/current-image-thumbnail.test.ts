@@ -6,7 +6,8 @@ import {expect,it,vi} from 'vitest';
 import {sha256} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
 import {Imports} from './imports.ts';
-import {prepareFreshImage} from './product-image-preparation.ts';
+import {prepareFreshImage,CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256,FRESH_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
+import {canonicalImageHash} from './product-image-intent.ts';
 import {decodePngPixels} from './png-pixels.ts';
 import {assertCurrentImageThumbnail,createCurrentImageThumbnail,currentImageThumbnailView,storedCurrentImageThumbnail,workCurrentImageThumbnail} from './current-image-thumbnail.ts';
 const mocks=vi.hoisted(()=>({access:vi.fn(),prepare:vi.fn()}));
@@ -73,6 +74,18 @@ it('replays the same request without another job and rejects caller pixels/sourc
  const f=await fixture(),a=await f.create(),b=await f.create();expect(b.id).toBe(a.id);expect(f.writes.filter(sql=>sql.startsWith('INSERT INTO import_jobs'))).toHaveLength(1);
  await expect(createCurrentImageThumbnail(f.imports,f.c,f.session,f.artworkId,{requestId:f.requestId,expectedRevision:2,pngBase64:'external'})).rejects.toMatchObject({code:'INVALID_INPUT'});
  expect(f.put).not.toHaveBeenCalled();
+});
+it('binds new reductions to their recipe and preserves saved prior ready receipts',async()=>{
+ const f=await fixture();await f.create();const job=f.processing();await workCurrentImageThumbnail(f.imports,job,f.lease);
+ const state=storedCurrentImageThumbnail(job)!;
+ expect(state.result!.producer.recipeSHA256).toBe(CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256);
+ const saved=structuredClone(job),receipt=storedCurrentImageThumbnail(saved)!.result!;
+ receipt.producer.recipeSHA256=FRESH_IMAGE_RECIPE_SHA256;
+ const {sha256:ignored,...body}=receipt;void ignored;receipt.sha256=canonicalImageHash(body);
+ expect(currentImageThumbnailView(saved)).toMatchObject({status:'ready',serverReceipt:{producer:{recipeSHA256:FRESH_IMAGE_RECIPE_SHA256}}});
+ receipt.producer.recipeSHA256='f'.repeat(64);
+ const {sha256:unknownDigest,...unknownBody}=receipt;void unknownDigest;receipt.sha256=canonicalImageHash(unknownBody);
+ expect(()=>storedCurrentImageThumbnail(saved)).toThrowError('IMAGE_THUMBNAIL_STATE_INVALID');
 });
 it('does not register a result after revision or rights change during isolated preparation',async()=>{
  for(const change of [(f:Awaited<ReturnType<typeof fixture>>)=>{f.art.revision=3;},(f:Awaited<ReturnType<typeof fixture>>)=>{f.art.metadata.rights.permissions.display=false;}]){

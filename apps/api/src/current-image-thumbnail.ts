@@ -9,7 +9,7 @@ import type {ModelPreparationWriter} from './model-preparation-import.ts';
 import {allowedRights} from './rights.ts';
 import {canonicalImageHash,productImageDrained} from './product-image-intent.ts';
 import {prepareFreshImageInWorker} from './product-image-preparation-process.ts';
-import {prepareProductImageThumbnail,FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,type ProductImageProducerReceipt} from './product-image-preparation.ts';
+import {prepareCurrentImageThumbnail,CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256,FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,type ProductImageProducerReceipt} from './product-image-preparation.ts';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {currentImageThumbnailReady} from './current-image-thumbnail-schema.ts';
 
@@ -46,7 +46,7 @@ export function storedCurrentImageThumbnail(row:Record<string,unknown>):State|un
   if(c.workspaceId!==state.workspaceId||c.tenantId!==row.tenant_id||c.principalId!==state.principalId||!Array.isArray(row.png_worker_tokens)||!row.png_worker_tokens.includes(c.token)||!['processing','failed','cancelled'].includes(String(row.state))||row.state==='processing'&&row.lease_id!==c.token)throw bad();
  }
  if(state.result){const r=state.result;if(!r.source||!r.thumbnail||!r.producer?.source)throw bad();const {sha256:digest,...body}=r;
-  if(canonicalImageHash(body)!==digest||r.version!==1||r.profile!==CURRENT_IMAGE_THUMBNAIL_PROFILE||r.jobId!==row.id||r.artworkId!==row.artwork_id||r.artworkRevision!==state.request.expectedRevision||r.workspaceId!==state.workspaceId||r.principalId!==state.principalId||r.rightsSHA256!==canonicalImageHash(row.rights)||!isDeepStrictEqual(r.source,source)||r.producer.version!==1||r.producer.recipeSHA256!==FRESH_IMAGE_RECIPE_SHA256||r.producer.decoder!==PRODUCT_IMAGE_RECIPE.decoder||r.producer.source.sha256!==source.sha256||r.producer.source.bytes!==source.bytes||r.producer.source.mime!=='image/png'||!hash(r.thumbnail.sha256)||r.thumbnail.mime!=='image/png'||!Number.isSafeInteger(r.thumbnail.bytes)||r.thumbnail.bytes<33||r.thumbnail.bytes>512*1024||!Number.isInteger(r.thumbnail.width)||!Number.isInteger(r.thumbnail.height)||r.thumbnail.width<1||r.thumbnail.height<1||r.thumbnail.width>256||r.thumbnail.height>256||r.thumbnail.assetId===source.assetId)throw bad();
+  if(canonicalImageHash(body)!==digest||r.version!==1||r.profile!==CURRENT_IMAGE_THUMBNAIL_PROFILE||r.jobId!==row.id||r.artworkId!==row.artwork_id||r.artworkRevision!==state.request.expectedRevision||r.workspaceId!==state.workspaceId||r.principalId!==state.principalId||r.rightsSHA256!==canonicalImageHash(row.rights)||!isDeepStrictEqual(r.source,source)||r.producer.version!==1||![FRESH_IMAGE_RECIPE_SHA256,CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256].includes(r.producer.recipeSHA256)||r.producer.decoder!==PRODUCT_IMAGE_RECIPE.decoder||r.producer.source.sha256!==source.sha256||r.producer.source.bytes!==source.bytes||r.producer.source.mime!=='image/png'||!hash(r.thumbnail.sha256)||r.thumbnail.mime!=='image/png'||!Number.isSafeInteger(r.thumbnail.bytes)||r.thumbnail.bytes<33||r.thumbnail.bytes>512*1024||!Number.isInteger(r.thumbnail.width)||!Number.isInteger(r.thumbnail.height)||r.thumbnail.width<1||r.thumbnail.height<1||r.thumbnail.width>256||r.thumbnail.height>256||r.thumbnail.assetId===source.assetId)throw bad();
   uuid(r.thumbnail.assetId);
  }
  return state;
@@ -107,7 +107,7 @@ export async function workCurrentImageThumbnail(imports:Imports,row:Record<strin
  // Reuse the existing bounded PNG decoder process; its Full is an ephemeral
  // normalized intermediate, never a replacement asset or stored source.
  const normalized=await prepareFreshImageInWorker(source,{...state.source,mime:'image/png'},{writerFd:writer.writerFd});
- const png=prepareProductImageThumbnail(normalized.full,normalized.receipt.full),dimensions=await validateThumbnailBytes(png);
+ const png=prepareCurrentImageThumbnail(normalized.full,normalized.receipt.full),dimensions=await validateThumbnailBytes(png);
  await hooks?.beforeCommit?.();
  await transaction(imports.pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
@@ -117,7 +117,7 @@ export async function workCurrentImageThumbnail(imports:Imports,row:Record<strin
   if(!isDeepStrictEqual(live.derived,row.derived))throw bad();
   const now=await assertCurrentImageThumbnail(imports,c,actor,live);await writer.assertLive();
   const thumbnail={assetId:randomUUID(),sha256:sha256(png),bytes:png.length,mime:'image/png' as const,...dimensions};
-  const body={version:1 as const,profile:CURRENT_IMAGE_THUMBNAIL_PROFILE,jobId:String(row.id),artworkId:String(row.artwork_id),artworkRevision:state.request.expectedRevision,workspaceId:state.workspaceId,principalId:state.principalId,rightsSHA256:canonicalImageHash(row.rights),source:state.source,thumbnail,producer:normalized.receipt};
+  const body={version:1 as const,profile:CURRENT_IMAGE_THUMBNAIL_PROFILE,jobId:String(row.id),artworkId:String(row.artwork_id),artworkRevision:state.request.expectedRevision,workspaceId:state.workspaceId,principalId:state.principalId,rightsSHA256:canonicalImageHash(row.rights),source:state.source,thumbnail,producer:{...normalized.receipt,recipeSHA256:CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256}};
   const receipt:CurrentImageThumbnailReceipt={...body,sha256:canonicalImageHash(body)},derived={kind:KIND,request:state.request,workspaceId:state.workspaceId,principalId:state.principalId,source:state.source,result:receipt};
   if(!imports.blobs.putDurable)throw new ApiError(503,'STORAGE_UNAVAILABLE');
   await imports.blobs.putDurable(String(row.derived_object_key),png);
