@@ -13,7 +13,7 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===2&&!service.supportsStool())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===3&&!service.supportsRoomVisual())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  const snapshot=extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
- if((snapshot.version===7||snapshot.version===9)&&(!service.supportsReusableFit()||!!snapshot.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
+ if((snapshot.version===7||snapshot.version===9||snapshot.version===10)&&(!service.supportsReusableFit()||!!snapshot.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if(snapshot.version===6&&!service.supportsPortalFinish())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===5&&!service.supportsArtworkFrameModels())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===4&&!service.supportsArtworkFrame())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
@@ -32,8 +32,13 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
  // The immutable frame is attached to a work, so every save/preflight must
  // recheck the actual model bytes, not just the persisted descriptor.
  const checkedPortals=new Set<string>();for(const a of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).openingAttachments??[]){if(!checkedPortals.has(a.furnishingId)){await service.checkDisplay(c,s,a.furnishingId,a.furnishingVersion);checkedPortals.add(a.furnishingId);}}
- const checkedFrames=new Set<string>(),checkedArtworks=new Set<string>();for(const a of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).frameAttachments??[]){
+ const checkedFrames=new Set<string>(),checkedArtworks=new Set<string>(),checkedImageFits=new Set<string>();for(const a of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).frameAttachments??[]){
   if(!checkedArtworks.has(a.artworkRevisionId)){const art=(Array.isArray(candidate.artworks)?candidate.artworks:[]).find((x:unknown)=>!!x&&typeof x==='object'&&(x as Artwork).revisionId===a.artworkRevisionId) as Artwork|undefined;if(!art)throw new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED');await service.checkArtwork(c,s,art);checkedArtworks.add(a.artworkRevisionId);}
   if(!checkedFrames.has(a.furnishingId)){await service.checkDisplay(c,s,a.furnishingId,a.furnishingVersion);checkedFrames.add(a.furnishingId);}
+  if(a.imageFit&&!checkedImageFits.has(a.artworkRevisionId)){
+   const art=(Array.isArray(candidate.artworks)?candidate.artworks:[]).find((x:unknown)=>!!x&&typeof x==='object'&&(x as Artwork).revisionId===a.artworkRevisionId) as Artwork|undefined;
+   if(!art||!isDeepStrictEqual(await service.frameImageFit(c,s,art),a.imageFit))throw new ApiError(409,'FRAME_IMAGE_FIT_STALE');
+   checkedImageFits.add(a.artworkRevisionId);
+  }
  }
 }

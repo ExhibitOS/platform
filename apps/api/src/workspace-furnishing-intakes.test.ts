@@ -363,3 +363,16 @@ it('does not infer preparation from a licensee display grant or an expired owner
  await standard.work(ordinary.pool);
  expect(await standard.read(ordinary.client,ordinary.session,received.intakeId)).toMatchObject({phase:'registered',furnishing:{rights:licensed,model:ordinary.declaration.model}});
 });
+
+it('derives image contact only from approved primary PNG bytes and rechecks the immutable artwork',async()=>{
+ const {Cms}=await import('./cms.ts'),{syntheticArtwork}=await import('../../web/src/placement/model.ts'),sharp=(await import('sharp')).default;
+ const bytes=await sharp({create:{width:20,height:16,channels:4,background:'#112233'}}).png().toBuffer(),f=fixture(),art=syntheticArtwork('image');art.dimensions={width:.934,height:.732};art.assets[0]!.bytes=bytes.length;art.assets[0]!.sha256=sha256(bytes);
+ const check=vi.spyOn(f.service,'checkArtwork').mockResolvedValue(),read=vi.spyOn(Cms.prototype,'approvedVariantOriginal').mockResolvedValue(bytes);
+ try{
+  const before=structuredClone(art),record=await f.service.frameImageFit(f.client,f.session,art);expect(record).toEqual({version:1,profile:'contain-contact-v1',sourceSha256:sha256(bytes),pixelWidth:20,pixelHeight:16});expect(art).toEqual(before);expect(check).toHaveBeenCalledTimes(2);expect(read).toHaveBeenCalledWith(f.client,f.session,art.id,art.primaryAssetId,art.revision);
+  read.mockResolvedValueOnce(Buffer.from('invalid PNG'));await expect(f.service.frameImageFit(f.client,f.session,art)).rejects.toMatchObject({code:'FRAME_IMAGE_FIT_UNSUPPORTED'});
+  check.mockRejectedValueOnce(new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED'));await expect(f.service.frameImageFit(f.client,f.session,art)).rejects.toMatchObject({code:'ARTWORK_SNAPSHOT_CHANGED'});
+  read.mockRejectedValueOnce(new ApiError(403,'RIGHTS_DENIED'));await expect(f.service.frameImageFit(f.client,f.session,art)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+  art.assets[0]!.mime='image/jpeg';read.mockClear();await expect(f.service.frameImageFit(f.client,f.session,art)).rejects.toMatchObject({code:'FRAME_IMAGE_FIT_UNSUPPORTED'});expect(read).not.toHaveBeenCalled();
+ }finally{read.mockRestore();check.mockRestore();}
+});

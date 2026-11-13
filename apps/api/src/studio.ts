@@ -1,3 +1,5 @@
+import {nativeFrameImageFitProposal,type NativeFrameImageFitCommand} from './native-frame-image-fit.ts';
+export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
 import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
@@ -45,7 +47,7 @@ export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand;
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand;
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -368,6 +370,15 @@ export class Studio {
     let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string};
     try{
       if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
+      else if(request.type==='reconcile-frame-image-fit'){
+        const service=this.workspaceFurnishing,workspace=draft.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as import('@exhibitos/studio-contract').WorkspaceFurnishings|undefined;
+        if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');
+        await service.authorize(c,s);
+        const rows=workspace?.frameAttachments?.filter(row=>row.placementId===request.placementId)??[],selected=rows[0],descriptor=workspace?.furnishings.find(item=>item.id===selected?.furnishingId),art=draft.candidate.artworks.find(item=>item.revisionId===selected?.artworkRevisionId);
+        if(rows.length!==1||!selected||!descriptor||!art||!isDeepStrictEqual(await service.readVersion(c,s,selected.furnishingId,selected.furnishingVersion),descriptor))throw Error('FRAME_IMAGE_FIT_STALE');
+        await service.checkDisplay(c,s,selected.furnishingId,selected.furnishingVersion);
+        result=nativeFrameImageFitProposal(draft.candidate,request,await service.frameImageFit(c,s,art));
+      }
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
       else if(operation.type==='set-room-base-light-placement'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
         const command:LightObjectCommand=operation.type==='set-light-details'?{type:'set-light-object',lightId:operation.lightId,light:operation.light,settings:operation.settings}:operation;
