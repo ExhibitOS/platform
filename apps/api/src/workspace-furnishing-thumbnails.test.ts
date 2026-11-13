@@ -13,6 +13,7 @@ import {validateFurnishingThumbnailPng} from './workspace-furnishing-thumbnail-v
 import {ApiError,type Session} from './auth.ts';
 import {pngCrc} from './png-pixels.ts';
 import {buildApp} from './app.ts';
+import {installedFrameThumbnail} from './installed-artwork-frame.ts';
 vi.mock('./workspace-furnishing-thumbnail-validation.ts',()=>({validateFurnishingThumbnailPng:vi.fn(async()=>{})}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const cleanup:(()=>Promise<void>)[]=[];
@@ -77,6 +78,20 @@ async function fixture(){
 const rows=(f:Awaited<ReturnType<typeof fixture>>,table:'candidates'|'selections')=>f.tables.get('workspace_furnishing_thumbnail_'+table)??[];
 const selectedInput=(candidate:{candidateId:string;receiptSha256:string},requestId=id(20),expectedSelectionVersion=0)=>({requestId,candidateId:candidate.candidateId,receiptSha256:candidate.receiptSha256,expectedSelectionVersion});
 describe('workspace furnishing thumbnail persistence authority',()=>{
+ it('serves the explicit immutable installed-card routes only after owner authorization and exposes no mutation route',async()=>{
+  const f=await fixture(),token='a'.repeat(43),authRow={id:id(60),user_id:f.s.userId,tenant_id:f.s.tenantId,role:'artist',csrf_hash:'a'.repeat(64),csrf_token:'synthetic',expires_at:new Date('2099-01-01T00:00:00Z')};
+  const query=async(sql:string,args:unknown[]=[])=>sql.includes('SELECT s.*,m.role')?{rows:[authRow],rowCount:1}:f.query(sql,args),client={query,release:()=>{}},pool={query,connect:async()=>client} as unknown as Pool;
+  const thumbnail=installedFrameThumbnail('af88109b-27e2-4d10-a08c-3ddc0224451a')!,bytes=await readFile(new URL('../test-fixtures/thin-brass-frame/thumbnail.png',import.meta.url));
+  vi.spyOn(f.registry,'work').mockResolvedValue(false);const read=vi.spyOn(f.registry,'installedThumbnail').mockResolvedValue({thumbnail,bytes}),app=buildApp({pool,blobs:f.blobs,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},nativeExportWorkspace:f.owner,workspaceFurnishing:f.registry});
+  const headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200',cookie:`exhibitos_local_session=${token}`},path=`/api/v1/tenants/${f.s.tenantId}/workspace/furnishings/${thumbnail.source.furnishingId}/versions/1/installed-thumbnail`;
+  try{
+   const metadata=await app.inject({method:'GET',url:path,headers});expect(metadata.statusCode,metadata.body).toBe(200);expect(metadata.json()).toEqual(thumbnail);
+   const image=await app.inject({method:'GET',url:path+'/image',headers});expect(image.statusCode,image.body).toBe(200);expect(image.rawPayload).toEqual(bytes);expect(image.headers['x-exhibitos-sha256']).toBe(thumbnail.png.sha256);expect(image.headers['cache-control']).toBe('no-store');
+   read.mockImplementationOnce(async()=>{f.owner.assertDatabase.mockRejectedValueOnce(new ApiError(403,'FORBIDDEN'));return {thumbnail,bytes};});const denied=await app.inject({method:'GET',url:path+'/image',headers});expect(denied.statusCode).toBe(403);expect(denied.rawPayload).not.toEqual(bytes);
+   const noSession=await app.inject({method:'GET',url:path,headers:{host:headers.host,origin:headers.origin}});expect(noSession.statusCode).toBe(401);
+   const mutation=await app.inject({method:'POST',url:path,headers,payload:{}});expect(mutation.statusCode).toBe(404);expect(rows(f,'candidates')).toEqual([]);expect(rows(f,'selections')).toEqual([]);
+  }finally{await app.close();}
+ });
  it('requires actual issued writer and exact registry owner/store binding',async()=>{
   const f=await fixture();expect(()=>new WorkspaceFurnishingThumbnails(f.blobs,f.owner,{...f.writer},f.registry)).toThrow('FURNISHING_LEASE_INVALID');
   expect(()=>new WorkspaceFurnishingThumbnails(f.blobs,{...f.owner},f.writer,f.registry)).toThrow('FURNISHING_LEASE_INVALID');await expect(f.service.ready(f.c,f.s)).resolves.toBeUndefined();

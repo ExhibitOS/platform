@@ -503,6 +503,30 @@
             "imagePlaneZ": -0.012
           }
         }
+      },
+      "thumbnail": {
+        "path": "assets/furnishings/user-authored-20261027/thin-brass-frame/thumbnail.png",
+        "profile": "installed-furnishing-thumbnail-v1",
+        "source": {
+          "furnishingId": "af88109b-27e2-4d10-a08c-3ddc0224451a",
+          "furnishingVersion": 1,
+          "modelSha256": "4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4",
+          "modelBytes": 7892,
+          "descriptorSha256": "a4132652f6d7d9b6daf3bd1476bc9f207a81dc0256ef416d88a2f1c962fe974d",
+          "rightsSha256": "1d81e6735f0916b11466ab5c01f470b456296ec451f0c71a32ba7e2dc644a51c"
+        },
+        "png": {
+          "mime": "image/png",
+          "width": 256,
+          "height": 256,
+          "sha256": "6973f99f18bc88f0d0ff6797b43a9549504e41f3d05423354cd88ce36c5f648a",
+          "bytes": 5176
+        },
+        "provenance": {
+          "recipeId": "furnishing-glb-card-256-v1",
+          "toolId": "exhibitos-three-0.186.1-thumbnail-v1",
+          "renderRequestId": "0d02fc63-52ed-43a1-846e-a87b11edef8d"
+        }
       }
     }
   ]
