@@ -46,7 +46,7 @@ it.each(['attachment-field','source-custody','scale','bounds'] as const)('keeps 
  const f=fixture(),extension=f.candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE];
  if(change==='attachment-field')Object.assign(extension.ceilingAttachments[0]!,{extra:true});
  if(change==='source-custody')extension.furnishings[0]!.fit.sourceSha256='b'.repeat(64);
- if(change==='scale')extension.placements[0]!.scale=2;
+ if(change==='scale')Object.assign(extension.placements[0]!,{scale:2});
  if(change==='bounds'){extension.ceilingAttachments[0]!.anchor[0]=9;extension.placements[0]!.position[0]=9;}
  expect(validateSpecWorkspaceFurnishings(extension,f.candidate).valid).toBe(false);expect(validateWorkspaceFurnishings(f.candidate).valid).toBe(false);
 });
