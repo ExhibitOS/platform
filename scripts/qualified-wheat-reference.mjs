@@ -405,6 +405,24 @@ export const R124_REFERENCE=Object.freeze({...R117_REFERENCE,
  nativeFiles:151,
 });
 export const R124_DEPTH_PAIR_REFERENCE=Object.freeze({...R117_PORTAL_REFERENCE,...R124_REFERENCE});
+// Exact R155 full20 issued aggregate; preserve the qualified R124 rollback.
+export const R155_REFERENCE=Object.freeze({...R124_REFERENCE,
+ indexSha256:'2669cca3df1911d139ee49db3614c753a3f17bd1087f402a70c3df570529d9a3',
+ publicationSha256:'7092127aa6ccc345d581d609a65f7144ed8d5b6edb84f335ae45ec9165dd466f',
+ publicationId:'1ff3e1ac-a8da-42d5-850d-1bf30a2e1bb3',
+ revisionSha256:'5367a0439c94fa50adedae8dbb79acd18b45ae603ed936e4fa7e92fddefb963d',
+ candidateId:'847989b9-a330-421c-9e01-7ffd6de2bd59',
+ modelCandidateId:'74bc87b9-670f-4089-82c7-e12ed00835f0',
+ modelSourceBindingSha256:'fd991b17c05c5f38220028ee91f3555a9eed5891ec5af01ac10577a6ccdf076b',
+ nativeManifestSha256:'53d244a3c1f6e5c7fb2b86d8e691982d6fc29f9b1afbb490a9c9e660ccf7fc0e',
+});
+export const R155_ALL_WALLS_REFERENCE=Object.freeze({...R155_REFERENCE,
+ viewerSourceCommit:'ea5511c5560f108182df0f036abe808d9936a9a1',
+ viewerSourceTree:'0d67e6498a1b7ac5dd6bd9ae0225dec20b0a757c',
+ viewerLockSha256:'93d2f44dfb2dc31ab55dcf97c4a3861e117cb24d45eb1dac3f8699bb458469c3',
+ viewerBuildId:'6bf2be872b1baedcd9c88c0a2c0ebce1ce7c05fea6430a78b8413b2192f2d7a2',
+ viewerInventorySha256:'539612e60236d0dbb65e98d02eb56e3b7ba0125ce5ff8d1b5efe075631ab6020',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
@@ -695,7 +713,121 @@ const r124SelectedThumbnails=[
   }
  }
 ];
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE,R115_REFERENCE,R117_REFERENCE,R124_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+const r155SelectedThumbnails=[
+  {
+    "publicArtworkId": "a9c9f593-5d94-4a92-af86-709938020f1a",
+    "revisionId": "83eb007c-31f8-467f-9aab-7e8e85c2501b",
+    "placementId": "1b93cee7-ad82-40fe-979e-427dff923880",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "abf14bb3-7c56-419b-bdc6-b8dc13bf20a7",
+      "path": "data/159c9598e32ea9232ec837947d0e7d236420fb78cebbf3a3b6568cd0a48637c8.bin",
+      "bytes": 126583,
+      "sha256": "159c9598e32ea9232ec837947d0e7d236420fb78cebbf3a3b6568cd0a48637c8",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "0e9e2e98-b27e-403d-a191-9777727cc8a5",
+    "revisionId": "1cd2bf14-2cdc-46b2-b605-302e38684c16",
+    "placementId": "04d5ca16-b3c0-40d5-b471-ac6870770340",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "15961b7a-9b26-4c04-bab8-60e53c5da948",
+      "path": "data/f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596.bin",
+      "bytes": 39340,
+      "sha256": "f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "e220c22a-2c38-4edc-b0f5-f2a82249c435",
+    "revisionId": "209b9739-df2e-4f81-a525-bc5b330fb377",
+    "placementId": "c5fd508e-ac03-4a60-be7a-54b900f0743a",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "94674c69-5237-4a3d-91c6-12bd764a1b81",
+      "path": "data/3b8a116805b42cfe382da5670b7b529960501b43267d5c1f4f9b72ea02cf6934.bin",
+      "bytes": 153363,
+      "sha256": "3b8a116805b42cfe382da5670b7b529960501b43267d5c1f4f9b72ea02cf6934",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "137463d7-e0b3-4e43-97a1-0a953ffd58e4",
+    "revisionId": "bb73a2ba-0b05-4ca8-8582-9520db1a8bd0",
+    "placementId": "0dac8cd4-793f-48b6-8fa2-2b4d1f0353b3",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "07150f89-bf50-4241-88a1-e8af3faa1621",
+      "path": "data/2fa61bee7833e0c4da1022dfd5907d2507bc47d3127703da1771876f6379cb7c.bin",
+      "bytes": 130589,
+      "sha256": "2fa61bee7833e0c4da1022dfd5907d2507bc47d3127703da1771876f6379cb7c",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "b45e4d22-da5f-4e9a-a036-29f21a4dafa2",
+    "revisionId": "91b39ab5-0654-4af4-bfa5-5e51416cafae",
+    "placementId": "f452796d-870a-4c71-844c-540c55b3d9e7",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "77325e00-60de-485c-bb8c-35cf7a9aa940",
+      "path": "data/234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1.bin",
+      "bytes": 36561,
+      "sha256": "234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "320c7ce5-3159-4039-a2f9-1e6213cf0ac1",
+    "revisionId": "c9e7a57e-bff6-4d1e-8a7e-36f265f12c3a",
+    "placementId": "6b20c8f9-9899-43d3-a873-b68255d6ea1a",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "73b562e3-8156-45ff-be0b-816871376450",
+      "path": "data/9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b.bin",
+      "bytes": 23897,
+      "sha256": "9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "8fee9d1d-0f1b-45be-b215-703245db3f8c",
+    "revisionId": "50ec4ae6-9c15-4bd1-ab01-2042e1d0aa7e",
+    "placementId": "fd2cefa4-7dd8-4d3d-8a9b-8000d0623a09",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "0c7304e0-7efa-4cdf-b43a-f3637a00797a",
+      "path": "data/d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69.bin",
+      "bytes": 32849,
+      "sha256": "d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "5c1959ee-043f-452d-973e-f9d26b431519",
+    "revisionId": "118d1910-adc4-4e7f-807e-fdc7a8d61942",
+    "placementId": "e9e5e86c-8e16-4100-b173-0a6b4d6d6c7a",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "9f8b0e1d-cd8d-41cb-8d4a-8facdd421b7a",
+      "path": "data/13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6.bin",
+      "bytes": 15365,
+      "sha256": "13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6",
+      "mime": "image/png"
+    }
+  }
+];
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE,R115_REFERENCE,R117_REFERENCE,R124_REFERENCE,R155_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
@@ -709,7 +841,8 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const r124=reference===R124_REFERENCE;
+ const r155=reference===R155_REFERENCE;
+ const r124=reference===R124_REFERENCE||r155;
  const r117=reference===R117_REFERENCE||r124;
  const r115=reference===R115_REFERENCE||r117;
  const dualOriginal=r115||reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE;
@@ -752,7 +885,7 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
  }else if(plan.entries.length!==1)fail();
  if(r117&&!index.assets.some(asset=>asset.sha256==='62fd3bc49e0e77ffde26f60dee7ddfbbac0939347d68ea53a94700de0695f1ae'&&asset.bytes===2468&&asset.mime==='model/gltf-binary'))fail();
  if(r124&&!index.assets.some(asset=>asset.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'&&asset.bytes===7892&&asset.mime==='model/gltf-binary'))fail();
- for(const expected of r124?r124SelectedThumbnails:r117?r117SelectedThumbnails:r115?r115SelectedModelThumbnails:[]){
+ for(const expected of r155?r155SelectedThumbnails:r124?r124SelectedThumbnails:r117?r117SelectedThumbnails:r115?r115SelectedModelThumbnails:[]){
   const artworks=publication.exhibition.artworks.filter(art=>art.id===expected.publicArtworkId),artwork=artworks[0];
   const thumbnail=artwork&&artworkThumbnailFor(artwork),model=artwork?.assets.find(asset=>asset.id===artwork.primaryAssetId);
   const placements=publication.exhibition.placements.filter(item=>item.id===expected.placementId);
