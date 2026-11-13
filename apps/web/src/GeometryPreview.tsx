@@ -10,7 +10,7 @@ import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost,FurnishingSceneCapacityError} from './workspace-furnishing/owner-scene';
-import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
 import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
@@ -1067,7 +1067,7 @@ export function GeometryPreview({
       const catalogSettled:Promise<unknown>[]=[];
       let contactBench:{model:Object3D;hostId:string}|undefined;
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled});catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -1785,6 +1785,9 @@ export function GeometryPreview({
           read:(signal:AbortSignal)=>Promise<ArrayBuffer>;
         },
       ) => {
+        // Issued primary-image proportions are shared with the frame aperture.
+        // Resolve before loading a tier; rounded derivative sizes are not fit authority.
+        const canonicalImageFootprint=artwork.artworkType==='image'?frameImageFootprintForArtwork(document,artwork):undefined;
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await (acquiredModel?acquiredModel.read(signal):readArtworkBytes(artwork,inventory,signal,progress,true,stage));
         stage?.('verified-download');
@@ -1813,7 +1816,7 @@ export function GeometryPreview({
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
             resources.push(texture);
-            const face=containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
+            const face=canonicalImageFootprint??containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
             const geometry = new three.PlaneGeometry(face.width,face.height);
             const material = new three.MeshStandardMaterial({
               map: texture,

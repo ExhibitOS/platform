@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
+import {coupleFixtureEmission} from './fixture-emission';
 import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,validateStudioLightDetails} from '@exhibitos/studio-contract';
 
 /** Opt-in bodies are simple non-shadow-casting visual geometry, not an optical model.
@@ -27,13 +28,13 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
     let fixtureMeshes=0,guideCount=0;
     if(entry.fixture!=='none'){
       const group=new three.Group();group.position.fromArray(item.transform.position);group.quaternion.fromArray(lightDetailsOrientation(document,item,entry));group.scale.fromArray(item.transform.scale);group.userData.lightId=item.id;parent.add(group);groups.push(group);
-      const bodyMaterial=material('body',()=>new three.MeshStandardMaterial({color:'#2d3538',roughness:.8,metalness:.1})),lensMaterial=material('lens',()=>new three.MeshStandardMaterial({color:'#eee8db',roughness:.35,metalness:0}));
+      const bodyMaterial=material('body',()=>new three.MeshStandardMaterial({color:'#2d3538',roughness:.8,metalness:.1})),lensMaterial=material('lens:'+item.id,()=>new three.MeshStandardMaterial({color:'#eee8db',roughness:.35,metalness:0})) as Three.MeshStandardMaterial;
       if(entry.fixture==='panel'){
         const body=new three.Mesh(geometry('box',()=>new three.BoxGeometry(1,1,1)),bodyMaterial),lens=new three.Mesh(geometry('plane',()=>new three.PlaneGeometry(1,1)),lensMaterial);
-        body.scale.set(item.dimensions!.width,item.dimensions!.height,.03);lens.scale.set(item.dimensions!.width*.9,item.dimensions!.height*.9,1);lens.position.z=-.016;lens.rotation.y=Math.PI;group.add(body,lens);
+        body.scale.set(item.dimensions!.width,item.dimensions!.height,.03);lens.scale.set(item.dimensions!.width*.9,item.dimensions!.height*.9,1);lens.position.z=-.016;lens.rotation.y=Math.PI;group.add(body,lens);changes.push(coupleFixtureEmission(lens,lensMaterial,light));
       }else{
         const diameter=entry.fixture==='disc'?.18:.12,depth=entry.fixture==='disc'?.04:.2,body=new three.Mesh(geometry('cylinder',()=>new three.CylinderGeometry(.5,.5,1,12)),bodyMaterial),lens=new three.Mesh(geometry('circle',()=>new three.CircleGeometry(.5,12)),lensMaterial);
-        body.rotation.x=Math.PI/2;body.scale.set(diameter,depth,diameter);lens.scale.set(diameter*.84,diameter*.84,1);lens.position.z=-depth/2-.001;lens.rotation.y=Math.PI;group.add(body,lens);
+        body.rotation.x=Math.PI/2;body.scale.set(diameter,depth,diameter);lens.scale.set(diameter*.84,diameter*.84,1);lens.position.z=-depth/2-.001;lens.rotation.y=Math.PI;group.add(body,lens);changes.push(coupleFixtureEmission(lens,lensMaterial,light));
       }
       fixtures.set(item.id.toLowerCase(),[group]);fixtureMeshes=2;for(const object of group.children){object.userData.lightId=item.id;object.userData.exhibitosLightFixture=true;}
     }
