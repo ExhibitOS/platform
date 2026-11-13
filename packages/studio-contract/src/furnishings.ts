@@ -7,7 +7,7 @@ import {artifactPoint,type AffinePoint,type ArtifactPose} from './artifact-affin
 import {BENCH_NAMESPACE,benchesFor,validateStudioBenches,type StudioBenches} from './benches.js';
 import {INSTALLATION_NAMESPACE,installationFor,type StudioInstallation} from './installation.js';
 import {lightDetailsFor,lightDetailsOrientation} from './light-details.js';
-import {resolveCoupledWallwasher} from './wallwasher-coupled-fixture.js';
+import {resolveCoupledWallwasher,trackSpotStaticRailContext} from './wallwasher-coupled-fixture.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 
 export const FURNISHING_NAMESPACE='org.exhibitos.studio/furnishing-visuals';
@@ -65,7 +65,7 @@ function pedestal(e:UserAssetCatalogueEntry,p:FurnishingPose){return {kind:'box'
  * light origin is its luminous aperture, independently of the opaque lens. */
 export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:FurnishingAsset){
  const source=furnishingCatalogueEntry(asset.catalogId),pose=furnishingPoseTransform(b.pose);let roomId:string,parent=identity();
- if(asset.catalogId==='museum-wallwasher-rear-relief')return resolveCoupledWallwasher(e,b,asset,source);
+ if(asset.catalogId==='museum-wallwasher-rear-relief'||asset.catalogId==='museum-track-spot'&&trackSpotStaticRailContext(e,b.hostId))return resolveCoupledWallwasher(e,b,asset,source);
  if(b.hostKind==='bench'){
   const bench=benchesFor(e).find(v=>same(v.id,b.hostId));if(!bench||bench.workspaceVisual)throw Error('FURNISHING_REFERENCE');roomId=bench.roomId;
   const f=source.functional;if(f?.kind!=='bench'||bench.kind!==(f.benchKind??'slab')||!near(bench.yaw,b.pose.yaw)||!bench.position.every((n,i)=>near(n,b.pose.position[i]!))||!near(bench.dimensions.height,f.seatEnvelopeY*b.pose.scale)||!near(bench.dimensions.width,(source.bounds.max[0]-source.bounds.min[0])*b.pose.scale)||!near(bench.dimensions.depth,(source.bounds.max[2]-source.bounds.min[2])*b.pose.scale))throw Error('FURNISHING_FUNCTION');

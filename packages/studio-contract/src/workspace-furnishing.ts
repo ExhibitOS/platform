@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {validateWorkspaceFurnishings as validateSpecWorkspaceFurnishings} from '@exhibitos/spec/workspace-furnishing';
+import {ceilingRailAttachmentMatrix,ceilingRailDerivedPose,type CeilingRailAttachment} from '@exhibitos/spec/ceiling-rail';
+export {ceilingRailAttachmentMatrix,ceilingRailDerivedPose};
+export type WorkspaceCeilingAttachment=CeilingRailAttachment;
 import type {Exhibition} from '@exhibitos/spec';
 import {frameImageContactFit,frameAttachmentMetricFit,qualifiedFrameAttachmentTransform,type FrameImageFit,qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artifactCorners,type ArtifactPose} from './artifact-affine.js';
@@ -11,7 +15,7 @@ export {portalFinishModel} from '@exhibitos/spec/portal-finish-models';
 /** Workspace-owned objects are separate from the fixed bundled catalogue.
  * A descriptor is metadata, not permission or proof of bytes or ownership. */
 export const WORKSPACE_FURNISHING_NAMESPACE='org.exhibitos.studio/workspace-furnishings';
-export type WorkspaceFurnishingKind='pedestal'|'bench'|'stool'|'partition'|'info-stand'|'barrier'|'display-case'|'artwork-frame'|'portal-finish';
+export type WorkspaceFurnishingKind='pedestal'|'bench'|'stool'|'partition'|'info-stand'|'barrier'|'display-case'|'artwork-frame'|'portal-finish'|'ceiling-rail';
 export interface WorkspaceFurnishingModel {mime:'model/gltf-binary';bytes:number;sha256:string}
 export interface WorkspaceFurnishingDescriptor {id:string;version:1;kind:WorkspaceFurnishingKind;name:string;rights:unknown;provenance:string;model:WorkspaceFurnishingModel;fit?:WorkspaceFitReceipt}
 export const INFO_STAND_PREPARATION_POLICY='normalize-legacy-sign-texture-r1' as const;
@@ -34,12 +38,12 @@ const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).sort().join
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
 /** Structural checks only; the server must separately validate rights, live
  * workspace ownership and the complete GLB before registration or use. */
-export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allowStool?:boolean;allowRoomVisual?:boolean;allowArtworkFrame?:boolean;allowFramePreparation?:boolean;allowInfoStandPreparation?:boolean;allowPortalFinish?:boolean;allowReusableFit?:boolean}={}):value is WorkspaceFurnishingDeclaration{
+export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allowStool?:boolean;allowRoomVisual?:boolean;allowArtworkFrame?:boolean;allowFramePreparation?:boolean;allowInfoStandPreparation?:boolean;allowPortalFinish?:boolean;allowReusableFit?:boolean;allowCeilingRail?:boolean}={}):value is WorkspaceFurnishingDeclaration{
  if(!object(value))return false;
  const fields=['requestId','kind','name','rights','provenance','model'];
  if(Object.hasOwn(value,'fitProfile')){
   if(!options.allowReusableFit||Object.hasOwn(value,'preparationPolicy')||
-   !(value.kind==='artwork-frame'&&(value.fitProfile==='straight-ring-v1'||value.fitProfile==='straight-miter-ring-v1')||value.kind==='portal-finish'&&(value.fitProfile==='continuous-portal-v1'||value.fitProfile==='modular-portal-v1'||value.fitProfile==='rectangular-portal-v1')))return false;
+   !(value.kind==='ceiling-rail'&&value.fitProfile==='passive-ceiling-rail-v1'&&options.allowCeilingRail||value.kind==='artwork-frame'&&(value.fitProfile==='straight-ring-v1'||value.fitProfile==='straight-miter-ring-v1')||value.kind==='portal-finish'&&(value.fitProfile==='continuous-portal-v1'||value.fitProfile==='modular-portal-v1'||value.fitProfile==='rectangular-portal-v1')))return false;
   fields.push('fitProfile');
  }
  if(Object.hasOwn(value,'preparationPolicy')){
@@ -48,7 +52,7 @@ export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allow
   if(!frame&&!infoStand)return false;
   fields.push('preparationPolicy');
  }
- if(!exact(value,fields)||!uuid(value.requestId)||typeof value.kind!=='string'||!['pedestal','bench',...(options.allowStool?['stool']:[]),...(options.allowRoomVisual?['partition','info-stand','barrier','display-case']:[]),...(options.allowArtworkFrame?['artwork-frame']:[]),...(options.allowPortalFinish?['portal-finish']:[])].includes(value.kind)||typeof value.name!=='string'||value.name.trim()!==value.name||value.name.length<1||value.name.length>120||typeof value.provenance!=='string'||value.provenance.trim()!==value.provenance||value.provenance.length<1||value.provenance.length>1024||!object(value.model))return false;
+ if(!exact(value,fields)||!uuid(value.requestId)||typeof value.kind!=='string'||!['pedestal','bench',...(options.allowStool?['stool']:[]),...(options.allowRoomVisual?['partition','info-stand','barrier','display-case']:[]),...(options.allowArtworkFrame?['artwork-frame']:[]),...(options.allowPortalFinish?['portal-finish']:[]),...(options.allowCeilingRail?['ceiling-rail']:[])].includes(value.kind)||typeof value.name!=='string'||value.name.trim()!==value.name||value.name.length<1||value.name.length>120||typeof value.provenance!=='string'||value.provenance.trim()!==value.provenance||value.provenance.length<1||value.provenance.length>1024||!object(value.model))return false;
  const m=value.model;return exact(m,['mime','bytes','sha256'])&&m.mime==='model/gltf-binary'&&Number.isSafeInteger(m.bytes)&&Number(m.bytes)>0&&Number(m.bytes)<=32*1024*1024&&typeof m.sha256==='string'&&/^[a-f0-9]{64}$/.test(m.sha256);
 }
 
@@ -57,14 +61,15 @@ export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allow
 export interface WorkspaceFurnishingPlacement {id:string;roomId:string;furnishingId:string;furnishingVersion:1;position:[number,number,number];yaw:number;scale:number}
 export interface WorkspaceFrameAttachment {placementId:string;artworkRevisionId:string;assetId:string;furnishingId:string;furnishingVersion:1;modelSha256:string;imageFit?:FrameImageFit}
 export interface WorkspaceOpeningAttachment {openingId:string;furnishingId:string;furnishingVersion:1;modelSha256:string}
-export interface WorkspaceFurnishings {version:1|2|3|4|5|6|7|9|10;furnishings:WorkspaceFurnishingDescriptor[];placements:WorkspaceFurnishingPlacement[];frameAttachments?:WorkspaceFrameAttachment[];openingAttachments?:WorkspaceOpeningAttachment[]}
+export interface WorkspaceFurnishings {version:1|2|3|4|5|6|7|9|10|11;furnishings:WorkspaceFurnishingDescriptor[];placements:WorkspaceFurnishingPlacement[];frameAttachments?:WorkspaceFrameAttachment[];openingAttachments?:WorkspaceOpeningAttachment[];ceilingAttachments?:WorkspaceCeilingAttachment[]}
 /** Validate structural references only. Callers must bind each descriptor to
  * the issued workspace catalog and current rights before save or rendering. */
 export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;errors:{code:string;path:string}[]}{
  if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))return {valid:true,errors:[]};
  const invalid=()=>({valid:false,errors:[{code:'WORKSPACE_FURNISHING_INVALID',path:'/extensions/org.exhibitos.studio~1workspace-furnishings'}]});
  const value=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE];
- if(!object(value)||typeof value.version!=='number'||![1,2,3,4,5,6,7,9,10].includes(value.version))return invalid();
+ if(!object(value)||typeof value.version!=='number'||![1,2,3,4,5,6,7,9,10,11].includes(value.version))return invalid();
+ if(value.version===11){const checked=validateSpecWorkspaceFurnishings(value,candidate);return {valid:checked.valid,errors:checked.errors.map(error=>({code:error.code,path:error.path}))};}
  const version=value.version,hasFrames=version>=4,hasOpenings=version>=6;
  const fields=['version','furnishings','placements',...(hasFrames?['frameAttachments']:[]),...(hasOpenings?['openingAttachments']:[])];
  if(!exact(value,fields)||!Array.isArray(value.furnishings)||value.furnishings.length<1||value.furnishings.length>64||

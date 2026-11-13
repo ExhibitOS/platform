@@ -284,3 +284,6 @@ export * from './gpu-model.js';
 export {REFINED_BENCH} from './refined-bench.js';
 
 export * from './frame-image-fit.js';
+
+export * from './track-spot-profile.js';
+export {trackSpotStaticRailContext} from './wallwasher-coupled-fixture.js';

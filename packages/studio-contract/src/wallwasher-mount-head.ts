@@ -9,7 +9,7 @@ export type WasherPose={position:WasherVector;rotation:WasherQuaternion;scale:Wa
 export type WasherBounds={min:WasherVector;max:WasherVector};
 export type WasherPart={name:string;bounds:WasherBounds};
 export type WallwasherMountHeadProfile={
- profileId:'museum-wallwasher-fixed-head-v1'|'museum-wallwasher-rear-relief-fixed-head-v1';modelSha256:string;
+ profileId:'museum-wallwasher-fixed-head-v1'|'museum-wallwasher-rear-relief-fixed-head-v1'|'museum-track-spot-fixed-head-v1';modelSha256:string;
  fixedParts:readonly WasherPart[];headParts:readonly WasherPart[];
  mountFootprint:readonly WasherVector[];
  opticalA:WasherVector;pivotP:WasherVector;axis:WasherVector;
@@ -52,14 +52,15 @@ function bounds(points:readonly WasherVector[]):WasherBounds{
 }
 export function resolveWallwasherMountHead(input:WallwasherMountHeadInput){
  const profile=input?.profile;
- if(!profile||!(profile.profileId==='museum-wallwasher-fixed-head-v1'&&profile.modelSha256===WALLWASHER_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-wallwasher-rear-relief-fixed-head-v1'&&profile.modelSha256===WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256))return fail('WASHER_PROFILE_PIN_INVALID');
- const groups=[[profile.fixedParts,fixedNames],[profile.headParts,headNames]] as const;
+ if(!profile||!(profile.profileId==='museum-wallwasher-fixed-head-v1'&&profile.modelSha256===WALLWASHER_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-wallwasher-rear-relief-fixed-head-v1'&&profile.modelSha256===WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-track-spot-fixed-head-v1'&&profile.modelSha256==='4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90'))return fail('WASHER_PROFILE_PIN_INVALID');
+ const spot=profile.profileId==='museum-track-spot-fixed-head-v1';
+ const groups=[[profile.fixedParts,spot?["Adapter_key", "Adapter_neck", "Pivot_bearing", "Pivot_bearing.001", "Stem", "Track_adapter", "Yoke_arm", "Yoke_arm.001", "Yoke_bridge"]:fixedNames],[profile.headParts,spot?["Front_retaining_ring", "Housing_spun_shell", "Lens_opaque", "Recessed_baffle", "Reflector_cup"]:headNames]] as const;
  for(const [parts,names]of groups){
   if(!Array.isArray(parts)||parts.length!==names.length||new Set(parts.map(p=>p?.name)).size!==names.length||parts.some(p=>!p||!names.includes(p.name)||!p.bounds||!tuple(p.bounds.min,3)||!tuple(p.bounds.max,3)||p.bounds.min.some((n:number,i:number)=>n>p.bounds.max[i]!)))return fail('WASHER_PARTITION_INVALID');
  }
- if(!tuple(profile.opticalA,3)||!tuple(profile.pivotP,3)||!tuple(profile.axis,3)||!close(profile.opticalA,[0,-.106,-.05],1e-12)||!close(profile.pivotP,[0,-.084,0],1e-12)||!close(profile.axis,[1,0,0],1e-12))return fail('WASHER_DATUM_INVALID');
+ if(!tuple(profile.opticalA,3)||!tuple(profile.pivotP,3)||!tuple(profile.axis,3)||!close(profile.opticalA,spot?[0,-.150,-.0755]:[0,-.106,-.05],1e-12)||!close(profile.pivotP,spot?[0,-.150,0]:[0,-.084,0],1e-12)||!close(profile.axis,[1,0,0],1e-12))return fail('WASHER_DATUM_INVALID');
  if(!finite(input.headPitch)||!Array.isArray(profile.headPitchIntervals)||!profile.headPitchIntervals.length||profile.headPitchIntervals.length>32||profile.headPitchIntervals.some(v=>!tuple(v,2)||v[0]!>v[1]!)||!profile.headPitchIntervals.some(([min,max])=>input.headPitch>=min&&input.headPitch<=max))return fail('WASHER_PITCH_NOT_APPROVED');
- const footprint=profile.mountFootprint,expected=[[-.0455,0,-.0165],[-.0455,0,.0165],[.0455,0,-.0165],[.0455,0,.0165]] as const;
+ const footprint=profile.mountFootprint,expected:readonly WasherVector[]=spot?[[-.047499999,0,-.018999999],[-.047499999,0,.018999999],[.047499999,0,-.018999999],[.047499999,0,.018999999]]:[[-.0455,0,-.0165],[-.0455,0,.0165],[.0455,0,-.0165],[.0455,0,.0165]] as const;
  if(!Array.isArray(footprint)||footprint.length!==4||footprint.some(v=>!tuple(v,3))||expected.some(v=>footprint.filter(p=>close(p,v,1e-9)).length!==1))return fail('WASHER_MOUNT_FOOTPRINT_INVALID');
  const fixedPose=pose(input.mountPose),ceiling=pose(input.ceilingSurface?.pose),dimensions=input.ceilingSurface?.dimensions;
  if(!dimensions||!finite(dimensions.width)||!finite(dimensions.height)||dimensions.width<=0||dimensions.height<=0)return fail('WASHER_CEILING_INVALID');
