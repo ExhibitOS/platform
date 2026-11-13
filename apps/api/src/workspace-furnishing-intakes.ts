@@ -14,6 +14,9 @@ import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation
 import {prepareFrameInWorker,prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,installedFrameDescriptors,installedFrameDescriptorFor,readInstalledFrameById} from './installed-artwork-frame.ts';
+import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
+import {decodePngPixels} from './png-pixels.ts';
+import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
 import {WorkspaceFrameLineage} from './workspace-frame-lineage.ts';
 import {WorkspaceFurnishingThumbnails} from './workspace-furnishing-thumbnails.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
@@ -218,6 +221,18 @@ export class WorkspaceFurnishingIntakes {
   await this.checkOwner(c,s);
   const approved=(await new Cms(this.blobs).studioArtwork(c,s,artwork.id)).artwork;
   if(!isDeepStrictEqual(approved,artwork))throw new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED');
+ }
+ /** Approved PRIMARY only: this never treats a decoded LOD or original-detail
+  * report as a placement authority, and never rewrites pixels or dimensions. */
+ async frameImageFit(c:PoolClient,s:Session,artwork:Artwork):Promise<FrameImageFit>{
+  await this.checkOwner(c,s);await this.checkArtwork(c,s,artwork);
+  const primary=artwork.assets.find(asset=>asset.id===artwork.primaryAssetId);
+  if(artwork.artworkType!=='image'||primary?.mime!=='image/png'||primary.bytes<1||primary.bytes>PRODUCT_IMAGE_LIMITS.sourceBytes)throw new ApiError(422,'FRAME_IMAGE_FIT_UNSUPPORTED');
+  const bytes=await new Cms(this.blobs).approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision);
+  let pixels:ReturnType<typeof decodePngPixels>;
+  try{pixels=decodePngPixels(bytes,FRAME_IMAGE_FIT_LIMITS.pixels,FRAME_IMAGE_FIT_LIMITS.edge,256,false,true);}catch{throw new ApiError(422,'FRAME_IMAGE_FIT_UNSUPPORTED');}
+  const record:FrameImageFit={version:1,profile:'contain-contact-v1',sourceSha256:primary.sha256,pixelWidth:pixels.width,pixelHeight:pixels.height};
+  await this.checkArtwork(c,s,artwork);await this.writer?.assertLive();return record;
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
   if(typeof id==='string'&&installedFrameDescriptorFor(id))return this.installedFrame(c,s,version,id);

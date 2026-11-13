@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment,type StudioBench,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,frameImageContactFit,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment,type StudioBench,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {DeviceBudget} from '../viewer/loading';
 import {AssetPeakBudget} from '../viewer/loading';
@@ -109,7 +109,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    const doc=candidate as unknown as Exhibition,target=doc.placements.find(p=>p.id===attachment.placementId&&p.roomId===options.roomId),art=doc.artworks.find(a=>a.revisionId===attachment.artworkRevisionId);if(!target||!art)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const measured=workspaceFitGeometry(descriptor),ring=(measured?.profile==='straight-ring-v1'||measured?.profile==='straight-miter-ring-v1')?measured:undefined;
    const model=artworkFrameModel(descriptor.model.sha256,descriptor.model.bytes);
-   const fit=ring?qualifiedFrameTargetFit(ring,art.dimensions.width,art.dimensions.height):model&&artworkFrameFit(model,art.dimensions.width,art.dimensions.height);
+   const fit=ring?(frameImageContactFit(doc,attachment,art,ring)??qualifiedFrameTargetFit(ring,art.dimensions.width,art.dimensions.height)):model&&artworkFrameFit(model,art.dimensions.width,art.dimensions.height);
    const imagePlaneZ=ring?.imagePlaneZ??model?.imagePlaneZ;
    if(!fit||imagePlaneZ===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');
    fitArtworkFrameGeometry(three,visual,fit);

@@ -34,3 +34,30 @@ test('overall deadline interrupts an ACK wait',async()=>{
  const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),deadline=new AbortController(),events=[];let staged;const emitted=new Promise(resolve=>{staged=resolve;});stdout.on('data',()=>staged());
  const controlFactory=()=>({prepare:async()=>[],close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'.',input,stdout,overallSignal:deadline.signal,controlFactory,exporter:async()=>({publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest})});input.write(frame(owner));await emitted;deadline.abort();await assert.rejects(pending);assert.deepEqual(events,['close']);
 });
+
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+function clockedRun(t,{ack=false,holdFinal=false}={}){
+ t.mock.timers.enable({apis:['setTimeout']});
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[],external=new AbortController();let release,signal;
+ const copied=new Promise(resolve=>{release=resolve;});
+ stdout.on('data',chunk=>{const value=JSON.parse(chunk.subarray(4));events.push(value.kind);if(ack&&value.kind==='staged')input.write(frame({version:1,kind:'verified-staging',jobId:owner.jobId,manifestSha256:manifest}));});
+ const waitAbort=()=>new Promise((_,reject)=>{if(signal.aborted)reject(signal.reason);else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});});
+ const controlFactory=(_startup,s)=>{signal=s;return {prepare:async()=>[],finalCheck:async()=>{events.push('final');if(holdFinal)await waitAbort();},settled:async()=>events.push('settled'),close:async()=>events.push('close')};};
+ const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'.',input,stdout,overallSignal:external.signal,controlFactory,exporter:async()=>{await Promise.race([copied,waitAbort()]);signal.throwIfAborted();return {publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest};}});
+ input.write(frame(owner));return {pending,events,external,release,input,owner,get signal(){return signal;}};
+}
+test('copy may exceed old120s and finish before finite600s without changing wire sequence',async t=>{
+ const r=clockedRun(t,{ack:true});await flush();t.mock.timers.tick(120001);assert.equal(r.signal.aborted,false);assert.deepEqual(r.events,[]);t.mock.timers.tick(479998);assert.equal(r.signal.aborted,false);r.release();await r.pending;assert.deepEqual(r.events,['staged','final','settled','ready']);
+});
+test('preparation expires at600s even without copy progress and never stages',async t=>{
+ const r=clockedRun(t);await flush();t.mock.timers.tick(599999);assert.equal(r.signal.aborted,false);const rejected=assert.rejects(r.pending,/NATIVE_DETAIL_PREPARATION_TIMEOUT/);t.mock.timers.tick(1);await rejected;assert.deepEqual(r.events,['close']);
+});
+test('STAGED retains the existing30s ACK sublimit within the120s handoff budget',async t=>{
+ const r=clockedRun(t);await flush();r.release();await flush();assert.deepEqual(r.events,['staged']);t.mock.timers.tick(29999);assert.equal(r.signal.aborted,false);const rejected=assert.rejects(r.pending);t.mock.timers.tick(1);await rejected;assert.deepEqual(r.events,['staged','close']);
+});
+test('ACK and final-check progress do not renew the same120s handoff budget',async t=>{
+ const r=clockedRun(t,{holdFinal:true});await flush();r.release();await flush();t.mock.timers.tick(20000);r.input.write(frame({version:1,kind:'verified-staging',jobId:r.owner.jobId,manifestSha256:manifest}));await flush();assert.deepEqual(r.events,['staged','final']);t.mock.timers.tick(99999);assert.equal(r.signal.aborted,false);const rejected=assert.rejects(r.pending,/NATIVE_DETAIL_HANDOFF_TIMEOUT/);t.mock.timers.tick(1);await rejected;assert.deepEqual(r.events,['staged','final','close']);
+});
+test('caller overall cancellation remains hard during the enlarged copy allowance',async t=>{
+ const r=clockedRun(t);await flush();const rejected=assert.rejects(r.pending,/caller cancelled/);r.external.abort(Error('caller cancelled'));await rejected;assert.deepEqual(r.events,['close']);
+});

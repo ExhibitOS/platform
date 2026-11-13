@@ -27,7 +27,7 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
  const source=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
  if(!service||!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===2&&!service.supportsStool())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
- if((source.version===7||source.version===9)&&(!service.supportsReusableFit()||!!source.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ if((source.version===7||source.version===9||source.version===10)&&(!service.supportsReusableFit()||!!source.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===6&&!service.supportsPortalFinish())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===5&&!service.supportsArtworkFrameModels())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===4&&!service.supportsArtworkFrame())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');

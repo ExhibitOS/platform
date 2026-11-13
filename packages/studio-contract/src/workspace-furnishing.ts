@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {frameImageContactFit,type FrameImageFit,qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artifactCorners,type ArtifactPose} from './artifact-affine.js';
 import {USER_ASSET_CATALOGUE} from './user-asset-catalogue.js';
 import type {WorkspaceFitProfile,WorkspaceFitReceipt} from './workspace-fit-receipt.js';
@@ -55,16 +55,16 @@ export function validWorkspaceFurnishingDeclaration(value:unknown,options:{allow
 /** A visual placement is room-local and does not assert seating, collision,
  * support or any other functional semantics of an unverified mesh. */
 export interface WorkspaceFurnishingPlacement {id:string;roomId:string;furnishingId:string;furnishingVersion:1;position:[number,number,number];yaw:number;scale:number}
-export interface WorkspaceFrameAttachment {placementId:string;artworkRevisionId:string;assetId:string;furnishingId:string;furnishingVersion:1;modelSha256:string}
+export interface WorkspaceFrameAttachment {placementId:string;artworkRevisionId:string;assetId:string;furnishingId:string;furnishingVersion:1;modelSha256:string;imageFit?:FrameImageFit}
 export interface WorkspaceOpeningAttachment {openingId:string;furnishingId:string;furnishingVersion:1;modelSha256:string}
-export interface WorkspaceFurnishings {version:1|2|3|4|5|6|7|9;furnishings:WorkspaceFurnishingDescriptor[];placements:WorkspaceFurnishingPlacement[];frameAttachments?:WorkspaceFrameAttachment[];openingAttachments?:WorkspaceOpeningAttachment[]}
+export interface WorkspaceFurnishings {version:1|2|3|4|5|6|7|9|10;furnishings:WorkspaceFurnishingDescriptor[];placements:WorkspaceFurnishingPlacement[];frameAttachments?:WorkspaceFrameAttachment[];openingAttachments?:WorkspaceOpeningAttachment[]}
 /** Validate structural references only. Callers must bind each descriptor to
  * the issued workspace catalog and current rights before save or rendering. */
 export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;errors:{code:string;path:string}[]}{
  if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))return {valid:true,errors:[]};
  const invalid=()=>({valid:false,errors:[{code:'WORKSPACE_FURNISHING_INVALID',path:'/extensions/org.exhibitos.studio~1workspace-furnishings'}]});
  const value=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE];
- if(!object(value)||typeof value.version!=='number'||![1,2,3,4,5,6,7,9].includes(value.version))return invalid();
+ if(!object(value)||typeof value.version!=='number'||![1,2,3,4,5,6,7,9,10].includes(value.version))return invalid();
  const version=value.version,hasFrames=version>=4,hasOpenings=version>=6;
  const fields=['version','furnishings','placements',...(hasFrames?['frameAttachments']:[]),...(hasOpenings?['openingAttachments']:[])];
  if(!exact(value,fields)||!Array.isArray(value.furnishings)||value.furnishings.length<1||value.furnishings.length>64||
@@ -78,7 +78,7 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
  for(const item of value.furnishings){
   if(!object(item))return invalid();
   const hasFit=Object.hasOwn(item,'fit'),geometry=hasFit?workspaceFitGeometry(item):undefined;
-  if(hasFit&&(![7,9].includes(version)||!geometry||version===7&&geometry.profile==='straight-miter-ring-v1')||
+  if(hasFit&&(![7,9,10].includes(version)||!geometry||version===7&&geometry.profile==='straight-miter-ring-v1')||
    !exact(item,['id','version','kind','name','rights','provenance','model',...(hasFit?['fit']:[])])||!uuid(item.id)||item.version!==1||
    !validWorkspaceFurnishingDeclaration({requestId:'10000000-0000-4000-8000-000000000001',kind:item.kind,name:item.name,rights:item.rights,provenance:item.provenance,model:item.model},
     {allowStool:version>=2,allowRoomVisual:version>=3,allowArtworkFrame:hasFrames,allowPortalFinish:hasOpenings})||items.has(item.id)||ids.has(item.id))return invalid();
@@ -112,13 +112,14 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
  const placements=Array.isArray(candidate.placements)?candidate.placements:[],artworks=Array.isArray(candidate.artworks)?candidate.artworks:[];
  const extensions=object(candidate.extensions)?candidate.extensions:{};const installation=extensions['org.exhibitos.studio/installation'];
  for(const [i,a] of (Array.isArray(value.frameAttachments)?value.frameAttachments:[]).entries()){
-  if(!object(a)||!exact(a,['placementId','artworkRevisionId','assetId','furnishingId','furnishingVersion','modelSha256'])||!uuid(a.placementId)||!uuid(a.artworkRevisionId)||!uuid(a.assetId)||!uuid(a.furnishingId)||a.furnishingVersion!==1||typeof a.modelSha256!=='string'||!/^[a-f0-9]{64}$/.test(a.modelSha256)){fail('FRAME_TARGET_STALE',i);continue;}
+  if(!object(a)||!exact(a,['placementId','artworkRevisionId','assetId','furnishingId','furnishingVersion','modelSha256',...(version===10&&Object.hasOwn(a,'imageFit')?['imageFit']:[])])||!uuid(a.placementId)||!uuid(a.artworkRevisionId)||!uuid(a.assetId)||!uuid(a.furnishingId)||a.furnishingVersion!==1||typeof a.modelSha256!=='string'||!/^[a-f0-9]{64}$/.test(a.modelSha256)){fail('FRAME_TARGET_STALE',i);continue;}
   const placement=placements.find(p=>object(p)&&p.id===a.placementId),art=artworks.find(p=>object(p)&&p.revisionId===a.artworkRevisionId),source=items.get(a.furnishingId);
   if(attached.has(a.placementId)||!object(placement)||!object(art)||placement.artworkRevisionId!==a.artworkRevisionId||placement.assetId!==a.assetId||art.primaryAssetId!==a.assetId){fail('FRAME_TARGET_STALE',i);continue;}attached.add(a.placementId);
   const fit=fits.get(a.furnishingId),qualified=fit?.profile==='straight-ring-v1'||fit?.profile==='straight-miter-ring-v1'?fit:undefined;
   const frame=source&&artworkFrameModel(source.model.sha256,source.model.bytes);
   if(!source||source.kind!=='artwork-frame'||!frame&&!qualified||(value.version===4&&source.model.sha256!=='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4')||a.modelSha256!==source.model.sha256){fail('FRAME_ASSET_UNSUPPORTED',i);continue;}used.add(a.furnishingId);
   const dimensions=art.dimensions;if(art.artworkType!=='image'||art.schemaVersion!=='1.0.0-draft.1'||!object(dimensions)||typeof dimensions.width!=='number'||typeof dimensions.height!=='number'||!(qualified?qualifiedFrameTargetFit(qualified,dimensions.width,dimensions.height):frame&&artworkFrameFit(frame,dimensions.width,dimensions.height)))fail('FRAME_SIZE_UNSUPPORTED',i);
+  if(Object.hasOwn(a,'imageFit'))try{if(!qualified||!frameImageContactFit(candidate,a,art,qualified))throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');}catch(error){fail(error instanceof Error&&error.message.startsWith('FRAME_IMAGE_FIT_')?error.message:'FRAME_IMAGE_FIT_INVALID',i);}
   if(object(dimensions)&&Object.hasOwn(dimensions,'depth'))fail('FRAME_DEPTH_UNSUPPORTED',i);
   const room=typeof placement.roomId==='string'?rooms.get(placement.roomId):undefined;
   if(![art.transform,placement.transform,room?.transform].every(t=>object(t)&&Array.isArray(t.scale)&&t.scale.length===3&&t.scale.every(n=>n===1)))fail('FRAME_TRANSFORM_UNSUPPORTED',i);
