@@ -72,6 +72,6 @@
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.32.tgz"
+    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.33.tgz"
   }
 }

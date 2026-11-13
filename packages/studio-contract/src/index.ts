@@ -282,3 +282,5 @@ export * from './bounded-mipped-ktx2.js';
 export * from './gpu-model.js';
 
 export {REFINED_BENCH} from './refined-bench.js';
+
+export * from './frame-image-fit.js';
