@@ -3,7 +3,7 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicAsset} from '../publication-client';
 import type {Session} from '../cms-client';
-import {furnishingsFor,resolveFurnishing,validateFurnishings} from '@exhibitos/studio-contract';
+import {furnishingsFor,resolveFurnishing,trackSpotStaticRailContext,validateFurnishings} from '@exhibitos/studio-contract';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {applyWallwasherModelPose} from './wallwasher-model-pose';
 import {installWallwasherEmission} from './wallwasher-emission';
@@ -67,7 +67,10 @@ export function catalogOtherSources(document:Exhibition,source:{publicationId:st
   if(binding.hostKind==='bench')return [];
   const asset=value.assets.find(a=>a.id.toLowerCase()===binding.assetId.toLowerCase()),matches=source.assets.filter(a=>a.assetId===binding.assetId);
   if(!asset||matches.length!==1||matches[0]!.mime!=='model/gltf-binary'||matches[0]!.url!==`/api/v1/publications/${source.publicationId}/assets/${asset.id}`)return [];
-  try{return [{binding,asset,resolved:resolveFurnishing(document,binding,asset),source:{url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256}}];}catch{return [];}
+  try{
+   const coupling:{expectedCoupled?:boolean}={expectedCoupled:asset.catalogId==='museum-track-spot'&&binding.hostKind==='light'&&trackSpotStaticRailContext(document,binding.hostId)};
+   return [{binding,asset,...coupling,resolved:resolveFurnishing(document,binding,asset),source:{url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256}}];
+  }catch{return [];}
  });
 }
 export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,collisionPolicy?:{scene:Three.Scene;enabled:(kind:'light'|'opening',id:string)=>boolean},lights?:ReadonlyMap<string,{light:Three.Light}>){
@@ -84,10 +87,12 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
    const wallwasher='wallwasher' in resolved?resolved.wallwasher:undefined;
-   if(item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined){
-    if(item.asset.catalogId!=='museum-wallwasher-rear-relief'||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
+   const mountProfile='mountProfile' in resolved?resolved.mountProfile:undefined;
+   if(item.expectedCoupled||item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined||mountProfile!==undefined){
+    const expectedProfile=item.asset.catalogId==='museum-track-spot'?'museum-track-spot-fixed-head-v1':item.asset.catalogId==='museum-wallwasher-rear-relief'?'museum-wallwasher-rear-relief-fixed-head-v1':undefined;
+    if(!expectedProfile||mountProfile!==expectedProfile||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
     applyWallwasherModelPose(three,visual.model,item.asset,wallwasher);
-    if(lights){const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;if(!light)throw Error('WALLWASHER_EMITTER_LIGHT_REQUIRED');
+    if(lights&&item.asset.catalogId==='museum-wallwasher-rear-relief'){const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;if(!light)throw Error('WALLWASHER_EMITTER_LIGHT_REQUIRED');
      const emission=installWallwasherEmission(three,visual.model,item.asset,light),disposeSource=visual.dispose;visual.dispose=()=>{emission.dispose();disposeSource();};
     }
    }else{const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);}

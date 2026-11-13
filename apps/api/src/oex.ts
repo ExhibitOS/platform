@@ -18,7 +18,7 @@ import {workspaceFurnishingOutputBytes,workspaceFurnishingOutputInventory} from 
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
-import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
+import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,OEX_WORKSPACE_FURNISHING_V11_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
 import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
 import {FLOOR_NAMESPACE,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -214,13 +214,14 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
  if(portableFurnishings){
   const localId=(value:string)=>ids.get(value.toLowerCase())!;
-  const {furnishings,placements,frameAttachments,openingAttachments}=portableFurnishings;
+  const {furnishings,placements,frameAttachments,openingAttachments,ceilingAttachments}=portableFurnishings;
   exhibition.extensions={...exhibition.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{
    version:portableFurnishings.version,
    furnishings:furnishings.map(item=>({...item,id:localId(item.id)})),
    placements:placements.map(item=>({...item,id:localId(item.id),furnishingId:localId(item.furnishingId),roomId:localId(item.roomId)})),
    ...(frameAttachments?{frameAttachments:frameAttachments.map(item=>({...item,placementId:localId(item.placementId),furnishingId:localId(item.furnishingId),artworkRevisionId:localId(item.artworkRevisionId),assetId:scoped.get(item.artworkRevisionId.toLowerCase())?.get(item.assetId.toLowerCase())}))}:{}),
    ...(openingAttachments?{openingAttachments:openingAttachments.map(item=>({...item,openingId:localId(item.openingId),furnishingId:localId(item.furnishingId)}))}:{}),
+   ...(ceilingAttachments?{ceilingAttachments:ceilingAttachments.map(item=>({...item,placementId:localId(item.placementId),surfaceId:localId(item.surfaceId)}))}:{}),
   } as unknown as NonNullable<Exhibition['extensions']>[string]};
  }
  if(walking){
@@ -235,7 +236,7 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
-   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=[OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
+   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,OEX_WORKSPACE_FURNISHING_V11_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,OEX_WORKSPACE_FURNISHING_V11_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=[OEX_FOOTSTEP_RESOURCE_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,OEX_WORKSPACE_FURNISHING_V11_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -645,12 +646,12 @@ export class Oex {
      await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
     const portable=e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
-    if(portable&&(portable.version===7||portable.version===9||portable.version===10)){
+    if(portable&&(portable.version===7||portable.version===9||portable.version===10||portable.version===11)){
      if(!this.workspaceFurnishing)throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
      await this.workspaceFurnishing.authorize(c,s);
     }
     const now=Date.now();
-    if(grants.some(r=>!allowedRights(r,'export',now))||portable&&(portable.version===7||portable.version===9||portable.version===10)&&portable.furnishings.some(({rights})=>!allowedRights(rights,'display',now)||!allowedRights(rights,'export',now)))throw new ApiError(403,'RIGHTS_DENIED');
+    if(grants.some(r=>!allowedRights(r,'export',now))||portable&&(portable.version===7||portable.version===9||portable.version===10||portable.version===11)&&portable.furnishings.some(({rights})=>!allowedRights(rights,'display',now)||!allowedRights(rights,'export',now)))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
     const result={...response,exhibitionId:e.id,idMap,assetAliases};
     const terminal=await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3 AND state='processing' AND lease_until>clock_timestamp() AND payload_sha256=$5 AND user_id=$6 RETURNING id",[s.tenantId,id,lease,result,payloadSha256,s.userId]);
@@ -678,7 +679,7 @@ export class Oex {
   try{
    const parsed=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const bytes=await this.uploaded(row);try{return await decodeOex(bytes);}catch{throw new ApiError(422,'OEX_INVALID');}});
    requireSupportedOexImport(parsed.exhibition);
-   const portableVersion=parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V7_VERSION?7:parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V9_VERSION?9:parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V10_VERSION?10:undefined;
+   const portableVersion=parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V11_VERSION?11:parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V7_VERSION?7:parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V9_VERSION?9:parsed.oexVersion===OEX_WORKSPACE_FURNISHING_V10_VERSION?10:undefined;
    const portable=portableVersion?parsed.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings:undefined;
    const service=this.workspaceFurnishing;
    if(portableVersion&&(!portable||portable.version!==portableVersion||!service?.supportsReusableFit()||!this.blobs.putDurable))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');

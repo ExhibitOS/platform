@@ -204,3 +204,16 @@ describe('optional OEX archive budget fallback',()=>{
   await expect(writeOexWithinBudget(async()=>{throw Object.assign(new Error('limit'),{code:'ZIP_ARCHIVE_LIMIT'});})).rejects.toMatchObject({code:'OEX_LIMIT'});
  });
 });
+
+it('round trips and remaps current v11 passive rail ceiling authority through the existing OEX path',async()=>{
+ const {readOex,writeOex}=await import('@exhibitos/spec'),{packageWorkspaceFurnishingManifest}=await import('@exhibitos/spec/workspace-furnishing');
+ const e=JSON.parse(await readFile(new URL('./fixtures/rail-v11/exhibition.json',import.meta.resolve('@exhibitos/spec')),'utf8')) as Exhibition;
+ const source=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;
+ const {exhibition,idMap}=remapOex(e,source),mapped=exhibition.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;
+ expect(mapped.version).toBe(11);expect(mapped.ceilingAttachments).toEqual(source.ceilingAttachments!.map(row=>({...row,placementId:idMap[row.placementId],surfaceId:idMap[row.surfaceId]})));expect(mapped.furnishings[0]!.fit).toEqual(source.furnishings[0]!.fit);
+ const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),paths=new Set([...e.artworks.flatMap(a=>a.assets.map(a=>a.path)),...e.mediaAssets.map(a=>a.path)]),assets=new Map(original.manifest.assets.filter(a=>paths.has(a.artifactPath)).map(a=>[a.artifactPath,original.files.get(a.path)!]));
+ const entry=packageWorkspaceFurnishingManifest(e).find(row=>row.sha256==='1ba64842de525166018e941074852a3e041d07adf605674c7d7fadb02693a09e')!;
+ assets.set(entry.artifactPath,await readFile(new URL('./fixtures/rail-v11/linear-track.glb',import.meta.resolve('@exhibitos/spec'))));
+ const bytes=await writeOex(e,assets,{createdAt:'2026-11-14T00:00:00.000Z',generator:{name:'Synthetic rail API test',version:'1'}}),decoded=await decodeOex(Buffer.from(bytes));
+ expect(decoded.oexVersion).toBe('1.0.0-draft.23');expect(decoded.exhibition.extensions![WORKSPACE_FURNISHING_NAMESPACE]).toEqual(source);
+});

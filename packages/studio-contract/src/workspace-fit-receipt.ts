@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {passiveCeilingRailGeometry} from '@exhibitos/spec/ceiling-rail';
 import {modularPortalParts,type WorkspaceFitGeometry,type WorkspaceFitProfile} from '@exhibitos/spec/workspace-fit-models';
 export type {WorkspaceFitGeometry,WorkspaceFitProfile} from '@exhibitos/spec/workspace-fit-models';
 export type WorkspaceFitReceipt = {version:1;sourceSha256:string;sourceBytes:number;geometry:WorkspaceFitGeometry};
@@ -9,6 +10,7 @@ const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof va
 
 export function isWorkspaceFitGeometry(value:unknown,profile:WorkspaceFitProfile):value is WorkspaceFitGeometry{
  if(!record(value)||value.profile!==profile)return false;
+ if(profile==='passive-ceiling-rail-v1')return passiveCeilingRailGeometry(value);
  const keys=Object.keys(value).sort().join(',');
  if(profile==='modular-portal-v1')return modularPortalParts(value);
  if(profile==='straight-ring-v1'||profile==='straight-miter-ring-v1')return keys==='imagePlaneZ,openingHeight,openingWidth,profile'&&finite(value.openingWidth,.4,2)&&finite(value.openingHeight,.4,2)&&value.imagePlaneZ===-.012;
