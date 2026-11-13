@@ -48,6 +48,12 @@ function prepareFull(source:Buffer,sourceWidth:number,sourceHeight:number,maxEdg
 export function prepareProductImageThumbnail(source:Buffer,full:ImageMetric):Buffer {
  const decoded=decodePngPixels(source);
  if(decoded.width!==full.width||decoded.height!==full.height||decoded.channels!==3||decoded.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
+ return prepareFull(decoded.pixels,decoded.width,decoded.height,256,1).bytes;
+}
+/** Current-approved-image jobs use an explicitly recipe-bound area reduction. */
+export function prepareCurrentImageThumbnail(source:Buffer,full:ImageMetric):Buffer {
+ const decoded=decodePngPixels(source);
+ if(decoded.width!==full.width||decoded.height!==full.height||decoded.channels!==3||decoded.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
  const {width,height}=fullDimensions(decoded.width,decoded.height,256);
  const pixels=Buffer.alloc(width*height*3);
  // Integer overlap weights integrate each entire source footprint. Sampling

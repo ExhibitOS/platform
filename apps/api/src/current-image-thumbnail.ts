@@ -9,7 +9,7 @@ import type {ModelPreparationWriter} from './model-preparation-import.ts';
 import {allowedRights} from './rights.ts';
 import {canonicalImageHash,productImageDrained} from './product-image-intent.ts';
 import {prepareFreshImageInWorker} from './product-image-preparation-process.ts';
-import {prepareProductImageThumbnail,CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256,FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,type ProductImageProducerReceipt} from './product-image-preparation.ts';
+import {prepareCurrentImageThumbnail,CURRENT_IMAGE_THUMBNAIL_RECIPE_SHA256,FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,type ProductImageProducerReceipt} from './product-image-preparation.ts';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {currentImageThumbnailReady} from './current-image-thumbnail-schema.ts';
 
@@ -107,7 +107,7 @@ export async function workCurrentImageThumbnail(imports:Imports,row:Record<strin
  // Reuse the existing bounded PNG decoder process; its Full is an ephemeral
  // normalized intermediate, never a replacement asset or stored source.
  const normalized=await prepareFreshImageInWorker(source,{...state.source,mime:'image/png'},{writerFd:writer.writerFd});
- const png=prepareProductImageThumbnail(normalized.full,normalized.receipt.full),dimensions=await validateThumbnailBytes(png);
+ const png=prepareCurrentImageThumbnail(normalized.full,normalized.receipt.full),dimensions=await validateThumbnailBytes(png);
  await hooks?.beforeCommit?.();
  await transaction(imports.pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');

@@ -5,7 +5,7 @@ import {expect,it} from 'vitest';
 import sharp from 'sharp';
 import {prepareFreshImageInWorker,prepareProductImageInWorker} from './product-image-preparation-process.ts';
 import {pngCrc} from './png-pixels.ts';
-import {FRESH_IMAGE_RECIPE_SHA256,imageHash,prepareProductImageThumbnail,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
+import {FRESH_IMAGE_RECIPE_SHA256,imageHash,prepareCurrentImageThumbnail,prepareProductImageThumbnail,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
 import {canonicalImageHash,productImageView} from './product-image-intent.ts';
 
 it('prepares the selected JPEG in the product worker and preserves the source identity',async()=>{
@@ -28,9 +28,12 @@ it('prepares the selected JPEG in the product worker and preserves the source id
  expect(result.coarse).toBeUndefined();
  expect(result.receipt.coarse).toBeUndefined();
  expect(imageHash(jpeg)).toBe(identity.sha256);
- const thumb=prepareProductImageThumbnail(result.full,result.receipt.full);
+ const originalThumbnail=await sharp(prepareProductImageThumbnail(result.full,result.receipt.full)).raw().toBuffer();
+ const originalX=Math.floor((111+.5)*width/256),originalY=Math.floor((72+.5)*height/171);
+ const thumb=prepareCurrentImageThumbnail(result.full,result.receipt.full);
  const preview=await sharp(thumb).raw().toBuffer({resolveWithObject:true});
  const full=await sharp(result.full).raw().toBuffer();
+ expect(originalThumbnail.subarray((72*256+111)*3,(72*256+111)*3+3)).toEqual(full.subarray((originalY*width+originalX)*3,(originalY*width+originalX)*3+3));
  expect(preview.info).toMatchObject({width:256,height:171,channels:3});
  const x=111,y=72,left=x*width/256,right=(x+1)*width/256,top=y*height/171,bottom=(y+1)*height/171;
  const expected=[0,0,0];
@@ -47,7 +50,7 @@ it('integrates high-frequency thumbnail detail instead of aliasing centre sample
  for(let y=0;y<height;y++)for(let x=0;x<width;x++)rgb.fill((x+y)%2?255:0,(y*width+x)*3,(y*width+x+1)*3);
  const png=await sharp(rgb,{raw:{width,height,channels:3}}).png().toBuffer();
  const normalized=await prepareFreshImageInWorker(png,{mime:'image/png',sha256:imageHash(png),bytes:png.length});
- const thumbnail=prepareProductImageThumbnail(normalized.full,normalized.receipt.full);
+ const thumbnail=prepareCurrentImageThumbnail(normalized.full,normalized.receipt.full);
  const decoded=await sharp(thumbnail).raw().toBuffer({resolveWithObject:true});
  expect(decoded.info).toMatchObject({width:256,height:256,channels:3});
  expect(decoded.data.equals(Buffer.alloc(256*256*3,128))).toBe(true);
