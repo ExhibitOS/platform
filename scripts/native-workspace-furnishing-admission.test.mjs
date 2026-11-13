@@ -158,3 +158,37 @@ test('044 to 045 mode and admission are a distinct authenticated pair',async()=>
   const f=await fixture(mode);try{const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);if(valid){const admission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});await assertWorkspaceFurnishingRuntimeAdmission(mode,admission);}else await assert.rejects(acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),/FURNISHING_ADMISSION_INVALID/);}finally{await cleanup(f);}
  }
 });
+
+test('combined 050+051 interrupted reopen preserves only an exact settled catalog and rechecks before commit',async()=>{
+ const {fileURLToPath}=await import('node:url'),{readFile,readdir}=await import('node:fs/promises'),{createHash}=await import('node:crypto');
+ const root=fileURLToPath(new URL('../database/',import.meta.url)),directories={base:'migrations',normal:'native-oex-normal',imports:'native-oex-workspace-import',wall:'native-oex-workspace-import-wall',furnishing:'native-workspace-furnishing',writerDirectory:'native-workspace-furnishing-writer',publicationDirectory:'native-workspace-furnishing-publication',materialPublicationDirectory:'native-workspace-material-publication',materialMultimapDirectory:'native-workspace-material-multimap',framePreparationDirectory:'native-workspace-frame-preparation',hayesOriginalDirectory:'native-hayes-original',hayesDispositionDirectory:'native-hayes-disposition',hayesReleaseDirectory:'native-hayes-release',modelPreparationDirectory:'native-model-preparation',workspaceFurnishingThumbnailDirectory:'native-workspace-furnishing-thumbnail',currentImageThumbnailDirectory:'native-current-image-thumbnail'};
+ const paths=Object.fromEntries(Object.entries(directories).map(([key,value])=>[key,join(root,value)])),rows=[];
+ for(const directory of Object.values(paths))for(const name of (await readdir(directory)).filter(name=>/^\d+.*\.sql$/.test(name)))rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+ rows.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(rows.length,47);
+ for(const scenario of ['settled','unsettled','unknown','wrong-type','partial-ledger','single-thumbnail','late-work','stopped','payload-drift']){
+  const mode='workspace-furnishing-036-reopen-v1',f=await fixture(mode);
+  try{
+   const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'interrupted-reopen',activeBindingSHA256:'b'.repeat(64),previousRuntimeGeneration:id(99)};
+   f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);
+   const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),calls=[];let late=false;
+   // Authentication alone remains insufficient unless the actual runtime opts in.
+   await assert.rejects(assertWorkspaceFurnishingRuntimeAdmission(mode,ordinaryAdmission),/FURNISHING_ADMISSION_INVALID/);
+   await assertWorkspaceFurnishingRuntimeAdmission(mode,ordinaryAdmission,{allowInterruptedReopen:true});
+   const c={query:async sql=>{calls.push(sql);if(sql.endsWith('AS unsettled'))return {rows:scenario==='unknown'?[]:[{unsettled:scenario==='wrong-type'?'false':scenario==='unsettled'||late}]};if(sql.startsWith('SELECT EXISTS'))return {rows:[{occupied:true}]};if(sql.startsWith('SELECT to_regclass'))return {rows:[{name:'schema_migrations'}]};if(sql.startsWith('SELECT name,sha256'))return {rows:scenario==='partial-ledger'?rows.slice(0,-1):rows};return {rows:[]};}};
+   const args={...paths,mode,writer,channel:f.input.channel,ordinaryAdmission};
+   if(scenario==='single-thumbnail')delete args.currentImageThumbnailDirectory;
+   if(['unsettled','unknown','wrong-type','partial-ledger','single-thumbnail'].includes(scenario))await assert.rejects(prepareWorkspaceFurnishingCatalog(c,args),/FURNISHING_RECOVERY_UNAVAILABLE|NATIVE_OEX_CATALOG|FURNISHING_ADMISSION_INVALID/);
+   else{
+    assert.deepEqual(await prepareWorkspaceFurnishingCatalog(c,args),{requireExisting:true});
+    const predicate=calls.find(sql=>sql.endsWith('AS unsettled'));assert.ok(predicate);
+    for(const name of ['import_jobs','oex_import_jobs','workspace_material_intakes','workspace_furnishing_intakes','freeze_requests','workspace_frame_preparations'])assert.ok(predicate.includes(`public.${name}`));
+    if(scenario==='late-work')late=true;
+    if(scenario==='payload-drift')f.input.payload.digest='c'.repeat(64);
+    const fence=()=>assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel:f.input.channel,isStopped:()=>scenario==='stopped',modelPreparation:true,workspaceFurnishingThumbnail:true,currentImageThumbnail:true});
+    if(scenario==='settled')await fence();else await assert.rejects(fence(),/FURNISHING_RECOVERY_UNAVAILABLE|FURNISHING_LEASE_INVALID|NATIVE_OWNER_UNAVAILABLE/);
+    assert.equal(calls.filter(sql=>sql===predicate).length,2);
+   }
+   assert.equal(calls.some(sql=>/^\s*(UPDATE|DELETE|INSERT|ALTER|CREATE)\b/.test(sql)),false);
+  }finally{await cleanup(f);}
+ }
+});

@@ -413,7 +413,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       if(catalog045IdlePreReady?!pinnedPayload.hasExact(preReadyMarker,createHash('sha256').update(CATALOG045_PRE_READY_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG045_PRE_READY_CAPABILITY)):pinnedPayload.hasPath(preReadyMarker))throw Error('NATIVE_OEX_CATALOG');
       const hayesPreReadyMarker='platform/scripts/'+CATALOG045_PRE_READY_HAYES_MARKER;
       if(catalog045HayesPreReady?!pinnedPayload.hasExact(hayesPreReadyMarker,createHash('sha256').update(CATALOG045_PRE_READY_HAYES_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG045_PRE_READY_HAYES_CAPABILITY)):pinnedPayload.hasPath(hayesPreReadyMarker))throw Error('NATIVE_OEX_CATALOG');
-      ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission,{allowInterruptedReopen:freshImageCapability||largeModelRecoveryCapability||catalog045PreReady});
+      ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission,{allowInterruptedReopen:freshImageCapability||largeModelRecoveryCapability||catalog045PreReady||workspaceFurnishingThumbnailCapability&&currentImageThumbnailCapability});
       if(adoptionDescriptors){
         assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
         adoptionIsTargetOnly=adoptionTargetOnly(ordinaryAdmission.fields,adoptionCarriedCapability);

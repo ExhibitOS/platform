@@ -27,6 +27,29 @@ export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,{
  await admission.writer.assertLive();
 }
 
+// Interrupted combined-thumbnail reopen preserves settled work only. Ordinary
+// PNG tokens have no generation/root claim, so none may be reclaimed here.
+// Keep this global predicate identical to Manager's PG-only pre-Node check.
+async function assertCombinedThumbnailInterruptedIdle(c){
+ const result=await c.query(`SELECT EXISTS (
+ SELECT 1 FROM public.import_jobs WHERE state IN ('uploading','queued','processing')
+ OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cardinality(png_worker_tokens)>0
+ OR model_preparation ? 'claim' OR derived ? 'claim'
+) OR EXISTS (
+ SELECT 1 FROM public.oex_import_jobs WHERE state IN ('uploading','queued','processing')
+ OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending
+) OR EXISTS (
+ SELECT 1 FROM public.workspace_material_intakes WHERE phase IN ('uploading','validating','cancelling') OR worker_token IS NOT NULL
+) OR EXISTS (
+ SELECT 1 FROM public.workspace_furnishing_intakes WHERE phase IN ('uploading','validating','cancelling') OR worker_token IS NOT NULL
+) OR EXISTS (
+ SELECT 1 FROM public.freeze_requests WHERE state='creating' OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending
+) OR EXISTS (
+ SELECT 1 FROM public.workspace_frame_preparations WHERE state='staged'
+) AS unsettled`);
+ if(result.rows.length!==1||result.rows[0]?.unsettled!==false)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+}
+
 /** Recheck the ledger before the last asynchronous writer/payload fence. */
 export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped,framePreparation=false,hayesOriginal=false,hayesDisposition=false,hayesRelease=false,modelPreparation=false,largeModel=false,freshImage=false,infoStandPreparation=false,workspaceFurnishingThumbnail=false,currentImageThumbnail=false,gpuModelPreparation=false}){
  assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
@@ -37,6 +60,7 @@ export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,wri
  if(typeof currentImageThumbnail!=='boolean'||currentImageThumbnail&&(!modelPreparation||gpuModelPreparation||infoStandPreparation||freshImage||largeModel))throw Error('FURNISHING_ADMISSION_INVALID');
  if(gpuModelPreparation&&(!modelPreparation||workspaceFurnishingThumbnail||infoStandPreparation||freshImage||largeModel))throw Error('FURNISHING_ADMISSION_INVALID');
  if(currentImageThumbnail&&workspaceFurnishingThumbnail)await assertExactCombinedThumbnailCatalog(c);else if(currentImageThumbnail)await assertExactCurrentImageThumbnailCatalog(c);else if(gpuModelPreparation)await assertExactGpuModelPreparationCatalog(c);else if(workspaceFurnishingThumbnail)await assertExactWorkspaceFurnishingThumbnailCatalog(c);else if(infoStandPreparation)await assertExactInfoStandPreparationCatalog(c);else if(freshImage)await assertExactFreshImageCatalog(c);else if(largeModel)await assertExactLargeModelCatalog(c);else if(modelPreparation)await assertExactModelPreparationCatalog(c);else if(hayesRelease)await assertExactHayesReleaseCatalog(c);else if(hayesDisposition)await assertExactHayesDispositionCatalog(c);else if(hayesOriginal)await assertExactHayesOriginalCatalog(c);else if(framePreparation)await assertExactWorkspaceFramePreparationCatalog(c);
+ if(currentImageThumbnail&&workspaceFurnishingThumbnail&&ordinaryAdmission.fields.admissionKind==='interrupted-reopen')await assertCombinedThumbnailInterruptedIdle(c);
  await writer.assertLive();
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
@@ -61,8 +85,9 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if((ordinaryAdmission.fields.admissionKind==='catalog-upgrade-039-to-040')!==upgrade||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-040-to-044')!==upgrade44||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-044-to-045')!==upgrade45||ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1',...selected].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
  if(catalog045PreReady&&(!modelPreparationDirectory||largeModelDirectory||freshImageDirectory||infoStandPreparationDirectory||mode!=='workspace-furnishing-036-reopen-v1'||!['clean-reopen','interrupted-reopen'].includes(ordinaryAdmission?.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
  const preservePreReady=catalog045PreReady&&ordinaryAdmission?.fields.admissionKind==='interrupted-reopen';
+ const preserveCombinedThumbnail=Boolean(currentImageThumbnailDirectory&&workspaceFurnishingThumbnailDirectory)&&ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&mode==='workspace-furnishing-036-reopen-v1';
  if(preReadyHayesCompletion&&!preservePreReady)throw Error('FURNISHING_ADMISSION_INVALID');
- if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!preservePreReady&&!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(ordinaryAdmission?.fields.admissionKind==='interrupted-reopen'&&(!preservePreReady&&!preserveCombinedThumbnail&&!freshImageDirectory&&!(largeModelDirectory&&allowLargeModelInterrupted)||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory||materialPublicationDirectory&&!publicationDirectory||materialMultimapDirectory&&!materialPublicationDirectory)throw Error('NATIVE_OEX_CATALOG');
  if(currentImageThumbnailDirectory&&(!modelPreparationDirectory||gpuModelPreparationDirectory||infoStandPreparationDirectory||freshImageDirectory||largeModelDirectory||catalog045PreReady||upgrade||upgrade44||upgrade45||selected.includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');
@@ -116,6 +141,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
   if(currentImageThumbnailDirectory&&workspaceFurnishingThumbnailDirectory)await assertExactCombinedThumbnailCatalog(c);
   else if(currentImageThumbnailDirectory)await assertExactCurrentImageThumbnailCatalog(c);
   else if(workspaceFurnishingThumbnailDirectory)await assertExactWorkspaceFurnishingThumbnailCatalog(c);
+  if(preserveCombinedThumbnail)await assertCombinedThumbnailInterruptedIdle(c);
   if(preservePreReady){
    // This route preserves a stopped generation. Active or pending work is
    // outside its authority, including any cleanup that startup could resume.
