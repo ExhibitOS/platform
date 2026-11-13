@@ -28,14 +28,15 @@ export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,{
 }
 
 /** Recheck the ledger before the last asynchronous writer/payload fence. */
-export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped,framePreparation=false,hayesOriginal=false,hayesDisposition=false,hayesRelease=false,modelPreparation=false,largeModel=false,freshImage=false,infoStandPreparation=false,workspaceFurnishingThumbnail=false,gpuModelPreparation=false}){
+export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped,framePreparation=false,hayesOriginal=false,hayesDisposition=false,hayesRelease=false,modelPreparation=false,largeModel=false,freshImage=false,infoStandPreparation=false,workspaceFurnishingThumbnail=false,currentImageThumbnail=false,gpuModelPreparation=false}){
  assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
  if(ordinaryAdmission.writer!==writer||writer.identity.mode!==mode)throw Error('FURNISHING_ADMISSION_INVALID');
  if(mode==='workspace-furnishing-039-to-040-upgrade-v1')await assertExactWorkspaceMaterialMultimapCatalog(c);
  if(mode==='workspace-furnishing-040-to-044-upgrade-v1'&&!hayesRelease)throw Error('FURNISHING_ADMISSION_INVALID');
  if(mode==='workspace-furnishing-044-to-045-upgrade-v1'&&!modelPreparation)throw Error('FURNISHING_ADMISSION_INVALID');
+ if(typeof currentImageThumbnail!=='boolean'||currentImageThumbnail&&(!modelPreparation||workspaceFurnishingThumbnail||gpuModelPreparation||infoStandPreparation||freshImage||largeModel))throw Error('FURNISHING_ADMISSION_INVALID');
  if(gpuModelPreparation&&(!modelPreparation||workspaceFurnishingThumbnail||infoStandPreparation||freshImage||largeModel))throw Error('FURNISHING_ADMISSION_INVALID');
- if(gpuModelPreparation)await assertExactGpuModelPreparationCatalog(c);else if(workspaceFurnishingThumbnail)await assertExactWorkspaceFurnishingThumbnailCatalog(c);else if(infoStandPreparation)await assertExactInfoStandPreparationCatalog(c);else if(freshImage)await assertExactFreshImageCatalog(c);else if(largeModel)await assertExactLargeModelCatalog(c);else if(modelPreparation)await assertExactModelPreparationCatalog(c);else if(hayesRelease)await assertExactHayesReleaseCatalog(c);else if(hayesDisposition)await assertExactHayesDispositionCatalog(c);else if(hayesOriginal)await assertExactHayesOriginalCatalog(c);else if(framePreparation)await assertExactWorkspaceFramePreparationCatalog(c);
+ if(currentImageThumbnail)await assertExactCurrentImageThumbnailCatalog(c);else if(gpuModelPreparation)await assertExactGpuModelPreparationCatalog(c);else if(workspaceFurnishingThumbnail)await assertExactWorkspaceFurnishingThumbnailCatalog(c);else if(infoStandPreparation)await assertExactInfoStandPreparationCatalog(c);else if(freshImage)await assertExactFreshImageCatalog(c);else if(largeModel)await assertExactLargeModelCatalog(c);else if(modelPreparation)await assertExactModelPreparationCatalog(c);else if(hayesRelease)await assertExactHayesReleaseCatalog(c);else if(hayesDisposition)await assertExactHayesDispositionCatalog(c);else if(hayesOriginal)await assertExactHayesOriginalCatalog(c);else if(framePreparation)await assertExactWorkspaceFramePreparationCatalog(c);
  await writer.assertLive();
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }

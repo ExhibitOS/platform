@@ -3,7 +3,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {readFile,readdir,mkdtemp,rm} from 'node:fs/promises';import {constants,openSync,closeSync,fstatSync,realpathSync} from 'node:fs';
 import {join} from 'node:path';import {tmpdir} from 'node:os';import {fileURLToPath} from 'node:url';import {createHash} from 'node:crypto';
 import {recognizeNormalOexCatalog,assertExactCurrentImageThumbnailCatalog,CURRENT_IMAGE_THUMBNAIL_MIGRATION as migration,CURRENT_IMAGE_THUMBNAIL_SHA256 as digest} from './native-oex-normal-catalog.mjs';
-import {upgradeCurrentImageThumbnailCatalog,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertFurnishingBeforeCommit,upgradeCurrentImageThumbnailCatalog,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';import {encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
 const db=fileURLToPath(new URL('../database/',import.meta.url)),base=join(db,'migrations'),normal=join(db,'native-oex-normal');
@@ -42,4 +42,16 @@ test('sealed upgrade applies only051, retries exact46 withoutDDL, and preserves 
 });
 test('sealed upgrade refuses stale/unknown/mixed owner or claims beforeDDL and ordinary admission cannot invoke it',async()=>{
  const f=await admission(upgradeMode),ordinary=await admission('workspace-furnishing-036-reopen-v1');try{for(const kind of['short','hash','048','foreign-owner','pending','ordinary','stopped']){const initial=(await ledger()).slice(0,45);if(kind==='short')initial.pop();if(kind==='hash')initial[44].sha256='0'.repeat(64);if(kind==='048')initial.push({name:'048_workspace_info_stand_preparation.sql',sha256:'5f41eba8cff108ee545e7454ca5ef3757087335c7650c95660ef1022d6698ca6'});const c=upgradeClient(initial,kind),auth=kind==='ordinary'?ordinary:f;await assert.rejects(upgradeCurrentImageThumbnailCatalog(c,{mode:upgradeMode,ownerUid:process.getuid(),writer:auth.writer,ordinaryAdmission:auth.ordinaryAdmission,channel:auth.channel,isStopped:()=>kind==='stopped',catalog:{base,normal,...options}}));assert.equal(c.calls.some(sql=>sql.startsWith('-- SPDX')||/^(CREATE|INSERT|UPDATE|DELETE)/.test(sql)),false);}}finally{await f.cleanup();await ordinary.cleanup();}
+});
+
+test('final commit fence accepts exact051 on init/reopen and rejects parent45 or mixed capability',async()=>{
+ const rows=await ledger();
+ for(const mode of ['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1']){
+  const f=await admission(mode);try{
+   const run=(catalog,extra={})=>assertFurnishingBeforeCommit({query:async()=>({rows:catalog})},{mode,...f,isStopped:()=>false,modelPreparation:true,currentImageThumbnail:true,...extra});
+   await run(rows);
+   await assert.rejects(run(rows.slice(0,45)),/NATIVE_OEX_CATALOG/);
+   for(const change of [{modelPreparation:false},{workspaceFurnishingThumbnail:true},{gpuModelPreparation:true},{infoStandPreparation:true},{freshImage:true},{largeModel:true},{currentImageThumbnail:'true'}])await assert.rejects(run(rows,change),/FURNISHING_ADMISSION_INVALID/);
+  }finally{await f.cleanup();}
+ }
 });
