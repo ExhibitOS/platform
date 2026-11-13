@@ -177,6 +177,7 @@ export function qualifyWorkspaceFitGeometry(bytes:Buffer,profile:WorkspaceFitPro
  const jsonSize=bytes.readUInt32LE(12);
  const doc=JSON.parse(bytes.toString('utf8',20,20+jsonSize));
  const bin=bytes.subarray(28+jsonSize);
+ if(profile==='passive-ceiling-rail-v1')return passiveRailBounds(doc,bin);
  if(profile==='modular-portal-v1')return qualifyModularPortal(doc,bin);
  const node=doc.nodes?.[0],primitive=doc.meshes?.[0]?.primitives?.[0];
  if(doc.nodes?.length!==1||doc.meshes?.length!==1||doc.meshes[0].primitives.length!==1||doc.scenes?.length!==1||doc.scenes[0].nodes?.join()!=='0'||(doc.scene??0)!==0||
@@ -211,4 +212,42 @@ export function qualifyWorkspaceFitGeometry(bytes:Buffer,profile:WorkspaceFitPro
   const corners:Point[]=outline.flatMap(([x,y])=>[[x,y,minZ],[x,y,maxZ]] as Point[]);
   if(matchesFaces(points,indices,corners,portalTriangles))return {profile,openingWidth:2*halfWidth,openingHeight,minZ,maxZ};
  }
+}
+
+/** Passive visual mount bounds, measured from the default scene's POSITION
+ * data after authored transforms. No filename, source hash or accessor min/max
+ * is an eligibility test. The existing GLB worker validates the full file first. */
+function passiveRailBounds(doc:ReturnType<typeof JSON.parse>,bin:Buffer):WorkspaceFitGeometry|undefined {
+ if(doc.animations?.length||doc.skins?.length||!Array.isArray(doc.nodes)||doc.nodes.length>256||!Array.isArray(doc.meshes)||doc.meshes.length>256)return;
+ const scene=doc.scenes?.[doc.scene??0];if(!Array.isArray(scene?.nodes)||!scene.nodes.length)return;
+ type Matrix=number[];
+ const identity=():Matrix=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+ const multiply=(a:Matrix,b:Matrix):Matrix=>Array.from({length:16},(_,i)=>{const row=i%4,col=Math.floor(i/4);return [0,1,2,3].reduce((sum,k)=>sum+a[k*4+row]!*b[col*4+k]!,0);});
+ const local=(node:ReturnType<typeof JSON.parse>):Matrix|undefined=>{
+  if(node.matrix!==undefined)return Array.isArray(node.matrix)&&node.matrix.length===16&&node.matrix.every(Number.isFinite)?node.matrix:undefined;
+  const t=node.translation??[0,0,0],q=node.rotation??[0,0,0,1],s=node.scale??[1,1,1];
+  if(![t,s].every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite))||!Array.isArray(q)||q.length!==4||!q.every(Number.isFinite)||Math.abs(Math.hypot(...q)-1)>1e-5)return;
+  const [x,y,z,w]=q;return [(1-2*(y*y+z*z))*s[0],2*(x*y+z*w)*s[0],2*(x*z-y*w)*s[0],0,2*(x*y-z*w)*s[1],(1-2*(x*x+z*z))*s[1],2*(y*z+x*w)*s[1],0,2*(x*z+y*w)*s[2],2*(y*z-x*w)*s[2],(1-2*(x*x+y*y))*s[2],0,t[0],t[1],t[2],1];
+ };
+ const min:Point=[Infinity,Infinity,Infinity],max:Point=[-Infinity,-Infinity,-Infinity],seen=new Set<number>();let vertices=0,valid=true;
+ const visit=(index:number,parent:Matrix)=>{
+  if(!Number.isInteger(index)||seen.has(index)||seen.size>=256){valid=false;return;}seen.add(index);
+  const node=doc.nodes[index],matrix=node&&local(node);if(!matrix){valid=false;return;}const world=multiply(parent,matrix);
+  if(node.mesh!==undefined){const mesh=doc.meshes[node.mesh];if(!Array.isArray(mesh?.primitives)||!mesh.primitives.length){valid=false;return;}
+   for(const primitive of mesh.primitives){
+    if(primitive.targets||(primitive.mode??4)!==4){valid=false;return;}
+    const positions=readAccessor(bin,doc.accessors?.[primitive.attributes?.POSITION],doc.bufferViews??[],true,1000000);
+    if(!positions||(vertices+=positions.length/3)>1000000){valid=false;return;}
+    for(let i=0;i<positions.length;i+=3)for(let axis=0;axis<3;axis++){
+     const p=world[axis]!*positions[i]!+world[4+axis]!*positions[i+1]!+world[8+axis]!*positions[i+2]!+world[12+axis]!;
+     if(!Number.isFinite(p)||Math.abs(p)>100){valid=false;return;}min[axis]=Math.min(min[axis]!,p);max[axis]=Math.max(max[axis]!,p);
+    }
+   }
+  }
+  if(node.children!==undefined&&!Array.isArray(node.children)){valid=false;return;}
+  for(const child of node.children??[])visit(child,world);
+ };
+ for(const index of scene.nodes)visit(index,identity());
+ if(!valid||!vertices||min.some((n,i)=>n>=max[i]!)||Math.abs(max[1])>1e-6||min[1]>=-1e-6||min[0]>0||max[0]<0||min[2]>0||max[2]<0)return;
+ return {profile:'passive-ceiling-rail-v1',min:min.map(metres) as Point,max:max.map(metres) as Point};
 }

@@ -53,10 +53,11 @@ export class WorkspaceFurnishingIntakes {
  supportsInfoStandPreparation(){return this.owner.workspaceInfoStandPreparation===true&&this.supportsRoomVisual()&&hashString(this.writer?.identity.payloadManifestSHA256);}
  frameLineage(){return this.supportsFramePreparation()&&this.writer?new WorkspaceFrameLineage(this.blobs,this.owner,this.writer):undefined;}
  thumbnailReceipts(){return this.writer?new WorkspaceFurnishingThumbnails(this.blobs,this.owner,this.writer,this):undefined;}
+ supportsCeilingRail(){return this.supportsRoomVisual()&&this.supportsReusableFit();}
  supportsReusableFit(){return !!this.writer&&this.supportsArtworkFrameModels();}
  supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
-  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})&&validRights(value.rights)&&
+  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowCeilingRail:this.supportsCeilingRail(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})&&validRights(value.rights)&&
    (!!value.fitProfile||value.kind!=='portal-finish'||!!portalFinishModel(value.model.sha256,value.model.bytes))&&
    (!!value.fitProfile||value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
@@ -140,7 +141,7 @@ export class WorkspaceFurnishingIntakes {
   return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,...(preparationPolicy?{preparationPolicy}:{}),...(fitProfile?{fitProfile}:{}),...(preparation?{preparation}:{}),furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields,model:preparation?.renderableModel??fields.model,...(fit?{fit}:{})}:null};
  }
  async create(c:PoolClient,s:Session,value:unknown){
-  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
+  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowCeilingRail:this.supportsCeilingRail(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowInfoStandPreparation:this.supportsInfoStandPreparation(),allowPortalFinish:this.supportsPortalFinish(),allowReusableFit:this.supportsReusableFit()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
   if(value.preparationPolicy){
    if(value.preparationPolicy===FRAME_PREPARATION_POLICY&&!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
    if(value.preparationPolicy===INFO_STAND_PREPARATION_POLICY){
@@ -342,9 +343,10 @@ export class WorkspaceFurnishingIntakes {
     prepared={key,model:renderable};
    }else if(!retainedOriginal){
     const model=row.declaration.model;
-    if(row.declaration.fitProfile){
+    const railProfile=row.declaration.kind==='ceiling-rail'?'passive-ceiling-rail-v1':row.declaration.fitProfile;
+    if(railProfile){
      if(!this.admittedDeclaration(row.declaration))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');
-     const geometry=await validateWorkspaceFurnishingGlb(model,bytes,workerHooks,row.declaration.fitProfile);
+     const geometry=await validateWorkspaceFurnishingGlb(model,bytes,workerHooks,railProfile);
      fit={version:1,sourceSha256:model.sha256,sourceBytes:model.bytes,geometry};
     }else await validateWorkspaceFurnishingGlb(model,bytes,workerHooks);
    }
