@@ -4,6 +4,7 @@ import {newDraft} from './drafts/example';
 import {whiteCubeSurfaces,newDoor} from './geometry/model';
 import {applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
+import {biasPairedPortalWalls} from './workspace-furnishing/portal-pose';
 import {surfaceTexturePlan} from './surface-texture-renderer';
 import {createNavigationController} from './viewer/navigation';
 import {createPresenceGeometry} from '../../api/src/realtime-geometry';
@@ -49,4 +50,29 @@ test('workspace wall texture uses metre UVs on the owned structure and reserves 
  const result=installArchitecturalFinishes(Three,d,new Map([[wall.id.toLowerCase(),parent]]),new Map([[wall.id.toLowerCase(),material]]),targets);
  try{const mesh=result.meshes[0]!,geometry=mesh.geometry,p=geometry.getAttribute('position'),n=geometry.getAttribute('normal'),uv=geometry.getAttribute('uv');expect(mesh.material).toBe(material);expect(mesh).not.toBeInstanceOf(Three.InstancedMesh);expect(plan.geometryReserve).toBeGreaterThan(0);for(let i=0;i<p.count;i++)if(Math.abs(n.getZ(i))>.5){expect(uv.getX(i)).toBeCloseTo(p.getX(i)/2);expect(uv.getY(i)).toBeCloseTo(p.getY(i)/4);}}
  finally{result.dispose();material.dispose();}
+});
+
+
+test('paired portal depth bias covers its finish without changing shared unrelated trim or geometry',()=>{
+ let {d,wall}=fixture();const unrelated=d.surfaces[1]!;
+ d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:unrelated.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:false}});
+ const room=new Three.Group(),host=new Three.Group(),other=new Three.Group();room.add(host,other);
+ const base=new Three.MeshStandardMaterial(),otherBase=new Three.MeshStandardMaterial();
+ const installed=installArchitecturalFinishes(Three,d,new Map([[wall.id,host],[unrelated.id,other]]),new Map([[wall.id,base],[unrelated.id,otherBase]]));
+ const finish=installed.meshes.find(m=>m.userData.architecturalFinish.surfaceId===wall.id&&m.userData.architecturalFinish.kind==='finish')!,
+  otherFinish=installed.meshes.find(m=>m.userData.architecturalFinish.surfaceId===unrelated.id&&m.userData.architecturalFinish.kind==='finish')!;
+ const original=finish.material as Three.MeshStandardMaterial,originalState=original.toJSON(),geometry=finish.geometry,
+  positions=Array.from(geometry.getAttribute('position').array),instances=Array.from((finish as Three.InstancedMesh).instanceMatrix.array);
+ expect(otherFinish.material).toBe(original);const originalDispose=vi.spyOn(original,'dispose');
+ const release=biasPairedPortalWalls(Three,room,new Set([wall.id])),second=biasPairedPortalWalls(Three,room,new Set([wall.id]));
+ const biased=finish.material as Three.MeshStandardMaterial,biasedDispose=vi.spyOn(biased,'dispose');
+ try{
+  expect(biased).not.toBe(original);expect(biased).toMatchObject({polygonOffset:true,polygonOffsetFactor:3,polygonOffsetUnits:6});
+  expect(biased.color.equals(original.color)).toBe(true);expect(biased.roughness).toBe(original.roughness);expect(biased.metalness).toBe(original.metalness);
+  expect(otherFinish.material).toBe(original);expect(original.toJSON()).toEqual(originalState);
+  expect(finish.geometry).toBe(geometry);expect(Array.from(geometry.getAttribute('position').array)).toEqual(positions);
+  expect(Array.from((finish as Three.InstancedMesh).instanceMatrix.array)).toEqual(instances);
+  release();release();expect(finish.material).toBe(biased);expect(biasedDispose).not.toHaveBeenCalled();
+  second();expect(finish.material).toBe(original);expect(biasedDispose).toHaveBeenCalledOnce();expect(originalDispose).not.toHaveBeenCalled();
+ }finally{release();second();installed.dispose();base.dispose();otherBase.dispose();}
 });
