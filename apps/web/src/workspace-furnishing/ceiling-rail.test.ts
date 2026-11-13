@@ -7,6 +7,7 @@ import {OwnerPreviewBudget} from './owner-preview-budget';
 import {mountOwnerWorkspacePlacement} from './owner-placement';
 import {loadWorkspaceFurnishingModel} from './model-loader';
 import {ownerWorkspaceModelSource} from './owner-source';
+import {validateWorkspaceFurnishings as validateSpecWorkspaceFurnishings} from '@exhibitos/spec/workspace-furnishing';
 vi.mock('./model-loader',()=>({loadWorkspaceFurnishingModel:vi.fn()}));
 vi.mock('./owner-source',()=>({ownerWorkspaceModelSource:vi.fn()}));
 afterEach(()=>{vi.useRealTimers();vi.clearAllMocks();});
@@ -40,4 +41,12 @@ it('rejects a stale ceiling pose instead of displaying the rail at an unrelated 
 it('uses the ordinary owner authority revocation and cleanup for a placed rail',async()=>{
  vi.useFakeTimers();const f=fixture();await mountOwnerWorkspacePlacement(f.options);f.check.mockRejectedValueOnce(Error('REVOKED'));await vi.advanceTimersByTimeAsync(5000);
  expect(f.object.visible).toBe(false);expect(f.room.children).toHaveLength(0);expect(f.dispose).toHaveBeenCalledOnce();expect(f.onRevoked).toHaveBeenCalledOnce();
+});
+it.each(['attachment-field','source-custody','scale','bounds'] as const)('keeps the browser-facing Shared and public v11 rail contracts aligned for invalid %s',change=>{
+ const f=fixture(),extension=f.candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE];
+ if(change==='attachment-field')Object.assign(extension.ceilingAttachments[0]!,{extra:true});
+ if(change==='source-custody')extension.furnishings[0]!.fit.sourceSha256='b'.repeat(64);
+ if(change==='scale')extension.placements[0]!.scale=2;
+ if(change==='bounds'){extension.ceilingAttachments[0]!.anchor[0]=9;extension.placements[0]!.position[0]=9;}
+ expect(validateSpecWorkspaceFurnishings(extension,f.candidate).valid).toBe(false);expect(validateWorkspaceFurnishings(f.candidate).valid).toBe(false);
 });
