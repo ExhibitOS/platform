@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import {museumWallwasherRearReliefProfile} from '../../../../packages/studio-contract/src/wallwasher-rear-relief-profile.js';
+import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import type {WallwasherFixtureAssetIdentity} from '../../../../packages/studio-contract/src/wallwasher-fixture-profile.js';
 import type {resolveWallwasherFromEmitter} from '../../../../packages/studio-contract/src/wallwasher-from-emitter.js';
 
@@ -15,9 +16,10 @@ const vectorClose=(a:readonly number[],b:readonly number[],epsilon=1e-6)=>a.leng
  * checks. Validate the entire flat model BEFORE changing any scene membership.
  * No vertex edits, copies, textures, new materials, or resource ownership. */
 export function applyWallwasherModelPose(three:typeof Three,model:Three.Object3D,asset:WallwasherFixtureAssetIdentity,resolved:ResolvedWallwasher){
- const profile=museumWallwasherRearReliefProfile(asset);
+ const profile=asset.catalogId==='museum-track-spot'?museumTrackSpotProfile(asset):museumWallwasherRearReliefProfile(asset);
+ const sourceParts=[...profile.fixedParts,...profile.headParts];
  const identity=(node:Three.Object3D)=>vectorClose(node.position.toArray(),[0,0,0],1e-9)&&vectorClose(node.quaternion.toArray(),[0,0,0,1],1e-9)&&vectorClose(node.scale.toArray(),[1,1,1],1e-9);
- if(!resolved||!profile.headPitchIntervals.some(([a,b])=>a===b&&a===resolved.headPitch)||model.parent||!identity(model)||!model.visible||!model.matrixAutoUpdate||!model.matrixWorldAutoUpdate||model.children.length!==13)fail();
+ if(!resolved||!profile.headPitchIntervals.some(([a,b])=>a===b&&a===resolved.headPitch)||model.parent||!identity(model)||!model.visible||!model.matrixAutoUpdate||!model.matrixWorldAutoUpdate||model.children.length!==sourceParts.length)fail();
  const checkedPose=(p:ResolvedWallwasher['fixedPose'])=>{
   if(!p||!Array.isArray(p.position)||p.position.length!==3||!finite(p.position)||!Array.isArray(p.rotation)||p.rotation.length!==4||!finite(p.rotation)||Math.abs(Math.hypot(...p.rotation)-1)>1e-7||!Array.isArray(p.scale)||!vectorClose(p.scale,[1,1,1],1e-9))fail();
  };
@@ -25,8 +27,8 @@ export function applyWallwasherModelPose(three:typeof Three,model:Three.Object3D
  const q=new three.Quaternion().fromArray(resolved.fixedPose.rotation),rx=new three.Quaternion().setFromAxisAngle(new three.Vector3(1,0,0),resolved.headPitch),pivot=new three.Vector3(...profile.pivotP);
  const headPosition=pivot.clone().sub(pivot.clone().applyQuaternion(rx)).applyQuaternion(q).add(new three.Vector3(...resolved.fixedPose.position));
  if(!vectorClose(resolved.headPose.position,headPosition.toArray())||Math.abs(Math.abs(q.clone().multiply(rx).dot(new three.Quaternion().fromArray(resolved.headPose.rotation)))-1)>1e-7)fail();
- const sourceParts=[...profile.fixedParts,...profile.headParts],byName=new Map<string,Three.Mesh>();
- if(!Array.isArray(resolved.parts)||resolved.parts.length!==13||new Set(resolved.parts.map(p=>p.name)).size!==13)fail();
+ const byName=new Map<string,Three.Mesh>();
+ if(!Array.isArray(resolved.parts)||resolved.parts.length!==sourceParts.length||new Set(resolved.parts.map(p=>p.name)).size!==sourceParts.length)fail();
  for(const node of model.children){
   // r186 sanitizes Object3D.name, but preserves the source nodeDef.name here.
   const name:unknown=node.userData.name,source=sourceParts.find(part=>part.name===name);

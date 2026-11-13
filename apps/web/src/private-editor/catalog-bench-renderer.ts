@@ -85,9 +85,9 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
    const wallwasher='wallwasher' in resolved?resolved.wallwasher:undefined;
    if(item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined){
-    if(item.asset.catalogId!=='museum-wallwasher-rear-relief'||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
+    if(!['museum-wallwasher-rear-relief','museum-track-spot'].includes(item.asset.catalogId)||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
     applyWallwasherModelPose(three,visual.model,item.asset,wallwasher);
-    if(lights){const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;if(!light)throw Error('WALLWASHER_EMITTER_LIGHT_REQUIRED');
+    if(lights&&item.asset.catalogId==='museum-wallwasher-rear-relief'){const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;if(!light)throw Error('WALLWASHER_EMITTER_LIGHT_REQUIRED');
      const emission=installWallwasherEmission(three,visual.model,item.asset,light),disposeSource=visual.dispose;visual.dispose=()=>{emission.dispose();disposeSource();};
     }
    }else{const pose=resolved.pose;visual.model.position.fromArray(pose.position);visual.model.quaternion.fromArray(pose.rotation);visual.model.scale.fromArray(pose.scale);}
