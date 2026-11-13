@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
 import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishingDescriptor,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
-import {installedFrameDescriptor,matchesInstalledFrame} from './installed-artwork-frame.ts';
+import {matchingInstalledFrameDescriptor,matchesInstalledFrame} from './installed-artwork-frame.ts';
 import {ApiError} from './auth.ts';
 
 /** The same aggregate bound applies before preparation and on public reads. */
@@ -34,7 +34,7 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
  if(source.version===3&&!service.supportsRoomVisual())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const rows=(await c.query('SELECT public_id,workspace_id,tenant_id,user_id,source_id,source_version,source_descriptor FROM publication_workspace_furnishings WHERE tenant_id=$1 AND publication_id=$2',[tenantId,publicationId])).rows as Array<{public_id:string;workspace_id:string;tenant_id:string;user_id:string;source_id:string;source_version:number;source_descriptor:WorkspaceFurnishingDescriptor}>;
  const installed=source.furnishings.filter(item=>matchesInstalledFrame(item,item.id));
- if(installed.length>1||rows.length!==source.furnishings.length-installed.length||new Set(rows.map(row=>row.public_id)).size!==rows.length)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ if(new Set(installed.map(item=>matchingInstalledFrameDescriptor(item,item.id)!.id)).size!==installed.length||rows.length!==source.furnishings.length-installed.length||new Set(rows.map(row=>row.public_id)).size!==rows.length)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(!workspaceFurnishingPublicationWithinBudget(source.furnishings.map(item=>item.model.bytes)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const result:Array<{publicId:string;bytes?:Buffer;mime:string;sha256:string;sourceDescriptor:WorkspaceFurnishingDescriptor}>=[];
  for(const published of source.furnishings){signal?.throwIfAborted();
@@ -45,8 +45,8 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
    // This marker is written by the server projection only for the exact
    // installed descriptor. The caller supplies the immutable publication row.
    if(row||!publicationUserId)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-   original=installedFrameDescriptor();
-   model=await service.installedPublicationModel(c,tenantId,publicationUserId,signal);
+   original=matchingInstalledFrameDescriptor(published,published.id)!;
+   model=await service.installedPublicationModel(c,tenantId,publicationUserId,signal,original);
   }else{
    if(!row||!row.source_descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
    original=row.source_descriptor;

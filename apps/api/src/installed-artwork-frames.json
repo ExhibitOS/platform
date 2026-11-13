@@ -1,0 +1,81 @@
+[
+  {
+    "catalogId": "black-aluminum-frame",
+    "path": "assets/furnishings/user-authored-20261027/black-aluminum-frame/model.glb",
+    "descriptor": {
+      "id": "4e670339-c7db-4d89-9430-94f24761b6b7",
+      "version": 1,
+      "kind": "artwork-frame",
+      "name": "검은 알루미늄 액자",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 101720,
+        "sha256": "2fb941a9f6ed030638512e917e348a0a3000e29c1133fe3f9670268ff1c4169c"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "ownership": "owner",
+        "licenseId": "CC0-1.0",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "display": true,
+          "download": true,
+          "export": true,
+          "commercial": true
+        }
+      },
+      "provenance": "ExhibitOS default furnishings, black-aluminum-frame v1."
+    }
+  },
+  {
+    "catalogId": "thin-brass-frame",
+    "path": "assets/furnishings/user-authored-20261027/thin-brass-frame/model.glb",
+    "descriptor": {
+      "id": "af88109b-27e2-4d10-a08c-3ddc0224451a",
+      "version": 1,
+      "kind": "artwork-frame",
+      "name": "얇은 황동 액자",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 7892,
+        "sha256": "4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "ownership": "owner",
+        "licenseId": "CC0-1.0",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "display": true,
+          "download": true,
+          "export": true,
+          "commercial": true
+        }
+      },
+      "provenance": "ExhibitOS default furnishings, thin-brass-frame v1.",
+      "fit": {
+        "version": 1,
+        "sourceSha256": "4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4",
+        "sourceBytes": 7892,
+        "geometry": {
+          "profile": "straight-miter-ring-v1",
+          "openingWidth": 0.6,
+          "openingHeight": 0.8,
+          "imagePlaneZ": -0.012
+        }
+      }
+    },
+    "notice": {
+      "path": "assets/furnishings/user-authored-20261027/thin-brass-frame/LICENSE-NOTICE.txt",
+      "bytes": 774,
+      "sha256": "6bea185176277bc84a56a964fa52f3cbea755d7bab62308dcf9e6e06e4e6a272"
+    },
+    "custodyFiles": [
+      {
+        "path": "assets/furnishings/user-authored-20261027/thin-brass-frame/SOURCE-NOTICE.txt",
+        "bytes": 113,
+        "sha256": "5855dd609391bfafa9bfa62deb1ca0025dfb00b412955fc8ec05999f0e1a0fd1"
+      }
+    ]
+  }
+]
