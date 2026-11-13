@@ -191,3 +191,15 @@ test('reads the exact nested minimum correction and preserves the failed prior c
  const {R115_MIN_HEIGHT_REFERENCE}=await import('./qualified-wheat-reference.mjs');
  assert.equal(R115_MIN_HEIGHT_REFERENCE.viewerBuildId,'da746b7ebb1e4c2bfc54b78e6cab1541f5a6e2cdbc1b644f3d8c3dc1084b4bed');
 });
+
+const r117Readonly=process.env.EXHIBITOS_R117_REFERENCE_READONLY_INPUT,r117ReadonlyPin=process.env.EXHIBITOS_R117_REFERENCE_READONLY_SHA256;
+test('admits only the exact issued R117 publication with the reviewed portal Web build without composing',{skip:!r117Readonly||!r117ReadonlyPin},async()=>{
+ const source=await readNativeReferenceClosure({inputRoot:await realpath(resolve(r117Readonly)),inventorySha256:r117ReadonlyPin});
+ assert.equal(source.reference.publicationId,'74507457-2edc-4d72-a1bf-a90e6d34984b');
+ assert.equal(source.reference.viewerBuildId,'5f1135b810578cb3921e80d6948962cfbaf77a0e38aa0077ac1fd728720eb632');
+ assert.equal(source.sourceEntries.size,150);assert.equal(source.webEntries.size,36);
+ assert.equal(source.index.detailAssets.length,2);
+});
+test('a complete unqualified 150-file publication cannot obtain R117 authority',async()=>{
+ const f=await fixture(150);try{await assert.rejects(readNativeReferenceClosure(f.input),/REFERENCE_NATIVE_CLOSURE/);}finally{await rm(f.parent,{recursive:true,force:true});}
+});
