@@ -5,9 +5,12 @@ import {isAbsolute} from 'node:path';
 import {exportNativeDetailStage} from './export-static-publication.mjs';
 
 /** Owner-bound protocol orchestration; the server remains source authority. */
-export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportNativeDetailStage,overallSignal=AbortSignal.timeout(120000)}){
+export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportNativeDetailStage,overallSignal=AbortSignal.timeout(720000)}){
  if(output!=='.'||typeof runtimeRoot!=='string'||!isAbsolute(runtimeRoot))throw Error('NATIVE_DETAIL_STAGE');
- const pipe=nativeDetailPipe(input,{origin,publicationId}),outputAbort=new AbortController(),signal=AbortSignal.any([pipe.signal,outputAbort.signal,overallSignal]);let startup,control,finished=false;
+ const pipe=nativeDetailPipe(input,{origin,publicationId}),outputAbort=new AbortController(),phaseAbort=new AbortController(),signal=AbortSignal.any([pipe.signal,outputAbort.signal,phaseAbort.signal,overallSignal]);let startup,control,finished=false;
+ // Finite copy allowance, then one nonrenewable handoff allowance. The pipe's
+ // startup limit and caller cancellation remain independent hard boundaries.
+ let phaseTimer=setTimeout(()=>phaseAbort.abort(Error('NATIVE_DETAIL_PREPARATION_TIMEOUT')),600000);phaseTimer.unref();
  // A Writable may emit error after its write callback, including after abort.
  // Keep this sink for the stream lifetime; it never captures credentials.
  stdout.on('error',()=>outputAbort.abort());
@@ -24,10 +27,12 @@ export async function runNativeDetailExport({origin,publicationId,runtimeRoot,ou
   // verifies and fsyncs through its pinned descriptors after this boundary.
   const ack=pipe.expectAck(startup.jobId,receipt.manifestSha256);
   await send({version:1,kind:'staged',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});
+  clearTimeout(phaseTimer);phaseTimer=setTimeout(()=>phaseAbort.abort(Error('NATIVE_DETAIL_HANDOFF_TIMEOUT')),120000);phaseTimer.unref();
   await new Promise((resolve,reject)=>{const abort=()=>{signal.removeEventListener('abort',abort);reject(Error('NATIVE_DETAIL_CANCELLED'));};signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}ack.then(()=>{signal.removeEventListener('abort',abort);resolve();},error=>{signal.removeEventListener('abort',abort);reject(error);});});signal.throwIfAborted();
   await control.finalCheck(receipt.detailPlan);await control.settled();signal.throwIfAborted();
   await send({version:1,kind:'ready',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});signal.throwIfAborted();pipe.finish();finished=true;
  }finally{
+  clearTimeout(phaseTimer);
   if(!finished&&control){try{await control.close(AbortSignal.timeout(5000));}catch{/* Manager must retain the reservation until cleanup is proved. */}}
   if(startup){startup.sessionToken='';startup.csrfToken='';}input.destroy();
  }
