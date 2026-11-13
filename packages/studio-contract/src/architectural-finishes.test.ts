@@ -31,6 +31,18 @@ test('finish closed bounds reject tangential escape, nonwall/stale refs, invalid
  const {d,settings}=fixture();for(const row of [{...settings,depth:NaN},{...settings,depth:.21},{...settings,preset:'asset',url:'https://example.org'},{...settings,surfaceId:crypto.randomUUID()},{...settings,trimWidth:.1}]){const bad=structuredClone(d);bad.extensions={...bad.extensions,[N]:{version:1,walls:[row]} as never};expect(validateArchitecturalFinishes(bad).valid).toBe(false);}
  const oversized=structuredClone(d);oversized.surfaces[0]!.dimensions.width=14;expect(()=>applyArchitecturalFinishCommand(oversized,{type:'set-wall-finish',wall:settings})).toThrow();
  const duplicate=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:settings});(duplicate.extensions![N] as unknown as {walls:WallFinish[]}).walls.push(settings);expect(validateArchitecturalFinishes(duplicate).valid).toBe(false);
- const tooMany=structuredClone(d);tooMany.extensions={...tooMany.extensions,[N]:{version:1,walls:Array.from({length:9},()=>settings)}};expect(validateArchitecturalFinishes(tooMany).valid).toBe(false);expect(validateArchitecturalFinishes({extensions:duplicate.extensions,surfaces:{}}).valid).toBe(false);
+ const tooMany=structuredClone(d);tooMany.extensions={...tooMany.extensions,[N]:{version:1,walls:Array.from({length:21},()=>settings)}};expect(validateArchitecturalFinishes(tooMany).valid).toBe(false);expect(validateArchitecturalFinishes({extensions:duplicate.extensions,surfaces:{}}).valid).toBe(false);
  const nonwall=structuredClone(d);nonwall.surfaces[0]!.type='floor';expect(()=>applyArchitecturalFinishCommand(nonwall,{type:'set-wall-finish',wall:settings})).toThrow();
+});
+
+test('twenty wall faces use the existing finite geometry budgets and refuse a twenty-first or duplicate',()=>{
+ const {d,settings}=fixture(),room=d.rooms[0]!;
+ d.rooms=Array.from({length:6},(_,i)=>({...structuredClone(room),id:i===0?room.id:crypto.randomUUID(),transform:{...structuredClone(room.transform),position:[i*20,0,0]}}));
+ d.surfaces=d.rooms.flatMap(whiteCubeSurfaces);d.openings=[];
+ const walls=d.surfaces.filter(s=>s.type==='wall');let next=structuredClone(d);
+ for(const wall of walls.slice(0,20))next=applyArchitecturalFinishCommand(next,{type:'set-wall-finish',wall:{...settings,surfaceId:wall.id,preset:'plain',ceilingBand:false}});
+ expect(wallFinishesFor(next)).toHaveLength(20);expect(validateArchitecturalFinishes(next).valid).toBe(true);
+ expect(architecturalSolids(next)).toHaveLength(20);expect(d.extensions?.[N]).toBeUndefined();
+ expect(()=>applyArchitecturalFinishCommand(next,{type:'set-wall-finish',wall:{...settings,surfaceId:walls[20]!.id,preset:'plain'}})).toThrow('ARCHITECTURAL_FINISH_INVALID');
+ const duplicate=structuredClone(next);(duplicate.extensions![N] as unknown as {walls:WallFinish[]}).walls[19]={...wallFinishesFor(next)[0]!,surfaceId:wallFinishesFor(next)[0]!.surfaceId.toUpperCase()};expect(validateArchitecturalFinishes(duplicate).valid).toBe(false);
 });

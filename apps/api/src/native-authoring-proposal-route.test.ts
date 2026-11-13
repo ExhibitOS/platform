@@ -173,3 +173,30 @@ it('keeps prepared custody paths private and never treats an absent or mismatche
  for(const path of [root+'source.glb',root+'producer-receipt.json',root+'../model.glb',root.replace('museum-wallwasher/','unadmitted-light/')+'model.glb'])await expect(readInstalledFurnishing(path,1,'0'.repeat(64))).rejects.toMatchObject({status:404,code:'FURNISHING_UNAVAILABLE'});
  await expect(readInstalledFurnishing(root+'model.glb',1,'0'.repeat(64))).rejects.toMatchObject({status:409,code:'FURNISHING_INTEGRITY'});
 });
+
+it('keeps owner and CAS checks while proposing and saving twenty finished walls',async()=>{
+ const draft=newDraft(),baseRoom=draft.candidate.rooms[0]!,tenantId=randomUUID(),userId=randomUUID(),csrf='wall-capacity-test',token='b'.repeat(43);
+ draft.candidate.rooms=Array.from({length:6},(_,i)=>({...structuredClone(baseRoom),id:i===0?baseRoom.id:randomUUID(),transform:{...structuredClone(baseRoom.transform),position:[i*20,0,0]}}));
+ draft.candidate.surfaces=draft.candidate.rooms.flatMap(whiteCubeSurfaces);draft.candidate.openings=[];
+ const walls=draft.candidate.surfaces.filter(s=>s.type==='wall');
+ for(const wall of walls.slice(0,20))draft.candidate=applyArchitecturalFinishCommand(draft.candidate,{type:'set-wall-finish',wall:{surfaceId:wall.id,preset:'plain',depth:.12,trimWidth:.02,baseboardHeight:.04,ceilingBand:false}});
+ const revision=7,match=etag(revision,draft),queries:string[]=[];
+ const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'artist',csrf_hash:sha256(Buffer.from(csrf)),csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
+ const client={query:async(sql:string)=>{queries.push(sql);if(sql.includes('SELECT s.*,m.role'))return {rows:[session],rowCount:1};if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))return {rows:[{id:draft.exhibitionId,revision,metadata:draft,studio_owner_user_id:userId}],rowCount:1};if(/^\s*(INSERT|UPDATE)/.test(sql))return {rows:[{}],rowCount:1};return {rows:[],rowCount:0};},release:()=>{}};
+ const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
+ const app=buildApp({pool:{connect:async()=>client} as unknown as Pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},nativeOexWorkspace:owner,nativeBoundedEditing:true});
+ const path=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}`,headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200',cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf,'if-match':match};
+ const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID()},wall={surfaceId:walls[0]!.id,preset:'plain',depth:.14,trimWidth:.02,baseboardHeight:.04,ceilingBand:false};
+ const payload={expectedRevision:revision,request:{...binding,type:'set-wall-finish',wall}},post=(value:unknown,overrides:Record<string,string>={})=>app.inject({method:'POST',url:path+'/native-authoring-proposal',headers:{...headers,...overrides},payload:value as object});
+ try{
+  expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
+  expect((await post({...payload,request:{...payload.request,principalId:randomUUID()}})).statusCode).toBe(403);
+  expect((await post(payload,{'if-match':etag(revision-1,draft)})).statusCode).toBe(412);
+  const reply=await post(payload);expect(reply.statusCode,reply.body).toBe(200);
+  const next=reply.json().candidate;expect(next.rooms).toEqual(draft.candidate.rooms);expect(next.placements).toEqual(draft.candidate.placements);
+  const rejected=await post({...payload,request:{...payload.request,wall:{...wall,surfaceId:walls[20]!.id}}});expect(rejected.statusCode,rejected.body).toBe(422);expect(rejected.json().code).toBe('AUTHORING_PROPOSAL_INVALID');
+  expect(queries.some(sql=>sql.startsWith('UPDATE exhibitions'))).toBe(false);
+  const saved=await app.inject({method:'PUT',url:path,headers,payload:{requestId:randomUUID(),draft:{...draft,candidate:next}}});expect(saved.statusCode,saved.body).toBe(200);expect(saved.json().revision).toBe(revision+1);expect(saved.json().draft.candidate).toEqual(next);
+  expect(queries.filter(sql=>sql.startsWith('UPDATE exhibitions'))).toHaveLength(1);expect(queries.some(sql=>/INSERT INTO publications/.test(sql))).toBe(false);
+ }finally{await app.close();}
+});

@@ -345,3 +345,7 @@ as an empty object, and `retryable` is always boolean. A qualified runtime must
 construct the intake service with the identical bound native owner context and
 file store used by the API. Preview bytes and their response headers may be sent
 only after the authenticated database transaction has successfully committed.
+
+### Bounded architectural wall depth
+
+The existing architectural-finishes version 1 namespace supports up to 20 unique existing wall faces. The 8 KiB metadata, 8 openings per styled wall and 256 generated boxes / 3072 triangles budgets remain unchanged. Explicit wall depth remains centred on the authored wall plane; unstyled surfaces keep their existing representation. Artwork obstruction and registered furnishing checks remain mandatory. A wall-normal mounting change must use a supported placement operation and fresh saved-head validation; a coupled light may need its own supported pose/aim update so its admitted mounting profile remains valid.

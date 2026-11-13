@@ -83,3 +83,19 @@ it('admits the distinct miter profile only with source-bound capability and enve
  const candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform}],placements:[{id:id(4),roomId:id(1),artworkRevisionId:id(5),assetId:id(6),transform}],artworks:[{revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width:.934,height:.732},transform}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:ext}};
  expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);ext.version=7;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);ext.version=8;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);ext.version=9;fit.sourceBytes++;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);
 });
+
+it('a source-bound portal retains twenty finite finished walls and refuses twenty-one or duplicate IDs',async()=>{
+ const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE:W}=await import('./workspace-furnishing.ts');
+ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,pose=(position:number[],rotation=[0,0,0,1])=>({position,rotation,scale:[1,1,1]});
+ const rooms=Array.from({length:6},(_,i)=>({id:id(100+i),dimensions:{width:6,height:3,depth:8},transform:pose([i*10,0,0])}));
+ const surfaces=rooms.flatMap((room,i)=>[
+  {id:id(200+i*4),roomId:room.id,type:'wall',dimensions:{width:6,height:3},transform:pose([0,1.5,-4])},
+  {id:id(201+i*4),roomId:room.id,type:'wall',dimensions:{width:8,height:3},transform:pose([3,1.5,0],[0,-Math.SQRT1_2,0,Math.SQRT1_2])},
+  {id:id(202+i*4),roomId:room.id,type:'wall',dimensions:{width:6,height:3},transform:pose([0,1.5,4],[0,1,0,0])},
+  {id:id(203+i*4),roomId:room.id,type:'wall',dimensions:{width:8,height:3},transform:pose([-3,1.5,0],[0,Math.SQRT1_2,0,Math.SQRT1_2])},
+ ]);
+ const source={id:id(2),version:1,kind:'portal-finish',name:'Synthetic source-bound portal',rights:{holder:'Synthetic',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:true,export:true,commercial:true}},provenance:'Synthetic fixture',model:{mime:'model/gltf-binary',bytes:100,sha256:'a'.repeat(64)},fit:{version:1,sourceSha256:'a'.repeat(64),sourceBytes:100,geometry:{profile:'continuous-portal-v1',openingWidth:2.4,openingHeight:2.6,minZ:-.06,maxZ:.06}}};
+ const finish=(s:{id:string})=>({surfaceId:s.id,preset:'plain',depth:.12,trimWidth:.02,baseboardHeight:.04,ceilingBand:false});
+ const rows=surfaces.slice(0,20).map(finish),candidate={rooms,surfaces,openings:[{id:id(500),surfaceId:id(200),type:'door',dimensions:{width:2.4,height:2.6},offset:[0,-.2]}],extensions:{'org.exhibitos.studio/architectural-finishes':{version:1,walls:rows},[W]:{version:7,furnishings:[source],placements:[],frameAttachments:[],openingAttachments:[{openingId:id(500),furnishingId:source.id,furnishingVersion:1,modelSha256:source.model.sha256}]}}};
+ expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);rows.push(finish(surfaces[20]!));expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);rows.pop();rows[19]={...rows[0]!,surfaceId:rows[0]!.surfaceId.toUpperCase()};expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);
+});
