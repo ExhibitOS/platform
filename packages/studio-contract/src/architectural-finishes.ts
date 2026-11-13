@@ -4,7 +4,7 @@ import {artifactCorners,artifactBounds,validateArtifactHull,createConvexCollisio
 import {surfacePanels} from './surface-panels.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 export const ARCHITECTURAL_FINISH_NAMESPACE='org.exhibitos.studio/architectural-finishes';
-export const ARCHITECTURAL_FINISH_LIMITS=Object.freeze({walls:8,bytes:8192,openingsPerWall:8,boxes:256,triangles:3072});
+export const ARCHITECTURAL_FINISH_LIMITS=Object.freeze({walls:20,bytes:8192,openingsPerWall:8,boxes:256,triangles:3072});
 export interface WallFinish {surfaceId:string;depth:number;preset:'plain'|'painted-edge'|'dark-edge';trimWidth:number;baseboardHeight:number;ceilingBand:boolean}
 export interface ArchitecturalFinishes {version:1;walls:WallFinish[]}
 export interface ArchitecturalBox {position:AffinePoint;dimensions:{width:number;height:number;depth:number};kind:'structure'|'finish'}
@@ -38,7 +38,7 @@ export function validateArchitecturalFinishes(candidate:unknown){
  const errors:{code:string;path:string;message:string}[]=[];const add=(code:string,path:string,message:string)=>errors.push({code,path:'/candidate/extensions/org.exhibitos.studio~1architectural-finishes'+path,message});
  if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,ARCHITECTURAL_FINISH_NAMESPACE))return {valid:true,errors};
  const value=candidate.extensions[ARCHITECTURAL_FINISH_NAMESPACE];
- if(!object(value)||Object.keys(value).sort().join(',')!=='version,walls'||value.version!==1||!Array.isArray(value.walls)||value.walls.length>8){add('ARCHITECTURAL_FINISH_SCHEMA','','Expected closed version1 with at most8 walls');return {valid:false,errors};}
+ if(!object(value)||Object.keys(value).sort().join(',')!=='version,walls'||value.version!==1||!Array.isArray(value.walls)||value.walls.length>ARCHITECTURAL_FINISH_LIMITS.walls){add('ARCHITECTURAL_FINISH_SCHEMA','','Expected closed version1 with at most20 walls');return {valid:false,errors};}
  if(!['surfaces','rooms','openings','placements','artworks'].every(k=>Array.isArray(candidate[k]))){add('ARCHITECTURAL_FINISH_SCHEMA','','Expected full exhibition arrays');return {valid:false,errors};}
  const document=candidate as unknown as Exhibition,seen=new Set<string>();let count=0;
  for(const [i,row]of value.walls.entries()){
