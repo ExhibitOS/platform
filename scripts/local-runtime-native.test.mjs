@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {localRuntimeNetwork, startLocalRuntime} from './local-runtime.mjs';
+import {assertThumbnailRuntimeConfiguration,localRuntimeNetwork, startLocalRuntime} from './local-runtime.mjs';
 
 test('native services bind loopback on the actual user origin without container mapping', () => {
   assert.deepEqual(localRuntimeNetwork({EXHIBITOS_RUNTIME_MODE:'native'}), {
@@ -26,4 +26,14 @@ test('invalid native ports/mode fail before DB access, migrations or credential 
     assert.throws(() => localRuntimeNetwork(environment), /LOCAL_(?:CONFIGURATION|RUNTIME_MODE)_INVALID/);
     await assert.rejects(startLocalRuntime(environment), /LOCAL_(?:CONFIGURATION|RUNTIME_MODE)_INVALID/);
   }
+});
+
+
+test('actual runtime thumbnail guard admits only the explicit combined mode with both capabilities',()=>{
+ const mode='workspace-furnishing-051-to-050-051-upgrade-v1',base={mode,furnishingMode:true,modelPreparationCapability:true,workspaceFurnishingThumbnailCapability:true,currentImageThumbnailCapability:true};
+ assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration(base));
+ for(const mode of ['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'])assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration({...base,mode}));
+ for(const change of [{workspaceFurnishingThumbnailCapability:false},{currentImageThumbnailCapability:false},{furnishingMode:false},{modelPreparationCapability:false},{gpuModelPreparationCapability:true},{infoStandPreparationCapability:true},{freshImageCapability:true},{largeModelCapability:true},{catalog045PreReady:true},{oexCleanupSelection:true},{adoptionDescriptors:{}},{mode:'workspace-furnishing-045-to-050-upgrade-v1'},{mode:'workspace-furnishing-045-to-051-upgrade-v1'},{mode:'workspace-furnishing-unqualified-upgrade-v1'}])assert.throws(()=>assertThumbnailRuntimeConfiguration({...base,...change}),/NATIVE_OEX_CATALOG/);
+ assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration({...base,mode:'workspace-furnishing-045-to-050-upgrade-v1',currentImageThumbnailCapability:false}));
+ assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration({...base,mode:'workspace-furnishing-045-to-051-upgrade-v1',workspaceFurnishingThumbnailCapability:false}));
 });

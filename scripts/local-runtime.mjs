@@ -51,6 +51,16 @@ import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contr
 const MAX_BODY = 65 * 1024 * 1024;
 // Native execution has no container port mapping. Bind both listeners to
 // loopback explicitly; the original container profile retains its exact ports.
+/** The runtime calls this exact guard before opening a database or worker. */
+export function assertThumbnailRuntimeConfiguration({mode,furnishingMode,modelPreparationCapability,workspaceFurnishingThumbnailCapability,currentImageThumbnailCapability,gpuModelPreparationCapability,infoStandPreparationCapability,freshImageCapability,largeModelCapability,catalog045PreReady,oexCleanupSelection,adoptionDescriptors}){
+ const thumbnailUpgrade=mode==='workspace-furnishing-045-to-050-upgrade-v1',currentThumbnailUpgrade=mode==='workspace-furnishing-045-to-051-upgrade-v1',combinedThumbnailUpgrade=mode==='workspace-furnishing-051-to-050-051-upgrade-v1';
+    if(workspaceFurnishingThumbnailCapability&&(gpuModelPreparationCapability||!furnishingMode||!modelPreparationCapability||infoStandPreparationCapability||freshImageCapability||largeModelCapability||catalog045PreReady||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-050-upgrade-v1','workspace-furnishing-051-to-050-051-upgrade-v1'].includes(mode)))throw Error('NATIVE_OEX_CATALOG');
+    if(thumbnailUpgrade&&!workspaceFurnishingThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
+    if(currentImageThumbnailCapability&&(!furnishingMode||!modelPreparationCapability||gpuModelPreparationCapability||infoStandPreparationCapability||freshImageCapability||largeModelCapability||catalog045PreReady||oexCleanupSelection||adoptionDescriptors||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-051-upgrade-v1','workspace-furnishing-051-to-050-051-upgrade-v1'].includes(mode)))throw Error('NATIVE_OEX_CATALOG');
+    if(currentThumbnailUpgrade&&!currentImageThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
+    if(combinedThumbnailUpgrade&&(!currentImageThumbnailCapability||!workspaceFurnishingThumbnailCapability)||currentThumbnailUpgrade&&workspaceFurnishingThumbnailCapability||thumbnailUpgrade&&currentImageThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
+}
+
 export function localRuntimeNetwork(environment) {
   const mode = environment.EXHIBITOS_RUNTIME_MODE ?? "container";
   if (!["container", "native"].includes(mode)) throw Error("LOCAL_RUNTIME_MODE_INVALID");
@@ -295,11 +305,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const largeModelCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasLargeModelCapability(fileURLToPath(new URL('./native-large-model-preparation-capability-v2.json',import.meta.url))):false;
     const largeModelDirectory=largeModelCapability?fileURLToPath(new URL('../database/native-large-model-preparation/',import.meta.url)):undefined;
     const largeModelRecoveryCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasLargeModelRecoveryCapability(fileURLToPath(new URL('./native-large-model-recovery-capability-v1.json',import.meta.url))):false;
-    if(workspaceFurnishingThumbnailCapability&&(gpuModelPreparationCapability||!furnishingMode||!modelPreparationCapability||infoStandPreparationCapability||freshImageCapability||largeModelCapability||catalog045PreReady||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-050-upgrade-v1'].includes(privateOwner?.mode)))throw Error('NATIVE_OEX_CATALOG');
-    if(thumbnailUpgrade&&!workspaceFurnishingThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
-    if(currentImageThumbnailCapability&&(!furnishingMode||!modelPreparationCapability||gpuModelPreparationCapability||infoStandPreparationCapability||freshImageCapability||largeModelCapability||catalog045PreReady||oexCleanupSelection||adoptionDescriptors||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-051-upgrade-v1'].includes(privateOwner?.mode)))throw Error('NATIVE_OEX_CATALOG');
-    if(currentThumbnailUpgrade&&!currentImageThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
-    if(combinedThumbnailUpgrade&&(!currentImageThumbnailCapability||!workspaceFurnishingThumbnailCapability)||currentThumbnailUpgrade&&workspaceFurnishingThumbnailCapability||thumbnailUpgrade&&currentImageThumbnailCapability)throw Error('NATIVE_OEX_CATALOG');
+    assertThumbnailRuntimeConfiguration({mode:privateOwner?.mode,furnishingMode,modelPreparationCapability,workspaceFurnishingThumbnailCapability,currentImageThumbnailCapability,gpuModelPreparationCapability,infoStandPreparationCapability,freshImageCapability,largeModelCapability,catalog045PreReady,oexCleanupSelection,adoptionDescriptors});
     if(gpuModelPreparationCapability&&(!furnishingMode||!modelPreparationCapability||workspaceFurnishingThumbnailCapability||infoStandPreparationCapability||freshImageCapability||largeModelCapability||catalog045PreReady||oexCleanupSelection||adoptionDescriptors||!['workspace-furnishing-036-reopen-v1','workspace-furnishing-045-to-049-upgrade-v1'].includes(privateOwner?.mode)))throw Error('NATIVE_OEX_CATALOG');
     if(gpuUpgrade&&!gpuModelPreparationCapability)throw Error('NATIVE_OEX_CATALOG');
     if(infoStandPreparationCapability&&(!modelPreparationCapability||!workspaceFurnishingRoomVisualCapability||freshImageCapability||largeModelCapability||!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(privateOwner?.mode)))throw Error('NATIVE_OEX_CATALOG');
