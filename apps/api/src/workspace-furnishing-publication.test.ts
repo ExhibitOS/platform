@@ -75,10 +75,22 @@ it('uses the sealed catalog only for the exact server-projected installed frame'
  const installedPublicationModel=vi.fn().mockResolvedValue(model),publicationFence=vi.fn().mockResolvedValue(undefined);
  const service={supportsArtworkFrameModels:()=>true,installedPublicationModel,publicationFence} as never;
  await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),published,service,publicId,undefined,id(7))).resolves.toMatchObject([{publicId,bytes:model.bytes}]);
- expect(installedPublicationModel).toHaveBeenCalledWith(client,id(6),id(7),undefined);
+ expect(installedPublicationModel).toHaveBeenCalledWith(client,id(6),id(7),undefined,frame);
  expect(publicationFence).toHaveBeenCalledWith(client,[frame]);
  await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),published,service)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
  const extension=structuredClone(projected.extension);
  extension.furnishings[0]!.provenance='Provided by the exhibition editor.';
  await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),{...published,extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}},service,publicId,undefined,id(7))).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+});
+
+it('publishes two distinct installed defaults with exact original descriptors and refuses duplicated installed identities',async()=>{
+ const {installedFrameDescriptors}=await import('./installed-artwork-frame.ts'),frames=installedFrameDescriptors(),transform={scale:[1,1,1]},art={id:id(8),revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width:.6,height:.8},transform};
+ const candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform}],artworks:[art],placements:frames.map((_,i)=>({id:id(20+i),roomId:id(1),artworkRevisionId:id(5),assetId:id(6),transform})),extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:9,furnishings:frames,placements:[],openingAttachments:[],frameAttachments:frames.map((frame,i)=>({placementId:id(20+i),artworkRevisionId:id(5),assetId:id(6),furnishingId:frame.id,furnishingVersion:1,modelSha256:frame.model.sha256}))}}};
+ const map=(key:string)=>{const i=frames.findIndex(d=>d.id===key);return i<0?key:id(30+i);},projected=projectWorkspaceFurnishings(candidate,map)!,published={...candidate,extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:projected.extension}},client={query:vi.fn().mockResolvedValue({rows:[]})} as never;
+ const installedPublicationModel=vi.fn(async(_c,_t,_u,_s,descriptor)=>({bytes:Buffer.alloc(descriptor.model.bytes),sha256:descriptor.model.sha256,mime:descriptor.model.mime})),publicationFence=vi.fn().mockResolvedValue(undefined),service={supportsReusableFit:()=>true,installedPublicationModel,publicationFence} as never;
+ expect(await admittedPublicationWorkspaceFurnishings(client,id(6),id(9),published,service,undefined,undefined,id(7))).toHaveLength(2);
+ for(const frame of frames)expect(installedPublicationModel).toHaveBeenCalledWith(client,id(6),id(7),undefined,frame);
+ expect(publicationFence).toHaveBeenCalledWith(client,frames);
+ const duplicate=structuredClone(published),ext=duplicate.extensions[WORKSPACE_FURNISHING_NAMESPACE];ext.furnishings[0]={...ext.furnishings[1]!,id:ext.furnishings[0]!.id};ext.frameAttachments![0]!.modelSha256=ext.furnishings[0]!.model.sha256;
+ await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),duplicate,service,undefined,undefined,id(7))).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
 });

@@ -5,6 +5,8 @@ import {spawn} from 'node:child_process';
 import {createReadStream} from 'node:fs';
 import {cp, mkdir, lstat, readFile, readdir, readlink, realpath, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
+import installedArtworkFrames from '../apps/api/src/installed-artwork-frames.json' with {type:'json'};
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
@@ -142,6 +144,7 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Verify the selected release's exact models and notices before and after
 // copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
+  '1.12.0':{commit:'5dedb84fac497237d9742efc20b3fd6725ca5703',manifestSHA256:'241cb694e2cc7ae96ac6ae369eb37462ffb848e55803e602ae831f8895c3617b',bytes:18561},
   '1.11.0':{commit:'6d338e8af0b7bed681c1cb7c6515241cb6c2ee57',manifestSHA256:'827048c2722f7ed6ecf4c77ec7a3d13f944e9987c2cdc0b36ae01b9d2175c9bd',bytes:16322},
   '1.10.0':{commit:'6625b27c5ebfdac09d0e97c0747740a6ebd4039c',manifestSHA256:'de68b06af7edd6ab36d60ba44400059ec00f52f57d0dc4a46cb5245d55951096',bytes:15460},
   '1.9.0':{commit:'8dee4eebb0d36d74d3d8cd955c9faf2c6bd2904a',manifestSHA256:'957af345c80951c287ce5492e0078769b800b3f889c19c24365b31b5e1c591ad',bytes:14567},
@@ -158,14 +161,14 @@ const DEFAULT_FURNISHINGS_RELEASES={
 const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
 const DEFAULT_WORKSPACE_ORIGINALS={'freestanding-info-stand':'info-stand','gallery-stool':'stool','upholstered-gallery-bench':'bench'};
 const DEFAULT_EXIT_ORIGINALS={'closed-exit-door':'barrier','exit-pictogram-sign':'info-stand'};
-const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0','1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'];
+const DEFAULT_EXIT_RELEASES=['1.3.0','1.4.0','1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'];
 const DEFAULT_PORTAL_ORIGINALS={'portal-pale-mineral':'opening','portal-warm-oak':'opening'};
 const DEFAULT_COMPACT_STAND_ID='compact-caption-stand';
 const DEFAULT_SCULPTURE_BENCH_ID='sculpture-gallery-bench';
 const DEFAULT_REFINED_SCULPTURE_BENCH_ID='sculpture-bench-refined';
 const defaultFurnishingDirectory=id=>id===DEFAULT_REFINED_SCULPTURE_BENCH_ID?'exhibitos-authored-20261112':id===DEFAULT_COMPACT_STAND_ID||(id==='museum-wallwasher'||id==='museum-wallwasher-rear-relief')?'exhibitos-authored-20261111':Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
   Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)?'generated-20261109':'user-authored-20261027';
-const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0'||version==='1.8.0'||version==='1.9.0'||version==='1.10.0'||version==='1.11.0';
+const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0'||version==='1.8.0'||version==='1.9.0'||version==='1.10.0'||version==='1.11.0'||version==='1.12.0';
 const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
 const DEFAULT_EXIT_SIGN_SOURCE={
   path:'assets/furnishings/generated-20261109/exit-pictogram-sign/source.glb',
@@ -173,6 +176,8 @@ const DEFAULT_EXIT_SIGN_SOURCE={
 };
 const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256);
 const DEFAULT_FRAME_ID='black-aluminum-frame';
+const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice);
+const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:frame.custodyFiles??[]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
   version:1,path:DEFAULT_FRAME_ROOT+'/model.glb',mime:'model/gltf-binary',bytes:101720,
@@ -194,16 +199,17 @@ async function readDefaultFurnishingsManifest(root){
   const [version,release]=match;
   const manifest=JSON.parse(bytes.toString('utf8'));
   const hosts={...DEFAULT_FURNISHINGS_HOSTS,
-    ...(version==='1.11.0'?{'recessed-downlight':'light'}:{}),
+    ...(version==='1.12.0'?Object.fromEntries(additionalInstalledFrames.map(frame=>[frame.catalogId,'artwork-frame'])):{}),
+    ...(['1.11.0','1.12.0'].includes(version)?{'recessed-downlight':'light'}:{}),
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
     ...(DEFAULT_WORKSPACE_RELEASES.includes(version)?DEFAULT_WORKSPACE_ORIGINALS:{}),
     ...(DEFAULT_EXIT_RELEASES.includes(version)?DEFAULT_EXIT_ORIGINALS:{}),
-    ...(['1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(version)?{[DEFAULT_SCULPTURE_BENCH_ID]:'bench'}:{}),
-    ...(['1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(version)?DEFAULT_PORTAL_ORIGINALS:{}),
-    ...(['1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(version)?{[DEFAULT_COMPACT_STAND_ID]:'info-stand'}:{}),
-    ...(['1.8.0','1.9.0','1.10.0','1.11.0'].includes(version)?{'museum-wallwasher':'light'}:{}),
-    ...(['1.9.0','1.10.0','1.11.0'].includes(version)?{'museum-wallwasher-rear-relief':'light'}:{}),
-    ...(['1.10.0','1.11.0'].includes(version)?{[DEFAULT_REFINED_SCULPTURE_BENCH_ID]:'bench'}:{}),
+    ...(['1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(version)?{[DEFAULT_SCULPTURE_BENCH_ID]:'bench'}:{}),
+    ...(['1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(version)?DEFAULT_PORTAL_ORIGINALS:{}),
+    ...(['1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(version)?{[DEFAULT_COMPACT_STAND_ID]:'info-stand'}:{}),
+    ...(['1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(version)?{'museum-wallwasher':'light'}:{}),
+    ...(['1.9.0','1.10.0','1.11.0','1.12.0'].includes(version)?{'museum-wallwasher-rear-relief':'light'}:{}),
+    ...(['1.10.0','1.11.0','1.12.0'].includes(version)?{[DEFAULT_REFINED_SCULPTURE_BENCH_ID]:'bench'}:{}),
   };
   if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!==version||!Array.isArray(manifest.assets)||manifest.assets.length!==Object.keys(hosts).length)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const seen=new Set();
@@ -231,8 +237,10 @@ async function readDefaultFurnishingsManifest(root){
       }
       continue;
     }
+    const addedFrame=version==='1.12.0'?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
+    if(addedFrame&&(!isDeepStrictEqual(item.workspaceFurnishing,addedFrame.descriptor)||!isDeepStrictEqual(item.provenance?.sourceNotice,addedFrame.custodyFiles[0])))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     const workspaceOriginal=Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_COMPACT_STAND_ID;
-    const entry=workspaceOriginal?USER_ASSET_CATALOGUE.find(asset=>asset.id===id):id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
+    const entry=addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?USER_ASSET_CATALOGUE.find(asset=>asset.id===id):id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
     const model=item.model,notice=item.rights?.notice;
     // The pinned release carries its own distribution notices for these originals.
     if(!entry||item.catalogVersion!==entry.version||item.hostKind!==hosts[id]||model?.path!==entry.path||model.mime!==entry.mime||model.bytes!==entry.bytes||model.sha256!==entry.sha256||item.rights?.licenseId!==entry.rights.licenseId||notice?.path!==entry.rights.noticePath||(!workspaceOriginal&&(notice.bytes!==entry.rights.noticeBytes||notice.sha256!==entry.rights.noticeSha256))||item.provenance?.sourceSha256!==entry.provenance.sourceSha256||item.provenance?.recipe!==entry.provenance.recipe)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
@@ -252,10 +260,10 @@ export async function checkedDefaultFurnishingsRoot(root){
   if(top!==root||commit!==release.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   return {root:canonical,...release};
 }
-/** A new runtime must select the matched1.11 release before any
+/** A new runtime must select the matched1.12 release before any
  * build. Older release verification/copy remains available for immutable audits. */
 export async function requireCurrentFurnishingsRelease(root){
-  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.11.0']);
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.12.0']);
 }
 export async function requireGpuModelPreparationFurnishingsRelease(root){
   return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.7.0']);
@@ -272,22 +280,24 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
   const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher','museum-wallwasher-rear-relief','sculpture-bench-refined','recessed-downlight'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== functionalIds.length || functionalIds.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  const ids=functionalIds.filter(id=>!release||(id==='recessed-downlight'?isDefaultRelease(release,['1.11.0']):id==='sculpture-bench-refined'?isDefaultRelease(release,['1.10.0','1.11.0']):id==='museum-wallwasher-rear-relief'?isDefaultRelease(release,['1.9.0','1.10.0','1.11.0']):id==='museum-wallwasher'?isDefaultRelease(release,['1.8.0','1.9.0','1.10.0','1.11.0']):true));
+  const ids=functionalIds.filter(id=>!release||(id==='recessed-downlight'?isDefaultRelease(release,['1.11.0','1.12.0']):id==='sculpture-bench-refined'?isDefaultRelease(release,['1.10.0','1.11.0','1.12.0']):id==='museum-wallwasher-rear-relief'?isDefaultRelease(release,['1.9.0','1.10.0','1.11.0','1.12.0']):id==='museum-wallwasher'?isDefaultRelease(release,['1.8.0','1.9.0','1.10.0','1.11.0','1.12.0']):true));
   const includesExitOriginals=isDefaultRelease(release,DEFAULT_EXIT_RELEASES);
   const includesWorkspaceOriginals=isDefaultRelease(release,DEFAULT_WORKSPACE_RELEASES);
   const bundled=includesWorkspaceOriginals?await readDefaultFurnishingsManifest(sourceRoot):undefined;
   if(bundled&&bundled.release.manifestSHA256!==release.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
+  if(bundled?.manifest.bundleVersion==='1.12.0')ids.push(...additionalInstalledFrames.map(frame=>frame.catalogId));
   if(includesExitOriginals)ids.push(...Object.keys(DEFAULT_EXIT_ORIGINALS));
-  if(['1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_SCULPTURE_BENCH_ID);
-  if(['1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(bundled?.manifest.bundleVersion))ids.push(...Object.keys(DEFAULT_PORTAL_ORIGINALS));
-  if(['1.7.0','1.8.0','1.9.0','1.10.0','1.11.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_COMPACT_STAND_ID);
+  if(['1.5.0','1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_SCULPTURE_BENCH_ID);
+  if(['1.6.0','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(bundled?.manifest.bundleVersion))ids.push(...Object.keys(DEFAULT_PORTAL_ORIGINALS));
+  if(['1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0'].includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_COMPACT_STAND_ID);
   const seen = new Set();
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
     const workspaceOriginal=bundled&&(exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_COMPACT_STAND_ID)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
-    const entry = workspaceOriginal?{...workspaceOriginal.model,rights:{
+    const addedFrame=bundled?.manifest.bundleVersion==='1.12.0'?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
+    const entry = addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?{...workspaceOriginal.model,rights:{
       licenseId:workspaceOriginal.rights.licenseId,
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
     }}:id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
