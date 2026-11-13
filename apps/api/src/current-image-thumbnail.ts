@@ -11,6 +11,7 @@ import {canonicalImageHash,productImageDrained} from './product-image-intent.ts'
 import {prepareFreshImageInWorker} from './product-image-preparation-process.ts';
 import {prepareProductImageThumbnail,FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,type ProductImageProducerReceipt} from './product-image-preparation.ts';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
+import {currentImageThumbnailReady} from './current-image-thumbnail-schema.ts';
 
 export const CURRENT_IMAGE_THUMBNAIL_PROFILE='current-approved-image-thumbnail-256-v1' as const;
 const KIND='current-approved-image-thumbnail' as const;
@@ -58,6 +59,7 @@ export function currentImageThumbnailView(row:Record<string,unknown>){
   ...(ready?{serverReceipt:state.result,selectionCandidate:{expectedRevision:state.request.expectedRevision,sourceAssetId:state.source.assetId,sourceSha256:state.source.sha256,thumbnailAssetId:state.result!.thumbnail.assetId,thumbnailSha256:state.result!.thumbnail.sha256,view:{kind:'default' as const}}}:{} )};
 }
 async function currentSource(imports:Imports,c:PoolClient,s:Pick<Session,'tenantId'|'userId'>,artworkId:string,revision:number){
+ await currentImageThumbnailReady(c);
  await imports.requiredModelReady(c,s);const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
  if(imports.modelExecution?.mode!=='native'||!imports.modelExecution.writer)throw new ApiError(503,'IMAGE_THUMBNAIL_PREPARATION_UNAVAILABLE');
  const art=await artworkAccess(c,s,artworkId,true);

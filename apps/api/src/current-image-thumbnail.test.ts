@@ -29,6 +29,7 @@ async function fixture(){
  const assets:Record<string,unknown>[]=[],lineage:unknown[]=[],writes:string[]=[];
  const query=vi.fn(async(sql:string,args:unknown[]=[])=>{
   if(/^(INSERT|UPDATE|DELETE)/.test(sql))writes.push(sql);
+  if(sql.includes('import_current_image_thumbnail_shape'))return {rows:[{supported:true}],rowCount:1};
   if(sql.startsWith('SELECT pg_')||sql.startsWith('SELECT id FROM artworks'))return {rows:[],rowCount:0};
   if(sql.includes('SELECT snapshot FROM artwork_approvals'))return {rows:[{snapshot:approval}],rowCount:1};
   if(sql.includes('SELECT a.*,r.metadata AS rights FROM assets'))return {rows:args[2]===sourceId?[source]:[],rowCount:args[2]===sourceId?1:0};
