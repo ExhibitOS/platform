@@ -18,3 +18,14 @@ test('light details authoring guides exist only for an editor and legacy absence
   const h=fixture(),owner=installLightDetails(three,h.document,h.rooms,h.lights,true);expect(owner.records[0]!.guideCount).toBe(1);owner.dispose();
   delete h.document.extensions!['org.exhibitos.studio/light-details'];const before=[...h.room.children],legacy=installLightDetails(three,h.document,h.rooms,h.lights,true);expect(legacy.records).toEqual([]);expect(h.room.children).toEqual(before);expect(h.spot.distance).toBe(0);legacy.dispose();
 });
+test('procedural lenses follow their own live light while bodies and illumination remain unchanged',()=>{
+ const h=fixture(),second=structuredClone(h.document.lights[0]!);second.id=crypto.randomUUID();h.document.lights.push(second);
+ const {id,...fields}=second,document=setLightDetails(h.document,id,fields,{fixture:'spot-can'}),other=new three.SpotLight(0xff0000,1);h.room.add(other);h.lights.set(id,{light:other});
+ const owner=installLightDetails(three,document,h.rooms,h.lights,false),firstGroup=owner.fixtures.get(h.document.lights[0]!.id.toLowerCase())![0]!,secondGroup=owner.fixtures.get(id.toLowerCase())![0]!,lens=firstGroup.children[1] as three.Mesh,otherLens=secondGroup.children[1] as three.Mesh,material=lens.material as three.MeshStandardMaterial,otherMaterial=otherLens.material as three.MeshStandardMaterial;
+ expect(material).not.toBe(otherMaterial);expect(firstGroup.children[0] instanceof three.Mesh).toBe(true);expect((firstGroup.children[0] as three.Mesh).material).toBe((secondGroup.children[0] as three.Mesh).material);
+ expect(material.emissive.toArray()).toEqual(h.spot.color.toArray());expect(otherMaterial.emissiveIntensity).toBe(.5);
+ const illumination=h.spot.toJSON(),body=((firstGroup.children[0] as three.Mesh).material as three.MeshStandardMaterial).toJSON();h.spot.intensity=0;
+ lens.onBeforeRender({} as three.WebGLRenderer,{} as three.Scene,{} as three.Camera,lens.geometry,material,null as unknown as three.Group);
+ expect(material.emissive.toArray()).toEqual([0,0,0]);expect(otherMaterial.emissiveIntensity).toBe(.5);expect(((firstGroup.children[0] as three.Mesh).material as three.MeshStandardMaterial).toJSON()).toEqual(body);
+ h.spot.intensity=document.lights[0]!.intensity;expect(h.spot.toJSON()).toEqual(illumination);expect(h.room.children.filter(o=>o instanceof three.Light)).toHaveLength(2);owner.dispose();
+});
