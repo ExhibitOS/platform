@@ -72,13 +72,18 @@ export function fitModularPortal(three:typeof Three,object:Three.Object3D,source
 // Each architectural shell uses the base material owned by its surface.
 // Keep that material so asynchronous wall textures still update it.
 const wallBias=new WeakMap<Three.Material,{owners:number;restore:()=>void}>();
+// Finish materials are shared across walls. Bias only the paired wall's scene
+// instance, retaining unrelated trim and restoring the borrowed original.
+const finishBias=new WeakMap<Three.Mesh,{owners:number;original:Three.Material;biased:Three.Material}>();
 export function biasPairedPortalWalls(three:typeof Three,room:Three.Object3D,wallIds:ReadonlySet<string>){
  let root=room;
  while(root.parent)root=root.parent;
- const materials=new Set<Three.Material>();
+ const materials=new Set<Three.Material>(),finishes=new Set<Three.Mesh>();
  root.traverse(object=>{
   const finish=object.userData.architecturalFinish as {kind?:string;surfaceId?:string}|undefined;
-  if(object instanceof three.Mesh&&finish?.kind==='structure'&&finish.surfaceId&&wallIds.has(finish.surfaceId.toLowerCase())&&!Array.isArray(object.material))materials.add(object.material);
+  if(!(object instanceof three.Mesh)||!finish?.surfaceId||!wallIds.has(finish.surfaceId.toLowerCase())||Array.isArray(object.material))return;
+  if(finish.kind==='structure')materials.add(object.material);
+  else if(finish.kind==='finish')finishes.add(object);
  });
  for(const material of materials){
   const state=wallBias.get(material);
@@ -87,11 +92,25 @@ export function biasPairedPortalWalls(three:typeof Three,room:Three.Object3D,wal
   wallBias.set(material,{owners:1,restore:()=>Object.assign(material,{polygonOffset,polygonOffsetFactor,polygonOffsetUnits})});
   material.polygonOffset=true;material.polygonOffsetFactor=3;material.polygonOffsetUnits=6;
  }
+ for(const mesh of finishes){
+  const state=finishBias.get(mesh);
+  if(state){state.owners++;continue;}
+  const original=mesh.material as Three.Material,biased=original.clone();
+  biased.polygonOffset=true;biased.polygonOffsetFactor=3;biased.polygonOffsetUnits=6;
+  mesh.material=biased;finishBias.set(mesh,{owners:1,original,biased});
+ }
  return ()=>{
   for(const material of materials){
    const state=wallBias.get(material);
    if(state&&--state.owners===0){state.restore();wallBias.delete(material);}
   }
-  materials.clear();
+  for(const mesh of finishes){
+   const state=finishBias.get(mesh);
+   if(state&&--state.owners===0){
+    if(mesh.material===state.biased)mesh.material=state.original;
+    state.biased.dispose();finishBias.delete(mesh);
+   }
+  }
+  materials.clear();finishes.clear();
  };
 }
