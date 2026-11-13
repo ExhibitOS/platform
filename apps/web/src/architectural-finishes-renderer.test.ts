@@ -54,7 +54,7 @@ test('workspace wall texture uses metre UVs on the owned structure and reserves 
 
 
 test('paired portal depth bias covers its finish without changing shared unrelated trim or geometry',()=>{
- let {d,wall}=fixture();const unrelated=d.surfaces[1]!;
+ const {d:initial,wall}=fixture();let d=initial;const unrelated=d.surfaces[1]!;
  d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:unrelated.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:false}});
  const room=new Three.Group(),host=new Three.Group(),other=new Three.Group();room.add(host,other);
  const base=new Three.MeshStandardMaterial(),otherBase=new Three.MeshStandardMaterial();
