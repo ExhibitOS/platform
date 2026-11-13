@@ -423,6 +423,25 @@ export const R155_ALL_WALLS_REFERENCE=Object.freeze({...R155_REFERENCE,
  viewerBuildId:'6bf2be872b1baedcd9c88c0a2c0ebce1ce7c05fea6430a78b8413b2192f2d7a2',
  viewerInventorySha256:'539612e60236d0dbb65e98d02eb56e3b7ba0125ce5ff8d1b5efe075631ab6020',
 });
+// Exact current R157 aggregate, qualified separately from retained R155.
+export const R157_REFERENCE=Object.freeze({...R155_REFERENCE,
+ indexSha256:'b934bee533dc47fb86b7ae184038eeeb55e50315e77b0ec8ff0f34282f1d27d9',
+ publicationSha256:'d657517275f6f813bd514d271f0cca64aa7c8aa03acaaa89f72566a70aa30de2',
+ publicationId:'9f84a516-2ed0-48ca-9b4a-d5261bb8e49a',
+ revisionSha256:'5758530c25ecaaba8325c91d934539e1ec0683c729c2927ae06938ad7c5a34da',
+ candidateId:'ba300aa5-fea8-424d-a1cc-737894b3c01d',
+ modelCandidateId:'3d1f455f-c97c-40b6-a231-bce87d5fab36',
+ modelSourceBindingSha256:'6994bc2c26cbac6d54393224a0b29e678ae609f31180659e371bfc981d00517c',
+ nativeManifestSha256:'69f6f9e7bfae452661e802f182d223519f7cb0fc798432f28dd8c85044ba3f51',
+ nativeFiles:152,
+});
+export const R157_CORRECTED_REVEALS_REFERENCE=Object.freeze({...R157_REFERENCE,
+ viewerSourceCommit:'28bcb18642b6dc13875eb00f3b718534427aacdf',
+ viewerSourceTree:'c126a1be64f925f1ced5534f4652faa19ba9f040',
+ viewerLockSha256:'93d2f44dfb2dc31ab55dcf97c4a3861e117cb24d45eb1dac3f8699bb458469c3',
+ viewerBuildId:'0b1681febdcb14201184a69163593e66600b473270957a60ae085c2e517685be',
+ viewerInventorySha256:'1acd3ff781af00896eeb1bbae354450c89070cc7cb4e8f0f0275df21648636ac',
+});
 const r115SelectedModelThumbnails=[
  {
   "publicArtworkId":"0f66aef7-a2f9-46e5-85ca-b3c48b3f370d",
@@ -827,7 +846,121 @@ const r155SelectedThumbnails=[
     }
   }
 ];
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE,R115_REFERENCE,R117_REFERENCE,R124_REFERENCE,R155_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+const r157SelectedThumbnails=[
+  {
+    "publicArtworkId": "8c86b265-756e-4884-a7cd-1242d3a3edba",
+    "revisionId": "8fc5b74b-6995-4ac2-9999-a8f099f6e13f",
+    "placementId": "cc5209ff-5418-434d-be85-74c88e2a74a8",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "465c8698-d47a-4abf-a56b-449019ad6f42",
+      "path": "data/159c9598e32ea9232ec837947d0e7d236420fb78cebbf3a3b6568cd0a48637c8.bin",
+      "bytes": 126583,
+      "sha256": "159c9598e32ea9232ec837947d0e7d236420fb78cebbf3a3b6568cd0a48637c8",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "05e90be0-4300-4cda-bc1c-fec78baf1b05",
+    "revisionId": "995a99db-4c57-4205-8024-0b34d92935bd",
+    "placementId": "50656bee-c350-43de-9887-81ca112290e3",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "912d8df0-47ec-41de-b04f-4e87da8d7f42",
+      "path": "data/f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596.bin",
+      "bytes": 39340,
+      "sha256": "f92a43c1453bf6e7263e16459184660b6bfba26b06be7e880ffc5ab6f30d8596",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "67c2ea63-664a-48ca-ac09-78470dae7e93",
+    "revisionId": "acbcae6e-460b-4237-bde5-e7d37407593f",
+    "placementId": "0372b329-8ae8-450d-b251-c2d0ae105cff",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "249de99c-700b-4f11-b823-28c6f94372a1",
+      "path": "data/3b8a116805b42cfe382da5670b7b529960501b43267d5c1f4f9b72ea02cf6934.bin",
+      "bytes": 153363,
+      "sha256": "3b8a116805b42cfe382da5670b7b529960501b43267d5c1f4f9b72ea02cf6934",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "67cbd57f-fd6a-4870-90a8-36a8bfb93db9",
+    "revisionId": "aeca964f-a033-4d2b-834a-8fa7d95f6944",
+    "placementId": "68b35a90-9c52-4d54-b695-40aa473e89c1",
+    "artworkType": "image",
+    "primaryMime": "image/png",
+    "thumbnail": {
+      "assetId": "2b8ab5a2-8550-40db-876b-6369379b57db",
+      "path": "data/2fa61bee7833e0c4da1022dfd5907d2507bc47d3127703da1771876f6379cb7c.bin",
+      "bytes": 130589,
+      "sha256": "2fa61bee7833e0c4da1022dfd5907d2507bc47d3127703da1771876f6379cb7c",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "4e089064-f958-46b5-80ae-2758b63ad80a",
+    "revisionId": "deaa9344-0d26-42ed-9a2b-5c2b107f5ab7",
+    "placementId": "cac69cd5-91d3-4260-937c-a61386f13a7b",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "953e1a82-ef9b-4b1c-9c57-a79a9af1e119",
+      "path": "data/234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1.bin",
+      "bytes": 36561,
+      "sha256": "234f4070c447e9a081ca5c849dee5517d8173f2d7c2b094cff688d47caa838b1",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "d75d90e3-a6e3-45b4-93f6-437da2460430",
+    "revisionId": "ac5437f0-2fea-4b83-950e-602549bb7b22",
+    "placementId": "b045ff03-c5a0-471c-b4f1-b1163ea38b57",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "cb27b63b-6686-4981-8549-722fe1715889",
+      "path": "data/9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b.bin",
+      "bytes": 23897,
+      "sha256": "9ed52a71458546f3f565105ea861d4cb8c33c7bc76b06dc7333ebc1a0044021b",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "4be5620c-8554-4b96-aa3f-c97e9b34c9e2",
+    "revisionId": "dee77381-4281-4b5f-bbb1-a0a249924f03",
+    "placementId": "fef2ec3b-afcc-4c0f-a188-cda07887af08",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "c61245c6-cdc3-4c04-b8cb-1e045a75d5b0",
+      "path": "data/d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69.bin",
+      "bytes": 32849,
+      "sha256": "d247c2bc4ecd1af3680d9e449a82ea5cb4a170e11956b517730e8bbaf73f0c69",
+      "mime": "image/png"
+    }
+  },
+  {
+    "publicArtworkId": "6888ddd0-519c-4f0a-bd72-63012af98371",
+    "revisionId": "ebe0a4c7-bf56-42da-8a57-636efa7c5e5e",
+    "placementId": "1226961b-ac95-4d19-88b2-35af93b76b46",
+    "artworkType": "sculpture",
+    "primaryMime": "model/gltf-binary",
+    "thumbnail": {
+      "assetId": "5f9653c7-6a17-4abe-b13f-29586eb9f96b",
+      "path": "data/13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6.bin",
+      "bytes": 15365,
+      "sha256": "13555d615691e5f26b99c0ca447be6b266afd4aa0fb00016dd894b3c0b8e63e6",
+      "mime": "image/png"
+    }
+  }
+];
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE,R27_REFERENCE,R41_REFERENCE,R44_REFERENCE,R46_REFERENCE,R52_REFERENCE,R53_REFERENCE,R57_REFERENCE,R61_REFERENCE,R62_REFERENCE,R64_REFERENCE,R65_REFERENCE,R67_REFERENCE,R69_REFERENCE,R85_REFERENCE,R86_REFERENCE,R97_REFERENCE,HAYES_MOBILE_REFERENCE,R101_VIEW_INTEREST_REFERENCE,R107_WORLD_CONTINUITY_REFERENCE,R108_CANNON_SOFTNESS_REFERENCE,R115_REFERENCE,R117_REFERENCE,R124_REFERENCE,R155_REFERENCE,R157_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
@@ -841,8 +974,9 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
+ const r157=reference===R157_REFERENCE;
  const r155=reference===R155_REFERENCE;
- const r124=reference===R124_REFERENCE||r155;
+ const r124=reference===R124_REFERENCE||r155||r157;
  const r117=reference===R117_REFERENCE||r124;
  const r115=reference===R115_REFERENCE||r117;
  const dualOriginal=r115||reference===R69_REFERENCE||reference===R85_REFERENCE||reference===R86_REFERENCE||reference===R97_REFERENCE||reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE;
@@ -851,7 +985,7 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=r124?67:r117?66:r115?62:reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
+ const assetCount=r157?68:r124?67:r117?66:r115?62:reference===HAYES_MOBILE_REFERENCE||reference===R101_VIEW_INTEREST_REFERENCE||reference===R107_WORLD_CONTINUITY_REFERENCE||reference===R108_CANNON_SOFTNESS_REFERENCE?58:reference===R97_REFERENCE?57:36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone)+2*Number(reference===R46_REFERENCE||reference===R52_REFERENCE||reference===R53_REFERENCE||reference===R57_REFERENCE||reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R61_REFERENCE||reference===R62_REFERENCE||reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(reference===R64_REFERENCE||reference===R65_REFERENCE||(reference===R67_REFERENCE||dualOriginal))+Number(dualOriginal);
  if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==(dualOriginal?2:1))fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==(r115?2:1)||
@@ -884,8 +1018,9 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
   if(!artwork||!thumbnail||thumbnail.sha256!==reference.modelThumbnailSha256||thumbnail.bytes!==39340||!index.assets.some(entry=>entry.assetId===thumbnail.id&&entry.sha256===thumbnail.sha256&&entry.bytes===thumbnail.bytes&&entry.mime==='image/png'))fail();
  }else if(plan.entries.length!==1)fail();
  if(r117&&!index.assets.some(asset=>asset.sha256==='62fd3bc49e0e77ffde26f60dee7ddfbbac0939347d68ea53a94700de0695f1ae'&&asset.bytes===2468&&asset.mime==='model/gltf-binary'))fail();
+ if(r157&&!index.assets.some(asset=>asset.sha256==='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b'&&asset.bytes===164044&&asset.mime==='model/gltf-binary'))fail();
  if(r124&&!index.assets.some(asset=>asset.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'&&asset.bytes===7892&&asset.mime==='model/gltf-binary'))fail();
- for(const expected of r155?r155SelectedThumbnails:r124?r124SelectedThumbnails:r117?r117SelectedThumbnails:r115?r115SelectedModelThumbnails:[]){
+ for(const expected of r157?r157SelectedThumbnails:r155?r155SelectedThumbnails:r124?r124SelectedThumbnails:r117?r117SelectedThumbnails:r115?r115SelectedModelThumbnails:[]){
   const artworks=publication.exhibition.artworks.filter(art=>art.id===expected.publicArtworkId),artwork=artworks[0];
   const thumbnail=artwork&&artworkThumbnailFor(artwork),model=artwork?.assets.find(asset=>asset.id===artwork.primaryAssetId);
   const placements=publication.exhibition.placements.filter(item=>item.id===expected.placementId);
