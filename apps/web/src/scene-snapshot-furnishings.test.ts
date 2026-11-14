@@ -16,5 +16,5 @@ it('retains every saved identity when visual sources, budgets or mounts are unav
  expect(report.workspace).toEqual([placementId,frameId,openingId].map(id=>({placementId:id,furnishingId,furnishingVersion:1,modelSha256:sha,status:'failed'})));
  const mounted=snapshotFurnishings(candidate,(kind,id)=>kind==='light'&&id===light.id,id=>id===placementId?'ready':'pending');
  expect(mounted.catalog[0]!.status).toBe('ready');expect(mounted.workspace.map(row=>row.status)).toEqual(['ready','pending','pending']);
- expect(mounted.workspace.map(({status:_,...identity})=>identity)).toEqual(report.workspace.map(({status:_,...identity})=>identity));
+ expect(mounted.workspace.map(row=>[row.placementId,row.furnishingId,row.furnishingVersion,row.modelSha256])).toEqual(report.workspace.map(row=>[row.placementId,row.furnishingId,row.furnishingVersion,row.modelSha256]));
 });
