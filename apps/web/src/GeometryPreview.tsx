@@ -3857,9 +3857,10 @@ export function GeometryPreview({
           snapshotFurnishingsSettled=true;if(nativeSelection)setReady(true);return;
         }
         const result=await ownerFurnishings.start();
-        if(!disposed&&!gpuLost&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&!editor?.busy&&!editingRef.current?.disabled&&!editingRef.current?.preview){
+        if(!disposed&&!gpuLost&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&!editor?.busy&&!editingRef.current?.disabled&&!editingRef.current?.preview){
           const pressure=ownerFurnishings.trianglePressure();
           const preferences=pressure&&nativeScenePressurePreferences(document,nativeModelBudget,nativeLoadedModels,pressure);
+          if(ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
           nativeSelection.attempted=true;
           if(preferences){
             nativeSelection.preferences=preferences;nativeSelectionRestartPending=true;

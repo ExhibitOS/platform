@@ -70,7 +70,7 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  };
  const readout=():WorkspaceFailureReadout=>({version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row}))});
  const trianglePressure=()=>{
-  if(!nativeEditor||!finished||stopped||failed<1||firstFailures.size!==failed)return;
+  if(!nativeEditor||!finished||stopped||controller.signal.aborted||options.unavailable()||failed<1||firstFailures.size!==failed)return;
   const rows=[...firstFailures.values()];
   if(rows.some(row=>row.code!=='WORKSPACE_SCENE_BUDGET'||row.stage!=='scene-reserve'||row.requestedTriangles===null||row.requestedDraws===null))return;
   const remaining=scope.remaining();
