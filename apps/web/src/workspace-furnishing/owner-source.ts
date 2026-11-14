@@ -21,8 +21,8 @@ export function ownerWorkspaceModelSource(scope:OwnerPreviewBudget,expected:Work
    const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;const cancel=()=>{void reader.cancel().catch(()=>{});};requestSignal.addEventListener('abort',cancel,{once:true});
    try{for(;;){const {done,value}=await reader.read();requestSignal.throwIfAborted();if(done)break;length+=value.length;if(length>65536)throw Error('WORKSPACE_MODEL_AUTHORITY');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{requestSignal.removeEventListener('abort',cancel);reader.releaseLock();}
    const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-   let actual:unknown;try{actual=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw Error('WORKSPACE_MODEL_AUTHORITY');}
-   observer?.stage('descriptor-match');if(canonical(actual)!==canonical(pinned))throw Error('WORKSPACE_MODEL_AUTHORITY');
+   observer?.stage('descriptor-match');let actual:unknown;try{actual=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw Error('WORKSPACE_MODEL_AUTHORITY');}
+   if(canonical(actual)!==canonical(pinned))throw Error('WORKSPACE_MODEL_AUTHORITY');
   });},
   open(loadSignal){return fetcher(base+'/model',{...options,signal:AbortSignal.any([signal,loadSignal])});}
  };

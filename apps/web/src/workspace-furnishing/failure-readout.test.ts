@@ -13,20 +13,21 @@ import {AssetPeakBudget,DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from '
 vi.mock('../basis-loader',()=>({basisLoader:vi.fn(async()=>undefined)}));
 afterEach(()=>vi.restoreAllMocks());
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-async function fixture(mode:'success'|'authority'|'descriptor'|'fetch'|'integrity'|'bytes'|'replacement'|'scene',count=2){
+async function fixture(mode:'success'|'authority'|'descriptor'|'descriptor-encoding'|'fetch'|'integrity'|'bytes'|'replacement'|'scene',count=2){
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),model={mime:'model/gltf-binary',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')},item={id:id(2),version:1,kind:'bench',name:'Synthetic',rights:{permissions:{display:true}},provenance:'Synthetic',model},placements=Array.from({length:count},(_,i)=>({id:id(3+i),roomId:id(1),furnishingId:item.id,furnishingVersion:1,position:[1,0,1],yaw:0,scale:1})),candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[item],placements}}};
  const room=new three.Group(),scene=new three.Scene(),controller=new AbortController();scene.add(room);
  if(mode==='scene'){
   const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);
   for(let i=0;i<384-plan.draws;i++)scene.add(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()));
  }
- const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/display-check')?(mode==='authority'?new Response(null,{status:403}):Response.json(mode==='descriptor'?{...item,name:'Changed'}:item)):(mode==='fetch'?new Response(null,{status:404}):new Response(new Uint8Array(mode==='integrity'?new Uint8Array(bytes.length):bytes),{headers:{'content-type':'model/gltf-binary'}})));
+ const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/display-check')?(mode==='authority'?new Response(null,{status:403}):mode==='descriptor-encoding'?new Response(new Uint8Array([255]),{headers:{'content-type':'application/json'}}):Response.json(mode==='descriptor'?{...item,name:'Changed'}:item)):(mode==='fetch'?new Response(null,{status:404}):new Response(new Uint8Array(mode==='integrity'?new Uint8Array(bytes.length):bytes),{headers:{'content-type':'model/gltf-binary'}})));
  const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(999),signal:controller.signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:mode==='bytes'?bytes.length*4-1:mode==='replacement'?bytes.length*4+1:64*1024*1024,nativeEditor:true,resident:()=>0,changed:()=>{},fetcher});
  return {runtime,room,scene,controller,fetcher,bytes,item};
 }
 it.each([
  ['authority','display-check','WORKSPACE_MODEL_AUTHORITY',403],
  ['descriptor','descriptor-match','WORKSPACE_MODEL_AUTHORITY',200],
+ ['descriptor-encoding','descriptor-match','WORKSPACE_MODEL_AUTHORITY',200],
  ['fetch','model-fetch','WORKSPACE_MODEL_FETCH',404],
  ['integrity','integrity','WORKSPACE_MODEL_INTEGRITY',200],
 ] as const)('attributes %s to the first failure before cleanup without changing fallback or counts',async(mode,stage,code,status)=>{
@@ -36,7 +37,7 @@ it.each([
   const readout=f.runtime.readout();expect(readout).toMatchObject({version:1,settled:true,loaded:0,failed:2,truncated:false});expect(readout.failures).toHaveLength(2);
   for(const [i,row] of readout.failures.entries()){
    expect(row).toMatchObject({placementId:id(3+i),furnishingId:f.item.id,furnishingVersion:1,modelSha256:f.item.model.sha256,stage,code,httpStatus:status,bytesReserved:f.bytes.length*4,bytesUsed:f.bytes.length*4,requestedBytes:null});
-   expect(row.httpKind).toBe(mode==='authority'||mode==='descriptor'?'display-check':'model');
+   expect(row.httpKind).toBe(mode==='authority'||mode==='descriptor'||mode==='descriptor-encoding'?'display-check':'model');
   }
   expect(f.runtime.ledger.reservedBytes()).toBe(0);expect(f.room.children).toEqual([]);
  }finally{f.runtime.dispose();}
