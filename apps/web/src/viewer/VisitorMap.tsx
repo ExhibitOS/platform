@@ -5,7 +5,7 @@ import './visitor-map.css';
 import {createMapContext,interpolateMapContext} from './map-context';
 import {ViewerIcon} from './ViewerIcon';
 import {panelEscapeFromControl} from './panel-resume';
-import {authoredArtworkViewpoint} from './artwork-viewpoint';
+import {mapTargetDestinations} from './map-travel';
 import {useMediaPreference} from '../publication-accessibility';
 import type {MapPoseSource} from './map-pose';
 import {boundMapViewport,zoomMapViewport,panMapViewport,readMapView,saveMapView,type MapViewport} from './map-viewport';
@@ -237,8 +237,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
  useEffect(()=>{onPreviewChange?.(placement?.id);return()=>onPreviewChange?.(undefined);},[map.key,placement?.id,onPreviewChange]);
  const room=map.rooms.find(item=>same(item.id,placement?.roomId??(preview?.kind==='room'?preview.id:'')));
- const authored=placement&&authoredArtworkViewpoint(artworkStops,placement.id);
- const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)&&(!authored||same(item.id,authored))):[];
+ const content=placement&&previews?.[placement.id],choices=mapTargetDestinations(map,preview,destinations,artworkStops);
  const busy=travel.status==='preparing';
  const position=(p:MapPoint)=>({left:`${(p[0]-drawing.bounds.x)/drawing.bounds.width*100}%`,top:`${(p[1]-drawing.bounds.z)/drawing.bounds.depth*100}%`});
  const pointerButton={

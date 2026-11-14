@@ -139,7 +139,7 @@ export function Viewer({
   const [mapThumbnail,setMapThumbnail]=useState<MapThumbnailSnapshot|null>(null);
   const receiveMapThumbnail=useCallback((value:typeof mapThumbnail)=>setMapThumbnail(value),[]);
   const mapPreviews=useMemo(()=>{const generated=mapThumbnailItems(mapThumbnail,publication.publication);return Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:artworkThumbnails[p.artworkRevisionId.toLowerCase()]??generated.find(item=>item.placementId===p.id)?.thumbnail}]));},[publication,mapThumbnail,artworkThumbnails]);
-  const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
+  const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState,viewingPlanFor(publication.exhibition).stops):undefined,[map,mapDestinations,publication]);
   useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
   useEffect(()=>{
     setMapTravelState({status:'idle',message:''});
