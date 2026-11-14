@@ -18,6 +18,10 @@ import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,t
 import {createPreparationStages} from './viewer/preparation-stages';
 import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type DiagnosticEvent} from './viewer/diagnostic-source';
 import {readRuntimeHistory} from './viewer/runtime-history';
+import {freezeCanonical} from '@exhibitos/studio-contract';
+import {DEVICE_BUDGETS} from './viewer/loading';
+import {nativeOrdinaryInventory,nativeScenePressurePreferences,type NativeLoadedModel} from './native-ordinary-scene-variants';
+import {readNativeApprovedVariant} from './native-approved-variant-source';
 import {snapshotFurnishings} from './scene-snapshot-furnishings';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -288,7 +292,7 @@ export function GeometryPreview({
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const [materialIssueCount,setMaterialIssueCount]=useState(0);
   const publicQualityView=useRef<{scope:object;document:Document;budget:typeof viewerBudget;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;walking:boolean}|null>(null);
-  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number}|null>(null);
+  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;nativeRestore?:{key:string;up:[number,number,number];near:number;far:number}}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
   const cameraInteractionCallbacks=useRef({onCameraInteractionReady,onCameraInteractionReset});cameraInteractionCallbacks.current={onCameraInteractionReady,onCameraInteractionReset};
@@ -458,6 +462,12 @@ export function GeometryPreview({
   const snapshotCallback=useRef(onSceneSnapshotReady);snapshotCallback.current=onSceneSnapshotReady;
   const snapshotEnabled=!!onSceneSnapshotReady;
   const snapshotFrameToken=useRef(cameraFrameToken);snapshotFrameToken.current=cameraFrameToken;
+  const nativeVariantEpoch=cameraFrameToken?.split(':')[0];
+  const nativeVariantKey=useMemo(()=>session&&nativeVariantEpoch&&fillHost&&editingEnabled&&ownerWorkspaceFurnishings&&!publicSource&&!viewerBudget
+    ?freezeCanonical({document:sceneDocument,epoch:nativeVariantEpoch,tenantId:session.tenantId,principalId:session.userId,role:session.role,expiresAt:session.expiresAt,transparentSpace,budget:resourceBudget??DEVICE_BUDGETS.desktop})
+    :null,[sceneDocument,nativeVariantEpoch,session,fillHost,editingEnabled,ownerWorkspaceFurnishings,publicSource,viewerBudget,transparentSpace,resourceBudget]);
+  const nativeVariantState=useRef<{key:string|null;attempted:boolean;preferences:Map<string,string>}>({key:null,attempted:false,preferences:new Map()});
+  if(nativeVariantState.current.key!==nativeVariantKey)nativeVariantState.current={key:nativeVariantKey,attempted:false,preferences:new Map()};
   const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,ownerWorkspaceFurnishings,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
   const qualityRebuildReady=useRef(false);
   const qualityIntent=useRef({scope:qualityScope,budget:viewerBudget});
@@ -477,6 +487,7 @@ export function GeometryPreview({
   useEffect(() => {
     const previousArtworkRetirement=artworkRetirement.current;
     const document=sceneDocument;
+    const nativeSelection=nativeVariantKey===null?undefined:nativeVariantState.current,nativeChoices=new Map(nativeSelection?.preferences),nativeModelBudget={...DEVICE_BUDGETS.desktop,...resourceBudget};
     qualityRebuildReady.current=false;
     if(qualityFrame.current?.scope!==qualityScope)clearQualityFrame();
     let preserveQualityFrame=()=>{};
@@ -990,10 +1001,10 @@ export function GeometryPreview({
         callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI,currentWalkMode.current.walking&&!currentWalkMode.current.paused);
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
-      let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
+      let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0,nativeSelectionRestartPending=false;
       const workspaceBenches=benchesFor(document).filter(bench=>bench.workspaceVisual);
       const workspaceBenchAvailability=(link:WorkspaceBenchVisual)=>ownerFurnishings?.seatAvailability(link)??'pending';
-      const workspaceFurnishingsChanged=()=>{refreshContactReceivers();
+      const workspaceFurnishingsChanged=()=>{if(nativeSelectionRestartPending)return;refreshContactReceivers();
         if(session&&ownerFurnishings)renderer.domElement.dataset.workspaceFurnishingFailures=JSON.stringify(ownerFurnishings.readout());
         if(disposed||gpuLost)return;
         walkingActions.current?.refreshFurnishingCollisions?.();
@@ -1296,10 +1307,11 @@ export function GeometryPreview({
       let privateCameraRestored=false;
       if(restoreQuality){camera.position.fromArray(restoreQuality.position);camera.quaternion.fromArray(restoreQuality.quaternion);controls.target.fromArray(restoreQuality.target);authoredFov=restoreQuality.fov;applyProjection();controls.update();render();}
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
-      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
+      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;if(saved.nativeRestore?.key===nativeVariantKey){camera.up.fromArray(saved.nativeRestore.up);camera.near=saved.nativeRestore.near;camera.far=saved.nativeRestore.far;}camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
       else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
       // A private capture's validated pose also guides ordinary visibility-based
       // loading. It does not change the document or waive target/ray checks.
+      if(nativeSelection&&cameraRequest&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;view(cameraRequest.kind);}
       if(initialSnapshotPose){camera.position.fromArray(initialSnapshotPose.position);controls.target.fromArray(initialSnapshotPose.target);authoredFov=initialSnapshotPose.fov;applyProjection();camera.lookAt(controls.target);controls.update();render();}
       privateViewCallback.current?.(()=>{
         if(disposed||xrActive.current)return;
@@ -1310,7 +1322,7 @@ export function GeometryPreview({
       setMessage(
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
-      setReady(true);
+      if(!nativeSelection||!hasWorkspaceFurnishings)setReady(true);
       if(immersive)renderer.domElement.tabIndex=0;
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
@@ -1338,7 +1350,7 @@ export function GeometryPreview({
         privateViewCallback.current?.(null);
         if(immersive&&viewerBudget&&!seatedBenchRef.current&&!xrActive.current&&viewingStyleRef.current==='free')publicQualityView.current={scope:qualityScope,document,budget:viewerBudget,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:camera.position.clone().add(camera.getWorldDirection(new three.Vector3()).multiplyScalar(2)).toArray(),fov:authoredFov,walking:currentWalkMode.current.walking};
         else publicQualityView.current=null;
-        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
+        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,...(nativeSelectionRestartPending&&nativeVariantKey?{nativeRestore:{key:nativeVariantKey,up:camera.up.toArray() as [number,number,number],near:camera.near,far:camera.far}}:{})};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
         cameraInteractionSetter.current=null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(null);cameraInvalidate.current=null;if(editor)window.removeEventListener('focus',editorFocus);editor?.dispose();editingSync.current=null;
@@ -1697,6 +1709,12 @@ export function GeometryPreview({
         const report=(received:number)=>{entranceReadiness?.receive(inventory,received);progress?.(received);};
         let bytes: ArrayBuffer;
         let response: Response;
+        if(!publicSource&&inventory.id!==artwork.primaryAssetId){
+          if(!nativeSelection||!session)throw Error('DERIVATIVE_UNAVAILABLE');
+          bytes=await readNativeApprovedVariant(artwork,inventory,session,signal);
+          if(bytes.byteLength>33554432||disposed||signal.aborted)throw Error('DERIVATIVE_UNAVAILABLE');
+          report(bytes.byteLength);return bytes;
+        }
         if (publicSource) {
           const source = publicSource.assets.find(
             (a) => a.assetId === inventory.id,
@@ -3775,6 +3793,7 @@ export function GeometryPreview({
       }
       // The local/native path uses the same bounded readout as public loading,
       // without adopting the public scheduler or its revision-based counters.
+      const nativeLoadedModels=new Map<string,NativeLoadedModel>();
       const localStages=createPreparationStages(document.artworks),residentArtwork=new Set<InstanceType<typeof three.Object3D>>();let localResidentBytes=0;
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
@@ -3784,17 +3803,18 @@ export function GeometryPreview({
         );
         const group = placements.get(placement.id.toLowerCase());
         if (!artwork || !group) continue;
-        const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);
+        let inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);
         const localStage=(value:string,error?:unknown)=>{
           if(disposed||!inventory)return;
           localStages.record(inventory.id,value,error);
           renderer.domElement.dataset.viewerState=JSON.stringify({preparationStages:localStages.snapshot()});
         };
         try {
+          if(nativeSelection)inventory=nativeOrdinaryInventory(artwork,nativeModelBudget,nativeChoices.get(artwork.revisionId));
           let source = sources.get(artwork.revisionId);
           if (!source) {
             localStage('queued');localStage('fetch-verify');
-            source = loadArtwork(artwork,undefined,abort.signal,undefined,localStage);
+            source = loadArtwork(artwork,inventory,abort.signal,undefined,localStage);
             sources.set(artwork.revisionId, source);
           }
           const object = await source;
@@ -3808,6 +3828,7 @@ export function GeometryPreview({
           const bounds = group.children[0];
           if (bounds) group.remove(bounds);
           group.add(object.clone(true));
+          if(nativeSelection&&inventory){const cost=existingSceneCost(three,object),previous=nativeLoadedModels.get(artwork.revisionId);nativeLoadedModels.set(artwork.revisionId,{revisionId:artwork.revisionId,assetId:inventory.id,triangles:(previous?.triangles??0)+cost.triangles,placements:(previous?.placements??0)+1});}
           rendered++;
           shadowPass.invalidate();
           render();
@@ -3833,11 +3854,24 @@ export function GeometryPreview({
           if (!(error instanceof FurnishingSceneCapacityError)) throw error;
           renderer.domElement.dataset.workspaceFurnishings = JSON.stringify({ reason: error.message });
           setMessage('장면의 표시 한도에 도달해 작업 공간 비품을 표시하지 못했어요. 전시 편집은 계속할 수 있습니다.');
-          snapshotFurnishingsSettled=true;return;
+          snapshotFurnishingsSettled=true;if(nativeSelection)setReady(true);return;
         }
-        const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
+        const result=await ownerFurnishings.start();
+        if(!disposed&&!gpuLost&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&!editor?.busy&&!editingRef.current?.disabled&&!editingRef.current?.preview){
+          const pressure=ownerFurnishings.trianglePressure();
+          const preferences=pressure&&nativeScenePressurePreferences(document,nativeModelBudget,nativeLoadedModels,pressure);
+          nativeSelection.attempted=true;
+          if(preferences){
+            nativeSelection.preferences=preferences;nativeSelectionRestartPending=true;
+            // Use the existing editor camera cache and awaited artwork retirement
+            // before decoding replacements. Never publish the interim settled scene.
+            snapshotCallback.current?.(null);delete renderer.domElement.dataset.workspaceFurnishingFailures;
+            setReady(false);setMessage('공간 미리보기를 준비합니다.');setRestart(value=>value+1);return;
+          }
+        }
+        if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
-      snapshotFurnishingsSettled=true;
+      snapshotFurnishingsSettled=true;if(nativeSelection&&!disposed&&!gpuLost)setReady(true);
     };
     const building=build().catch((error) => {
       if (!disposed) {
@@ -3888,6 +3922,7 @@ export function GeometryPreview({
     snapshotEnabled,
     initialSnapshot,
     qualityScope,
+    nativeVariantKey,
     clearQualityFrame,
   ]);
   const readyWorkspaceBenchIds=readyWorkspaceBenches?.scene===sceneDocument?readyWorkspaceBenches.ids:undefined;

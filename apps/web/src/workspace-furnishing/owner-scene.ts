@@ -69,6 +69,13 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
   firstFailures.set(placement.id.toLowerCase(),{placementId:placement.id,furnishingId:descriptor.id,furnishingVersion:descriptor.version,modelSha256:descriptor.model.sha256,...details});
  };
  const readout=():WorkspaceFailureReadout=>({version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row}))});
+ const trianglePressure=()=>{
+  if(!nativeEditor||!finished||stopped||failed<1||firstFailures.size!==failed)return;
+  const rows=[...firstFailures.values()];
+  if(rows.some(row=>row.code!=='WORKSPACE_SCENE_BUDGET'||row.stage!=='scene-reserve'||row.requestedTriangles===null||row.requestedDraws===null))return;
+  const remaining=scope.remaining();
+  return {missingTriangles:rows.reduce((n,row)=>n+row.requestedTriangles!,0)-remaining.remainingTriangles,missingDraws:rows.reduce((n,row)=>n+row.requestedDraws!,0)-remaining.remainingDraws};
+ };
  const sharedCheck=()=>scope.check('publication-authority',controller.signal,async signal=>{if(!options.publicAuthority?.valid())throw Error('WORKSPACE_MODEL_AUTHORITY');await options.publicAuthority.check(signal);signal.throwIfAborted();if(!options.publicAuthority.valid())throw Error('WORKSPACE_MODEL_AUTHORITY');});
  const changed=()=>{if(!stopped)options.changed();};
  const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);options.signal.removeEventListener('abort',parent);for(const handle of handles)try{handle.dispose();}catch{/* Uncertain cleanup keeps its budget held. */}handles.clear();mountedVisuals.clear();mountedSeats.clear();mountedBarriers.clear();mountedStools.clear();mountedCollision.clear();try{options.disposeSource?.();}catch{/* Failed cleanup retains any corresponding budget holds. */}if(ledger.reservedBytes()>0)retiredLedgers.add(ledger);};
@@ -118,5 +125,5 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
   for(let node:Three.Object3D|null=handle.object;node;node=node.parent)if(!node.visible)return 'pending';
   return 'ready';
  };
- return {start,enforce,dispose,ledger,availability,readout,seatAvailability,publicBarrier,stoolVisible,seatVisuals:()=>new Map([...mountedSeats].filter(([,handle])=>handle.object.visible).map(([id,handle])=>[id,handle.object])),walkingCollisions:()=>[...mountedCollision.values()],reservePreview:(draws:number,triangles:number)=>scope.reserve(draws,triangles),stats:()=>({loaded,failed})};
+ return {start,enforce,dispose,ledger,availability,readout,trianglePressure,seatAvailability,publicBarrier,stoolVisible,seatVisuals:()=>new Map([...mountedSeats].filter(([,handle])=>handle.object.visible).map(([id,handle])=>[id,handle.object])),walkingCollisions:()=>[...mountedCollision.values()],reservePreview:(draws:number,triangles:number)=>scope.reserve(draws,triangles),stats:()=>({loaded,failed})};
 }
