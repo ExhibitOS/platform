@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
+import {registerDetailPickDisplayCase} from '../viewer/detail-picking';
 import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,frameAttachmentMetricFit,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment,type StudioBench,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {DeviceBudget} from '../viewer/loading';
@@ -118,6 +119,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    fitArtworkFrameGeometry(three,visual,fit);
    visual.matrix.copy(artworkFrameMatrix(three,target.transform,art.transform,imagePlaneZ,metricFit?.rigidFrame??false));visual.matrixAutoUpdate=false;
   }else if(pose){visual.position.set(...pose.position);visual.rotation.set(0,pose.yaw,0);visual.scale.setScalar(pose.scale);}
+  if(descriptor.kind==='display-case')registerDetailPickDisplayCase(visual);
   room.add(visual);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)onAbort();if(stopped)throw Error('WORKSPACE_MODEL_AUTHORITY');if(!options.sceneManagedAuthority){if(typeof document!=='undefined')document.addEventListener('visibilitychange',enforce);scheduleExpiry();}
   if(!options.sceneManagedAuthority)timer=setInterval(()=>{if(!enforce()||checking)return;checking=true;visual.visible=false;changed();void Promise.resolve().then(()=>source.check()).then(()=>{if(enforce()){visual.visible=true;changed();}}).catch(fail).finally(()=>{checking=false;});},5000);

@@ -1,4 +1,5 @@
 import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
+import {detailPickHit} from './viewer/detail-picking';
 import {gpuModelCapability} from './viewer/gpu-model-capability';
 import {loadGpuModel} from './viewer/gpu-model-loader';
 import {resolveDisplayRepresentation,logicalSourceAssetId,sourceVariantForInventory} from './viewer/gpu-model-representation';
@@ -979,7 +980,7 @@ export function GeometryPreview({
             if(row&&requestExit(row.door.placementId))return;
           }
         }
-        const hit=hits[0];
+        const hit=detailPickHit(hits);
         let object=hit?.object;
         while(object) { if(typeof object.userData.plaqueId === "string") {if(navigationCallbacks.current.onPlaqueSelect){detailEntry.current.prepare();detailEntry.current.commit(true);navigationCallbacks.current.onPlaqueSelect(object.userData.plaqueId);}return;} if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
         panelResume?.blank(event, currentWalkMode.current.walking && currentWalkMode.current.paused && !gpuLost);
