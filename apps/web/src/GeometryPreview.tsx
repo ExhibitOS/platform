@@ -1,3 +1,4 @@
+import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
 import {gpuModelCapability} from './viewer/gpu-model-capability';
 import {loadGpuModel} from './viewer/gpu-model-loader';
 import {resolveDisplayRepresentation,logicalSourceAssetId,sourceVariantForInventory} from './viewer/gpu-model-representation';
@@ -292,7 +293,7 @@ export function GeometryPreview({
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const [materialIssueCount,setMaterialIssueCount]=useState(0);
   const publicQualityView=useRef<{scope:object;document:Document;budget:typeof viewerBudget;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;walking:boolean}|null>(null);
-  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;nativeRestore?:{key:string;up:[number,number,number];near:number;far:number}}|null>(null);
+  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;nativeRestore?:{key:string;up:[number,number,number];near:number;far:number;findBounds?:NativeFindBounds}}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
   const cameraInteractionCallbacks=useRef({onCameraInteractionReady,onCameraInteractionReset});cameraInteractionCallbacks.current={onCameraInteractionReady,onCameraInteractionReset};
@@ -988,6 +989,11 @@ export function GeometryPreview({
       controls.enablePan = true;
       controls.minDistance = extent / 20;
       controls.maxDistance = extent * 10;
+      const selectedFindBounds=nativeSelection?nativeSelectedFindBounds(camera,controls):undefined;
+      const selectedFindAvailable=()=>!disposed&&!gpuLost&&!abort.signal.aborted&&nativeVariantState.current===nativeSelection&&!!ownerWorkspaceFurnishings&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&!editingRef.current?.disabled&&!editingRef.current?.preview&&!xrActive.current&&!suspendedRef.current&&!currentWalkMode.current.walking;
+      const retireSelectedFindBounds=()=>selectedFindBounds?.reset();
+      ownerWorkspaceFurnishings?.signal.addEventListener('abort',retireSelectedFindBounds,{once:true});
+      const syncSelectedFindBounds=()=>selectedFindBounds?.sync(selectionRef.current?.kind==='placement'?selectionRef.current.id:undefined,selectedFindAvailable());
       const trace: {
         started: number;
         samples: Array<{ at: number; ms: number; triangles: number }>;
@@ -1035,6 +1041,7 @@ export function GeometryPreview({
       let entranceNavigationReady=false, entranceTransfersVerified=false, entranceAssetsAdmitted=false;
       const entranceVerifiedAssets=new Set<string>();
       const render = (restore=false) => {
+        syncSelectedFindBounds();
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
@@ -1122,6 +1129,7 @@ export function GeometryPreview({
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
         if(xrActive.current||seatedBenchRef.current)return;
+        selectedFindBounds?.reset();
         const selectedFloorId=kind==='front'&&selectionRef.current?.kind==='surface'?document.surfaces.find(s=>s.type==='floor'&&s.id.toLowerCase()===selectionRef.current!.id.toLowerCase())?.id:undefined;
         const floorView=selectedFloorId?floorInteriorView(document,selectedFloorId):undefined;
         if(selectedFloorId&&!floorView){setMessage('이 바닥을 공간 안에서 볼 수 있는 위치를 찾지 못했습니다. 현재 시점을 유지합니다.');return;}
@@ -1292,12 +1300,15 @@ export function GeometryPreview({
       };
       selectionFindAction.current={document,find:id=>{
         if(xrActive.current||selectionRef.current?.kind!=='placement'||selectionRef.current.id!==id)return false;
+        if(selectedFindBounds&&(!selectedFindAvailable()||nativeSelectionRestartPending||editor?.busy||cameraAppliedToken.current!==snapshotFrameToken.current||renderer.domElement.ownerDocument.hidden||renderer.domElement.closest('[hidden],[inert]')||renderer.domElement.style.visibility==='hidden'))return false;
         const selected=placements.get(id.toLowerCase());if(!selected)return false;
         const box=new three.Box3().setFromObject(selected,true);if(box.isEmpty())return false;
         const point=box.getCenter(new three.Vector3()),size=box.getSize(new three.Vector3()),extent=Math.max(...size.toArray());
         if(!point.toArray().concat(size.toArray()).every(Number.isFinite)||extent<1e-6||extent>10000)return false;
         const delta=camera.position.clone().sub(controls.target);if(delta.lengthSq()<1e-8)delta.set(1,.7,1);
-        const distance=extent*2.1/Math.min(1,camera.aspect);camera.near=Math.max(extent/100,distance-extent*4);camera.far=distance+extent*4;camera.updateProjectionMatrix();
+        const distance=selectedFindBounds?selectedFindBounds.focus(id,size.toArray(),camera.aspect):extent*2.1/Math.min(1,camera.aspect);
+        if(distance===undefined)return false;
+        if(!selectedFindBounds){camera.near=Math.max(extent/100,distance-extent*4);camera.far=distance+extent*4;camera.updateProjectionMatrix();}
         camera.up.set(0,1,0);controls.target.copy(point);camera.position.copy(point).add(delta.normalize().multiplyScalar(distance));camera.lookAt(point);controls.update();render();return true;
       }};
       action.current = view;
@@ -1307,7 +1318,7 @@ export function GeometryPreview({
       let privateCameraRestored=false;
       if(restoreQuality){camera.position.fromArray(restoreQuality.position);camera.quaternion.fromArray(restoreQuality.quaternion);controls.target.fromArray(restoreQuality.target);authoredFov=restoreQuality.fov;applyProjection();controls.update();render();}
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
-      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;if(saved.nativeRestore?.key===nativeVariantKey){camera.up.fromArray(saved.nativeRestore.up);camera.near=saved.nativeRestore.near;camera.far=saved.nativeRestore.far;}camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
+      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;if(saved.nativeRestore?.key===nativeVariantKey){camera.up.fromArray(saved.nativeRestore.up);camera.near=saved.nativeRestore.near;camera.far=saved.nativeRestore.far;selectedFindBounds?.restore(saved.nativeRestore.findBounds,selectionRef.current?.kind==='placement'?selectionRef.current.id:undefined);}camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
       else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
       // A private capture's validated pose also guides ordinary visibility-based
       // loading. It does not change the document or waive target/ray checks.
@@ -1332,13 +1343,13 @@ export function GeometryPreview({
       const resetCameraMapping=()=>{controls.touches.ONE=three.TOUCH.ROTATE;controls.mouseButtons.LEFT=three.MOUSE.ROTATE;};
       const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
       const resetEditorOrbit=(ids:readonly number[])=>{if(disposed)return;controls.disconnect();for(const id of ids)if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);controls.connect(renderer.domElement);controls.enabled=editorOrbitAvailable();};
-      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,resetOrbit:resetEditorOrbit,resumeOrbit:()=>{if(editorOrbitAvailable())controls.enabled=true;},onCameraReset:reason=>{resetCameraMapping();cameraInteractionCallbacks.current.onCameraInteractionReset?.(reason);},previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
-      cameraInvalidate.current=editor?()=>editor.invalidate():null;
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,resetOrbit:resetEditorOrbit,resumeOrbit:()=>{if(editorOrbitAvailable())controls.enabled=true;},onCameraReset:reason=>{selectedFindBounds?.reset();resetCameraMapping();cameraInteractionCallbacks.current.onCameraInteractionReset?.(reason);},previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
+      cameraInvalidate.current=editor?()=>{selectedFindBounds?.reset();editor.invalidate();}:null;
       const cameraInteraction=(mode:CameraInteractionMode,forceReset=false,frameToken?:string,resetReason:'hidden'|'unavailable'='unavailable')=>{const bridge=editingRef.current,canvas=renderer.domElement;if(!editor||disposed)return false;if(forceReset&&mode==='object'){editor.invalidate(resetReason);resetCameraMapping();return true;}if(gpuLost||!bridge||bridge.disabled||cameraAppliedToken.current!==frameToken||bridge.document!==document&&!onlyLightColorChanged(document,bridge.document)||canvas.ownerDocument.hidden||canvas.closest('[hidden],[inert]')||canvas.style.visibility==='hidden'||suspendedRef.current||xrActive.current||currentWalkMode.current.walking||seatedBenchRef.current||viewingStyleRef.current!=='free')return false;if(!editor.setCameraMode(mode))return false;controls.touches.ONE=mode==='camera-pan'?three.TOUCH.PAN:three.TOUCH.ROTATE;controls.mouseButtons.LEFT=mode==='camera-pan'?three.MOUSE.PAN:three.MOUSE.ROTATE;return true;};
       cameraInteractionSetter.current=editor?cameraInteraction:null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(cameraInteractionSetter.current);
       const editorFocus=()=>{if(editorOrbitAvailable())controls.enabled=true;};
       if(editor)window.addEventListener('focus',editorFocus);
-      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
+      editingSync.current=()=>{syncSelectedFindBounds();const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
         ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);
@@ -1350,7 +1361,8 @@ export function GeometryPreview({
         privateViewCallback.current?.(null);
         if(immersive&&viewerBudget&&!seatedBenchRef.current&&!xrActive.current&&viewingStyleRef.current==='free')publicQualityView.current={scope:qualityScope,document,budget:viewerBudget,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:camera.position.clone().add(camera.getWorldDirection(new three.Vector3()).multiplyScalar(2)).toArray(),fov:authoredFov,walking:currentWalkMode.current.walking};
         else publicQualityView.current=null;
-        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,...(nativeSelectionRestartPending&&nativeVariantKey?{nativeRestore:{key:nativeVariantKey,up:camera.up.toArray() as [number,number,number],near:camera.near,far:camera.far}}:{})};
+        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,...(nativeSelectionRestartPending&&nativeVariantKey?{nativeRestore:{key:nativeVariantKey,up:camera.up.toArray() as [number,number,number],near:camera.near,far:camera.far,findBounds:selectedFindBounds?.snapshot()}}:{})};
+        selectedFindBounds?.reset();ownerWorkspaceFurnishings?.signal.removeEventListener('abort',retireSelectedFindBounds);
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
         cameraInteractionSetter.current=null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(null);cameraInvalidate.current=null;if(editor)window.removeEventListener('focus',editorFocus);editor?.dispose();editingSync.current=null;
