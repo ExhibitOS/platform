@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import type {InspectionCamera} from './scene-snapshot-camera';
+import type {SceneSnapshotFurnishings} from './scene-snapshot-furnishings';
 export const SCENE_SNAPSHOT_WIDTH=640;
 export const SCENE_SNAPSHOT_HEIGHT=360;
 export const SCENE_SNAPSHOT_MAX_PNG_BYTES=512*1024;
@@ -11,7 +12,7 @@ export const SCENE_SNAPSHOT_SCRATCH_BOUND=7*640*360*4+18*SCENE_SNAPSHOT_MAX_PNG_
 export type SceneSnapshotInput={placementId:string;width:640;height:360}&({viewpointId:string}|{inspectionCamera:InspectionCamera});
 interface SnapshotCameraPose {roomId:string;position:[number,number,number];target:[number,number,number];fov:number}
 export type SceneSnapshotCamera=SnapshotCameraPose&({viewpointId:string}|{inspection:true;localPosition:[number,number,number];localTarget:[number,number,number]});
-export interface SceneSnapshotImage {camera:SceneSnapshotCamera;width:640;height:360;target:{placementId:string;artworkRevisionId:string;assetId:string;ready:true;inFrustum:boolean;centerRay:'clear'|'blocked'|'unknown'};pngBase64:string}
+export interface SceneSnapshotImage {camera:SceneSnapshotCamera;width:640;height:360;target:{placementId:string;artworkRevisionId:string;assetId:string;ready:true;inFrustum:boolean;centerRay:'clear'|'blocked'|'unknown'};pngBase64:string;furnishings?:SceneSnapshotFurnishings}
 export type SceneSnapshotCapture=(request:SceneSnapshotInput,signal:AbortSignal)=>Promise<SceneSnapshotImage>;
 function visible(object:Three.Object3D){for(let node:Three.Object3D|null=object;node;node=node.parent)if(!node.visible)return false;return true;}
 /** Only a temporary camera/target/encoding scratch is owned here. The admitted

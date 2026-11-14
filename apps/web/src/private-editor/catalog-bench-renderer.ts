@@ -27,10 +27,9 @@ export function catalogBenchSource(document:Exhibition,source:{publicationId:str
  return {url:`/furnish-catalog/${selected.asset.catalogId}/1/model.glb`,fetcher:fetch,check:source.check,reserveBytes};
 }
 /** Authenticated ordinary Studio source; no publication or static-export authority is invented. */
-export function authenticatedCatalogBenchSource(document:Exhibition,session:Session,signal:AbortSignal){
- const selected=privateCatalogBench(document);
- if(!selected||!['admin','artist','curator'].includes(session.role)||!Number.isFinite(Date.parse(session.expiresAt))||Date.parse(session.expiresAt)<=Date.now())return undefined;
- const url=`/api/v1/tenants/${session.tenantId}/studio/furnishings/${selected.asset.catalogId}/1/model`;
+function authenticatedCatalogSource(session:Session,signal:AbortSignal,catalogId:string,catalogVersion:number){
+ if(!['admin','artist','curator'].includes(session.role)||!Number.isFinite(Date.parse(session.expiresAt))||Date.parse(session.expiresAt)<=Date.now())return undefined;
+ const url=`/api/v1/tenants/${session.tenantId}/studio/furnishings/${catalogId}/${catalogVersion}/model`;
  const check=async()=>{
   signal.throwIfAborted();if(Date.parse(session.expiresAt)<=Date.now())throw Error('CATALOG_SESSION_EXPIRED');
   const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(10000)])});
@@ -41,7 +40,12 @@ export function authenticatedCatalogBenchSource(document:Exhibition,session:Sess
   if(input!==url)throw Error('CATALOG_SOURCE_INVALID');signal.throwIfAborted();
   return fetch(url,{...init,credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,...(init?.signal?[init.signal]:[]),AbortSignal.timeout(30000)])});
  };
- return {url,check,fetcher,reserveBytes:catalogBenchReserve(selected.asset.catalogId)};
+ return {url,check,fetcher};
+}
+export function authenticatedCatalogBenchSource(document:Exhibition,session:Session,signal:AbortSignal){
+ const selected=privateCatalogBench(document);if(!selected)return undefined;
+ const source=authenticatedCatalogSource(session,signal,selected.asset.catalogId,selected.asset.catalogVersion);
+ return source?{...source,reserveBytes:catalogBenchReserve(selected.asset.catalogId)}:undefined;
 }
 export function installPrivateCatalogBench(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,fallback:readonly Three.Group[],signal:AbortSignal,check:()=>Promise<void>,unavailable:()=>boolean,maxTriangles:number,changed:(model:Three.Object3D,hostId:string)=>void,assetSource?:{url:string;fetcher:typeof fetch;revision?:string},maxTextureSize=2048){
  const selected=privateCatalogBench(document);let disposed=false,loaded:Awaited<ReturnType<typeof loadCatalogModel>>|undefined,hiddenHost:Three.Group|undefined;
@@ -55,28 +59,43 @@ export function installPrivateCatalogBench(three:typeof Three,document:Exhibitio
    const p=resolved.pose;loaded.model.position.fromArray(p.position);loaded.model.quaternion.fromArray(p.rotation);loaded.model.scale.fromArray(p.scale);room.add(loaded.model);hiddenHost=host;host.visible=false;changed(loaded.model,binding.hostId);return 'ready';
   }catch{dispose();return 'fallback';}
  };
- return {start,dispose};
+ return {start,dispose,ready:(id:string)=>{if(disposed||selected?.binding.hostId.toLowerCase()!==id.toLowerCase()||!loaded?.model.parent)return false;for(let node:Three.Object3D|null=loaded.model;node;node=node.parent)if(!node.visible)return false;return true;}};
 }
 
 /** Non-bench visuals share the verified loader; functional hosts remain authoritative. */
 export const FURNISHING_RESERVE_BYTES=4*1024*1024;
+type CatalogAsset=NonNullable<ReturnType<typeof furnishingsFor>>['assets'][number];
+type CatalogSource={url:string;fetcher:typeof fetch;check:()=>Promise<void>;revision?:string};
 export function catalogOtherSources(document:Exhibition,source:{publicationId:string;revisionSha256:string;assets:PublicAsset[];fetcher?:typeof fetch;check?:()=>Promise<void>}|undefined){
- if(!source?.check||!source.fetcher||!validateFurnishings(document).valid)return [];
+ if(!source?.check||!source.fetcher)return [];
+ return otherCatalogSources(document,asset=>{
+  const matches=source.assets.filter(a=>a.assetId===asset.id);
+  if(matches.length!==1||matches[0]!.mime!=='model/gltf-binary'||matches[0]!.url!==`/api/v1/publications/${source.publicationId}/assets/${asset.id}`)return undefined;
+  return {url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256};
+ });
+}
+/** Authenticated non-bench visuals use the same immutable loader and host pose
+ * resolution as publications, without inventing publication authority. */
+export function authenticatedCatalogOtherSources(document:Exhibition,session:Session,signal:AbortSignal){
+ return otherCatalogSources(document,asset=>authenticatedCatalogSource(session,signal,asset.catalogId,asset.catalogVersion));
+}
+function otherCatalogSources(document:Exhibition,sourceFor:(asset:CatalogAsset)=>CatalogSource|undefined){
+ if(!validateFurnishings(document).valid)return [];
  const value=furnishingsFor(document);if(!value)return [];
  return value.bindings.flatMap(binding=>{
   if(binding.hostKind==='bench')return [];
-  const asset=value.assets.find(a=>a.id.toLowerCase()===binding.assetId.toLowerCase()),matches=source.assets.filter(a=>a.assetId===binding.assetId);
-  if(!asset||matches.length!==1||matches[0]!.mime!=='model/gltf-binary'||matches[0]!.url!==`/api/v1/publications/${source.publicationId}/assets/${asset.id}`)return [];
+  const asset=value.assets.find(a=>a.id.toLowerCase()===binding.assetId.toLowerCase());if(!asset)return [];
+  const source=sourceFor(asset);if(!source)return [];
   try{
    const coupling:{expectedCoupled?:boolean}={expectedCoupled:asset.catalogId==='museum-track-spot'&&binding.hostKind==='light'&&trackSpotStaticRailContext(document,binding.hostId)};
-   return [{binding,asset,...coupling,resolved:resolveFurnishing(document,binding,asset),source:{url:matches[0]!.url,fetcher:source.fetcher!,check:source.check!,revision:source.revisionSha256}}];
+   return [{binding,asset,...coupling,resolved:resolveFurnishing(document,binding,asset),source}];
   }catch{return [];}
  });
 }
 export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,collisionPolicy?:{scene:Three.Scene;enabled:(kind:'light'|'opening',id:string)=>boolean},lights?:ReadonlyMap<string,{light:Three.Light}>){
- let disposed=false,remaining=FURNISHING_RESERVE_BYTES,triangles=0;const loaded:Awaited<ReturnType<typeof loadCatalogModel>>[]=[],hidden:{object:Three.Object3D;visible:boolean}[]=[];
+ let disposed=false,remaining=FURNISHING_RESERVE_BYTES,triangles=0;const loaded:Awaited<ReturnType<typeof loadCatalogModel>>[]=[],hidden:{object:Three.Object3D;visible:boolean}[]=[],mounted=new Map<string,Three.Object3D>();
  const collisions=new Map<string,MountedFurnishingCollision>();
- const dispose=()=>{if(disposed)return;disposed=true;collisions.clear();for(const h of hidden)h.object.visible=h.visible;for(const l of loaded)l.dispose();hidden.length=0;loaded.length=0;};
+ const dispose=()=>{if(disposed)return;disposed=true;collisions.clear();mounted.clear();for(const h of hidden)h.object.visible=h.visible;for(const l of loaded)l.dispose();hidden.length=0;loaded.length=0;};
  const start=async()=>{const results:{kind:string;id:string;status:string}[]=[];for(const item of items){
   if(disposed||signal.aborted||unavailable())break;
   const {binding,resolved}=item,room=rooms.get(resolved.roomId.toLowerCase()),fallback=binding.hostKind==='light'?fixtures.get(binding.hostId.toLowerCase()):binding.hostKind==='pedestal'?pedestals.get(binding.hostId.toLowerCase()):[];
@@ -102,7 +121,11 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
     const collision=mountedFurnishingCollision(three,collisionId,visual.model,collisionPolicy.scene,()=>disposed||signal.aborted||unavailable());
     if(collision)collisions.set(collisionId,collision);
    }
-   for(const h of previous)h.object.visible=false;changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});
+   for(const h of previous)h.object.visible=false;changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);mounted.set(collisionId,visual.model);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});
   }catch{collisions.delete(collisionId);for(const h of previous)h.object.visible=h.visible;visual?.dispose();results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});}
- }return results;};return {start,dispose,collisions};
+ }return results;};return {start,dispose,collisions,ready:(kind:string,id:string)=>{
+  const model=mounted.get(kind+':'+id.toLowerCase());if(disposed||!model?.parent)return false;
+  for(let node:Three.Object3D|null=model;node;node=node.parent)if(!node.visible)return false;
+  return true;
+ }};
 }
