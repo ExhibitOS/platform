@@ -2,6 +2,7 @@
 import type {Exhibition} from '@exhibitos/spec';
 import {benchesFor,presentationFor} from '@exhibitos/studio-contract';
 import type {MapTarget,VisitorMap} from './visitor-map';
+import {authoredArtworkViewpoint} from './artwork-viewpoint';
 export interface MapDestination {id:string;roomId:string;name:string}
 export interface MapTravelState {status:'idle'|'preparing'|'blocked';message:string;pendingViewpointId?:string}
 export interface MapVisit {roomId:string;viewpointId:string;placementId?:string}
@@ -14,10 +15,17 @@ export function mapStandingDestinations(exhibition:Exhibition):MapDestination[] 
   .filter(viewpoint=>!seats.has(viewpoint.id.toLowerCase()))
   .map(({id,roomId,name})=>({id,roomId,name}));
 }
+/** Artwork travel uses its authored stop; room viewpoints remain room actions. */
+export function mapTargetDestinations(map:VisitorMap,target:MapTarget|undefined,destinations:readonly MapDestination[],stops:readonly {placementId:string;viewpointId:string}[]=[]) {
+ const row=target?.kind==='room'?map.rooms.find(r=>same(r.id,target.id)):target?.kind==='placement'?map.placements.find(p=>same(p.id,target.id)):undefined;
+ const roomId=row&&('roomId'in row?row.roomId:row.id);
+ const authored=target?.kind==='placement'?authoredArtworkViewpoint(stops,target.id):undefined;
+ return destinations.filter(v=>!!roomId&&same(v.roomId,roomId)&&(target?.kind==='room'||!!authored&&same(v.id,authored)));
+}
 /** One explicit map request. Shared loading and the existing camera owner make
  * the final readiness/clearance decision; this adapter never stores a pose.
  */
-export function createMapTravel(map:VisitorMap,destinations:readonly MapDestination[],bridge:()=>MapTravelBridge|null,changed:(state:MapTravelState)=>void) {
+export function createMapTravel(map:VisitorMap,destinations:readonly MapDestination[],bridge:()=>MapTravelBridge|null,changed:(state:MapTravelState)=>void,stops:readonly {placementId:string;viewpointId:string}[]=[]) {
  let generation=0,active:AbortController|undefined,disposed=false;
  const publish=(state:MapTravelState)=>{if(!disposed)changed(state);};
  const abort=()=>{generation++;active?.abort();active=undefined;};
@@ -27,7 +35,7 @@ export function createMapTravel(map:VisitorMap,destinations:readonly MapDestinat
    abort();
    const row=target.kind==='room'?map.rooms.find(r=>same(r.id,target.id)):map.placements.find(p=>same(p.id,target.id));
    const roomId=row&&(target.kind==='room'?row.id:('roomId'in row?row.roomId:undefined));
-   const destination=destinations.find(v=>same(v.id,viewpointId)&&!!roomId&&same(v.roomId,roomId));
+   const destination=mapTargetDestinations(map,target,destinations,stops).find(v=>same(v.id,viewpointId));
    const renderer=bridge();
    if(!row||!roomId||!destination||!renderer){publish({status:'blocked',message:'이 위치로 이동할 수 없어요. 현재 위치와 작품 목록을 유지해요.'});return false;}
    const controller=new AbortController(),token=generation;active=controller;

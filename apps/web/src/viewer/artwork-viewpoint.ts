@@ -18,7 +18,7 @@ export function assertArtworkViewpoint(three:typeof import('three'),group:Object
  if(normal.dot(eye.sub(centre).normalize())<Math.cos(Math.PI/6))throw Error('VIEWING_IMAGE_FRONT');
 }
 
-/** Preserve legacy room choices when no stop was authored for this artwork. */
+/** Resolve only an explicitly authored artwork stop; room travel is separate. */
 export function authoredArtworkViewpoint(stops:readonly {placementId:string;viewpointId:string}[],placementId:string):string|undefined{
  return stops.find(stop=>stop.placementId.toLowerCase()===placementId.toLowerCase())?.viewpointId;
 }
