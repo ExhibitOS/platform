@@ -18,9 +18,10 @@ import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,t
 import {createPreparationStages} from './viewer/preparation-stages';
 import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type DiagnosticEvent} from './viewer/diagnostic-source';
 import {readRuntimeHistory} from './viewer/runtime-history';
+import {snapshotFurnishings} from './scene-snapshot-furnishings';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {catalogBenchSource,authenticatedCatalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
+import {catalogBenchSource,authenticatedCatalogBenchSource,installPrivateCatalogBench,catalogOtherSources,authenticatedCatalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
 import "./viewer/input-surface.css";
 import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
@@ -598,7 +599,7 @@ export function GeometryPreview({
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
       const benchSource=session?authenticatedCatalogBenchSource(document,session,abort.signal):catalogBenchSource(document,benchAuthority,privateCatalogue);
       const benchReserve=benchSource&&beforeBench>benchSource.reserveBytes?benchSource.reserveBytes:0;
-      const otherFurnishings=catalogOtherSources(document,benchAuthority);
+      const otherFurnishings=session?authenticatedCatalogOtherSources(document,session,abort.signal):catalogOtherSources(document,benchAuthority);
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
       const materialCapacity=materialPlanningCapacity(availableAssetBytes,qualityFrameReserve,resources);
@@ -1065,9 +1066,11 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
+      let snapshotFurnishingsSettled=false;
+      let catalogBenchReady:(id:string)=>boolean=()=>false,catalogOtherReady:(kind:string,id:string)=>boolean=()=>false;
       let contactBench:{model:Object3D;hostId:string}|undefined;
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogBenchReady=catalog.ready;catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;catalogOtherReady=catalog.ready;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -1961,7 +1964,7 @@ export function GeometryPreview({
       };
       if(snapshotEnabled&&snapshotReserve===SCENE_SNAPSHOT_RESERVE_BYTES){
         const posesMatch=()=>{try{for(const target of editTargets.values()){const selection=target.userData.editorSelection as EditorSelection|undefined;if(!selection)continue;const expected=localPose(document,selection);if(target.position.distanceToSquared(new three.Vector3(...expected.position))>1e-12||target.scale.distanceToSquared(new three.Vector3(...expected.scale))>1e-12||1-Math.abs(target.quaternion.clone().normalize().dot(new three.Quaternion(...expected.rotation).normalize()))>1e-8)return false;}return true;}catch{return false;}};
-        const valid=()=>!disposed&&!gpuLost&&!xrActive.current&&!sharedDetail&&!entranceScope.current&&!suspendedRef.current&&!renderer.domElement.ownerDocument.hidden&&renderer.domElement.isConnected&&!renderer.domElement.closest('[hidden],[inert]')&&!editor?.busy&&!editingRef.current?.preview&&cameraAppliedToken.current===snapshotFrameToken.current&&(!editingRef.current||editingRef.current.document===document||onlyLightColorChanged(document,editingRef.current.document))&&posesMatch();
+        const valid=()=>!disposed&&!gpuLost&&(!session||snapshotFurnishingsSettled)&&!xrActive.current&&!sharedDetail&&!entranceScope.current&&!suspendedRef.current&&!renderer.domElement.ownerDocument.hidden&&renderer.domElement.isConnected&&!renderer.domElement.closest('[hidden],[inert]')&&!editor?.busy&&!editingRef.current?.preview&&cameraAppliedToken.current===snapshotFrameToken.current&&(!editingRef.current||editingRef.current.document===document||onlyLightColorChanged(document,editingRef.current.document))&&posesMatch();
         snapshotCallback.current?.({get document(){return editingRef.current?.document??document;},idle:valid,capture:async(request,signal)=>{
           // The native owner captures only its idle screen, never a nested
           // render target belonging to another render pass.
@@ -1980,8 +1983,13 @@ export function GeometryPreview({
             const pose=viewpointPose(document,request.viewpointId);
             snapshotCamera={viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov};
           }
+          const furnishingReadout=()=>snapshotFurnishings(document,(kind,id)=>kind==='bench'?catalogBenchReady(id):catalogOtherReady(kind,id),id=>ownerFurnishings?.availability(id)??'failed');
           ownerFurnishings?.enforce();
-          return captureScenePng({three,renderer,scene,beforeDiagnostics:()=>ownerFurnishings?.enforce(),near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          const furnishings=session?furnishingReadout():undefined;
+          const image=await captureScenePng({three,renderer,scene,beforeDiagnostics:()=>ownerFurnishings?.enforce(),near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          ownerFurnishings?.enforce();
+          if(furnishings&&JSON.stringify(furnishings)!==JSON.stringify(furnishingReadout()))throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
+          return furnishings?{...image,furnishings}:image;
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
@@ -3815,6 +3823,7 @@ export function GeometryPreview({
           );
         }
       }
+      if(session){await Promise.allSettled(catalogSettled);if(disposed||gpuLost)return;}
       if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
         await Promise.allSettled(catalogSettled);if(disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
         try {
@@ -3823,10 +3832,11 @@ export function GeometryPreview({
           if (!(error instanceof FurnishingSceneCapacityError)) throw error;
           renderer.domElement.dataset.workspaceFurnishings = JSON.stringify({ reason: error.message });
           setMessage('장면의 표시 한도에 도달해 작업 공간 비품을 표시하지 못했어요. 전시 편집은 계속할 수 있습니다.');
-          return;
+          snapshotFurnishingsSettled=true;return;
         }
         const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
+      snapshotFurnishingsSettled=true;
     };
     const building=build().catch((error) => {
       if (!disposed) {
