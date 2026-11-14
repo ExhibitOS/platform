@@ -994,6 +994,7 @@ export function GeometryPreview({
       const workspaceBenches=benchesFor(document).filter(bench=>bench.workspaceVisual);
       const workspaceBenchAvailability=(link:WorkspaceBenchVisual)=>ownerFurnishings?.seatAvailability(link)??'pending';
       const workspaceFurnishingsChanged=()=>{refreshContactReceivers();
+        if(session&&ownerFurnishings)renderer.domElement.dataset.workspaceFurnishingFailures=JSON.stringify(ownerFurnishings.readout());
         if(disposed||gpuLost)return;
         walkingActions.current?.refreshFurnishingCollisions?.();
         if(workspaceBenches.length){
