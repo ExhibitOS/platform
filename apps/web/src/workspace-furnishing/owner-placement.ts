@@ -6,6 +6,7 @@ import type {DeviceBudget} from '../viewer/loading';
 import {AssetPeakBudget} from '../viewer/loading';
 import {loadWorkspaceFurnishingModel,type WorkspaceModelSource} from './model-loader';
 import {ownerWorkspaceModelSource} from './owner-source';
+import {workspaceFailureObserver,type WorkspaceFailureDetails} from './failure-readout';
 import {OwnerPreviewBudget} from './owner-preview-budget';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from './frame-pose';
 import {qualifiedModularPortalTarget,qualifiedRectangularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
@@ -34,7 +35,7 @@ function backedBenchFits(three:typeof Three,model:Three.Object3D,bounds:Three.Bo
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
-export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean;seatDimensions?:StudioBench["dimensions"] & {kind?:StudioBench["kind"];modelForward?:WorkspaceBenchVisual['modelForward']}}){
+export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;onFailure?:(details:WorkspaceFailureDetails)=>void;failureByteLimit?:number;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean;seatDimensions?:StudioBench["dimensions"] & {kind?:StudioBench["kind"];modelForward?:WorkspaceBenchVisual['modelForward']}}){
  const {candidate,three,room,signal}=options;
  if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
  const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),attachment=options.frameAttachment,openingAttachment=options.openingAttachment,descriptor=extension?.furnishings.find(f=>f.id===(openingAttachment?.furnishingId??attachment?.furnishingId??placement?.furnishingId)&&f.version===(openingAttachment?.furnishingVersion??attachment?.furnishingVersion??placement?.furnishingVersion));
@@ -42,8 +43,9 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  const rights=descriptor.rights as {permissions?:{display?:unknown};expiresAt?:unknown}|null,expires=rights?.expiresAt===undefined?Infinity:typeof rights.expiresAt==='string'?Date.parse(rights.expiresAt):NaN;
  if(rights?.permissions?.display!==true||Number.isNaN(expires)||Date.now()>=expires)throw Error('WORKSPACE_MODEL_AUTHORITY');
  const controller=new AbortController(),abort=()=>controller.abort(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
+ const observer=options.onFailure&&options.failureByteLimit!==undefined?workspaceFailureObserver(options.scope,options.ledger,options.failureByteLimit,options.onFailure):undefined;
  const pose=placement&&structuredClone(placement);let source:WorkspaceModelSource,loaded:Awaited<ReturnType<typeof loadWorkspaceFurnishingModel>>;
- try{source=options.source??ownerWorkspaceModelSource(options.scope,descriptor,controller.signal);loaded=await loadWorkspaceFurnishingModel(three,options.renderer,descriptor.model,source,controller.signal,options.unavailable,options.budget,options.ledger);}catch(error){signal.removeEventListener('abort',abort);controller.abort();throw error;}
+ try{source=options.source??ownerWorkspaceModelSource(options.scope,descriptor,controller.signal,observer);loaded=await loadWorkspaceFurnishingModel(three,options.renderer,descriptor.model,source,controller.signal,options.unavailable,options.budget,options.ledger,observer);}catch(error){observer?.failure(error);signal.removeEventListener('abort',abort);controller.abort();throw error;}
  // A declared model basis is separate from the authored room/host pose.
  // Keep every original GLTF node untouched inside two owned wrapper groups.
  let visual:Three.Object3D=loaded.object;
@@ -51,12 +53,12 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  let stopped=false,checking=false,timer:ReturnType<typeof setInterval>|undefined,expiryTimer:ReturnType<typeof setTimeout>|undefined,release:(()=>void)|undefined,releaseWallBias:(()=>void)|undefined;
  const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);signal.removeEventListener('abort',abort);signal.removeEventListener('abort',onAbort);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);visual.visible=false;releaseWallBias?.();try{loaded.dispose();}finally{if(basis){visual.removeFromParent();visual.clear();basis.clear();}}release?.();};
  const changed=()=>{try{options.onVisibilityChange?.();}catch{/* Rendering callbacks cannot grant authority. */}};
- const fail=(error:unknown)=>{if(stopped)return;try{dispose();}catch{/* Failed resource cleanup retains the scene and byte holds. */}changed();try{options.onRevoked(error);}catch{/* Consumer notification cannot restore visibility. */}};
+ const fail=(error:unknown)=>{if(stopped)return;observer?.failure(error,loaded.reserveBytes);try{dispose();}catch{/* Failed resource cleanup retains the scene and byte holds. */}changed();try{options.onRevoked(error);}catch{/* Consumer notification cannot restore visibility. */}};
  const enforce=()=>{if(stopped)return false;try{if(controller.signal.aborted||options.unavailable()||Date.now()>=expires){fail(Error('WORKSPACE_MODEL_AUTHORITY'));return false;}return true;}catch(error){fail(error);return false;}};
  const onAbort=()=>fail(signal.reason);
  const scheduleExpiry=()=>{if(!Number.isFinite(expires))return;expiryTimer=setTimeout(()=>{if(enforce())scheduleExpiry();},Math.min(2147483647,Math.max(0,expires-Date.now())));};
  try{
-  const seatDimensions=options.seatDimensions;
+  observer?.stage('placement');const seatDimensions=options.seatDimensions;
   if(seatDimensions?.modelForward!==undefined&&!['positive-z','negative-z'].includes(seatDimensions.modelForward))throw Error('WORKSPACE_BENCH_MODEL_FORWARD');
   if(seatDimensions?.modelForward==='positive-z'){
    if(!pose||attachment||openingAttachment)throw Error('WORKSPACE_BENCH_MODEL_FORWARD');
@@ -76,7 +78,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
      &&Math.abs(bounds.min.y)<=tolerance&&Math.abs(bounds.max.y-seatDimensions.height)<=tolerance;
    }
   }
-  controller.signal.throwIfAborted();release=options.scope.reserve(loaded.draws,loaded.triangles);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
+  controller.signal.throwIfAborted();observer?.scene(loaded.draws,loaded.triangles);release=options.scope.reserve(loaded.draws,loaded.triangles);observer?.stage('placement');if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
   if(openingAttachment){
    const doc=candidate as unknown as Exhibition,opening=doc.openings.find(o=>o.id.toLowerCase()===openingAttachment.openingId.toLowerCase()),wall=doc.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase()&&s.roomId.toLowerCase()===options.roomId.toLowerCase());if(!opening||!wall)throw Error('WORKSPACE_PLACEMENT_INVALID');
@@ -120,5 +122,5 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)onAbort();if(stopped)throw Error('WORKSPACE_MODEL_AUTHORITY');if(!options.sceneManagedAuthority){if(typeof document!=='undefined')document.addEventListener('visibilitychange',enforce);scheduleExpiry();}
   if(!options.sceneManagedAuthority)timer=setInterval(()=>{if(!enforce()||checking)return;checking=true;visual.visible=false;changed();void Promise.resolve().then(()=>source.check()).then(()=>{if(enforce()){visual.visible=true;changed();}}).catch(fail).finally(()=>{checking=false;});},5000);
   return {object:visual,dispose,enforce,seatFootprintMatches};
- }catch(error){try{dispose();}catch{/* Retain the reservation if cleanup is uncertain. */}throw error;}
+ }catch(error){observer?.failure(error,loaded.reserveBytes);try{dispose();}catch{/* Retain the reservation if cleanup is uncertain. */}throw error;}
 }
