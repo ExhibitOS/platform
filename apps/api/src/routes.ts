@@ -497,7 +497,18 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }
  app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
  app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
- app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number;watermarked:boolean;watermarkMode:'none'|'embedded'};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
+ app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},assetId:id},[])}},call(false,async(c,s,req,reply)=>{
+  const q=req.query as {expectedRevision?:string;assetId?:string};
+  let result:{bytes:Buffer;mime:string;revision:number;watermarked:boolean;watermarkMode:'none'|'embedded'};
+  if(q.assetId!==undefined){
+   if(q.expectedRevision===undefined)throw new ApiError(400,'INVALID_INPUT');
+   await sceneAuthoringReady(c,s);
+   const selected=await cms.displaySelectedVariant(c,s,cmsId(req),q.assetId,Number(q.expectedRevision));
+   await sceneAuthoringReady(c,s);
+   reply.header('x-exhibitos-artwork-asset-id',selected.assetId);result=selected;
+  }else result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as typeof result;
+  reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;
+ }));
  const thumbnailReceipts=()=>{if(!store)throw new ApiError(503,'STORAGE_UNAVAILABLE');return new ArtworkThumbnailReceipts(store);};
  app.get(`${cp}/artworks/:id/thumbnail-selection`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>thumbnailReceipts().current(c,s,cmsId(req),Number((req.query as {expectedRevision:string}).expectedRevision))));
  app.get(`${cp}/artworks/:id/thumbnail-selection/:bindingId/image`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},expectedSelectionVersion:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req,reply)=>{
