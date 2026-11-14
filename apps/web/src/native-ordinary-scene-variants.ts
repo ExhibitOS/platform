@@ -2,6 +2,13 @@
 import type {Artwork,Exhibition} from '@exhibitos/spec';
 import {BUDGET_GEOMETRY_PAIR_PROFILE,NEAR_GEOMETRY_PAIR_PROFILE,NEAR_TEXTURE_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor} from '@exhibitos/studio-contract';
 import {selectAssetVariant,type DeviceBudget} from './viewer/loading';
+import type {EditorBridge} from './geometry/direct-edit';
+
+/** A locked display draft still needs render admission. This permits only a
+ * representation replan, never editing; an active gesture/proposal must drain. */
+export function nativeScenePressureReplanAvailable(editing:Pick<EditorBridge,'disabled'|'preview'>|undefined,editorBusy:boolean|undefined){
+ return !editorBusy&&!editing?.preview;
+}
 
 export function qualifiedNativeModelPair(art:Artwork){
  if(art.artworkType!=='sculpture')return false;

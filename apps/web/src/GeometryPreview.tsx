@@ -21,7 +21,7 @@ import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type 
 import {readRuntimeHistory} from './viewer/runtime-history';
 import {freezeCanonical} from '@exhibitos/studio-contract';
 import {DEVICE_BUDGETS} from './viewer/loading';
-import {nativeOrdinaryInventory,nativeScenePressurePreferences,type NativeLoadedModel} from './native-ordinary-scene-variants';
+import {nativeOrdinaryInventory,nativeScenePressurePreferences,nativeScenePressureReplanAvailable,type NativeLoadedModel} from './native-ordinary-scene-variants';
 import {readNativeApprovedVariant} from './native-approved-variant-source';
 import {snapshotFurnishings} from './scene-snapshot-furnishings';
 import {inspectionCameraPose} from './scene-snapshot-camera';
@@ -3869,7 +3869,7 @@ export function GeometryPreview({
           snapshotFurnishingsSettled=true;if(nativeSelection)setReady(true);return;
         }
         const result=await ownerFurnishings.start();
-        if(!disposed&&!gpuLost&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&!editor?.busy&&!editingRef.current?.disabled&&!editingRef.current?.preview){
+        if(!disposed&&!gpuLost&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&nativeScenePressureReplanAvailable(editingRef.current,editor?.busy)){
           const pressure=ownerFurnishings.trianglePressure();
           const preferences=pressure&&nativeScenePressurePreferences(document,nativeModelBudget,nativeLoadedModels,pressure);
           if(ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;

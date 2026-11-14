@@ -4,7 +4,29 @@ import {fixtureURL,readOex} from '@exhibitos/spec';
 import {BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE} from '@exhibitos/studio-contract';
 import {expect,it} from 'vitest';
 import {DEVICE_BUDGETS} from './viewer/loading';
-import {nativeOrdinaryInventory,nativeScenePressurePreferences,qualifiedNativeModelPair,type NativeLoadedModel} from './native-ordinary-scene-variants';
+import {nativeOrdinaryInventory,nativeScenePressurePreferences,nativeScenePressureReplanAvailable,qualifiedNativeModelPair,type NativeLoadedModel} from './native-ordinary-scene-variants';
+import {newDraft} from './drafts/example';
+import {nativeGeometryAction,geometryProposal,type NativeViewportFrame} from './native-viewport-protocol';
+
+it('admits a sufficient representation replan for a locked display draft without changing its document or budget',async()=>{
+ const f=await fixture(),editing={disabled:true,preview:null},before=JSON.stringify(f.doc),budget={...DEVICE_BUDGETS.desktop},priorBudget={...budget};
+ const plan=nativeScenePressureReplanAvailable(editing,false)
+  ?nativeScenePressurePreferences(f.doc,budget,f.loaded,{missingTriangles:9813,missingDraws:-15}):undefined;
+ expect([...plan!]).toEqual([[f.art.revisionId,f.coarse.id]]);
+ expect(nativeOrdinaryInventory(f.art,budget,plan?.get(f.art.revisionId)).id).toBe(f.coarse.id);
+ expect(editing).toEqual({disabled:true,preview:null});expect(JSON.stringify(f.doc)).toBe(before);expect(budget).toEqual(priorBudget);
+ expect(nativeScenePressureReplanAvailable(editing,true)).toBe(false);
+ const draft={...newDraft(),candidate:f.doc,exhibitionId:f.doc.id};
+ const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:true};
+ const priorFrame=structuredClone(frame);
+ expect(()=>nativeGeometryAction(frame,{type:'add-light',roomId:f.doc.rooms[0]!.id})).toThrow('VIEWPORT_COMMAND_DENIED');
+ expect(()=>geometryProposal(frame,{type:'remove-placement',id:f.doc.placements[0]!.id})).toThrow('VIEWPORT_COMMAND_DENIED');
+ expect(frame).toEqual(priorFrame);
+});
+it('waits for the active editor proposal even when the display frame is locked',()=>{
+ const proposal={type:'remove-placement' as const,id:crypto.randomUUID()};
+ for(const disabled of [false,true])expect(nativeScenePressureReplanAvailable({disabled,preview:proposal},false)).toBe(false);
+});
 
 async function fixture(){
  const doc=structuredClone((await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex')))).exhibition);if(doc.schemaVersion!=='1.0.0-draft.1')throw Error('SYNTHETIC_FIXTURE_VERSION');
