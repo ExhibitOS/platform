@@ -7,12 +7,12 @@ import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-art
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
 import {compactVariantReceipt,modelPreparationDrained,storedModelPreparation} from './model-preparation-intent.ts';
-import {qualifyApprovedCompactGeometryPair} from './approved-lod-pair.ts';
+import {qualifyApprovedCompactGeometryPair,qualifyApprovedNearGeometryPair,qualifyApprovedTextureDerivativePair} from './approved-lod-pair.ts';
 import {assertRequiredModelApproval,requiredModelApprovalReplay} from './model-preparation-approval.ts';
 import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pair.ts';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
-import { ARTWORK_DETAILS_NAMESPACE, LOD_NAMESPACE, validateViewerLod, validateArtworkDetails, creationYearFor } from '@exhibitos/studio-contract';
+import { ARTWORK_DETAILS_NAMESPACE, LOD_NAMESPACE, validateViewerLod, validateArtworkDetails, creationYearFor,lodVariantsFor,NEAR_TEXTURE_PAIR_PROFILE,NEAR_GEOMETRY_PAIR_PROFILE,BUDGET_GEOMETRY_PAIR_PROFILE } from '@exhibitos/studio-contract';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import { validateArtwork, type Artwork } from "@exhibitos/spec";
 import { randomUUID, createHash } from "node:crypto";
@@ -671,6 +671,39 @@ export class Cms {
     const bytes=await cachedDisplayDerivative(original,'model/gltf-binary',{watermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId,sourceSha256:sha256(original),checkpoint});
     if(!(await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
     return {original,bytes,mime:'model/gltf-binary' as const};
+  }
+  /** A selected ordinary Native display is still the current approved artwork,
+   * not an arbitrary asset read. Qualify the declared pair before its derivative. */
+  async displaySelectedVariant(c:PoolClient,s:Session,id:string,assetId:string,expectedRevision:number) {
+    uuid(id);uuid(assetId);
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<1||expectedRevision>2147483647)throw new ApiError(400,'INVALID_INPUT');
+    const {artwork}=await this.studioArtwork(c,s,id);
+    if(artwork.revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
+    const lod=artwork.extensions?.[LOD_NAMESPACE] as {profile?:string}|undefined;
+    if(artwork.artworkType!=='sculpture'||!validateViewerLod(artwork).valid||
+      ![NEAR_TEXTURE_PAIR_PROFILE,NEAR_GEOMETRY_PAIR_PROFILE,BUDGET_GEOMETRY_PAIR_PROFILE].includes(lod?.profile??''))throw new ApiError(422,'APPROVED_LOD_INVALID');
+    const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==='full'),coarse=variants.find(v=>v.detail==='coarse');
+    const selected=artwork.assets.find(a=>a.id.toLowerCase()===assetId.toLowerCase());
+    if(!full||!coarse||!selected||selected.mime!=='model/gltf-binary'||
+      !variants.some(v=>v.assetId.toLowerCase()===selected.id.toLowerCase()))throw new ApiError(422,'APPROVED_LOD_INVALID');
+    const fullBytes=await this.approvedVariantOriginal(c,s,id,full.assetId,expectedRevision);
+    const coarseBytes=await this.approvedVariantOriginal(c,s,id,coarse.assetId,expectedRevision);
+    try{
+      if(lod!.profile===NEAR_TEXTURE_PAIR_PROFILE)qualifyApprovedTextureDerivativePair(fullBytes,coarseBytes,{triangles:full.triangles!,fullTextureSize:full.textureSize!,reducedTextureSize:coarse.textureSize!});
+      else{
+        const declared={fullTriangles:full.triangles!,coarseTriangles:coarse.triangles!,fullTextureSize:full.textureSize!,reducedTextureSize:coarse.textureSize!};
+        if(lod!.profile===NEAR_GEOMETRY_PAIR_PROFILE)qualifyApprovedNearGeometryPair(fullBytes,coarseBytes,declared);
+        else qualifyApprovedCompactGeometryPair(fullBytes,coarseBytes,declared);
+      }
+    }catch{throw new ApiError(422,'APPROVED_LOD_INVALID');}
+    const result=await this.displayApprovedVariant(c,s,id,selected.id,expectedRevision);
+    const selectedOriginal=selected.id.toLowerCase()===full.assetId.toLowerCase()?fullBytes:coarseBytes;
+    if(!result.original.equals(selectedOriginal))throw new ApiError(409,'ASSET_INTEGRITY');
+    // Pair qualification cannot outlive either source's rights or current binding.
+    for(const [member,original] of [[full,fullBytes],[coarse,coarseBytes]] as const)
+      if(!(await this.approvedVariantOriginal(c,s,id,member.assetId,expectedRevision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
+    if(json((await this.studioArtwork(c,s,id)).artwork)!==json(artwork))throw new ApiError(409,'REVISION_CONFLICT');
+    return {bytes:result.bytes,mime:result.mime,revision:expectedRevision,assetId:selected.id,watermarked:false,watermarkMode:'none' as const};
   }
   async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number,watermark?:DisplayWatermark,checkpoint?:()=>void) {
     checkpoint?.();const displayWatermark=normalizeDisplayWatermark(watermark);
