@@ -3869,7 +3869,7 @@ export function GeometryPreview({
           snapshotFurnishingsSettled=true;if(nativeSelection)setReady(true);return;
         }
         const result=await ownerFurnishings.start();
-        if(!disposed&&!gpuLost&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&nativeScenePressureReplanAvailable(editingRef.current,editor?.busy)){
+        if(!disposed&&!gpuLost&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&nativeSelection&&nativeVariantState.current===nativeSelection&&!nativeSelection.attempted&&nativeScenePressureReplanAvailable(editingRef.current,!!editor?.busy)){
           const pressure=ownerFurnishings.trianglePressure();
           const preferences=pressure&&nativeScenePressurePreferences(document,nativeModelBudget,nativeLoadedModels,pressure);
           if(ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;

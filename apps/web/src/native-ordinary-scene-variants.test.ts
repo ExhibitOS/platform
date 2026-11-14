@@ -16,7 +16,7 @@ it('admits a sufficient representation replan for a locked display draft without
  expect(nativeOrdinaryInventory(f.art,budget,plan?.get(f.art.revisionId)).id).toBe(f.coarse.id);
  expect(editing).toEqual({disabled:true,preview:null});expect(JSON.stringify(f.doc)).toBe(before);expect(budget).toEqual(priorBudget);
  expect(nativeScenePressureReplanAvailable(editing,true)).toBe(false);
- const draft={...newDraft(),candidate:f.doc,exhibitionId:f.doc.id};
+ const draft=newDraft();draft.candidate=f.doc;draft.exhibitionId=f.doc.id;
  const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:true};
  const priorFrame=structuredClone(frame);
  expect(()=>nativeGeometryAction(frame,{type:'add-light',roomId:f.doc.rooms[0]!.id})).toThrow('VIEWPORT_COMMAND_DENIED');
