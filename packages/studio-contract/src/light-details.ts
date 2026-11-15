@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {validateTrackSpotAimBinding,remapTrackSpotAimBinding,type TrackSpotAimBinding} from './track-spot-aim-binding.js';
+import {resolveTrackSpotAiming} from './track-spot-aiming-resolver.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {freezeCanonical} from './freeze.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
@@ -18,6 +20,8 @@ export interface LightDetails {
   /** Absent means unknown legacy intent; never inferred from coordinates. */
   basePlacement?:'auto'|'manual';
   aim?:LightAim;
+  /** One known articulated source; mount and aim override base optics. */
+  trackAim?:TrackSpotAimBinding;
   /** Spot beam edge only, independent of bounded shadow filtering. */
   penumbra?:number;
   /** Existing Three point/spot distance cutoff in metres. */
@@ -46,6 +50,7 @@ export function lightKelvinLinear(kelvin:number):AffinePoint {
 }
 /** Pure local target; caller has admitted the full candidate and namespace. */
 export function lightDetailsTarget(document:Exhibition,light:ExhibitionLight,details:LightDetails):AffinePoint|undefined {
+  if(details.trackAim){const result=resolveTrackSpotAiming(document,light.id,details.trackAim);if(!result.reachable)throw Error('TRACK_SPOT_AIM_'+result.reason);return result.resolvedTarget?[...result.resolvedTarget]:undefined;}
   if(details.aim?.kind==='rotation')return undefined;
   if(details.aim?.kind==='point')return [...details.aim.position];
   if(details.aim?.kind!=='placement-center'&&light.type!=='spot'&&light.type!=='directional')return undefined;
@@ -57,6 +62,7 @@ export function lightDetailsTarget(document:Exhibition,light:ExhibitionLight,det
   return artifactBounds(artifactCorners(artwork.dimensions,[artwork.transform,placement.transform])).center;
 }
 export function lightDetailsOrientation(document:Exhibition,light:ExhibitionLight,details:LightDetails):ArtifactPose['rotation'] {
+  if(details.trackAim){const result=resolveTrackSpotAiming(document,light.id,details.trackAim);if(!result.reachable)throw Error('TRACK_SPOT_AIM_'+result.reason);return [...result.headPose.rotation];}
   const target=lightDetailsTarget(document,light,details);if(!target)return [...light.transform.rotation];
   const direction=target.map((n,i)=>n-light.transform.position[i]!) as AffinePoint,length=Math.hypot(...direction);
   if(!Number.isFinite(length)||length<.001)throw Error('LIGHT_DETAILS_DIRECTION');
@@ -79,7 +85,7 @@ export function validateStudioLightDetails(candidate:unknown){
   const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>();
   value.lights.forEach((entry,i)=>{
     const path='/lights/'+i;
-    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
+    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','trackAim'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
     const light=lights.find(l=>typeof l.id==='string'&&same(l.id,entry.lightId as string)),room=light&&rooms.find(r=>typeof r.id==='string'&&typeof light.roomId==='string'&&same(r.id,light.roomId));
     if(seen.has(entry.lightId.toLowerCase())||!light||!room||!object(room.dimensions)){add('LIGHT_DETAILS_REFERENCE',path,'Expected unique existing light and room');return;}seen.add(entry.lightId.toLowerCase());
     if(Object.hasOwn(entry,'purpose')){
@@ -101,6 +107,15 @@ export function validateStudioLightDetails(candidate:unknown){
     if(Object.hasOwn(entry,'temperatureKelvin')){
       if(!finite(entry.temperatureKelvin,1000,20000))add('LIGHT_DETAILS_COLOR',path+'/temperatureKelvin','Expected1000..20000K visual approximation');
       else {const expected=lightKelvinLinear(entry.temperatureKelvin);if(!Array.isArray(light.color)||light.color.length!==3||light.color.some((n,j)=>!finite(n,0,1)||Math.abs(n-expected[j]!)>1e-6))add('LIGHT_DETAILS_COLOR',path+'/temperatureKelvin','Stored linear RGB must match explicit K intent; direct edits must clear K atomically');}
+    }
+    if(Object.hasOwn(entry,'trackAim')){
+      if(!validateTrackSpotAimBinding(entry.trackAim)||entry.fixture!=='none'||Object.hasOwn(entry,'aim')||Object.hasOwn(entry,'purpose')||Object.hasOwn(entry,'basePlacement')||light.type!=='spot')add('TRACK_SPOT_AIM_INVALID_BINDING',path+'/trackAim','Use the known articulated fixture with one explicit mount/aim and no legacy aim or base-light intent');
+      else {
+        const attachments=(candidate.extensions as Record<string,unknown>)['org.exhibitos.studio/light-attachments'];
+        if(object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(a=>object(a)&&typeof a.lightId==='string'&&same(a.lightId,entry.lightId as string)))add('TRACK_SPOT_AIM_INVALID_BINDING',path+'/trackAim','The articulated mount replaces the legacy emitter attachment');
+        const result=resolveTrackSpotAiming(candidate as unknown as Exhibition,entry.lightId as string,entry.trackAim);
+        if(!result.reachable)add('TRACK_SPOT_AIM_'+result.reason,path+'/trackAim',result.remedy);
+      }
     }
     const aim=entry.aim;
     if(Object.hasOwn(entry,'aim')){
@@ -182,7 +197,7 @@ export function setRoomBaseLightPlacement(document:Exhibition,lightId:string,pla
  return placement==='auto'?reflowRoomBaseLight(next,light.roomId):next;
 }
 export function remapStudioLightDetails(value:StudioLightDetails,ids:ReadonlyMap<string,string>):StudioLightDetails {
-  return {version:1,lights:value.lights.map(b=>{const lightId=ids.get(b.lightId.toLowerCase());if(!uuid(lightId))throw Error('LIGHT_DETAILS_REFERENCE');return {...structuredClone(b),lightId};})};
+  return {version:1,lights:value.lights.map(b=>{const lightId=ids.get(b.lightId.toLowerCase());if(!uuid(lightId))throw Error('LIGHT_DETAILS_REFERENCE');return {...structuredClone(b),lightId,...(b.trackAim?{trackAim:remapTrackSpotAimBinding(b.trackAim,ids)}:{})};})};
 }
 export function removeLightDetails(candidate:Exhibition,lightId:string):Exhibition {
   const next=structuredClone(candidate);if(next.extensions?.[LIGHT_DETAILS_NAMESPACE]!==undefined)next.extensions[LIGHT_DETAILS_NAMESPACE]={version:1,lights:lightDetailsFor(next).filter(b=>!same(b.lightId,lightId))} as unknown as NonNullable<Exhibition['extensions']>[string];return next;
