@@ -20,7 +20,7 @@
     "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p tsconfig.tooling.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "build": "npm run notices && npm run build --workspace @exhibitos/studio-contract && npm run build --workspace @exhibitos/storage && npm run build --workspace @exhibitos/api && npm run build --workspace @exhibitos/web",
+    "build": "npm run notices && npm run build --workspace @exhibitos/studio-contract && npm run build --workspace @exhibitos/storage && npm run build:budget-analysis --workspace @exhibitos/web && npm run build --workspace @exhibitos/api && npm run build --workspace @exhibitos/web",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:embedded-png-profile && npm run test:contracts && npm run test:packaging && npm run test:schema-generator",
     "measure:baseline": "node scripts/measure-baseline.mjs",
