@@ -204,7 +204,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||seen.has(node))return;
       seen.add(node);const materials=Array.isArray(node.material)?node.material:[node.material];
       if(materials.some(material=>material.transparent||!material.depthTest))return;
-      const draws=Array.isArray(node.material)?node.geometry.groups.filter(group=>materials[group.materialIndex??0]?.visible).length:Number(materials[0]?.visible===true);
+      const draws=Array.isArray(node.material)?node.geometry.groups.filter((group:{materialIndex?:number})=>materials[group.materialIndex??0]?.visible).length:Number(materials[0]?.visible===true);
       if(!draws)return;
       const box=new three.Box3().setFromObject(node),instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
       const cost=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;

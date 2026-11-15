@@ -602,7 +602,8 @@ export function GeometryPreview({
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const authoredShadowCount=document.lights.filter(light=>light.castsShadow===true&&(light.type==='spot'||light.type==='directional')).length;
-      const depthDrawBudget=resources?.maxDrawCalls??DEVICE_BUDGETS.desktop.maxDrawCalls;
+      // Match existing aggregate scene draw ceilings; DeviceBudget has no draw field.
+      const depthDrawBudget=session&&!publicSource?384:256;
       const shadowMapCount=Math.min(Math.max(1,authoredShadowCount),Math.floor(depthDrawBudget),Math.floor((resources?.maxCacheBytes??33554432)/SHADOW_RESERVE_BYTES));
       const shadowReserve=compactQuality?0:shadowMapCount*SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
