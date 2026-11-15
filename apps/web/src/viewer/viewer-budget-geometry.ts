@@ -92,7 +92,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   if(plaques.meshes.length){memoryComplete=false;assumptions.push('Plaque geometry is included; canvas texture allocation is not decoded by this CPU analysis.');}
   if(profile==='native'){
    for(const opening of candidate.openings){const line=new three.LineSegments(new three.EdgesGeometry(new three.PlaneGeometry(opening.dimensions.width,opening.dimensions.height)),new three.LineBasicMaterial());line.position.set(opening.offset[0],opening.offset[1],.002);surfaces.get(opening.surfaceId.toLowerCase())?.add(line);}
-   const control=new TransformControls(new three.PerspectiveCamera());scene.add(control.getHelper());owned.push({dispose:registerTransformControlsSceneCost(three,control)},control);
+   const control=new TransformControls(new three.PerspectiveCamera()),helper=control.getHelper(),unregister=registerTransformControlsSceneCost(three,control);scene.add(helper);owned.push({dispose:()=>{unregister();helper.dispose();helper.removeFromParent();}});
   }
   for(const placement of candidate.placements){const group=new three.Group();pose(group,placement.transform);group.userData.placementId=placement.id;const art=candidate.artworks.find(a=>a.revisionId===placement.artworkRevisionId);group.userData.viewerArtworkType=art?.artworkType;placements.set(placement.id.toLowerCase(),group);rooms.get(placement.roomId.toLowerCase())?.add(group);}
   const artworkSources=new Map<string,Promise<three.Object3D>>();

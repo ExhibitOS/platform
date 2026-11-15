@@ -67,3 +67,12 @@ test('charges the planned two-map scenario and uses texture quality for compact 
  const limited=setViewerBudgetOverrides(candidate,'standard',{admission:{residentBytes:single.wholeExhibition.residentBytes!+1024*1024}}),policy=resolveViewerBudgetPolicy(limited,'standard'),checked=await analyzeViewerBudgetGeometry({candidate:limited,profile:'standard',resolvedPolicy:policy,loadVerifiedAsset:async()=>body});expect(evaluateViewerBudgetUsage(policy,checked.wholeExhibition).admissionExceeded).toContain('residentBytes');
  const compactQuality=await analyzeViewerBudgetGeometry({candidate,profile:'standard',selectionBudget:{maxTriangles:100000,maxTextureSize:512},loadVerifiedAsset:async()=>body});expect(compactQuality.wholeExhibition).toMatchObject({shadowCasterTriangles:0,shadowDepthTriangles:0});expect(compactQuality.wholeExhibition.residentBytes).toBeLessThan(single.wholeExhibition.residentBytes!);
 });
+
+test('constructs and disposes native control geometry without a DOM connection',async()=>{
+ const candidate=newDraft().candidate,read=vi.fn(async()=>{throw Error('NO_ASSET_EXPECTED');}),standard=await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:read}),native=await analyzeViewerBudgetGeometry({candidate,profile:'native',loadVerifiedAsset:read});
+ expect(native.wholeExhibition.colorDraws).toBeGreaterThan(standard.wholeExhibition.colorDraws!);expect(read).not.toHaveBeenCalled();
+});
+test('inspects embedded-texture GLB geometry without network or image decoder acquisition',async()=>{
+ const entry=furnishingCatalogueEntry('sculpture-bench-refined'),body=new Uint8Array(await readFile(entry.path));vi.stubGlobal('fetch',vi.fn(()=>{throw Error('UNEXPECTED_FETCH');}));vi.stubGlobal('createImageBitmap',vi.fn(()=>{throw Error('UNEXPECTED_IMAGE_DECODE');}));
+ const loaded=await loadBudgetGeometry(body,{sha256:entry.sha256,bytes:entry.bytes});try{expect(loaded.hasTextures).toBe(true);expect(existingSceneCost(three,loaded.model).draws).toBeGreaterThan(0);expect(fetch).not.toHaveBeenCalled();expect(createImageBitmap).not.toHaveBeenCalled();}finally{loaded.dispose();}
+});
