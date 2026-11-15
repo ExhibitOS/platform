@@ -12,8 +12,9 @@ export function articulatedTrackFixture(){
  const attachment={placementId:railPlacementId,surfaceId:surface.id,anchor:[0,0] as [number,number],yaw:0,gap:0};
  document.extensions![WORKSPACE_FURNISHING_NAMESPACE]={version:11,furnishings:[descriptor],placements:[{id:railPlacementId,roomId:room.id,furnishingId:railId,furnishingVersion:1,...ceilingRailDerivedPose(ceilingRailAttachmentMatrix(surface,attachment).matrix)}],frameAttachments:[],openingAttachments:[],ceilingAttachments:[attachment]};
  const binding:TrackSpotAimBinding={version:1,profile:'track-spot-aim-v1',mount:{railPlacementId,position:[-1,-.035,0],yaw:0},aim:{kind:'point',position:[-1,1.5,-1.2]}};
- document.extensions!['org.exhibitos.studio/light-details']={version:1,lights:[{lightId,fixture:'none',trackAim:{...binding},range:7,penumbra:.35}]};
+ const trackAim={...binding};
+ document.extensions!['org.exhibitos.studio/light-details']={version:1,lights:[{lightId,fixture:'none',trackAim,range:7,penumbra:.35}]};
  delete document.extensions!['org.exhibitos.studio/light-attachments'];
  document.extensions!['org.exhibitos.studio/furnishing-visuals']={version:1,assets:[{...ARTICULATED_TRACK_SPOT_IDENTITY,id:assetId}],bindings:[{hostKind:'light',hostId:lightId,assetId,pose:{position:[0,.15,.0755],yaw:0,scale:1}}]};
- return {document,binding,lightId,assetId,descriptor,railPlacementId};
+ return {document,binding:trackAim,lightId,assetId,descriptor,railPlacementId};
 }

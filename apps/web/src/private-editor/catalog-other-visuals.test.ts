@@ -7,6 +7,31 @@ import {fixtureURL,readOex} from '@exhibitos/spec';
 import {applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry,type FurnishingCommand} from '@exhibitos/studio-contract';
 import {catalogOtherSources,installCatalogOtherVisuals} from './catalog-bench-renderer';
 import {loadCatalogModel} from './catalog-furnishing-loader';
+import {articulatedTrackSpotCandidate,lightId as articulatedLightId,assetId as articulatedAssetId} from '../../../../packages/studio-contract/test-fixtures/articulated-track-spot.js';
+import {existingSceneCost} from '../workspace-furnishing/scene-cost';
+
+it('loads the admitted articulated catalogue model under one room transform',async()=>{
+ const {candidate:document}=articulatedTrackSpotCandidate(),lightId=articulatedLightId,assetId=articulatedAssetId;
+ const model=await readFile(furnishingCatalogueEntry('museum-track-spot-articulated').path);
+ const publicationId=crypto.randomUUID(),revision='a'.repeat(64),url=`/api/v1/publications/${publicationId}/assets/${assetId}`;
+ const items=catalogOtherSources(document,{
+  publicationId,revisionSha256:revision,assets:[{assetId,url,mime:'model/gltf-binary'}],check:async()=>{},
+  fetcher:async()=>new Response(new Uint8Array(model),{headers:{'x-exhibitos-publication-revision':revision}}),
+ });
+ expect(items).toHaveLength(1);
+ const resolved=items[0]!.resolved;
+ if(!('articulated' in resolved)||!resolved.articulated)throw Error('Missing articulated pose');
+ const room=new three.Group();room.position.set(4,0,7);
+ const owner=installCatalogOtherVisuals(three,items,new Map([[resolved.roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,20000,()=>{});
+ try{
+  expect(await owner.start()).toEqual([{kind:'light',id:lightId,status:'ready'}]);
+  const mounted=room.children[0]!.children[0]!;
+  expect(mounted.children).toHaveLength(3);
+  expect(mounted.children[0]!.getWorldPosition(new three.Vector3()).toArray()).toEqual(resolved.articulated.fixedPose.position.map((n,i)=>n+room.position.getComponent(i)));
+  expect(existingSceneCost(three,mounted)).toEqual({draws:8,triangles:5544});
+ }finally{owner.dispose();}
+ expect(room.children).toEqual([]);
+});
 
 it('loads the three immutable host visuals with correct parents and restores fallbacks on disposal or rejected authority',async()=>{
  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex')));let doc=structuredClone(original.exhibition);const room=doc.rooms[0]!,light=doc.lights[0]!,opening=doc.openings[0]!,wall=doc.surfaces.find(s=>s.id===opening.surfaceId)!,placement=doc.placements.find(p=>doc.artworks.some(a=>a.revisionId===p.artworkRevisionId&&a.artworkType==='sculpture'))!;
