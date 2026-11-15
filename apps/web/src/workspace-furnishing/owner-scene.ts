@@ -27,7 +27,9 @@ export function existingSceneCost(three:typeof Three,scene:Three.Object3D,ghost=
  let draws=0,triangles=0;
  scene.traverse(node=>{if(!(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points))return;const materials=Array.isArray(node.material)?node.material:[node.material],geometry=node.geometry,instances=node instanceof three.InstancedMesh?node.count:1;
   if(!Number.isSafeInteger(instances)||instances<0)throw Error('WORKSPACE_SCENE_BUDGET');const passes=materials.reduce((n,m)=>n+((ghost||m.transparent)&&m.side===three.DoubleSide&&!m.forceSinglePass?2:1),0),groups=Array.isArray(node.material)?Math.max(1,geometry.groups.length):1,count=geometry.index?.count??geometry.attributes.position?.count??0;
-  draws+=passes*groups*instances;if(node instanceof three.Mesh)triangles+=Math.ceil(count/3)*passes*groups*instances;
+  // An instanced mesh submits one draw per pass/group; only triangle work scales
+  // with its instance count (including zero instances producing no draw).
+  draws+=instances>0?passes*groups:0;if(node instanceof three.Mesh)triangles+=Math.ceil(count/3)*passes*groups*instances;
  });if(!Number.isSafeInteger(draws)||!Number.isSafeInteger(triangles))throw Error('WORKSPACE_SCENE_BUDGET');return {draws,triangles};
 }
 export class FurnishingSceneCapacityError extends Error {
