@@ -77,7 +77,7 @@ it('rejects a grouped mount shifted off the certified contact even while inside 
 });
 it('checks grouped contact in source coordinates under a rotated rail placement',()=>{
  const e=groupedTrackCandidate(),yaw=.2,c=Math.cos(yaw),s=Math.sin(yaw),rotate=(p:number[])=>[c*p[0]!+s*p[2]!,p[1]!,-s*p[0]!+c*p[2]!] as [number,number,number];
- const rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{yaw:number}[];ceilingAttachments:{yaw:number}[]};rail.placements[0]!.yaw=yaw;rail.ceilingAttachments[0]!.yaw=yaw;
+ const rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{yaw:number}[];ceilingAttachments:{yaw:number}[]};rail.placements[0]!.yaw=yaw;rail.ceilingAttachments[0]!.yaw=-yaw;
  const light=e.lights[0]!,position=rotate(light.transform.position);light.transform.position=position;
  const attachment=e.extensions!['org.exhibitos.studio/light-attachments'] as unknown as {lights:{anchor:number[]}[]};attachment.lights[0]!.anchor=[position[0],position[2]];
  const details=e.extensions!['org.exhibitos.studio/light-details'] as unknown as {lights:{aim:{position:number[]}}[]};details.lights[0]!.aim.position=rotate(details.lights[0]!.aim.position);
