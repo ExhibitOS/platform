@@ -1,3 +1,7 @@
+import {existsSync} from 'node:fs';
+import {mkdir,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import type {BlobStore} from '@exhibitos/storage';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID,createHash} from 'node:crypto';
 import {expect,it} from 'vitest';
@@ -12,7 +16,8 @@ import {admittedPublicationFurnishings,projectPublication} from './publication.t
 import {portableOexSnapshot} from './oex.ts';
 import {viewerBudgetSHA256} from './viewer-budget-analysis.ts';
 
-it('runs the actual qualified CPU worker behind authenticated API, persists overrides and carries them into real catalogue output bytes',async()=>{
+// Source-only suites do not stage the compiled artifact; owner qualification does.
+it.skipIf(!existsSync(new URL('../dist/viewer-budget-geometry.mjs',import.meta.url)))('runs the actual qualified CPU worker behind authenticated API, persists overrides and carries them into real catalogue output bytes',async()=>{
  const tenantId=randomUUID(),userId=randomUUID(),csrf='csrf',token='a'.repeat(43),draft=newDraft();
  for(const x of [-1,1]){const light=newLight(draft.candidate.rooms[0]!.id,'spot');light.transform.position=[x,2,0];draft.candidate.lights.push(light);draft.candidate=applyFurnishingCommand(draft.candidate,{type:'set-furnishing-visual',hostKind:'light',hostId:light.id,catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}});}
  const low:ViewerBudgetPolicy={version:1,policyVersion:1,targetProfile:'standard',profiles:{standard:{admission:{colorDraws:1}}}};draft.candidate=setViewerBudgetPolicy(draft.candidate,low);
@@ -39,8 +44,12 @@ it('runs the actual qualified CPU worker behind authenticated API, persists over
   const target=await app.inject({method:'GET',url:url+'/viewer-budget',headers});expect(target.statusCode,target.body).toBe(200);expect(target.json().selection.effectiveProfile).toBe('compact');expect(target.json().resolvedPolicy.admission.colorDraws).toBe(900);
   const native=await app.inject({method:'GET',url:url+'/viewer-budget?context=native',headers});expect(native.statusCode,native.body).toBe(200);expect(native.json().selection.effectiveProfile).toBe('native');expect(native.json().estimates.wholeExhibition.usage.colorDraws).toBeGreaterThan(1);
   // Low policy with an actual CPU overage is still structurally exportable.
-  const prepared=await admittedPublicationFurnishings(client() as unknown as PoolClient,undefined,tenantId,draft.exhibitionId,draft.candidate),published=projectPublication(draft.candidate,[],new Date().toISOString(),[],undefined,prepared).snapshot;expect(viewerBudgetPolicyFor(published)).toEqual(low);
+  const prepared=await admittedPublicationFurnishings(client() as unknown as PoolClient,{get:async()=>{throw Error('Unexpected imported source read');}} as unknown as BlobStore,tenantId,draft.exhibitionId,draft.candidate),published=projectPublication(draft.candidate,[],new Date().toISOString(),[],undefined,prepared).snapshot;expect(viewerBudgetPolicyFor(published)).toEqual(low);
   const files=new Map<string,Uint8Array>();for(const p of prepared){files.set(p.source.path,p.model);files.set(p.source.rights.notice.path,p.notice);}
-  const reopened=await readOex(await writeOex(portableOexSnapshot(row.metadata.candidate),files,{createdAt:new Date().toISOString(),generator:{name:'Budget CPU API integration',version:'1'}}));expect(viewerBudgetPolicyFor(reopened.exhibition)).toEqual(high);
+  const codecOptions={createdAt:new Date().toISOString(),generator:{name:'Budget CPU API integration',version:'1'}},lowEncoded=await writeOex(portableOexSnapshot(draft.candidate),files,codecOptions);expect(viewerBudgetPolicyFor((await readOex(lowEncoded)).exhibition)).toEqual(low);
+  const encoded=await writeOex(portableOexSnapshot(row.metadata.candidate),files,codecOptions),reopened=await readOex(encoded);expect(viewerBudgetPolicyFor(reopened.exhibition)).toEqual(high);
+  const evidenceRoot=process.env.EXHIBITOS_VIEWER_BUDGET_EVIDENCE_DIR;
+  if(evidenceRoot){await mkdir(evidenceRoot,{recursive:true});await writeFile(join(evidenceRoot,'actual-api-worker-fixture.json'),JSON.stringify({fixtureOnly:true,realPostgres:false,realGPU:false,candidate:draft.candidate,candidateSHA256:viewerBudgetSHA256(draft.candidate),lowReport:report,dirtyCandidate:dirty.candidate,dirtyCandidateSHA256:viewerBudgetSHA256(dirty.candidate),dirtyReport:inspected,savedDraft:row.metadata,targetReport:target.json(),nativeReport:native.json(),publishedSnapshot:published,codecSHA256:createHash('sha256').update(encoded).digest('hex'),codecCandidateSHA256:viewerBudgetSHA256(reopened.exhibition),codecPolicy:viewerBudgetPolicyFor(reopened.exhibition)},null,2)+'\n');await writeFile(join(evidenceRoot,'actual-api-worker-high-policy.oex'),encoded);await writeFile(join(evidenceRoot,'actual-api-worker-low-policy-overage.oex'),lowEncoded);}
+
  }finally{await app.close();}
 },20000);
