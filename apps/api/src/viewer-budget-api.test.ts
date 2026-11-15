@@ -1,3 +1,6 @@
+import {writeOex,readOex} from '@exhibitos/spec';
+import {projectPublication} from './publication.ts';
+import {portableOexSnapshot} from './oex.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {expect,it,vi} from 'vitest';
@@ -68,4 +71,19 @@ it('uses ordinary tenant/owner/role access for inspection and settings before an
  await expect(studio.putViewerBudget(c,{...f.session,role:'artist'},f.row.id,{requestId:randomUUID(),expectedRevision:2,policy},etag(2,f.draft))).rejects.toMatchObject({code:'FORBIDDEN'});
  expect(query.mock.calls.every(([sql])=>sql.startsWith('SELECT id,revision,metadata'))).toBe(true);
  query.mockClear();await expect(studio.viewerBudget(c,{...f.session,role:'viewer'},f.row.id)).rejects.toMatchObject({code:'FORBIDDEN'});expect(query).not.toHaveBeenCalled();
+});
+
+it('retains final target and overrides in portable and public snapshots without turning performance policy into export rejection',()=>{
+ const f=fixture(),candidate=setViewerBudgetPolicy(f.draft.candidate,{...policy,profiles:{compact:{admission:{colorDraws:1}}}}),original=structuredClone(candidate);
+ const portable=portableOexSnapshot(candidate),projected=projectPublication(candidate,[],new Date().toISOString()).snapshot;
+ expect(viewerBudgetPolicyFor(portable)).toEqual(viewerBudgetPolicyFor(candidate));expect(viewerBudgetPolicyFor(projected)).toEqual(viewerBudgetPolicyFor(candidate));expect(candidate).toEqual(original);
+ const invalid=structuredClone(candidate);invalid.extensions![N]={version:99};expect(()=>projectPublication(invalid,[],new Date().toISOString())).toThrow('PUBLICATION_NOT_READY');
+});
+
+it('roundtrips target, overrides and reset through actual OEX bytes',async()=>{
+ const f=fixture(),candidate=setViewerBudgetPolicy(f.draft.candidate,policy),options={createdAt:new Date().toISOString(),generator:{name:'ExhibitOS budget contract test',version:'1'}};
+ const encoded=await writeOex(portableOexSnapshot(candidate),new Map(),options),decoded=await readOex(encoded);
+ expect(viewerBudgetPolicyFor(decoded.exhibition)).toEqual(policy);
+ const reset=setViewerBudgetPolicy(decoded.exhibition,null),reopened=await readOex(await writeOex(reset,new Map(),options));
+ expect(reopened.exhibition.extensions?.[N]).toBeUndefined();
 });
