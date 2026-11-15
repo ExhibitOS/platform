@@ -43,3 +43,14 @@ it('admits a nine-draw furnishing under the unchanged 256 cap without lowering t
   expect(budget.remaining()).toEqual({remainingDraws:22,remainingTriangles:175836});
  }finally{batch.dispose();geometry.dispose();material.dispose();}
 });
+
+it('reports diagnostic renderer classes without changing conservative scene cost or visibility',()=>{
+ const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial(),mesh=new three.Mesh(geometry,material),batch=new three.InstancedMesh(geometry,material,3),line=new three.LineSegments(geometry,new three.LineBasicMaterial()),points=new three.Points(geometry,new three.PointsMaterial());
+ mesh.visible=false;line.userData.sceneSnapshotOverlay=true;scene.add(mesh,batch,line,points);
+ const inventory={meshDraws:0,instancedMeshDraws:0,lineDraws:0,pointsDraws:0,overlayDraws:0,directHiddenDraws:0,multiMaterialDraws:0};
+ try{
+  const prior=existingSceneCost(three,scene);expect(existingSceneCost(three,scene,false,inventory)).toEqual(prior);
+  expect(inventory).toEqual({meshDraws:1,instancedMeshDraws:1,lineDraws:1,pointsDraws:1,overlayDraws:1,directHiddenDraws:1,multiMaterialDraws:0});
+  expect(prior).toEqual({draws:4,triangles:48});expect(mesh.visible).toBe(false);expect(batch.count).toBe(3);
+ }finally{batch.dispose();geometry.dispose();material.dispose();line.material.dispose();points.material.dispose();}
+});

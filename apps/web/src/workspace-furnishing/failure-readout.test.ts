@@ -30,6 +30,7 @@ it.each([false,true])('keeps public fetch failure fallback and cleanup identical
   expect(await f.runtime.start()).toEqual({loaded:0,failed:2});
   const readout=f.runtime.readout();expect(readout).toMatchObject({settled:true,loaded:0,failed:2});
   expect(readout.failures).toHaveLength(enabled?2:0);
+  expect(readout.sceneBudget===undefined).toBe(!enabled);
   if(enabled)for(const [i,row]of readout.failures.entries())expect(row).toMatchObject({placementId:id(3+i),furnishingId:f.item.id,stage:'model-fetch',code:'WORKSPACE_MODEL_FETCH',httpKind:'model',httpStatus:404});
   expect(f.runtime.ledger.reservedBytes()).toBe(0);expect(f.room.children).toEqual([]);
   expect(f.runtime.trianglePressure()).toBeUndefined();
@@ -106,4 +107,18 @@ it('never forwards arbitrary exception text or lets diagnostic recording alter t
  const scope=new OwnerPreviewBudget(id(999),fetch,4,100),ledger=new AssetPeakBudget(1000,()=>7),record=vi.fn(),observer=workspaceFailureObserver(scope,ledger,1000,record);
  observer.stage('decode');observer.failure(new TypeError('secret URL or body'));expect(record.mock.calls[0]![0]).toMatchObject({stage:'decode',code:'OTHER_FAILURE',bytesUsed:7});expect(JSON.stringify(record.mock.calls)).not.toContain('secret');
  const broken=workspaceFailureObserver(scope,ledger,1000,()=>{throw Error('diagnostic consumer');});expect(()=>broken.failure(Error('WORKSPACE_MODEL_AUTHORITY'))).not.toThrow();
+});
+
+it('measures initial staging scene capacity and live successful reservations without charging refusals',async()=>{
+ const f=await fixture('scene',2,true);try{
+  const before=f.runtime.readout().sceneBudget!;
+  expect(before).toMatchObject({drawLimit:256,initialDraws:255,reservedDraws:0,remainingDraws:1,initialInventory:{meshDraws:255,instancedMeshDraws:0,lineDraws:0,pointsDraws:0}});
+  expect(await f.runtime.start()).toEqual({loaded:1,failed:1});
+  const after=f.runtime.readout().sceneBudget!;
+  expect(after).toMatchObject({drawLimit:256,initialDraws:255,reservedDraws:1,remainingDraws:0});
+  expect(after.initialDraws+after.reservedDraws+after.remainingDraws).toBe(256);
+  expect(after.initialTriangles+after.reservedTriangles+after.remainingTriangles).toBe(after.triangleLimit);
+  after.initialInventory.meshDraws=999;expect(f.runtime.readout().sceneBudget!.initialInventory.meshDraws).toBe(255);
+  f.runtime.dispose();expect(f.runtime.readout().sceneBudget).toMatchObject({reservedDraws:0,remainingDraws:1});
+ }finally{f.runtime.dispose();for(const child of f.scene.children)if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}}
 });

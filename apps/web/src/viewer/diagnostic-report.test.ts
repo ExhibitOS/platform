@@ -96,3 +96,11 @@ it('projects only the three byte counts from a model decode refusal',()=>{
   {existingBytes:40,requestedBytes:30,limitBytes:60},undefined,undefined,
  ]);
 });
+
+it('projects only fixed safe scene budget numbers from opted-in diagnostic readout',()=>{
+ const sceneBudget={drawLimit:256,triangleLimit:200000,initialDraws:250,initialTriangles:20000,reservedDraws:6,reservedTriangles:1000,remainingDraws:0,remainingTriangles:179000,initialInventory:{meshDraws:240,instancedMeshDraws:2,lineDraws:8,pointsDraws:0,overlayDraws:5,directHiddenDraws:-1,multiMaterialDraws:Infinity,rawError:'secret'},url:'secret'};
+ const workspaceFurnishings={version:1,settled:true,loaded:6,failed:0,truncated:false,failures:[],sceneBudget} as WorkspaceFailureReadout;
+ const value=JSON.parse(createDiagnosticReport({...snapshot,workspaceFurnishings},{publicationId,revisionSha256})).snapshot.workspaceFurnishings.sceneBudget;
+ expect(value).toEqual({drawLimit:256,triangleLimit:200000,initialDraws:250,initialTriangles:20000,reservedDraws:6,reservedTriangles:1000,remainingDraws:0,remainingTriangles:179000,initialInventory:{meshDraws:240,instancedMeshDraws:2,lineDraws:8,pointsDraws:0,overlayDraws:5,directHiddenDraws:null,multiMaterialDraws:null}});
+ expect(JSON.stringify(value)).not.toContain('secret');
+});

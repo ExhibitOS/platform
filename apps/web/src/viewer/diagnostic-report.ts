@@ -64,6 +64,13 @@ function projectFurnishings(value:DiagnosticSnapshot["workspaceFurnishings"]) {
   const count=(n:number|null)=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0?n:null;
   return {
     version:1,settled:value.settled===true,loaded:count(value.loaded),failed:count(value.failed),
+    ...(value.sceneBudget?{sceneBudget:{
+      drawLimit:count(value.sceneBudget.drawLimit),triangleLimit:count(value.sceneBudget.triangleLimit),
+      initialDraws:count(value.sceneBudget.initialDraws),initialTriangles:count(value.sceneBudget.initialTriangles),
+      reservedDraws:count(value.sceneBudget.reservedDraws),reservedTriangles:count(value.sceneBudget.reservedTriangles),
+      remainingDraws:count(value.sceneBudget.remainingDraws),remainingTriangles:count(value.sceneBudget.remainingTriangles),
+      initialInventory:{meshDraws:count(value.sceneBudget.initialInventory.meshDraws),instancedMeshDraws:count(value.sceneBudget.initialInventory.instancedMeshDraws),lineDraws:count(value.sceneBudget.initialInventory.lineDraws),pointsDraws:count(value.sceneBudget.initialInventory.pointsDraws),overlayDraws:count(value.sceneBudget.initialInventory.overlayDraws),directHiddenDraws:count(value.sceneBudget.initialInventory.directHiddenDraws),multiMaterialDraws:count(value.sceneBudget.initialInventory.multiMaterialDraws)},
+    }}:{}),
     truncated:value.truncated===true||value.failures.length>32,
     failures:value.failures.slice(0,32).flatMap(row=>{
       const placementId=token(row.placementId,uuid),furnishingId=token(row.furnishingId,uuid),modelSha256=token(row.modelSha256,sha256);
