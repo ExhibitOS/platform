@@ -118,7 +118,7 @@ it('measures initial staging scene capacity and live successful reservations wit
   expect(after).toMatchObject({drawLimit:384,initialDraws:383,reservedDraws:1,remainingDraws:0});
   expect(after.initialDraws+after.reservedDraws+after.remainingDraws).toBe(384);
   expect(after.initialTriangles+after.reservedTriangles+after.remainingTriangles).toBe(after.triangleLimit);
-  after.initialInventory.meshDraws=999;expect(f.runtime.readout().sceneBudget!.initialInventory.meshDraws).toBe(255);
+  after.initialInventory.meshDraws=999;expect(f.runtime.readout().sceneBudget!.initialInventory.meshDraws).toBe(383);
   f.runtime.dispose();expect(f.runtime.readout().sceneBudget).toMatchObject({reservedDraws:0,remainingDraws:1});
  }finally{f.runtime.dispose();for(const child of f.scene.children)if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}}
 });

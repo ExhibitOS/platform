@@ -52,7 +52,7 @@ it('admits the populated viewer/native workload while retaining finite scene and
   material.dispose();
  }
 });
-it('uses the same scene budget for a competing artwork preview',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(()=>f.runtime.reservePreview(257,1)).toThrow('WORKSPACE_SCENE_BUDGET');const release=f.runtime.reservePreview(1,1);release();f.runtime.dispose();});
+it('uses the same scene budget for a competing artwork preview',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(()=>f.runtime.reservePreview(385,1)).toThrow('WORKSPACE_SCENE_BUDGET');const release=f.runtime.reservePreview(1,1);release();f.runtime.dispose();});
 it('keeps an unresolved scene reservation across teardown and refuses a new scene until it drains',async()=>{const f=await fixture();f.runtime.ledger.reserve('pending',1);f.runtime.dispose();await expect(fixture()).rejects.toThrow('WORKSPACE_SCENE_DRAINING');f.runtime.ledger.release('pending');const next=await fixture();next.runtime.dispose();});
 it('charges a double-sided artwork as two passes when turned into a ghost',()=>{const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial({side:three.DoubleSide}),mesh=new three.Mesh(geometry,material);scene.add(mesh);expect(existingSceneCost(three,scene)).toEqual({draws:1,triangles:12});expect(existingSceneCost(three,scene,true)).toEqual({draws:2,triangles:24});geometry.dispose();material.dispose();});
 
