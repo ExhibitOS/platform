@@ -257,6 +257,17 @@ test('the pool counts repeated caster triangles across maps against the unchange
   expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.triangles,0)).toBe(24);
   pass.dispose();geometry.dispose();mesh.material.dispose();
 });
+test('depth work uses the renderer sphere predicate when a tighter mesh box misses a map',()=>{
+  const h=setup();h.pass.dispose();const second=new three.SpotLight();second.position.set(0,4,-2);second.angle=.1;h.room.add(second,second.target);
+  const geometry=new three.BoxGeometry(.1,10,.1);geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  const mesh=new three.Mesh(geometry,new three.MeshStandardMaterial());mesh.position.x=3;h.room.add(mesh);
+  const fixed=new three.Box3(new three.Vector3(-5,-6,-5),new three.Vector3(5,6,5));
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,()=>{},fixed);
+  pass.flush();const camera=second.shadow.camera,frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+  expect(frustum.intersectsBox(new three.Box3().setFromObject(mesh))).toBe(false);expect(mesh.intersectsFrustum(frustum)).toBe(true);
+  expect(mesh.castShadow).toBe(false);expect(h.mesh.castShadow).toBe(true);
+  pass.dispose();geometry.dispose();mesh.material.dispose();
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();

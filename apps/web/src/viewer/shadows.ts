@@ -237,7 +237,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     const meshes:THREE.Mesh[]=[];let triangles=0,depthTriangles=0,depthDraws=0,omittedCasters=0;
     for(const {mesh,box,cost,draws} of receivers){
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
-      const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||frustum.intersectsBox(box)).length;
+      const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||mesh.intersectsFrustum(frustum)).length;
       if(!passes)continue;
       if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000||depthTriangles+cost*passes>100000||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
       meshes.push(mesh);triangles+=cost;depthTriangles+=cost*passes;depthDraws+=draws*passes;if(isPrimaryTarget(mesh)){targetCasters++;targetTriangles+=cost;}
@@ -253,7 +253,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       // This is matrix fitting only. The existing renderer owns actual depth draws.
       shadow.updateMatrices(candidate.light);
       const lightFrustum=sourceFrusta.get(candidate.light)!;
-      const visibleCasters=receivers.filter(row=>meshes.includes(row.mesh)&&(!row.mesh.frustumCulled||lightFrustum.intersectsBox(row.box)));
+      const visibleCasters=receivers.filter(row=>meshes.includes(row.mesh)&&(!row.mesh.frustumCulled||row.mesh.intersectsFrustum(lightFrustum)));
       const targetRows=candidate.targetPlacementId?rows.filter(row=>matchesTarget(row.mesh,candidate.targetPlacementId!)&&capture?.intersectsBox(row.box)&&row.mesh.userData.exhibitosPlaque!==true):[];
       const targetDraws=visibleCasters.filter(row=>targetRows.includes(row));
       sourceReports.push({sourceLightId:candidate.sourceLightId,targetPlacementId:candidate.targetPlacementId,casters:visibleCasters.length,triangles:visibleCasters.reduce((n,row)=>n+row.cost,0),depthDraws:visibleCasters.reduce((n,row)=>n+row.draws,0),targetCasters:targetDraws.length,targetTriangles:targetDraws.reduce((n,row)=>n+row.cost,0),omittedTargetCasters:targetRows.length-targetDraws.length});
