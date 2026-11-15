@@ -110,6 +110,9 @@ it('requires a positive unchanged non-alias receipt to retire the transient deco
   expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
   recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(192);
   expect(retiredCatalogDecodeBytes(three,model,47)).toBe(0);
+  recordCatalogDecodeRetirement(three,model,new Uint8Array(geometry.getAttribute('position').array.buffer));
+  expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
+  recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(192);
   geometry.setAttribute('position',new three.BufferAttribute(new Float32Array(encoded.buffer,0,9),3));
   expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
   recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);

@@ -32,6 +32,7 @@ function backing(three:typeof Three,model:Three.Object3D){
  * model/resources only: no parser, input/chunks or closure owning those bytes.
  * CPU analysis may separately retain its input cache under its analysis guard. */
 export function recordCatalogDecodeRetirement(three:typeof Three,model:Three.Object3D,encoded:Uint8Array){
+ decoded.delete(model);
  const buffers=backing(three,model);
  if(buffers&&!buffers.has(encoded.buffer))decoded.set(model,{bytes:encoded.byteLength,buffers});
 }
