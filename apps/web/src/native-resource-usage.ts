@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {evaluateViewerBudgetUsage,type ResolvedViewerBudgetPolicy} from '@exhibitos/studio-contract';
+import {freezeCanonical,evaluateViewerBudgetUsage,type ResolvedViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import {catalogBinding,type CatalogBinding} from './native-catalog-protocol';
 import {snapshotCandidateHash} from './native-scene-snapshot';
@@ -18,7 +18,7 @@ export async function readNativeResourceUsage(request:CatalogBinding,frame:Nativ
  const valid=()=>{if(!options.current())throw Error('RESOURCE_USAGE_STALE');};
  valid();await options.authenticate();valid();
  const candidateSha256=await snapshotCandidateHash(frame);valid();
- const source=options.source(),available=source?.document===frame.draft.candidate;
+ const source=options.source(),available=!!source&&freezeCanonical(source.document)===freezeCanonical(frame.draft.candidate);
  const observations=available?source.read():null,policy=available&&source.policy?structuredClone(source.policy):null;
  valid();if(options.source()!==source)throw Error('RESOURCE_USAGE_STALE');
  const evaluation=observations&&policy?evaluateViewerBudgetUsage(policy,{...observations,scope:'analyzedSection',contributors:observations.sections.map(row=>({id:row.roomId,label:row.roomId,roomId:row.roomId,usage:{colorDraws:row.colorDraws,displayTriangles:row.displayTriangles}})),assumptions:[...observations.assumptions]}):null;
