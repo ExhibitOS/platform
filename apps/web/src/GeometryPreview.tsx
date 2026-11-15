@@ -1,3 +1,4 @@
+import {clearNativeCameraPose,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
 import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
 import {detailPickHit} from './viewer/detail-picking';
 import {gpuModelCapability} from './viewer/gpu-model-capability';
@@ -173,6 +174,7 @@ export function GeometryPreview({
   onCameraInteractionReady,
   onCameraInteractionReset,
   cameraFrameToken,
+  nativeCameraPose,
   initialSnapshot,
   cameraRequest,
   onSelectionFindReady,
@@ -219,6 +221,7 @@ export function GeometryPreview({
   onCameraInteractionReady?:(apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>void;
   onCameraInteractionReset?:(reason:'hidden'|'unavailable')=>void;
   cameraFrameToken?:string;
+  nativeCameraPose?:NativeCameraPoseFrame;
   initialSnapshot?:Extract<SceneSnapshotInput,{inspectionCamera:unknown}>;
   spaceTransparency?: boolean;
   fillHost?: boolean;
@@ -300,6 +303,7 @@ export function GeometryPreview({
   const cameraInteractionCallbacks=useRef({onCameraInteractionReady,onCameraInteractionReset});cameraInteractionCallbacks.current={onCameraInteractionReady,onCameraInteractionReset};
   const cameraInteractionSetter=useRef<((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null>(null);
   const cameraAppliedToken=useRef<string|undefined>(undefined);
+  const nativeCameraPoseFrame=useRef(nativeCameraPose);nativeCameraPoseFrame.current=nativeCameraPose;
   useEffect(()=>{onCameraInteractionReady?.(cameraInteractionSetter.current);return()=>onCameraInteractionReady?.(null);},[onCameraInteractionReady]);
   const privateViewCallback=useRef(onPrivateViewReady);privateViewCallback.current=onPrivateViewReady;
   const privateViewInitial=useRef(initialPrivateView);privateViewInitial.current=initialPrivateView;
@@ -1041,7 +1045,10 @@ export function GeometryPreview({
       const entranceBytesReady=()=>{const progress=entranceReadiness?.snapshot();return !!progress&&progress.receivedBytes===progress.requiredBytes;};
       let entranceNavigationReady=false, entranceTransfersVerified=false, entranceAssetsAdmitted=false;
       const entranceVerifiedAssets=new Set<string>();
+      let nativePoseEditorIdle=()=>false;
+      const clearNativePose=()=>clearNativeCameraPose(renderer.domElement.dataset);
       const render = (restore=false) => {
+        clearNativePose();
         syncSelectedFindBounds();
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
@@ -1055,6 +1062,13 @@ export function GeometryPreview({
           contactShadows?.setView(camera);shadowPass.flush(camera);
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
+          const poseFrame=nativeCameraPoseFrame.current,bridge=editingRef.current;
+          publishNativeCameraPose(canvas.dataset,poseFrame?{...poseFrame,appliedToken:cameraAppliedToken.current,
+            available:!!session&&!publicSource&&fillHost&&!!bridge&&!bridge.disabled&&!bridge.preview&&nativePoseEditorIdle()&&
+              poseFrame.frameToken===snapshotFrameToken.current&&!suspendedRef.current&&!entranceScope.current&&
+              canvas.isConnected&&!canvas.ownerDocument.hidden&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&
+              (bridge.document===document||onlyLightColorChanged(document,bridge.document))&&!renderer.getContext().isContextLost(),
+            position:camera.position.toArray(),target:controls.target.toArray()}:undefined);
           if (!galleryArtworkDrawn && artworkDrawnInFrame && !renderer.getContext().isContextLost()) galleryArtworkDrawn = true;
           if(entranceReadiness&&entranceModeRef.current==='enter'&&!entranceFrameReported&&entrancePlanReady&&entranceBytesReady()&&entranceTransfersVerified&&entranceAssetsAdmitted&&
              (!entranceNeedsArtwork||galleryArtworkDrawn)&&!renderer.getContext().isContextLost()){
@@ -1244,7 +1258,7 @@ export function GeometryPreview({
       renderer.domElement.setAttribute("role", "img");
       const lost = (event: Event) => {
         event.preventDefault();
-        gpuLost = true;setDetailRestoreStatus(null);
+        clearNativePose();gpuLost = true;setDetailRestoreStatus(null);
         if(hasWorkspaceFurnishings){ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);ownerWorkspaceFurnishings?.invalidate();}
         clearQualityFrame();
         mapThumbnailRefresh.current?.();
@@ -1345,6 +1359,7 @@ export function GeometryPreview({
       const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
       const resetEditorOrbit=(ids:readonly number[])=>{if(disposed)return;controls.disconnect();for(const id of ids)if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);controls.connect(renderer.domElement);controls.enabled=editorOrbitAvailable();};
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,resetOrbit:resetEditorOrbit,resumeOrbit:()=>{if(editorOrbitAvailable())controls.enabled=true;},onCameraReset:reason=>{selectedFindBounds?.reset();resetCameraMapping();cameraInteractionCallbacks.current.onCameraInteractionReset?.(reason);},previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
+      nativePoseEditorIdle=()=>!!editor&&!editor.busy;
       cameraInvalidate.current=editor?()=>{selectedFindBounds?.reset();editor.invalidate();}:null;
       const cameraInteraction=(mode:CameraInteractionMode,forceReset=false,frameToken?:string,resetReason:'hidden'|'unavailable'='unavailable')=>{const bridge=editingRef.current,canvas=renderer.domElement;if(!editor||disposed)return false;if(forceReset&&mode==='object'){editor.invalidate(resetReason);resetCameraMapping();return true;}if(gpuLost||!bridge||bridge.disabled||cameraAppliedToken.current!==frameToken||bridge.document!==document&&!onlyLightColorChanged(document,bridge.document)||canvas.ownerDocument.hidden||canvas.closest('[hidden],[inert]')||canvas.style.visibility==='hidden'||suspendedRef.current||xrActive.current||currentWalkMode.current.walking||seatedBenchRef.current||viewingStyleRef.current!=='free')return false;if(!editor.setCameraMode(mode))return false;controls.touches.ONE=mode==='camera-pan'?three.TOUCH.PAN:three.TOUCH.ROTATE;controls.mouseButtons.LEFT=mode==='camera-pan'?three.MOUSE.PAN:three.MOUSE.ROTATE;return true;};
       cameraInteractionSetter.current=editor?cameraInteraction:null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(cameraInteractionSetter.current);
@@ -1353,6 +1368,9 @@ export function GeometryPreview({
       editingSync.current=()=>{syncSelectedFindBounds();const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        clearNativePose();
+        renderer.domElement.ownerDocument.removeEventListener('visibilitychange',clearNativePose);
+        renderer.domElement.ownerDocument.defaultView?.removeEventListener('blur',clearNativePose);
         ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);
         snapshotCallback.current?.(null);
         if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
@@ -1404,6 +1422,7 @@ export function GeometryPreview({
       };
       mapPoseRefresh.current=publishMapPose;
       if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
+      if(nativeCameraPoseFrame.current){renderer.domElement.ownerDocument.addEventListener('visibilitychange',clearNativePose);renderer.domElement.ownerDocument.defaultView?.addEventListener('blur',clearNativePose);}
       materialWork=loadMaterialPhases(
         async()=>{const changed=()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}};const status=await floorTextures.start(changed),workspaceStatus=workspaceTextures?await workspaceTextures.start(changed):{};if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status:{...status,...workspaceStatus},maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
         async()=>{const status=await surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}},
