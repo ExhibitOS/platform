@@ -298,21 +298,25 @@ export function modelGeometryResidentBytes(doc:{accessors?:Array<{bufferView?:nu
  }
  if(!accessors.size||!Number.isSafeInteger(cpu+gpu))throw Error('DECODE_BUDGET_EXCEEDED');return cpu+gpu;
 }
+export function imageDecodeReserve(inventoryBytes:number,w:number,h:number,budget:Pick<DeviceBudget,'maxTextureSize'>,phase:'complete'|'cpu'='complete'){
+ if(![inventoryBytes,w,h,budget.maxTextureSize].every(Number.isSafeInteger)||inventoryBytes<1||w<1||h<1||budget.maxTextureSize<1)throw Error('IMAGE_DECODE_BUDGET');
+ const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
+  const width=Math.ceil(w*scale),height=Math.ceil(h*scale);
+  // Verification has returned. Charge input + Blob and both bitmaps only
+  // when resizing. GPU upload happens after the decode function returns.
+  const cpu=inventoryBytes*2+w*h*4+(scale<1?width*height*4:0);
+  if(phase==='cpu')return cpu;
+  // Known-header preflight uses the largest phase. The ledger separately
+  // tracks evictable encoded cache entries and exact mesh bytes at upload.
+  return Math.max(inventoryBytes*4,cpu,textureResidentBytes(width,height));
+}
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
 export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer,phase:'complete'|'cpu'='complete'):number {
  const variant=sourceVariantForInventory(artwork,inventory.id);
  if(artwork.artworkType==='image'){
   const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
   const w=header.getUint32(16),h=header.getUint32(20);if(!w||!h)throw Error('IMAGE_DECODE_BUDGET');
-  const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
-  const width=Math.ceil(w*scale),height=Math.ceil(h*scale);
-  // Verification has returned. Charge input + Blob and both bitmaps only
-  // when resizing. GPU upload happens after the decode function returns.
-  const cpu=inventory.bytes*2+w*h*4+(scale<1?width*height*4:0);
-  if(phase==='cpu')return cpu;
-  // Known-header preflight uses the largest phase. The ledger separately
-  // tracks evictable encoded cache entries and exact mesh bytes at upload.
-  return Math.max(inventory.bytes*4,cpu,textureResidentBytes(width,height));
+  return imageDecodeReserve(inventory.bytes,w,h,budget,phase);
  }
  return modelDecodeReserve(inventory.bytes,budget,bytes,variant?.textureSize,phase);
 }
