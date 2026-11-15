@@ -1,3 +1,4 @@
+import {ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
 import {nativeFrameImageFitProposal,type NativeFrameImageFitCommand} from './native-frame-image-fit.ts';
 export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
@@ -199,6 +200,8 @@ export class Studio {
     const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
     const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;
     const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
+    const railDelta=!!input?.draft?.candidate&&ordinaryCeilingRailReplacementDelta(row.metadata,input.draft);
+    const railNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray((ext as {ceilingAttachments?:unknown[]}|undefined)?.ceilingAttachments)&&(ext as {ceilingAttachments:unknown[]}).ceilingAttachments.length>0;
     const benchSeatDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft);
     const benchSeatNoop=isDeepStrictEqual(row.metadata,input?.draft)&&benchesFor(row.metadata.candidate).some(bench=>!!bench.workspaceVisual);
     const benchVisualDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchVisualReplacementDelta(row.metadata,input.draft);
@@ -208,11 +211,12 @@ export class Studio {
     const infoStandDelta=!!input?.draft?.candidate&&ordinaryWorkspaceInfoStandReplacementDelta(row.metadata,input.draft);
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if((benchSeatDelta||benchSeatNoop)&&!this.workspaceFurnishing)throw new ApiError(403,'FORBIDDEN');
-    if(frameDelta||frameNoop||portalDelta||portalNoop||benchSeatDelta||benchSeatNoop||infoStandDelta||benchVisualDelta||benchForwardDelta){
-      if((frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
+    if(railDelta||railNoop||frameDelta||frameNoop||portalDelta||portalNoop||benchSeatDelta||benchSeatNoop||infoStandDelta||benchVisualDelta||benchForwardDelta){
+      if((railDelta||railNoop)&&!this.workspaceFurnishing?.supportsCeilingRail()||(frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
       await this.workspaceFurnishing!.authorize(c,s);
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
       if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+      if(railDelta||railNoop)await this.assertCeilingRailReplacement(c,s,row.metadata,input.draft);
       const fit=validateWorkspaceFurnishings(input.draft.candidate);if(!fit.valid)throw new ApiError(422,fit.errors[0]?.code??'DRAFT_INVALID');
       if(!row.nativeBounded){checked(input);await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);return {valid:true as const};}
     }
@@ -221,7 +225,7 @@ export class Studio {
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
-    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta&&!benchVisualDelta&&!benchForwardDelta)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta&&!benchVisualDelta&&!benchForwardDelta&&!railDelta&&!railNoop)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
   async proposeNativeDefaultSeats(c:PoolClient,s:Session,input:NativeDefaultSeatProposalInput) {
@@ -438,6 +442,18 @@ export class Studio {
     await service.checkDisplay(c,s,changed.furnishingId,changed.furnishingVersion);
   }
 
+  private async assertCeilingRailReplacement(c:PoolClient,s:Session,before:Draft,after:Draft){
+    const service=this.workspaceFurnishing,owner=this.nativeOexWorkspace;
+    if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId||!service?.hasWriterLease()||!service.supportsCeilingRail())throw new ApiError(403,'FORBIDDEN');
+    await owner.assertDatabase(c);await service.authorize(c,s);
+    const prior=before.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{id:string}[]};
+    const next=after.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{id:string;furnishingId:string;furnishingVersion:1}[];furnishings:{id:string;kind:string}[]};
+    const checked=new Set<string>();
+    for(const placement of next.placements){
+      if((!prior.placements.some(p=>p.id===placement.id)||isDeepStrictEqual(before,after)&&next.furnishings.some(d=>d.id===placement.furnishingId&&d.kind==='ceiling-rail'))&&!checked.has(placement.furnishingId)){await service.checkDisplay(c,s,placement.furnishingId,placement.furnishingVersion);checked.add(placement.furnishingId);}
+    }
+  }
+
   private async putInternal(
     c: PoolClient,
     s: Session,
@@ -449,12 +465,13 @@ export class Studio {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
+    const railDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryCeilingRailReplacementDelta(row.metadata,input.draft);
     const benchVisualDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceBenchVisualReplacementDelta(row.metadata,input.draft);
     const benchForwardDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceBenchModelForwardDelta(row.metadata,input.draft);
     const infoStandDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceInfoStandReplacementDelta(row.metadata,input.draft);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||benchVisualDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||benchForwardDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||railDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsCeilingRail()||benchVisualDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||benchForwardDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
@@ -469,6 +486,7 @@ export class Studio {
     if (replay) return replay;
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
+    if(railDelta)await this.assertCeilingRailReplacement(c,s,row.metadata,input.draft);
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);
     if(benchForwardDelta)await this.assertBenchModelForward(c,s,row.metadata,input.draft);
