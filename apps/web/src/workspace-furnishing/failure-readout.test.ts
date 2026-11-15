@@ -13,18 +13,36 @@ import {AssetPeakBudget,DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from '
 vi.mock('../basis-loader',()=>({basisLoader:vi.fn(async()=>undefined)}));
 afterEach(()=>vi.restoreAllMocks());
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-async function fixture(mode:'success'|'authority'|'descriptor'|'descriptor-encoding'|'fetch'|'integrity'|'bytes'|'replacement'|'scene'|'triangles'|'cancelled-triangles',count=2){
+async function fixture(mode:'success'|'authority'|'descriptor'|'descriptor-encoding'|'fetch'|'integrity'|'bytes'|'replacement'|'scene'|'triangles'|'cancelled-triangles',count=2,publicDiagnostics?:boolean){
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),model={mime:'model/gltf-binary',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')},item={id:id(2),version:1,kind:'bench',name:'Synthetic',rights:{permissions:{display:true}},provenance:'Synthetic',model},placements=Array.from({length:count},(_,i)=>({id:id(3+i),roomId:id(1),furnishingId:item.id,furnishingVersion:1,position:[1,0,1],yaw:0,scale:1})),candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[item],placements}}};
  const room=new three.Group(),scene=new three.Scene(),controller=new AbortController();scene.add(room);
  if(mode==='scene'){
   const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);
-  for(let i=0;i<384-plan.draws;i++)scene.add(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()));
+  for(let i=0;i<(publicDiagnostics===undefined?384:256)-plan.draws;i++)scene.add(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()));
  }
  if(mode==='triangles'||mode==='cancelled-triangles'){const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);const geometry=new three.BufferGeometry();geometry.setAttribute('position',new three.BufferAttribute(new Float32Array((200000-(mode==='cancelled-triangles'?1:plan.triangles))*9),3));scene.add(new three.Mesh(geometry,new three.MeshBasicMaterial()));}
  const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/display-check')?(mode==='authority'?new Response(null,{status:403}):mode==='descriptor-encoding'?new Response(new Uint8Array([255]),{headers:{'content-type':'application/json'}}):Response.json(mode==='descriptor'?{...item,name:'Changed'}:item)):(mode==='fetch'?new Response(null,{status:404}):new Response(new Uint8Array(mode==='integrity'?new Uint8Array(bytes.length):bytes),{headers:{'content-type':'model/gltf-binary'}})));
- let unavailable=false;const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(999),signal:controller.signal,unavailable:()=>unavailable,budget:DEVICE_BUDGETS.desktop,transitionBytes:mode==='bytes'?bytes.length*4-1:mode==='replacement'?bytes.length*4+1:64*1024*1024,nativeEditor:true,resident:()=>0,changed:()=>{},fetcher});
+ let unavailable=false;const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(999),signal:controller.signal,unavailable:()=>unavailable,budget:DEVICE_BUDGETS.desktop,transitionBytes:mode==='bytes'?bytes.length*4-1:mode==='replacement'?bytes.length*4+1:64*1024*1024,...(publicDiagnostics===undefined?{nativeEditor:true as const}:{publicAuthority:{check:async()=>{},valid:()=>true},modelSource:()=>({check:async()=>{},open:async()=>fetcher('model')}),...(publicDiagnostics?{failureDiagnostics:true as const}:{})}),resident:()=>0,changed:()=>{},fetcher});
  return {runtime,room,scene,controller,fetcher,bytes,item,setUnavailable:(value:boolean)=>{unavailable=value;}};
 }
+it.each([false,true])('keeps public fetch failure fallback and cleanup identical with diagnostics %s',async enabled=>{
+ const f=await fixture('fetch',2,enabled);try{
+  expect(await f.runtime.start()).toEqual({loaded:0,failed:2});
+  const readout=f.runtime.readout();expect(readout).toMatchObject({settled:true,loaded:0,failed:2});
+  expect(readout.failures).toHaveLength(enabled?2:0);
+  if(enabled)for(const [i,row]of readout.failures.entries())expect(row).toMatchObject({placementId:id(3+i),furnishingId:f.item.id,stage:'model-fetch',code:'WORKSPACE_MODEL_FETCH',httpKind:'model',httpStatus:404});
+  expect(f.runtime.ledger.reservedBytes()).toBe(0);expect(f.room.children).toEqual([]);
+  expect(f.runtime.trianglePressure()).toBeUndefined();
+ }finally{f.runtime.dispose();}
+});
+it('records a public scene refusal with the same 256 draw limit and preserves the admitted object',async()=>{
+ const f=await fixture('scene',2,true);try{
+  expect(await f.runtime.start()).toEqual({loaded:1,failed:1});
+  expect(f.runtime.readout().failures).toMatchObject([{placementId:id(4),stage:'scene-reserve',code:'WORKSPACE_SCENE_BUDGET',remainingDraws:0,requestedDraws:1}]);
+  expect(f.room.children).toHaveLength(1);expect(f.room.children[0]!.visible).toBe(true);
+  expect(f.runtime.trianglePressure()).toBeUndefined();
+ }finally{f.runtime.dispose();for(const child of f.scene.children)if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}}
+});
 it.each([
  ['authority','display-check','WORKSPACE_MODEL_AUTHORITY',403],
  ['descriptor','descriptor-match','WORKSPACE_MODEL_AUTHORITY',200],

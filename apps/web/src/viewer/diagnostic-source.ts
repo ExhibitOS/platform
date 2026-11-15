@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {WorkspaceFailureReadout} from '../workspace-furnishing/failure-readout';
 declare const __EXHIBITOS_STAGING_DIAGNOSTICS__: boolean | undefined;
 export type DiagnosticEvent={atMs:number;assetId:string;artworkRevisionId:string|null;stage:string;errorCode:string|null;reservation?:{existingBytes:number;requestedBytes:number;limitBytes:number}};
 export type DiagnosticSnapshot={
@@ -13,6 +14,7 @@ export type DiagnosticSnapshot={
  assets:Array<{assetId:string;artworkRevisionId:string|null;sha256:string|null;bytes:number|null;mime:string|null;path:string|null;active:boolean}>;
  events:DiagnosticEvent[];
  selectedDetailEvents?:DiagnosticEvent[];
+ workspaceFurnishings?:WorkspaceFailureReadout|null;
 };
 export const diagnosticsEnabled=()=>typeof __EXHIBITOS_STAGING_DIAGNOSTICS__!=='undefined'&&__EXHIBITOS_STAGING_DIAGNOSTICS__===true;
 let current:(()=>DiagnosticSnapshot)|null=null;
