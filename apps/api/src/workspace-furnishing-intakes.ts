@@ -256,6 +256,7 @@ export class WorkspaceFurnishingIntakes {
   }};
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
+  if(typeof id==='string'&&installedFrameDescriptorFor(id))return this.installedFrame(c,s,version,id);
   const source=await this.modelSource(c,s,id,version,purpose);return {bytes:await source.read(),mime:source.mime,sha256:source.sha256};
  }
 
