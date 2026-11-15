@@ -46,6 +46,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
  const policy=input.resolvedPolicy??resolveViewerBudgetPolicy(candidate,profile,input.recommendedBaseline);
  if(policy.profile!==profile||policy.policyVersion!==1||policy.accountingVersion!==1||freezeCanonical(policy.admission)!==freezeCanonical(resolveViewerBudgetPolicy(candidate,profile,policy.recommended).admission))throw Error('VIEWER_BUDGET_POLICY_INVALID');
  const budget:DeviceBudget={...selected,maxCacheBytes:policy.admission.residentBytes,maxTransitionBytes:policy.admission.transitionBytes,maxSceneTriangles:policy.admission.displayTriangles};
+ const compactQuality=budget.maxTextureSize<=512;
  const scene=new three.Scene(),rooms=new Map<string,three.Group>(),surfaces=new Map<string,three.Group>(),surfaceMaterials=new Map<string,three.MeshStandardMaterial>(),placements=new Map<string,three.Group>();
  const owned:{dispose():void}[]=[],models=new Map<string,Promise<Awaited<ReturnType<typeof loadBudgetGeometry>>>>(),bytes=new Map<string,Promise<Uint8Array>>(),unknown:string[]=[],assumptions:string[]=[];
  const assetCosts:ViewerBudgetUsage['contributors']=[],catalogModels:three.Object3D[]=[];let textureBytes=0,decodePeak=0,catalogResident=0,memoryComplete=true,spatialComplete=true;
@@ -87,7 +88,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   }
   const decor=installDecor(three,candidate,rooms);for(const placement of candidate.placements){const group=decor.groups.get(placement.id.toLowerCase()),art=candidate.artworks.find(a=>a.revisionId===placement.artworkRevisionId);if(group&&art)group.userData.viewerArtworkType=art.artworkType;}
   owned.push(installArchitecturalFinishes(three,candidate,surfaces,surfaceMaterials),installBenches(three,candidate,rooms),decor);
-  const plaques=installPlaques(three,candidate,rooms,profile==='compact',()=>{throw Error('CPU_ANALYSIS_NO_CANVAS');});owned.push(plaques);
+  const plaques=installPlaques(three,candidate,rooms,compactQuality,()=>{throw Error('CPU_ANALYSIS_NO_CANVAS');});owned.push(plaques);
   if(plaques.meshes.length){memoryComplete=false;assumptions.push('Plaque geometry is included; canvas texture allocation is not decoded by this CPU analysis.');}
   if(profile==='native'){
    for(const opening of candidate.openings){const line=new three.LineSegments(new three.EdgesGeometry(new three.PlaneGeometry(opening.dimensions.width,opening.dimensions.height)),new three.LineBasicMaterial());line.position.set(opening.offset[0],opening.offset[1],.002);surfaces.get(opening.surfaceId.toLowerCase())?.add(line);}
@@ -142,7 +143,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
    const sun=new three.DirectionalLight(0xffffff,spaceLightingFor(candidate)||hasAuthored?0:3),daylight=daylightFor(candidate);if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100));sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20,30,25);scene.add(sun);for(const room of rooms.values())candidates.push({light:sun,room});
    const world=new three.Box3();for(const group of surfaces.values())world.expandByObject(group);const fixed=!world.isEmpty()&&Math.max(...world.getSize(new three.Vector3()).toArray())<=32?world:undefined;
    const renderer={shadowMap:{enabled:false,autoUpdate:true,type:three.PCFShadowMap}} as unknown as three.WebGLRenderer;
-   const pass=installBoundedShadows(three,renderer,candidates,profile==='compact',2*SHADOW_RESERVE_BYTES,value=>{shadow=value;},fixed,profile==='native'?384:256,{shadowCasterTriangles:Number.MAX_SAFE_INTEGER,shadowDepthTriangles:Number.MAX_SAFE_INTEGER});owned.push(pass);pass.flush();
+   const pass=installBoundedShadows(three,renderer,candidates,compactQuality,2*SHADOW_RESERVE_BYTES,value=>{shadow=value;},fixed,profile==='native'?384:256,{shadowCasterTriangles:Number.MAX_SAFE_INTEGER,shadowDepthTriangles:Number.MAX_SAFE_INTEGER});owned.push(pass);pass.flush();
   }
   const cost=existingSceneCost(three,scene),geometry=geometryBytes(scene),complete=unknown.length===0&&memoryComplete&&!(shadow?.omittedCasters||shadow?.deferredSources);
   if(catalogResident>4*1024*1024){memoryComplete=false;assumptions.push('Catalogue-other source/node demand exceeds the independent 4 MiB renderer suballocation; inspect fixture contributors before runtime use.');}
@@ -153,7 +154,8 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
    'Room scenarios can overlap in one view; their individual success is not an all-view safety guarantee. No GPU time or physical VRAM is measured.',...unknown);
   if(candidate.extensions?.['org.exhibitos.studio/workspace-materials']||candidate.extensions?.['org.exhibitos.studio/floors']||candidate.extensions?.['org.exhibitos.studio/materials']){memoryComplete=false;assumptions.push('Authored floor/surface/environment material allocations require their resource planner; geometry and inspected asset memory are lower bounds.');}
   const usage=(scope:ViewerBudgetUsage['scope'],draws:number,triangles:number,contributors:ViewerBudgetUsage['contributors'],resident:number|null,transition:number|null):ViewerBudgetUsage=>({scope,complete:complete&&memoryComplete,colorDraws:draws,displayTriangles:triangles,shadowCasterTriangles:scope==='wholeExhibition'?shadow?.triangles??null:null,shadowDepthTriangles:scope==='wholeExhibition'?shadow?.depthTriangles??null:null,residentBytes:resident,transitionBytes:transition,contributors,assumptions:[...assumptions]});
-  const fixedReserve=environmentEstimate(budget.maxTextureSize<=512?64:128).generationPeakBytes+(budget.maxTextureSize<=512?0:SHADOW_RESERVE_BYTES)+plaqueTextureReserve(candidate,budget.maxTextureSize<=512);
+  const requestedMapBytes=shadow?.mapBytes??(shadow?.mode==='bounded'?SHADOW_RESERVE_BYTES:0),shadowReserve=compactQuality?0:Math.max(SHADOW_RESERVE_BYTES,requestedMapBytes);
+  const fixedReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes+shadowReserve+plaqueTextureReserve(candidate,compactQuality);
   const resident=geometry-geometryBytesMany(catalogModels)+catalogResident+textureBytes+fixedReserve,wholeExhibition=usage('wholeExhibition',cost.draws,cost.triangles,assetCosts,resident,resident+decodePeak);
   const analyzedSections=[...rooms].map(([roomId,room])=>{const cost=existingSceneCost(three,room);return usage('analyzedSection',cost.draws,cost.triangles,assetCosts.filter(row=>row.roomId?.toLowerCase()===roomId),geometryBytes(room),null);}).sort((a,b)=>(b.colorDraws??0)-(a.colorDraws??0));
   return {accountingVersion:1,profile,wholeExhibition,analyzedSections,assumptions};
