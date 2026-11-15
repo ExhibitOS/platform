@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,installSupportContactShadows,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
+import {AssetPeakBudget} from './loading';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
   const room=new three.Group(),mesh=new three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
@@ -89,6 +90,9 @@ test('planar depth policy preserves explicit and custom deformation or shadow in
   for(const configure of cases){const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1);configure(h);const before=h.mesh.onBeforeShadow,after=h.mesh.onAfterShadow;h.pass.flush();expect(h.mesh.onBeforeShadow).toBe(before);expect(h.mesh.onAfterShadow).toBe(after);h.pass.dispose();}
   const geometry=new three.PlaneGeometry(1,1),material=new three.MeshStandardMaterial();
   const skinned=new three.SkinnedMesh(geometry,material);skinned.boundingBox=new three.Box3(new three.Vector3(-.5,-.5,0),new three.Vector3(.5,.5,0));
+  // This hook-policy fixture has no animated skeleton; provide its authored
+  // static sphere so the real renderer culling predicate need not skin it.
+  geometry.computeBoundingSphere();skinned.boundingSphere=geometry.boundingSphere!.clone();
   const instanced=new three.InstancedMesh(geometry,material,1);instanced.setMatrixAt(0,new three.Matrix4());
   for(const mesh of [skinned,instanced,new three.Mesh(geometry,[material]),new three.Mesh(geometry,new three.ShaderMaterial())]){
     const h=setup();h.room.remove(h.mesh);h.room.add(mesh);const before=mesh.onBeforeShadow,after=mesh.onAfterShadow;h.pass.flush();expect(mesh.onBeforeShadow).toBe(before);expect(mesh.onAfterShadow).toBe(after);h.pass.dispose();
@@ -124,6 +128,158 @@ test('primary switch releases old target before another map can be allocated; di
   const map=new three.WebGLRenderTarget(512,512);let freed=0;map.addEventListener('dispose',()=>freed++);h.light.shadow.map=map;
   h.light.intensity=0;pass.invalidate();pass.flush();expect(freed).toBe(1);expect(h.light.shadow.map).toBeNull();expect(second.castShadow).toBe(true);
   pass.dispose();pass.dispose();expect(freed).toBe(1);
+});
+test('an explicit authored spot owns the one map ahead of an automatic directional source',()=>{
+  const h=setup();h.pass.dispose();
+  const spot=new three.SpotLight();spot.position.set(0,4,0);spot.target.position.set(0,0,2);h.room.add(spot,spot.target);
+  const sourceLightId=crypto.randomUUID(),reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light},{room:h.room,light:spot,authoredCastShadow:true,sourceLightId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(h.light.castShadow).toBe(false);expect(spot.castShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({mode:'bounded',sourceLightId,mapSize:512,updates:1});
+  expect(spot.shadow.autoUpdate||h.renderer.shadowMap.autoUpdate).toBe(false);
+  pass.flush();expect(reports).toHaveLength(1);pass.dispose();
+});
+test('an inactive explicit source does not silently substitute automatic room illumination',()=>{
+  const h=setup();h.pass.dispose();
+  const spot=new three.SpotLight();spot.position.set(0,4,0);h.room.add(spot,spot.target);
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light},{room:h.room,light:spot,authoredCastShadow:true}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();const map=new three.WebGLRenderTarget(512,512),dispose=vi.fn();map.addEventListener('dispose',dispose);spot.shadow.map=map;
+  spot.intensity=0;pass.invalidate();pass.flush();
+  expect(dispose).toHaveBeenCalledTimes(1);expect(reports.at(-1)?.mode).toBe('unavailable');
+  expect(h.light.castShadow||spot.castShadow||h.renderer.shadowMap.enabled).toBe(false);pass.dispose();
+});
+test('authored target geometry and its support take bounded priority while transparent glass stays unchanged',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const target=new three.Group(),targetPlacementId=crypto.randomUUID();target.userData.placementId=targetPlacementId;h.room.add(target);
+  const sculpture=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial({color:0x998877}));
+  sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(270000),1));
+  const support=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());support.position.y=-1;
+  const glass=new three.Mesh(new three.BoxGeometry(2,3,2),new three.MeshStandardMaterial({transparent:true,opacity:.07,side:three.DoubleSide}));
+  target.add(sculpture,support,glass);
+  const architecture=new three.Mesh(new three.BoxGeometry(8,1,8),new three.MeshStandardMaterial());architecture.position.y=-2;architecture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(60000),1));h.room.add(architecture);
+  const spot=new three.SpotLight();spot.position.set(1,4,-2);h.room.add(spot,spot.target);
+  const reports:ShadowReport[]=[],fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(5,5,5));
+  const material=sculpture.material,color=material.color.clone(),glassMaterial=glass.material,raycast=glass.raycast;
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:spot,authoredCastShadow:true,targetPlacementId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
+  const camera=contactView();pass.flush(camera);
+  expect(reports.at(-1)).toMatchObject({mode:'bounded',targetPlacementId,targetCasters:2,targetTriangles:90012,omittedTargetCasters:0,omittedCasters:1});
+  expect(sculpture.castShadow&&support.castShadow).toBe(true);expect(architecture.castShadow||glass.castShadow).toBe(false);
+  expect(sculpture.material).toBe(material);expect(material.color).toEqual(color);expect(glass.material).toBe(glassMaterial);expect(glass.raycast).toBe(raycast);expect(glass.visible).toBe(true);
+  spot.shadow.updateMatrices(spot);const matrix=spot.shadow.matrix.clone();camera.position.x=8;camera.lookAt(0,0,0);camera.updateMatrixWorld();pass.flush(camera);
+  expect(reports.at(-1)?.updates).toBe(1);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
+  // A real variant swap invalidates the map; it keeps the same world capture.
+  sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300000),1));pass.invalidate();pass.flush(camera);
+  expect(reports.at(-1)).toMatchObject({targetTriangles:100000,targetCasters:1,omittedTargetCasters:1,updates:2});
+  expect(support.castShadow).toBe(false);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
+  pass.dispose();expect(sculpture.castShadow||support.receiveShadow||glass.castShadow).toBe(false);
+});
+test('target omission accounting includes the receiver cap as well as the caster cap',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const target=new three.Group(),targetPlacementId=crypto.randomUUID();target.userData.placementId=targetPlacementId;h.room.add(target);
+  const geometry=new three.BoxGeometry(),material=new three.MeshStandardMaterial();
+  for(let i=0;i<257;i++)target.add(new three.Mesh(geometry,material));
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true,targetPlacementId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(reports.at(-1)).toMatchObject({targetCasters:64,targetTriangles:768,omittedTargetCasters:193});
+  expect(target.children.filter(mesh=>(mesh as three.Mesh).castShadow)).toHaveLength(64);
+  pass.dispose();geometry.dispose();material.dispose();
+});
+test('independently authored sculpture lights in two rooms both retain stable cached maps',()=>{
+  const h=setup();h.pass.dispose();
+  const other=new three.Group();other.position.x=8;const secondMesh=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());other.add(secondMesh);
+  const first=new three.SpotLight(),second=new three.SpotLight();first.position.set(0,4,-2);second.position.set(0,4,-2);h.room.add(first,first.target);other.add(second,second.target);
+  first.angle=Math.PI/6;second.angle=Math.PI/6;
+  const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:first,authoredCastShadow:true,sourceLightId:'first'},{room:other,light:second,authoredCastShadow:true,sourceLightId:'second'}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
+  pass.flush(contactView());expect(first.castShadow).toBe(true);expect(second.castShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({mapCount:2,mapBytes:2*SHADOW_RESERVE_BYTES,requestedSources:2,deferredSources:0,sources:[{sourceLightId:'first',casters:1},{sourceLightId:'second',casters:1}]});
+  expect(h.mesh.castShadow&&secondMesh.castShadow).toBe(true);
+  first.shadow.updateMatrices(first);second.shadow.updateMatrices(second);const before=[first.shadow.matrix.clone(),second.shadow.matrix.clone()];
+  const camera=contactView(8);pass.flush(camera);expect(first.shadow.matrix.equals(before[0]!)).toBe(true);expect(second.shadow.matrix.equals(before[1]!)).toBe(true);
+  pass.dispose();expect(first.castShadow||second.castShadow||h.mesh.castShadow||secondMesh.castShadow).toBe(false);
+});
+test('a pooled source beyond the available map memory is deferred and released on preference changes',()=>{
+  const h=setup();h.pass.dispose();
+  const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const candidates=[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}];
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,candidates,false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,mapBytes:SHADOW_RESERVE_BYTES,deferredSources:1});
+  expect(h.light.castShadow).toBe(true);expect(second.castShadow).toBe(false);
+  const map=new three.WebGLRenderTarget(512,512);h.light.shadow.map=map;const released=vi.fn();map.addEventListener('dispose',released);
+  candidates[0]!.authoredCastShadow=false;pass.invalidate();pass.flush();
+  expect(released).toHaveBeenCalledOnce();expect(h.light.shadow.map).toBeNull();expect(h.light.castShadow).toBe(false);expect(second.castShadow).toBe(true);
+  pass.dispose();expect(second.castShadow).toBe(false);
+});
+test('multiple material groups share the global depth draw allowance across pooled maps',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const geometry=new three.BoxGeometry(),materials=[new three.MeshStandardMaterial(),new three.MeshStandardMaterial()];
+  // Two actual groups rather than counting this multi-material mesh as one draw.
+  geometry.clearGroups();geometry.addGroup(0,18,0);geometry.addGroup(18,18,1);
+  const grouped=new three.Mesh(geometry,materials),extra=new three.Mesh(new three.BoxGeometry(),materials[0]);h.room.add(grouped,extra);
+  const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),undefined,4);
+  pass.flush();expect(grouped.castShadow).toBe(true);expect(extra.castShadow).toBe(false);
+  expect(reports.at(-1)).toMatchObject({casters:1,omittedCasters:1,mapCount:2,sources:[{depthDraws:2},{depthDraws:2}]});
+  expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.depthDraws,0)).toBe(4);
+  pass.dispose();geometry.dispose();for(const material of materials)material.dispose();extra.geometry.dispose();
+});
+test('optional maps use idle owner bytes and dispose their target before required display regains its hold',()=>{
+  const h=setup();h.pass.dispose();const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  let resident=SHADOW_RESERVE_BYTES;const limit=3*SHADOW_RESERVE_BYTES,ledger=new AssetPeakBudget(limit,()=>resident);
+  ledger.reserve('required-pending',SHADOW_RESERVE_BYTES+1);
+  expect(leaseOptionalShadowMaps(pass,2,ledger,limit)).toBeUndefined();
+  expect(ledger.total()).toBe(2*SHADOW_RESERVE_BYTES+1);
+  ledger.release('required-pending');const release=leaseOptionalShadowMaps(pass,2,ledger,limit)!;
+  expect(ledger.total()).toBe(2*SHADOW_RESERVE_BYTES);pass.flush();expect(second.castShadow).toBe(true);
+  const map=new three.WebGLRenderTarget(512,512);second.shadow.map=map;let freed=false;
+  map.addEventListener('dispose',()=>{expect(ledger.reservationBytes('viewer:optional-shadow-maps')).toBe(SHADOW_RESERVE_BYTES);freed=true;});
+  release();release();expect(freed).toBe(true);expect(second.shadow.map).toBeNull();expect(second.castShadow).toBe(false);
+  // The unchanged full display fits again without eviction or LOD replacement.
+  expect(ledger.total()).toBe(resident);ledger.reserve('full-display',2*SHADOW_RESERVE_BYTES);expect(ledger.total()).toBe(limit);
+  resident=0;pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});pass.dispose();
+});
+test('overlapping material groups cannot bypass the existing triangle bound',()=>{
+  const h=setup(),geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  geometry.clearGroups();geometry.addGroup(0,180000,0);geometry.addGroup(0,180000,1);
+  const materials=[new three.MeshStandardMaterial(),new three.MeshStandardMaterial()],repeated=new three.Mesh(geometry,materials);h.room.add(repeated);
+  h.pass.flush();expect(h.mesh.castShadow).toBe(true);expect(repeated.castShadow).toBe(false);
+  expect(h.reports.at(-1)).toMatchObject({casters:1,triangles:12,omittedCasters:1});
+  h.pass.dispose();geometry.dispose();for(const material of materials)material.dispose();
+});
+test('the pool counts repeated caster triangles across maps against the unchanged depth triangle bound',()=>{
+  const h=setup();h.pass.dispose();
+  const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  const mesh=new three.Mesh(geometry,new three.MeshStandardMaterial());h.room.add(mesh);
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(mesh.castShadow).toBe(false);expect(h.mesh.castShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({casters:1,triangles:12,omittedCasters:1});
+  expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.triangles,0)).toBe(24);
+  pass.dispose();geometry.dispose();mesh.material.dispose();
+});
+test('depth work uses the renderer sphere predicate when a tighter mesh box misses a map',()=>{
+  const h=setup();h.pass.dispose();const second=new three.SpotLight();second.position.set(0,4,-2);second.angle=.1;h.room.add(second,second.target);
+  const geometry=new three.BoxGeometry(.1,10,.1);geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  const mesh=new three.Mesh(geometry,new three.MeshStandardMaterial());mesh.position.x=3;h.room.add(mesh);
+  const fixed=new three.Box3(new three.Vector3(-5,-6,-5),new three.Vector3(5,6,5));
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,()=>{},fixed);
+  pass.flush();const camera=second.shadow.camera,frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+  expect(frustum.intersectsBox(new three.Box3().setFromObject(mesh))).toBe(false);expect(mesh.intersectsFrustum(frustum)).toBe(true);
+  expect(mesh.castShadow).toBe(false);expect(h.mesh.castShadow).toBe(true);
+  pass.dispose();geometry.dispose();mesh.material.dispose();
+});
+test('the global two-map pool defers additional sources without reserving unused maps',()=>{
+  const h=setup();h.pass.dispose();
+  const lights=Array.from({length:3},(_,i)=>{const light=new three.DirectionalLight();light.position.set(i-1,8,4);h.room.add(light,light.target);return light;});
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,lights.map(light=>({room:h.room,light,authoredCastShadow:true})),false,3*SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(lights.map(light=>light.castShadow)).toEqual([true,true,false]);
+  expect(reports.at(-1)).toMatchObject({requestedSources:3,deferredSources:1,mapCount:2,mapBytes:2*SHADOW_RESERVE_BYTES});
+  const ledger=new AssetPeakBudget(10*SHADOW_RESERVE_BYTES,()=>0),release=leaseOptionalShadowMaps(pass,3,ledger,10*SHADOW_RESERVE_BYTES)!;
+  expect(release.bytes).toBe(SHADOW_RESERVE_BYTES);expect(ledger.reservedBytes()).toBe(SHADOW_RESERVE_BYTES);
+  release();pass.dispose();
 });
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
