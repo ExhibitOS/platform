@@ -6,6 +6,7 @@ import {expect,it,vi} from 'vitest';
 import {furnishingAsset,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {MUSEUM_TRACK_SPOT_PROFILE as profile,MUSEUM_TRACK_SPOT_STATIC_PITCH as headPitch} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import {resolveWallwasherMountHead} from '../../../../packages/studio-contract/src/wallwasher-mount-head.js';
+import {sceneResourceAssetCost} from '../viewer/scene-resource-asset-cost';
 import {existingSceneCost} from '../workspace-furnishing/scene-cost';
 import {furnishingCollisionMesh} from '../viewer/furnishing-collision-mesh';
 import {applyWallwasherModelPose,type ResolvedWallwasher} from './wallwasher-model-pose';
@@ -42,12 +43,15 @@ function collisionTriangles(mesh:NonNullable<ReturnType<typeof furnishingCollisi
  return rows.sort((a,b)=>{for(let i=0;i<a.length;i++){const delta=a[i]!-b[i]!;if(Math.abs(delta)>1e-6)return delta;}return 0;});
 }
 it('keeps actual source triangles, normals, materials, aperture, collision and ray hits while reducing14 parts to7 draws',async()=>{
- const {source}=await input(),original=await loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES);
+ const {source,bytes}=await input(),original=await loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES);
  const originalNodes=[...original.model.children],buffers=originalNodes.map(node=>{const geometry=(node as three.Mesh).geometry;return Object.values(geometry.attributes).map(attribute=>new Uint8Array(attribute.array.buffer,attribute.array.byteOffset,attribute.array.byteLength).slice());});
  const owner=createTrackSpotRenderSource(three,original,asset),pose=resolved(3),reference=original.model.clone(true);applyWallwasherModelPose(three,reference,asset,pose);
  const visual=owner.instantiate(pose,FURNISHING_RESERVE_BYTES-owner.baseResident);
  try{
   expect(existingSceneCost(three,reference)).toEqual({draws:14,triangles:4260});expect(existingSceneCost(three,visual.model)).toEqual({draws:7,triangles:4260});
+  const receipt=await sceneResourceAssetCost(three,visual.model,{sha256:profile.modelSha256,bytes:bytes.length,sourceProfile:'museum-track-spot-v1-batched'},bytes);
+  expect(receipt).toMatchObject({accountingVersion:1,colorDraws:7,displayTriangles:4260,sha256:profile.modelSha256});expect(receipt.geometryBytes).toBeGreaterThan(0);
+  await expect(sceneResourceAssetCost(three,visual.model,{...receipt,sha256:'f'.repeat(64)},bytes)).rejects.toThrow('SCENE_RESOURCE_ASSET_IDENTITY');
   equivalent(records(reference),records(visual.model));
   expect(visual.model.children).toHaveLength(2);const [fixed,head]=visual.model.children;
   expect(fixed!.position.toArray()).toEqual(pose.fixedPose.position);expect(head!.quaternion.toArray()).toEqual(pose.headPose.rotation);

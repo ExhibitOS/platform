@@ -3,7 +3,7 @@ import type {PublicationAssetFetcher} from '../publication-client';
 import {sourceVariantForInventory} from './gpu-model-representation';
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
+export interface DeviceBudget { viewerPolicy?:import('@exhibitos/studio-contract').ResolvedViewerBudgetPolicy;sceneAdmission?:Readonly<{colorDraws:number;displayTriangles:number;shadowCasterTriangles:number;shadowDepthTriangles:number}>;concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxSceneTriangles:250000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxSceneTriangles:350000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -298,21 +298,25 @@ export function modelGeometryResidentBytes(doc:{accessors?:Array<{bufferView?:nu
  }
  if(!accessors.size||!Number.isSafeInteger(cpu+gpu))throw Error('DECODE_BUDGET_EXCEEDED');return cpu+gpu;
 }
+export function imageDecodeReserve(inventoryBytes:number,w:number,h:number,budget:Pick<DeviceBudget,'maxTextureSize'>,phase:'complete'|'cpu'='complete'){
+ if(![inventoryBytes,w,h,budget.maxTextureSize].every(Number.isSafeInteger)||inventoryBytes<1||w<1||h<1||budget.maxTextureSize<1)throw Error('IMAGE_DECODE_BUDGET');
+ const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
+  const width=Math.ceil(w*scale),height=Math.ceil(h*scale);
+  // Verification has returned. Charge input + Blob and both bitmaps only
+  // when resizing. GPU upload happens after the decode function returns.
+  const cpu=inventoryBytes*2+w*h*4+(scale<1?width*height*4:0);
+  if(phase==='cpu')return cpu;
+  // Known-header preflight uses the largest phase. The ledger separately
+  // tracks evictable encoded cache entries and exact mesh bytes at upload.
+  return Math.max(inventoryBytes*4,cpu,textureResidentBytes(width,height));
+}
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
 export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer,phase:'complete'|'cpu'='complete'):number {
  const variant=sourceVariantForInventory(artwork,inventory.id);
  if(artwork.artworkType==='image'){
   const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
   const w=header.getUint32(16),h=header.getUint32(20);if(!w||!h)throw Error('IMAGE_DECODE_BUDGET');
-  const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
-  const width=Math.ceil(w*scale),height=Math.ceil(h*scale);
-  // Verification has returned. Charge input + Blob and both bitmaps only
-  // when resizing. GPU upload happens after the decode function returns.
-  const cpu=inventory.bytes*2+w*h*4+(scale<1?width*height*4:0);
-  if(phase==='cpu')return cpu;
-  // Known-header preflight uses the largest phase. The ledger separately
-  // tracks evictable encoded cache entries and exact mesh bytes at upload.
-  return Math.max(inventory.bytes*4,cpu,textureResidentBytes(width,height));
+  return imageDecodeReserve(inventory.bytes,w,h,budget,phase);
  }
  return modelDecodeReserve(inventory.bytes,budget,bytes,variant?.textureSize,phase);
 }

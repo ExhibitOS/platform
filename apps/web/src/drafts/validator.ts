@@ -1,3 +1,4 @@
+import {validateViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import {validateFurnishingWalkingCollision} from '@exhibitos/studio-contract';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
@@ -17,6 +18,8 @@ import type { ValidationResult } from "@exhibitos/spec";
 export function validateDraft(document: unknown, archiveProfile?: 'bounded-file-v1'): ValidationResult {
   const result = validateLifecycle(document, {archiveProfile});
   if (!result.valid) return result;
+  const budget=validateViewerBudgetPolicy((document as Draft).candidate);
+  if(!budget.valid)return {valid:false,errors:budget.errors.map(error=>({...error,path:'/candidate'+error.path,message:'전시별 예산 설정 형식을 확인하세요.'}))};
   const viewing=validateViewingPlan((document as Draft).candidate);
   if(!viewing.valid)return viewing;
   const entrance=validateViewerEntrance((document as Draft).candidate);

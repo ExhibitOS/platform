@@ -402,6 +402,16 @@ test('one sun changing eligible room reuses its map and keeps the fitted directi
   }
   pass.dispose();pass.dispose();expect(freed).toBe(1);
 });
+test('effective shadow triangle policy raises and resets union and weighted depth without changing display geometry',()=>{
+  const h=setup();h.pass.dispose();h.mesh.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300000*3),1));
+  const reports:ShadowReport[]=[];
+  const run=(limit?:{shadowCasterTriangles:number;shadowDepthTriangles:number})=>{
+    const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r),undefined,256,limit);pass.flush();return pass;
+  };
+  const initial=run();expect(reports.at(-1)?.mode).toBe('unavailable');initial.dispose();
+  const raised=run({shadowCasterTriangles:350000,shadowDepthTriangles:350000});expect(reports.at(-1)).toMatchObject({mode:'bounded',triangles:300000,depthTriangles:300000});expect(h.mesh.castShadow).toBe(true);raised.dispose();
+  const reset=run();expect(reports.at(-1)?.mode).toBe('unavailable');expect(h.mesh.geometry.index?.count).toBe(900000);expect(h.room.children).toContain(h.mesh);reset.dispose();
+});
 test('excess caster triangles and transparent shells omit shadows without dropping scene geometry',()=>{
   const h=setup();h.mesh.material.transparent=true;h.pass.flush();expect(h.reports.at(-1)?.casters).toBe(0);expect(h.mesh.castShadow).toBe(false);
   h.mesh.material.transparent=false;h.mesh.geometry.setIndex(new three.BufferAttribute(new Uint32Array((SHADOW_TRIANGLE_LIMIT+1)*3),1));h.pass.invalidate();h.pass.flush();

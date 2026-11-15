@@ -1,3 +1,4 @@
+import {selectedExhibitionViewerBudget} from './viewer/exhibition-budget';
 import type {EntranceReadiness} from './viewer/entrance-readiness';
 import { ViewerAnalytics } from './viewer/analytics';
 import {createPortal} from 'react-dom';
@@ -22,7 +23,6 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
 import { AudioMenu } from "./viewer/AudioMenu";
-import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode,type HintPose } from "./ViewerInputGuide";
 import {VisitorMap} from './viewer/VisitorMap';
@@ -279,13 +279,13 @@ export function Viewer({
   );
   const budget = useMemo(
     () =>
-      selectedDeviceBudget(profile,{
+      selectedExhibitionViewerBudget(publication.exhibition,profile,{
         deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
         pixelRatio:devicePixelRatio,
         coarsePointer:entryCoarsePointer.current,
         finePointer:entryFinePointer.current,
-      }),
-    [profile],
+      }).budget,
+    [profile,publication.exhibition],
   );
   const source = useMemo(
     () => ({
