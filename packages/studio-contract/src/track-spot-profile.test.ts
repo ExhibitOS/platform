@@ -54,15 +54,16 @@ it('uses the actual admitted rail height for nonzero ceiling gap',()=>{
  const r=resolve(e);if(!('wallwasher'in r))throw Error('expected static');expect(r.wallwasher.fixedPose.position[1]).toBeCloseTo(3.945,9);
 });
 
-function groupedTrackCandidate(){
- const e=staticTrackCandidate(),rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {furnishings:{model:unknown;fit:unknown}[];placements:{position:number[];yaw:number}[];ceilingAttachments:{anchor:number[];yaw:number}[]};
+function groupedTrackCandidate(e=staticTrackCandidate()){
+ e.rooms[0]!.dimensions.depth=10;e.surfaces[0]!.dimensions.height=10;
+ const rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {furnishings:{model:unknown;fit:unknown}[];placements:{position:number[];yaw:number}[];ceilingAttachments:{anchor:number[];yaw:number}[]};
  const model={mime:'model/gltf-binary',sha256:'5cc5d772acd4087c5d7d26b5f24e2fe38626b1315e377210410954abf7d4ff44',bytes:377576};
  rail.furnishings[0]!.model=model;rail.furnishings[0]!.fit={version:1,sourceSha256:model.sha256,sourceBytes:model.bytes,geometry:{profile:'passive-ceiling-rail-v1',min:[-3.2175,-.035,-2.698],max:[2.648545,0,2.548]}};
  rail.placements[0]!.position=[0,4,0];rail.placements[0]!.yaw=0;rail.ceilingAttachments[0]!.anchor=[0,0];rail.ceilingAttachments[0]!.yaw=0;
  return e;
 }
 it('resolves a perpendicular off-origin fixture on actual grouped contact geometry without editing its light or binding',()=>{
- const e=staticTrackCandidate(),lights=structuredClone(e.lights),bindings=structuredClone(furnishingsFor(e)!.bindings),grouped=groupedTrackCandidate();
+ const e=staticTrackCandidate(),lights=structuredClone(e.lights),bindings=structuredClone(furnishingsFor(e)!.bindings),grouped=groupedTrackCandidate(structuredClone(e));
  expect(validateWorkspaceFurnishings(grouped).valid).toBe(true);expect(validateFurnishings(grouped).valid).toBe(true);
  const before=resolve(e),after=resolve(grouped);expect('wallwasher'in before&&'wallwasher'in after).toBe(true);
  if(!('wallwasher'in before)||!('wallwasher'in after))throw Error('expected coupled');
