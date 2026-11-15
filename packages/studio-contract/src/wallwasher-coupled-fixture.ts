@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {groupedRailContact} from './grouped-rail-contact.js';
+import {rectangularRailContact} from './rectangular-rail-contact.js';
 import {whiteRailOppositeHeading} from './white-rail-opposite-heading.js';
 import {artifactPoint,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
 import type {FurnishingAsset,FurnishingBinding} from './furnishings.js';
 import type {UserAssetCatalogueEntry} from './user-asset-catalogue.js';
 import {lightDetailsFor,lightDetailsOrientation,validateStudioLightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments} from './room-envelope.js';
-import {museumTrackSpotProfile} from './track-spot-profile.js';
+import {museumTrackSpotProfile,isMuseumTrackSpotCatalogId} from './track-spot-profile.js';
 import {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './workspace-furnishing.js';
 import {type WasherPose} from './wallwasher-mount-head.js';
 import {museumWallwasherRearReliefProfile} from './wallwasher-rear-relief-profile.js';
@@ -27,7 +28,7 @@ export function trackSpotStaticRailContext(document:Exhibition,lightId:string){
  * admission. The saved attachment still describes the EMITTER, not the mount.
  * The optional result is consumed only by the matched named-part renderer. */
 export function resolveCoupledWallwasher(document:Exhibition,binding:FurnishingBinding,asset:FurnishingAsset,source:UserAssetCatalogueEntry){
- const spot=asset.catalogId==='museum-track-spot',profile=spot?museumTrackSpotProfile(asset):museumWallwasherRearReliefProfile(asset),visual=binding.pose;
+ const spot=isMuseumTrackSpotCatalogId(asset.catalogId),profile=spot?museumTrackSpotProfile(asset):museumWallwasherRearReliefProfile(asset),visual=binding.pose;
  if(binding.hostKind!=='light'||visual.scale!==1||visual.yaw!==0||!Array.isArray(visual.position)||visual.position.length!==3||visual.position.some((n,i)=>!Number.isFinite(n)||Math.abs(n+profile.opticalA[i]!)>1e-9))throw Error('WASHER_VISUAL_POSE_INVALID');
  if(!validateLightAttachments(document).valid||!validateStudioLightDetails(document).valid)throw Error('WASHER_STORED_LIGHT_INVALID');
  const light=document.lights.find(v=>same(v.id,binding.hostId)),attachment=lightAttachmentsFor(document).find(v=>same(v.lightId,binding.hostId));
@@ -50,10 +51,11 @@ export function resolveCoupledWallwasher(document:Exhibition,binding:FurnishingB
    let resolved;try{resolved=resolveWallwasherFromEmitter({profile,opticalPose,ceilingSurface:contactPlane});}catch{continue;}
    const mount=resolved.fixedPose,c=Math.cos(placement.yaw),s=Math.sin(placement.yaw),dx=mount.position[0]-placement.position[0],dz=mount.position[2]-placement.position[2],x=c*dx-s*dz,z=s*dx+c*dz;
    const mountPose:ArtifactPose={position:[...mount.position],rotation:[...mount.rotation],scale:[...mount.scale]};
-   const grouped=groupedRailContact(descriptor!,profile.mountFootprint.map(point=>{
+   const corners=profile.mountFootprint.map(point=>{
     const world=artifactPoint([...point] as AffinePoint,mountPose),dx=world[0]-placement.position[0],dz=world[2]-placement.position[2];
     return [c*dx-s*dz,world[1]-placement.position[1],s*dx+c*dz] as AffinePoint;
-   }));
+   });
+   const grouped=rectangularRailContact(descriptor!,corners)??groupedRailContact(descriptor!,corners);
    if(grouped!==undefined){if(grouped)matches.push(resolved);continue;}
    // A unique geometric contact, not a serialized linkage or electrical claim.
    const railPose:WasherPose={position:placement.position,rotation:[0,Math.sin(placement.yaw/2),0,Math.cos(placement.yaw/2)],scale:[1,1,1]};

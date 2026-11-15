@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {USER_ASSET_CATALOGUE,type UserAssetCatalogueEntry} from './user-asset-catalogue.js';
+import {TRACK_SPOT_FIXED64_CATALOGUE} from './track-spot-fixed64-catalogue.js';
 // Managed source32d producer receipt and default-furnishings1.8 bind these bytes.
 // Historical catalogue data remains intact; only the current functional lookup uses this record.
 const historical=USER_ASSET_CATALOGUE.find(entry=>entry.id==='museum-wallwasher');
 if(!historical)throw Error('PREPARED_SHARED_FIXTURE_MISSING');
 const root='assets/furnishings/exhibitos-authored-20261111/museum-wallwasher';
 export const PREPARED_SHARED_FIXTURES:Readonly<Record<string,UserAssetCatalogueEntry>>=Object.freeze({
+ 'museum-track-spot-fixed-64p1':Object.freeze(TRACK_SPOT_FIXED64_CATALOGUE),
  'museum-wallwasher':Object.freeze<UserAssetCatalogueEntry>({...historical,path:root+'/model.glb',
   rights:{licenseId:'CC0-1.0',noticePath:root+'/LICENSE-NOTICE.txt',noticeBytes:1115,noticeSha256:'b40713d9c089649c71aeed2c8fced9d9274612ef376b77d19ab5f6becd5b0cf3'},
   provenance:{sourceSha256:historical.provenance.sourceSha256,recipe:'omit-unused-invalid-tangent-r1'},

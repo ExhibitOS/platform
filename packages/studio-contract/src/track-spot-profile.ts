@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {WallwasherMountHeadProfile,WasherPart,WasherVector} from './wallwasher-mount-head.js';
 import type {WallwasherFixtureAssetIdentity} from './wallwasher-fixture-profile.js';
+import {MUSEUM_TRACK_SPOT_FIXED64_IDENTITY,MUSEUM_TRACK_SPOT_FIXED64_PROFILE} from './track-spot-fixed64-profile.js';
+export {MUSEUM_TRACK_SPOT_FIXED64_IDENTITY,MUSEUM_TRACK_SPOT_FIXED64_PROFILE,MUSEUM_TRACK_SPOT_FIXED64_PITCH} from './track-spot-fixed64-profile.js';
+export function isMuseumTrackSpotCatalogId(id:unknown):id is 'museum-track-spot'|'museum-track-spot-fixed-64p1'{return id==='museum-track-spot'||id==='museum-track-spot-fixed-64p1';}
 const v=(x:number,y:number,z:number):WasherVector=>Object.freeze([x,y,z] as const);
 const part=(name:string,min:WasherVector,max:WasherVector):WasherPart=>Object.freeze({name,bounds:Object.freeze({min,max})});
 /** Exactly one independently checked static source pose, not joint travel. */
@@ -34,7 +37,7 @@ export const MUSEUM_TRACK_SPOT_IDENTITY=Object.freeze({catalogId:'museum-track-s
 /** Named fixture qualification only; ordinary rail originals use measured fit,
  * never this catalogue model identity as an intake eligibility condition. */
 export function museumTrackSpotProfile(asset:WallwasherFixtureAssetIdentity):Readonly<WallwasherMountHeadProfile>{
- const e=MUSEUM_TRACK_SPOT_IDENTITY;
+ const e=asset?.catalogId==='museum-track-spot-fixed-64p1'?MUSEUM_TRACK_SPOT_FIXED64_IDENTITY:MUSEUM_TRACK_SPOT_IDENTITY;
  if(!asset||asset.catalogId!==e.catalogId||asset.catalogVersion!==e.catalogVersion||asset.mime!==e.mime||asset.bytes!==e.bytes||asset.sha256!==e.sha256||asset.provenance?.sourceSha256!==e.provenance.sourceSha256||asset.provenance?.recipe!==e.provenance.recipe)throw Error('WASHER_CATALOGUE_IDENTITY_MISMATCH');
- return MUSEUM_TRACK_SPOT_PROFILE;
+ return e===MUSEUM_TRACK_SPOT_FIXED64_IDENTITY?MUSEUM_TRACK_SPOT_FIXED64_PROFILE:MUSEUM_TRACK_SPOT_PROFILE;
 }

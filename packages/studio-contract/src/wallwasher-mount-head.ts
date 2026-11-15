@@ -3,6 +3,7 @@
  * qualify mechanical travel, authenticate bounds, or rewrite LightAttachments.
  * Positions/bounds are metres; headPitch and approved intervals are radians.
  * Per-part bounds already include the flat GLB node's baked translation. */
+import {MUSEUM_TRACK_SPOT_FIXED64_SHA256,MUSEUM_TRACK_SPOT_FIXED64_PITCH,MUSEUM_TRACK_SPOT_FIXED64_PROFILE} from './track-spot-fixed64-profile.js';
 export type WasherVector=readonly [number,number,number];
 export type WasherQuaternion=readonly [number,number,number,number];
 export type WasherPose={position:WasherVector;rotation:WasherQuaternion;scale:WasherVector};
@@ -52,11 +53,19 @@ function bounds(points:readonly WasherVector[]):WasherBounds{
 }
 export function resolveWallwasherMountHead(input:WallwasherMountHeadInput){
  const profile=input?.profile;
- if(!profile||!(profile.profileId==='museum-wallwasher-fixed-head-v1'&&profile.modelSha256===WALLWASHER_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-wallwasher-rear-relief-fixed-head-v1'&&profile.modelSha256===WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-track-spot-fixed-head-v1'&&profile.modelSha256==='4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90'))return fail('WASHER_PROFILE_PIN_INVALID');
+ if(!profile||!(profile.profileId==='museum-wallwasher-fixed-head-v1'&&profile.modelSha256===WALLWASHER_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-wallwasher-rear-relief-fixed-head-v1'&&profile.modelSha256===WALLWASHER_REAR_RELIEF_MOUNT_HEAD_MODEL_SHA256||profile.profileId==='museum-track-spot-fixed-head-v1'&&(profile.modelSha256==='4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90'||profile.modelSha256===MUSEUM_TRACK_SPOT_FIXED64_SHA256)))return fail('WASHER_PROFILE_PIN_INVALID');
  const spot=profile.profileId==='museum-track-spot-fixed-head-v1';
  const groups=[[profile.fixedParts,spot?["Adapter_key", "Adapter_neck", "Pivot_bearing", "Pivot_bearing.001", "Stem", "Track_adapter", "Yoke_arm", "Yoke_arm.001", "Yoke_bridge"]:fixedNames],[profile.headParts,spot?["Front_retaining_ring", "Housing_spun_shell", "Lens_opaque", "Recessed_baffle", "Reflector_cup"]:headNames]] as const;
  for(const [parts,names]of groups){
   if(!Array.isArray(parts)||parts.length!==names.length||new Set(parts.map(p=>p?.name)).size!==names.length||parts.some(p=>!p||!names.includes(p.name)||!p.bounds||!tuple(p.bounds.min,3)||!tuple(p.bounds.max,3)||p.bounds.min.some((n:number,i:number)=>n>p.bounds.max[i]!)))return fail('WASHER_PARTITION_INVALID');
+ }
+ if(spot){
+  const fixed64=profile.modelSha256===MUSEUM_TRACK_SPOT_FIXED64_SHA256,pitch=fixed64?MUSEUM_TRACK_SPOT_FIXED64_PITCH:-Math.PI/4;
+  if(input.headPitch!==pitch||!Array.isArray(profile.headPitchIntervals)||profile.headPitchIntervals.length!==1||profile.headPitchIntervals[0]?.[0]!==pitch||profile.headPitchIntervals[0]?.[1]!==pitch)return fail('WASHER_PITCH_NOT_APPROVED');
+  if(fixed64)for(const key of ['fixedParts','headParts'] as const)for(const part of profile[key]){
+   const certified=MUSEUM_TRACK_SPOT_FIXED64_PROFILE[key].find(item=>item.name===part.name)!;
+   if(!close(part.bounds.min,certified.bounds.min,1e-12)||!close(part.bounds.max,certified.bounds.max,1e-12))return fail('WASHER_PARTITION_INVALID');
+  }
  }
  if(!tuple(profile.opticalA,3)||!tuple(profile.pivotP,3)||!tuple(profile.axis,3)||!close(profile.opticalA,spot?[0,-.150,-.0755]:[0,-.106,-.05],1e-12)||!close(profile.pivotP,spot?[0,-.150,0]:[0,-.084,0],1e-12)||!close(profile.axis,[1,0,0],1e-12))return fail('WASHER_DATUM_INVALID');
  if(!finite(input.headPitch)||!Array.isArray(profile.headPitchIntervals)||!profile.headPitchIntervals.length||profile.headPitchIntervals.length>32||profile.headPitchIntervals.some(v=>!tuple(v,2)||v[0]!>v[1]!)||!profile.headPitchIntervals.some(([min,max])=>input.headPitch>=min&&input.headPitch<=max))return fail('WASHER_PITCH_NOT_APPROVED');
