@@ -5,6 +5,7 @@ import type {WallwasherFixtureAssetIdentity} from '../../../../packages/studio-c
 import {geometryResidentBytes} from '../viewer/loading';
 import {applyWallwasherModelPose,type ResolvedWallwasher} from './wallwasher-model-pose';
 import type {loadCatalogModel} from './catalog-furnishing-loader';
+import {retiredCatalogDecodeBytes} from './catalog-decode-ownership';
 
 // Modeled JS node/matrix/metadata allowance, not a physical heap measurement.
 const NODE_BYTES=4096;
@@ -19,7 +20,9 @@ const fail=()=>{throw Error('CATALOG_BUDGET');};
 export function createTrackSpotRenderSource(three:typeof Three,template:Template,asset:WallwasherFixtureAssetIdentity){
  const profile=museumTrackSpotProfile(asset),merged=new Map<string,Three.BufferGeometry>(),instances=new Set<()=>void>();
  let nodes=0,sharedBytes=0,disposed=false;template.model.traverse(()=>nodes++);
- const baseResident=template.resident+nodes*NODE_BYTES;
+ // The loader still admits the complete decode peak. Only a positive owned
+ // non-alias receipt retires its transient input allowance after return.
+ const baseResident=template.resident-retiredCatalogDecodeBytes(three,template.model,asset.bytes)+nodes*NODE_BYTES;
  const plansFor=(groups:readonly Three.Group[])=>groups.flatMap((parent,frame)=>{
   const buckets=new Map<Three.Material,Three.Mesh<Three.BufferGeometry,Three.Material>[]>();
   for(const child of parent.children){

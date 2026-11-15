@@ -13,6 +13,7 @@ import {applyWallwasherModelPose,type ResolvedWallwasher} from './wallwasher-mod
 import {createTrackSpotRenderSource} from './track-spot-render-source';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {FURNISHING_RESERVE_BYTES,installCatalogOtherVisuals} from './catalog-bench-renderer';
+import {recordCatalogDecodeRetirement,retiredCatalogDecodeBytes} from './catalog-decode-ownership';
 
 const identity={position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};
 describe.each(['museum-track-spot','museum-track-spot-fixed-64p1'] as const)('%s',catalogId=>{
@@ -95,10 +96,32 @@ it('retains admission and authority fences when a verified source is already sha
  const next=await input(),original=await loadCatalogModel(three,entry,next.source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES),owner=createTrackSpotRenderSource(three,original,asset);
  try{expect(()=>owner.instantiate(resolved(),0)).toThrow('CATALOG_BUDGET');expect(owner.sharedResident()).toBe(0);expect(original.model.children).toHaveLength(14);expect(original.model.parent).toBeNull();}finally{owner.dispose();}
 });
+it('keeps the full predecode admission requirement before any source allowance can retire',async()=>{
+ const {source,bytes}=await input();
+ await expect(loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,bytes.length*4-1)).rejects.toThrow('CATALOG_BUDGET');
+ expect(source.fetcher).not.toHaveBeenCalled();expect(source.check).not.toHaveBeenCalled();
+});
+});
+
+it('requires a positive unchanged non-alias receipt to retire the transient decode allowance',()=>{
+ const encoded=new Uint8Array(48),model=new three.Group(),geometry=new three.BufferGeometry(),material=new three.MeshStandardMaterial();
+ geometry.setAttribute('position',new three.BufferAttribute(new Float32Array(9),3));model.add(new three.Mesh(geometry,material));
+ try{
+  expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
+  recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(192);
+  expect(retiredCatalogDecodeBytes(three,model,47)).toBe(0);
+  geometry.setAttribute('position',new three.BufferAttribute(new Float32Array(encoded.buffer,0,9),3));
+  expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
+  recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
+  geometry.setAttribute('position',new three.BufferAttribute(new Float32Array(9),3));model.userData.parser={encoded};
+  recordCatalogDecodeRetirement(three,model,encoded);expect(retiredCatalogDecodeBytes(three,model,48)).toBe(0);
+ }finally{geometry.dispose();material.dispose();}
 });
 
 it('admits nine corrected fixtures and five preserved originals together within the existing scene hold',async()=>{
  const roomId=crypto.randomUUID(),room=new three.Group(),q=Math.SQRT1_2;
+ const loader=await import('./catalog-furnishing-loader'),load=loader.loadCatalogModel,loads:{sha256:string;limit:number;resident?:number;error?:string}[]=[];
+ const loading=vi.spyOn(loader,'loadCatalogModel').mockImplementation(async(...args)=>{const record={sha256:args[1].sha256,limit:args[6]} as (typeof loads)[number];loads.push(record);try{const value=await load(...args);record.resident=value.resident;return value;}catch(error){record.error=error instanceof Error?error.message:String(error);throw error;}});
  const sources=await Promise.all((['museum-track-spot-fixed-64p1','museum-track-spot'] as const).map(async catalogId=>{
   const asset=furnishingAsset(crypto.randomUUID(),catalogId),entry=furnishingCatalogueEntry(catalogId),profile=museumTrackSpotProfile(asset),bytes=await readFile(entry.path),revision='b'.repeat(64);
   expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
@@ -111,9 +134,9 @@ it('admits nine corrected fixtures and five preserved originals together within 
  });
  const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{});
  try{
-  expect((await runtime.start()).map(row=>row.status)).toEqual(Array(14).fill('ready'));
+  expect((await runtime.start()).map(row=>row.status),JSON.stringify(loads)).toEqual(Array(14).fill('ready'));
   expect(existingSceneCost(three,room)).toEqual({draws:98,triangles:59640});
   for(const {source}of sources){expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check).toHaveBeenCalled();}
- }finally{runtime.dispose();}
+ }finally{runtime.dispose();loading.mockRestore();}
  expect(room.children).toHaveLength(0);
 });
