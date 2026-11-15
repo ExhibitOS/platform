@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {groupedRailContact} from './grouped-rail-contact.js';
+import {whiteRailOppositeHeading} from './white-rail-opposite-heading.js';
 import {artifactPoint,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
 import type {FurnishingAsset,FurnishingBinding} from './furnishings.js';
 import type {UserAssetCatalogueEntry} from './user-asset-catalogue.js';
@@ -57,7 +58,7 @@ export function resolveCoupledWallwasher(document:Exhibition,binding:FurnishingB
    // A unique geometric contact, not a serialized linkage or electrical claim.
    const railPose:WasherPose={position:placement.position,rotation:[0,Math.sin(placement.yaw/2),0,Math.cos(placement.yaw/2)],scale:[1,1,1]};
    const alignment=Math.abs(mount.rotation.reduce((sum,n,i)=>sum+n*railPose.rotation[i]!,0));
-   if(Math.abs(mount.position[1]-(placement.position[1]+g.min[1]))>1e-6||Math.abs(z)>1e-6||x-.0475<g.min[0]-1e-6||x+.0475>g.max[0]+1e-6||alignment<1-1e-7)continue;
+   if(Math.abs(mount.position[1]-(placement.position[1]+g.min[1]))>1e-6||Math.abs(z)>1e-6||x-.0475<g.min[0]-1e-6||x+.0475>g.max[0]+1e-6||alignment<1-1e-7&&!whiteRailOppositeHeading(descriptor!,mount.rotation,railPose.rotation))continue;
    matches.push(resolved);
   }
   if(matches.length!==1)throw Error('TRACK_SPOT_RAIL_CONTACT_UNAVAILABLE');wallwasher=matches[0]!;
