@@ -1,6 +1,7 @@
 import {expect,it} from 'vitest';
 import {createDiagnosticReport} from './diagnostic-report';
 import type {DiagnosticSnapshot} from './diagnostic-source';
+import type {WorkspaceFailureReadout} from '../workspace-furnishing/failure-readout';
 
 const publicationId='11111111-1111-4111-8111-111111111111', artworkRevisionId='22222222-2222-4222-8222-222222222222';
 const first='33333333-3333-4333-8333-333333333333', second='44444444-4444-4444-8444-444444444444',revisionSha256='a'.repeat(64);
@@ -9,6 +10,21 @@ const snapshot={version:1,capturedAt:'2026-11-08T00:00:00.000Z',lifecycle:'live'
  device:{deviceMemoryGiB:null,coarsePointer:true,finePointer:false,pixelRatio:1,viewportWidth:390,viewportHeight:800,budget:{maxCacheBytes:1,maxTransitionBytes:2,maxTextureSize:512,maxTriangles:20000,effectiveResidentBytes:1,effectiveTransitionBytes:2,selectedDetailResidentBytes:3,selectedDetailTransitionBytes:4,originalDetailSceneBytes:5,originalDetailTransitionBytes:6}},
  navigation:null,memory:{residentEstimateBytes:null,transitionEstimateBytes:null,peakTransitionEstimateBytes:null,textureEstimateBytes:null,meshEstimateBytes:null,peakTextureEstimateBytes:null,peakMeshEstimateBytes:null,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},assets:[],events:[]} as DiagnosticSnapshot;
 const report=(placementId:string)=>JSON.parse(createDiagnosticReport(snapshot,{publicationId,revisionSha256,detail:{placementId,artworkRevisionId}}));
+it('exports only bounded sanitized furnishing admission facts in the existing local report',()=>{
+ const row={placementId:first,furnishingId:second,furnishingVersion:1,modelSha256:'c'.repeat(64),stage:'scene-reserve',code:'WORKSPACE_SCENE_BUDGET',httpKind:'model',httpStatus:200,remainingDraws:0,remainingTriangles:10,requestedDraws:1,requestedTriangles:2,byteLimit:100,bytesUsed:60,bytesReserved:20,requestedBytes:null};
+ const failures=Array.from({length:33},()=>({...row,rawError:'secret https://private.invalid',url:'https://private.invalid'}));
+ failures[1]={...failures[1]!,placementId:'secret https://private.invalid'};
+ failures[2]={...failures[2]!,stage:'secret URL',code:'secret error',httpKind:'secret URL',httpStatus:700,bytesUsed:-1};
+ const workspaceFurnishings={version:1,settled:true,loaded:16,failed:33,truncated:false,failures} as unknown as WorkspaceFailureReadout;
+ const result=JSON.parse(createDiagnosticReport({...snapshot,workspaceFurnishings},{publicationId,revisionSha256}));
+ const value=result.snapshot.workspaceFurnishings;
+ expect(value).toMatchObject({version:1,settled:true,loaded:16,failed:33,truncated:true});
+ expect(value.failures).toHaveLength(31);expect(value.failures[0]).toEqual(row);
+ expect(value.failures[1]).toMatchObject({stage:null,code:null,httpKind:null,httpStatus:null,bytesUsed:null});
+ expect(JSON.stringify(result)).not.toContain('secret');expect(JSON.stringify(result)).not.toContain('private.invalid');
+ expect(JSON.stringify(result)).not.toContain('rawError');
+ expect(JSON.parse(createDiagnosticReport(snapshot,{publicationId,revisionSha256})).snapshot.workspaceFurnishings).toBeNull();
+});
 it('recognizes an observed acquired original by verified hash without an asset id',()=>{
  const result=report(first);expect(result.requestedDetail.attachment).toBe('observed');expect(result.snapshot.displayed.tier).toBe('acquired-original');expect(result.snapshot.device.budget.originalDetailSceneBytes).toBe(5);
 });

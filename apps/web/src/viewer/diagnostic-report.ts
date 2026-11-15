@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { DiagnosticEvent, DiagnosticSnapshot } from "./diagnostic-source";
+import {WORKSPACE_FAILURE_CODES,WORKSPACE_FAILURE_STAGES} from "../workspace-furnishing/failure-readout";
 
 const maximumReportBytes = 128 * 1024;
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -55,6 +56,29 @@ function projectEvents(snapshot: DiagnosticSnapshot, selectedRevision: string | 
   const context = recent.filter(event => !selectedKeys.has(JSON.stringify(event)));
   return [...detailEvents, ...context.slice(-(64 - detailEvents.length))]
     .sort((a, b) => (a.atMs ?? 0) - (b.atMs ?? 0));
+}
+
+/** Re-project the existing bounded readout; never export raw errors or extra fields. */
+function projectFurnishings(value:DiagnosticSnapshot["workspaceFurnishings"]) {
+  if(!value)return null;
+  const count=(n:number|null)=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0?n:null;
+  return {
+    version:1,settled:value.settled===true,loaded:count(value.loaded),failed:count(value.failed),
+    truncated:value.truncated===true||value.failures.length>32,
+    failures:value.failures.slice(0,32).flatMap(row=>{
+      const placementId=token(row.placementId,uuid),furnishingId=token(row.furnishingId,uuid),modelSha256=token(row.modelSha256,sha256);
+      if(!placementId||!furnishingId||!modelSha256)return [];
+      return [{placementId,furnishingId,modelSha256,furnishingVersion:count(row.furnishingVersion),
+        stage:WORKSPACE_FAILURE_STAGES.includes(row.stage)?row.stage:null,
+        code:WORKSPACE_FAILURE_CODES.includes(row.code)?row.code:null,
+        httpKind:row.httpKind==='display-check'||row.httpKind==='model'?row.httpKind:null,
+        httpStatus:typeof row.httpStatus==='number'&&Number.isInteger(row.httpStatus)&&row.httpStatus>=100&&row.httpStatus<=599?row.httpStatus:null,
+        remainingDraws:count(row.remainingDraws),remainingTriangles:count(row.remainingTriangles),
+        requestedDraws:count(row.requestedDraws),requestedTriangles:count(row.requestedTriangles),
+        byteLimit:count(row.byteLimit),bytesUsed:count(row.bytesUsed),bytesReserved:count(row.bytesReserved),requestedBytes:count(row.requestedBytes),
+      }];
+    }),
+  };
 }
 
 function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportContext["detail"]) {
@@ -140,6 +164,7 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
         active: asset.active === true,
       }];
     }),
+    workspaceFurnishings:projectFurnishings(snapshot.workspaceFurnishings),
     events: projectEvents(snapshot, selected && snapshot.lifecycle === "live" ? detail?.artworkRevisionId : undefined),
   };
 }
