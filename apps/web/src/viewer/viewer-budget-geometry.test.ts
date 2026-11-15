@@ -15,8 +15,12 @@ import {analyzeViewerBudgetGeometry} from './viewer-budget-geometry';
 const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllGlobals());
 async function sculpture(){return new Uint8Array(await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')));}
-function materialVersion(bytes:Uint8Array,blend:boolean){
- const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),length=view.getUint32(12,true),doc=JSON.parse(new TextDecoder().decode(bytes.subarray(20,20+length))),bin=bytes.subarray(28+length);
+function materialVersion(bytes:Uint8Array,blend:boolean,embeddedTexture=false){
+ const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),length=view.getUint32(12,true),doc=JSON.parse(new TextDecoder().decode(bytes.subarray(20,20+length)));let bin=bytes.subarray(28+length);
+ if(embeddedTexture){
+  const png=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=','base64')),offset=bin.length,combined=new Uint8Array(Math.ceil((offset+png.length)/4)*4);combined.set(bin);combined.set(png,offset);bin=combined;doc.buffers[0].byteLength=bin.length;doc.bufferViews??=[];const bufferView=doc.bufferViews.length;doc.bufferViews.push({buffer:0,byteOffset:offset,byteLength:png.length});doc.images=[{bufferView,mimeType:'image/png'}];doc.textures=[{source:0}];doc.materials??=[{}];
+  for(const material of doc.materials){material.pbrMetallicRoughness??={};material.pbrMetallicRoughness.baseColorTexture={index:0};}
+ }
  for(const material of doc.materials??[])Object.assign(material,{alphaMode:blend?'BLEND':'OPAQUE',doubleSided:blend});
  const json=new TextEncoder().encode(JSON.stringify(doc)),size=Math.ceil(json.length/4)*4,result=new Uint8Array(28+size+bin.length),v=new DataView(result.buffer);v.setUint32(0,0x46546c67,true);v.setUint32(4,2,true);v.setUint32(8,result.length,true);v.setUint32(12,size,true);v.setUint32(16,0x4e4f534a,true);result.fill(32,20,20+size);result.set(json,20);v.setUint32(20+size,bin.length,true);v.setUint32(24+size,0x004e4942,true);result.set(bin,28+size);return result;
 }
@@ -73,6 +77,6 @@ test('constructs and disposes native control geometry without a DOM connection',
  expect(native.wholeExhibition.colorDraws).toBeGreaterThan(standard.wholeExhibition.colorDraws!);expect(read).not.toHaveBeenCalled();
 });
 test('inspects embedded-texture GLB geometry without network or image decoder acquisition',async()=>{
- const entry=furnishingCatalogueEntry('sculpture-bench-refined'),body=new Uint8Array(await readFile(entry.path));vi.stubGlobal('fetch',vi.fn(()=>{throw Error('UNEXPECTED_FETCH');}));vi.stubGlobal('createImageBitmap',vi.fn(()=>{throw Error('UNEXPECTED_IMAGE_DECODE');}));
- const loaded=await loadBudgetGeometry(body,{sha256:entry.sha256,bytes:entry.bytes});try{expect(loaded.hasTextures).toBe(true);expect(existingSceneCost(three,loaded.model).draws).toBeGreaterThan(0);expect(fetch).not.toHaveBeenCalled();expect(createImageBitmap).not.toHaveBeenCalled();}finally{loaded.dispose();}
+ const body=materialVersion(await sculpture(),false,true);vi.stubGlobal('fetch',vi.fn(()=>{throw Error('UNEXPECTED_FETCH');}));vi.stubGlobal('createImageBitmap',vi.fn(()=>{throw Error('UNEXPECTED_IMAGE_DECODE');}));
+ const loaded=await loadBudgetGeometry(body,{sha256:digest(body),bytes:body.length});try{expect(loaded.hasTextures).toBe(true);expect(existingSceneCost(three,loaded.model).draws).toBeGreaterThan(0);expect(fetch).not.toHaveBeenCalled();expect(createImageBitmap).not.toHaveBeenCalled();}finally{loaded.dispose();}
 });
