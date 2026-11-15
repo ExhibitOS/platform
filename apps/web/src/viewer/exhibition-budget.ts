@@ -17,7 +17,7 @@ export function exhibitionViewerBudget(document:Parameters<typeof resolveViewerB
   sceneAdmission:{colorDraws:value.colorDraws,displayTriangles:value.displayTriangles,shadowCasterTriangles:value.shadowCasterTriangles,shadowDepthTriangles:value.shadowDepthTriangles},
   maxSceneTriangles:value.displayTriangles,maxCacheBytes:value.residentBytes,maxTransitionBytes:value.transitionBytes,
   ...(recommended.materialPlanningBytes===undefined?{}:{materialPlanningBytes:Math.max(1,recommended.materialPlanningBytes+value.residentBytes-recommended.maxCacheBytes)}),
-  ...(recommended.selectedImage?{selectedImage:{maxCacheBytes:value.residentBytes,maxTransitionBytes:value.transitionBytes}}:{}),
+  ...(recommended.selectedImage?{selectedImage:{maxCacheBytes:policy.overrides.admission?.residentBytes===undefined?recommended.selectedImage.maxCacheBytes:value.residentBytes,maxTransitionBytes:policy.overrides.admission?.transitionBytes===undefined?recommended.selectedImage.maxTransitionBytes:value.transitionBytes}}:{}),
  };
  return {policy,budget};
 }
@@ -27,4 +27,11 @@ export function selectedExhibitionViewerBudget(document:Parameters<typeof resolv
  const selection=selectViewerBudgetProfile(document,{nativeEditor:false,automaticProfile:automatic.maxTextureSize<=512?'compact':'standard',...(requested==='auto'?{}:{requestedProfile:requested==='compact'?'compact':'standard'})});
  const recommended=selectedDeviceBudget(selection.effectiveProfile==='compact'?'compact':requested==='desktop'?'desktop':'auto',hints);
  return {...exhibitionViewerBudget(document,selection.effectiveProfile,recommended),selection};
+}
+
+/** Resident capacity and transition capacity are independent admissions. A
+ * smaller transition override must never be silently raised to resident size. */
+export function assetResourceLimits(resident:number,transition:number,reserved:number){
+ if(![resident,transition,reserved].every(Number.isSafeInteger)||resident<1||transition<1||reserved<0||reserved>=resident||reserved>=transition)throw Error('MATERIAL_SOURCE_BUDGET');
+ return {resident:resident-reserved,transition:transition-reserved};
 }

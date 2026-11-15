@@ -4,7 +4,7 @@ import {setViewerBudgetOverrides,resetViewerBudgetPolicy,VIEWER_BUDGET_NAMESPACE
 import {newDraft} from '../drafts/example';
 import {DEVICE_BUDGETS,selectedDeviceBudget} from './loading';
 import {sceneDrawLimit,sceneTriangleLimit} from '../workspace-furnishing/scene-cost';
-import {exhibitionViewerBudget,selectedExhibitionViewerBudget} from './exhibition-budget';
+import {exhibitionViewerBudget,selectedExhibitionViewerBudget,assetResourceLimits} from './exhibition-budget';
 
 test('separates warning from effective reservation/live/geometry/byte admission and restores recommendations on reset',()=>{
  const document=newDraft().candidate,recommended=selectedDeviceBudget('auto',{coarsePointer:true,finePointer:false});
@@ -27,4 +27,17 @@ test('selects persisted target before resolution, honors explicit visitor choice
  const explicit=selectedExhibitionViewerBudget(document,'desktop',{finePointer:true,coarsePointer:false});expect(explicit.selection).toMatchObject({effectiveProfile:'standard',selection:'request'});expect(sceneDrawLimit(explicit.budget)).toBe(500);
  const native=exhibitionViewerBudget(document,'native',DEVICE_BUDGETS.desktop);expect(sceneDrawLimit(native.budget)).toBe(384);expect(native.policy.profile).toBe('native');
  const automatic=selectedExhibitionViewerBudget(newDraft().candidate,'auto',{deviceMemory:2});expect(automatic.selection.effectiveProfile).toBe('compact');
+});
+
+test('preserves the existing explicit image allowance without a memory override',()=>{
+ const recommended=selectedDeviceBudget('compact',{deviceMemory:6}),document=newDraft().candidate;
+ expect(recommended.selectedImage).toEqual({maxCacheBytes:96*1024*1024,maxTransitionBytes:128*1024*1024});
+ expect(exhibitionViewerBudget(document,'compact',recommended).budget.selectedImage).toEqual(recommended.selectedImage);
+ const warning=setViewerBudgetOverrides(document,'compact',{warning:{residentBytes:1}});expect(exhibitionViewerBudget(warning,'compact',recommended).budget.selectedImage).toEqual(recommended.selectedImage);
+ const explicit=setViewerBudgetOverrides(document,'compact',{admission:{residentBytes:40*1024*1024,transitionBytes:50*1024*1024}});expect(exhibitionViewerBudget(explicit,'compact',recommended).budget.selectedImage).toEqual({maxCacheBytes:40*1024*1024,maxTransitionBytes:50*1024*1024});
+});
+test('honors a transition override below resident capacity rather than increasing the actual ledger',()=>{
+ const mib=1024*1024,document=setViewerBudgetOverrides(newDraft().candidate,'standard',{admission:{residentBytes:512*mib,transitionBytes:128*mib}}),{budget}=exhibitionViewerBudget(document,'standard',DEVICE_BUDGETS.desktop);
+ const limits=assetResourceLimits(budget.maxCacheBytes,budget.maxTransitionBytes!,32*mib);expect(limits).toEqual({resident:480*mib,transition:96*mib});
+ expect(()=>assetResourceLimits(budget.maxCacheBytes,budget.maxTransitionBytes!,129*mib)).toThrow('MATERIAL_SOURCE_BUDGET');
 });

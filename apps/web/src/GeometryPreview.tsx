@@ -1,3 +1,4 @@
+import {assetResourceLimits} from './viewer/exhibition-budget';
 import {collectSceneResourceUsage,type SceneResourceUsage} from './viewer/scene-resource-usage';
 import {clearNativeCameraPose,nativeCameraPoseRefresh,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
 import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
@@ -649,13 +650,15 @@ export function GeometryPreview({
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
-      let assetBudgetBytes=Math.max(1,availableAssetBytes-materialReserve-snapshotReserve-qualityFrameReserve);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
+      const fixedResourceReserve=qualityFrameReserve+environmentReserve+shadowReserve+plaqueReserve+mapThumbnailReserve+suppliedThumbnailReserve+retainedMaterialBytes+benchReserve+otherReserve+snapshotReserve;
+      const resourceLimits=(materialBytes:number)=>assetResourceLimits(resources?.maxCacheBytes??33554432,resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432,fixedResourceReserve+materialBytes);
+      const initialResourceLimits=resourceLimits(materialReserve);
+      let assetBudgetBytes=initialResourceLimits.resident,transitionBudgetBytes=initialResourceLimits.transition;
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const refreshAssetLimits=()=>{
         const materialBytes=serialMaterialPhaseBytes(floorPlan,surfacePlan,floorSettled,surfaceSettled);
-        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve-qualityFrameReserve);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
+        const effective=resourceLimits(materialBytes);
+        assetBudgetBytes=effective.resident;transitionBudgetBytes=effective.transition;
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
