@@ -90,6 +90,9 @@ test('planar depth policy preserves explicit and custom deformation or shadow in
   for(const configure of cases){const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1);configure(h);const before=h.mesh.onBeforeShadow,after=h.mesh.onAfterShadow;h.pass.flush();expect(h.mesh.onBeforeShadow).toBe(before);expect(h.mesh.onAfterShadow).toBe(after);h.pass.dispose();}
   const geometry=new three.PlaneGeometry(1,1),material=new three.MeshStandardMaterial();
   const skinned=new three.SkinnedMesh(geometry,material);skinned.boundingBox=new three.Box3(new three.Vector3(-.5,-.5,0),new three.Vector3(.5,.5,0));
+  // This hook-policy fixture has no animated skeleton; provide its authored
+  // static sphere so the real renderer culling predicate need not skin it.
+  geometry.computeBoundingSphere();skinned.boundingSphere=geometry.boundingSphere!.clone();
   const instanced=new three.InstancedMesh(geometry,material,1);instanced.setMatrixAt(0,new three.Matrix4());
   for(const mesh of [skinned,instanced,new three.Mesh(geometry,[material]),new three.Mesh(geometry,new three.ShaderMaterial())]){
     const h=setup();h.room.remove(h.mesh);h.room.add(mesh);const before=mesh.onBeforeShadow,after=mesh.onAfterShadow;h.pass.flush();expect(mesh.onBeforeShadow).toBe(before);expect(mesh.onAfterShadow).toBe(after);h.pass.dispose();
