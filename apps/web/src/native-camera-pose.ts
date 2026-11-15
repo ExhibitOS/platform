@@ -8,7 +8,7 @@ function vector(value:unknown):[number,number,number]|undefined {
  return result as [number,number,number];
 }
 export function clearNativeCameraPose(dataset:DOMStringMap){delete dataset.nativeCameraPose;}
-/** Coalesce lifecycle invalidations after the current event's handlers finish.
+/** Coalesce synchronous lifecycle invalidations after the current callback.
  * The callback must render normally: only that render may publish a fresh pose. */
 export function nativeCameraPoseRefresh(clear:()=>void,render:()=>void){
  let pending=false,disposed=false;

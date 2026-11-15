@@ -38,7 +38,7 @@ it('refreshes after editor synchronization completes the accepted frame token',a
  expect(render).toHaveBeenCalledTimes(2);
  refresh.dispose();
 });
-it('invalidates immediately on blur and renders once after all reset and clear handlers',async()=>{
+it('invalidates immediately and coalesces synchronous reset and clear requests',async()=>{
  const events=new EventTarget(),dataset:DOMStringMap={},input=sample();
  const render=vi.fn(()=>publishNativeCameraPose(dataset,input));
  const refresh=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
