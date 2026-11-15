@@ -289,3 +289,5 @@ export * from './track-spot-profile.js';
 export {trackSpotStaticRailContext} from './wallwasher-coupled-fixture.js';
 
 export * from './viewer-budget-policy.js';
+
+export type {ViewerBudgetAssetReference,ViewerBudgetGeometryInput,ViewerBudgetGeometryResult,ViewerBudgetGeometryAnalyzer} from './viewer-budget-analysis-types.js';
