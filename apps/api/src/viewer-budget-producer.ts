@@ -27,7 +27,7 @@ export async function viewerBudgetAssetSource(c:PoolClient,s:Session,candidate:E
  if(ref.kind==='furnishing'&&ref.furnishingId===undefined){
   if(!validateFurnishings(candidate).valid)throw new ApiError(409,'FURNISHING_INTEGRITY');
   const asset=furnishingsFor(candidate)?.assets.find(x=>x.id===ref.assetId),hint=ref as ViewerBudgetAssetReference&{catalogId?:unknown;catalogVersion?:unknown};
-  if(!asset||hint.catalogId!==undefined&&hint.catalogId!==asset.catalogId||hint.catalogVersion!==undefined&&hint.catalogVersion!==asset.catalogVersion)throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
+  if(!asset||ref.furnishingVersion!==undefined&&ref.furnishingVersion!==asset.catalogVersion||hint.catalogId!==undefined&&hint.catalogId!==asset.catalogId||hint.catalogVersion!==undefined&&hint.catalogVersion!==asset.catalogVersion)throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
   const pair=await furnishingResourcePairSource(c,blobs,s.tenantId,candidate.id,asset);
   source={sha256:asset.sha256,bytes:asset.bytes,mime:asset.mime,read:async()=>(await pair.read()).model};
  }else if(ref.kind==='furnishing'){

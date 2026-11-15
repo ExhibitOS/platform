@@ -13,7 +13,7 @@ function fixture(){
  const draft=newDraft(),light=newLight(draft.candidate.rooms[0]!.id,'spot');light.transform.position=[0,2,0];draft.candidate.lights.push(light);
  draft.candidate=applyFurnishingCommand(draft.candidate,{type:'set-furnishing-visual',hostKind:'light',hostId:light.id,catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}});
  const asset=furnishingsFor(draft.candidate)!.assets[0]!,session={tenantId:randomUUID(),userId:randomUUID(),role:'artist'} as Session;
- return {draft,asset,session,reference:{kind:'furnishing' as const,assetId:asset.id,catalogVersion:asset.catalogVersion,sha256:asset.sha256,bytes:asset.bytes,mime:asset.mime}};
+ return {draft,asset,session,reference:{kind:'furnishing' as const,assetId:asset.id,furnishingVersion:asset.catalogVersion,sha256:asset.sha256,bytes:asset.bytes,mime:asset.mime}};
 }
 it('resolves the actual selected installed museum GLB through fixed catalogue paths and verified bytes',async()=>{
  const f=fixture(),query=vi.fn<(sql:string,args:unknown[])=>Promise<{rows:never[];rowCount:number}>>().mockResolvedValue({rows:[],rowCount:0}),source=await viewerBudgetAssetSource({query} as unknown as PoolClient,f.session,f.draft.candidate,f.reference);
@@ -22,7 +22,7 @@ it('resolves the actual selected installed museum GLB through fixed catalogue pa
 });
 it('rejects unselected identities and catalogue versions before any source lookup',async()=>{
  const f=fixture(),query=vi.fn(),c={query} as unknown as PoolClient;
- for(const reference of [{...f.reference,assetId:randomUUID()},{...f.reference,catalogVersion:99}])await expect(viewerBudgetAssetSource(c,f.session,f.draft.candidate,reference)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
+ for(const reference of [{...f.reference,assetId:randomUUID()},{...f.reference,furnishingVersion:99},{...f.reference,catalogVersion:99}])await expect(viewerBudgetAssetSource(c,f.session,f.draft.candidate,reference)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
  expect(query).not.toHaveBeenCalled();
 });
 it('preserves imported pair authority, performs blob reads after acquisition and never falls back from a damaged half-pair',async()=>{
