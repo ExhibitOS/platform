@@ -238,6 +238,14 @@ test('optional maps use idle owner bytes and dispose their target before require
   expect(ledger.total()).toBe(resident);ledger.reserve('full-display',2*SHADOW_RESERVE_BYTES);expect(ledger.total()).toBe(limit);
   resident=0;pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});pass.dispose();
 });
+test('overlapping material groups cannot bypass the existing triangle bound',()=>{
+  const h=setup(),geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  geometry.clearGroups();geometry.addGroup(0,180000,0);geometry.addGroup(0,180000,1);
+  const materials=[new three.MeshStandardMaterial(),new three.MeshStandardMaterial()],repeated=new three.Mesh(geometry,materials);h.room.add(repeated);
+  h.pass.flush();expect(h.mesh.castShadow).toBe(true);expect(repeated.castShadow).toBe(false);
+  expect(h.reports.at(-1)).toMatchObject({casters:1,triangles:12,omittedCasters:1});
+  h.pass.dispose();geometry.dispose();for(const material of materials)material.dispose();
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();

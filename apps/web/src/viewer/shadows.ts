@@ -205,10 +205,15 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||seen.has(node))return;
       seen.add(node);const materials=Array.isArray(node.material)?node.material:[node.material];
       if(materials.some(material=>material.transparent||!material.depthTest))return;
-      const draws=Array.isArray(node.material)?node.geometry.groups.filter((group:{materialIndex?:number})=>materials[group.materialIndex??0]?.visible).length:Number(materials[0]?.visible===true);
+      const groups=Array.isArray(node.material)?node.geometry.groups.filter((group:{materialIndex?:number})=>materials[group.materialIndex??0]?.visible):undefined;
+      const draws=groups?.length??Number(materials[0]?.visible===true);
       if(!draws)return;
       const box=new three.Box3().setFromObject(node),instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
-      const cost=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
+      const count=node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0;
+      // Repeated/overlapping material groups can draw geometry more than once.
+      // Retain the old full-geometry bound, adding any repeated group work.
+      const groupCount=groups?.reduce((sum:number,group:{start:number;count:number})=>sum+Math.max(0,Math.min(count,group.start+group.count)-Math.max(0,group.start)),0)??0;
+      const cost=Math.max(count,groupCount)/3*instances;
       rows.push({mesh:node,box,cost,draws,visible:!frustum||frustum.intersectsBox(box),distance:position?box.distanceToPoint(position):0});
     });
     // Bound persistent receiver references. Omitted geometry is still rendered.
