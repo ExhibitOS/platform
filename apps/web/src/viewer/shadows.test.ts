@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,installSupportContactShadows,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
+import {AssetPeakBudget} from './loading';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
   const room=new three.Group(),mesh=new three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
@@ -220,6 +221,22 @@ test('multiple material groups share the global depth draw allowance across pool
   expect(reports.at(-1)).toMatchObject({casters:1,omittedCasters:1,mapCount:2,sources:[{depthDraws:2},{depthDraws:2}]});
   expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.depthDraws,0)).toBe(4);
   pass.dispose();geometry.dispose();for(const material of materials)material.dispose();extra.geometry.dispose();
+});
+test('optional maps use idle owner bytes and dispose their target before required display regains its hold',()=>{
+  const h=setup();h.pass.dispose();const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  let resident=SHADOW_RESERVE_BYTES;const limit=3*SHADOW_RESERVE_BYTES,ledger=new AssetPeakBudget(limit,()=>resident);
+  ledger.reserve('required-pending',SHADOW_RESERVE_BYTES+1);
+  expect(leaseOptionalShadowMaps(pass,2,ledger,limit)).toBeUndefined();
+  expect(ledger.total()).toBe(2*SHADOW_RESERVE_BYTES+1);
+  ledger.release('required-pending');const release=leaseOptionalShadowMaps(pass,2,ledger,limit)!;
+  expect(ledger.total()).toBe(2*SHADOW_RESERVE_BYTES);pass.flush();expect(second.castShadow).toBe(true);
+  const map=new three.WebGLRenderTarget(512,512);second.shadow.map=map;let freed=false;
+  map.addEventListener('dispose',()=>{expect(ledger.reservationBytes('viewer:optional-shadow-maps')).toBe(SHADOW_RESERVE_BYTES);freed=true;});
+  release();release();expect(freed).toBe(true);expect(second.shadow.map).toBeNull();expect(second.castShadow).toBe(false);
+  // The unchanged full display fits again without eviction or LOD replacement.
+  expect(ledger.total()).toBe(resident);ledger.reserve('full-display',2*SHADOW_RESERVE_BYTES);expect(ledger.total()).toBe(limit);
+  resident=0;pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});pass.dispose();
 });
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();

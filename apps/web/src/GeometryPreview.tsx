@@ -64,7 +64,7 @@ import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/p
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
-import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -604,8 +604,11 @@ export function GeometryPreview({
       const authoredShadowCount=document.lights.filter(light=>light.castsShadow===true&&(light.type==='spot'||light.type==='directional')).length;
       // Match existing aggregate scene draw ceilings; DeviceBudget has no draw field.
       const depthDrawBudget=session&&!publicSource?384:256;
-      const shadowMapCount=Math.min(Math.max(1,authoredShadowCount),Math.floor(depthDrawBudget),Math.floor((resources?.maxCacheBytes??33554432)/SHADOW_RESERVE_BYTES));
-      const shadowReserve=compactQuality?0:shadowMapCount*SHADOW_RESERVE_BYTES;
+      // Preserve the existing single-map carve and every artwork/material limit.
+      // Additional maps need a reversible, no-reclaim lease after actual loading.
+      const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      let releaseExtraShadows:ReturnType<typeof leaseOptionalShadowMaps>;
+      const releaseOptionalShadows=()=>{releaseExtraShadows?.();releaseExtraShadows=undefined;};
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
       const mapImageIds=document.placements.filter(p=>document.artworks.some(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase()&&a.artworkType==='image')).map(p=>p.id);
       const mapThumbnailReserve=viewerBudget&&onMapThumbnail?mapThumbnailRosterReserve(mapImageIds.length):0;
@@ -909,9 +912,9 @@ export function GeometryPreview({
       for(const room of rooms.values())room.traverse(node=>{if(node.userData.catalogImplicitFloor===true){node.updateWorldMatrix(true,false);shadowWorldBounds.expandByObject(node);}});
       const fixedShadowWorld=!shadowWorldBounds.isEmpty()&&Math.max(...shadowWorldBounds.getSize(new three.Vector3()).toArray())<=32?shadowWorldBounds:undefined;
       const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
-        renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
+        renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve+(releaseExtraShadows?.bytes??0)});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
-      },fixedShadowWorld,depthDrawBudget);owned.push(shadowPass);
+      },fixedShadowWorld,depthDrawBudget);owned.push(shadowPass,{dispose:releaseOptionalShadows});
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {
@@ -2323,6 +2326,7 @@ export function GeometryPreview({
         };
         const reserve=(key:string,bytes:number,probe=false)=>{
           const task=tasks.get(key),limit=requestLimits(task).transition;
+          if(peak.total(key)+bytes>limit)releaseOptionalShadows();
           if(peak.total(key)+bytes>limit)releaseCachedOriginal();
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           reclaimEncoded(()=>peak.total(key)+bytes-limit);
@@ -2608,6 +2612,9 @@ export function GeometryPreview({
             update();
             return;
           }
+          // Required display always wins over optional maps, before resident
+          // retry/eviction decisions or a full/coarse admission can change.
+          if(active.get(art.revisionId)!==inventory.id&&minimumObjects.get(art.revisionId)?.assetId!==inventory.id)releaseOptionalShadows();
           const detailBudget=detailPromotion?selectedBudget(art,inventory):undefined;
           if(detailPromotion&&detailBudgetWait?.assetId===inventory.id){
             const {bytes,phase}=detailBudgetWait,limit=requestLimits({detailPromotion,detailBudget})[phase];
@@ -3311,6 +3318,7 @@ export function GeometryPreview({
         viewingCallback.current?.(viewingBridge);
         let acquiredModelDrain:Promise<void>|undefined;
         const mountSharedDetail:SharedDetailPreview=async input=>{
+          releaseOptionalShadows();
           const mountEpoch=++detailMountEpoch;
           const signal=AbortSignal.any([abort.signal,input.signal]);
           const assertMount=()=>assertDetailMountCurrent(signal,mountEpoch,detailMountEpoch,!disposed&&!gpuLost&&!publicDisplayStopped&&!xrActive.current&&!sharedDetail&&suspendedRef.current);
@@ -3766,7 +3774,17 @@ export function GeometryPreview({
             contactShadows.setView(camera);render();
           }catch{releaseContact();contactReceivers=undefined;renderer.domElement.dataset.supportContactShadows='unavailable';}
         };
-        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const updateOptionalShadowMaps=()=>{
+          if(compactQuality||authoredShadowCount<2||releaseExtraShadows||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled||!contactFurnishingsSettled)return;
+          if(pending.size||materialBudgetDeferred.size||residentMinimumWait.size||optionalResidentWaits.size||scheduler.stats().active||scheduler.stats().queued)return;
+          if(!arts.every(art=>objects.has(art.revisionId)&&active.has(art.revisionId)))return;
+          // Contact setup can reclaim encoded cache; complete it BEFORE borrowing
+          // idle memory so an optional map never causes that reclamation.
+          if(contactEligible&&contactReceivers?.length&&!contactShadows)return;
+          releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount,peak,Math.min(assetBudgetBytes,transitionBudgetBytes));
+          if(releaseExtraShadows)render();
+        };
+        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();updateOptionalShadowMaps();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         drainArtworkWork=()=>{
           scheduler.dispose();
           if(artworkReleaseFailure)return Promise.reject(artworkReleaseFailure);
@@ -3915,6 +3933,15 @@ export function GeometryPreview({
         if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
       snapshotFurnishingsSettled=true;if(nativeSelection&&!disposed&&!gpuLost)setReady(true);
+      // Native chosen inventories and furnishings have finished before borrowing
+      // idle bytes. Any changed source/variant rebuild disposes this scene lease.
+      void Promise.allSettled([materialWork,...catalogSettled]).then(()=>{
+        if(compactQuality||authoredShadowCount<2||disposed||gpuLost||unavailable||!floorSettled||!surfaceSettled)return;
+        if(ownerFurnishings?.stats().failed)return;
+        const ledger=ownerFurnishings?.ledger??new AssetPeakBudget(transitionBudgetBytes,()=>localResidentBytes+byteCache.stats().bytes);
+        releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount,ledger,Math.min(assetBudgetBytes,transitionBudgetBytes));
+        if(releaseExtraShadows)render();
+      });
     };
     const building=build().catch((error) => {
       if (!disposed) {

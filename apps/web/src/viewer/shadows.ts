@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as THREE from 'three';
 import {selectShadowDependencies,shadowReceiverRegions} from './shadow-interest';
+import type {AssetPeakBudget} from './loading';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
@@ -56,7 +57,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   type Plan={candidate:ShadowCandidate;capture:THREE.Box3};
   let plans:Plan[]=[],requestedSources=0,deferredSources=0,sourceReports:ShadowSourceReport[]=[];
   const anchors=new Map<ShadowCandidate['light'],THREE.Vector3>();
-  const mapCapacity=Math.max(0,Math.min(Math.floor(availableBytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
+  let mapCapacity=Math.max(0,Math.min(Math.floor(availableBytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
   let view:THREE.Camera|undefined,captureAnchor:THREE.Vector3|undefined,viewRotation:THREE.Quaternion|undefined,captureProjection:THREE.Matrix4|undefined,omittedLast=0;
   let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
   const dependencyCaches=new Map<ShadowCandidate['light'],{version:number;view:THREE.Matrix4;projection:THREE.Matrix4;light:THREE.Matrix4;lightProjection:THREE.Matrix4;regions:THREE.Box3[]}>();
@@ -270,7 +271,33 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
-  return {flush,afterRender,dependencies,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+  const setAvailableBytes=(bytes:number)=>{
+    if(disposed)return;
+    const capacity=Math.max(0,Math.min(Math.floor(bytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
+    if(capacity===mapCapacity)return;
+    mapCapacity=capacity;dirty=true;
+    // Release removed GPU targets synchronously, before an owner returns their
+    // memory reservation to required display work. No draw is issued here.
+    if(plans.length>capacity){
+      for(const plan of plans.slice(capacity)){releaseMap(plan.candidate.light);anchors.delete(plan.candidate.light);dependencyCaches.delete(plan.candidate.light);}
+      plans=plans.slice(0,capacity);selected=plans[0]?.candidate;
+    }
+  };
+  return {flush,afterRender,dependencies,setAvailableBytes,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+}
+
+/** Optional maps borrow only already-unoccupied owner-ledger capacity. The
+ * caller verifies required representations/phases are settled, and releases
+ * this lease BEFORE new required-display admission. Never reclaim artwork. */
+export function leaseOptionalShadowMaps(pass:Pick<ReturnType<typeof installBoundedShadows>,'setAvailableBytes'>,
+  requestedSources:number,ledger:Pick<AssetPeakBudget,'total'|'reserve'|'release'>,limit:number){
+  const count=Math.max(0,Math.min(requestedSources-1,Math.floor((limit-ledger.total())/SHADOW_RESERVE_BYTES)));
+  if(!Number.isSafeInteger(count)||count<1)return undefined;
+  const key='viewer:optional-shadow-maps',bytes=count*SHADOW_RESERVE_BYTES;
+  // reserve() independently checks current live allocations, including holds.
+  ledger.reserve(key,bytes,limit);pass.setAvailableBytes(SHADOW_RESERVE_BYTES+bytes);
+  let released=false;
+  return Object.assign(()=>{if(released)return;pass.setAvailableBytes(SHADOW_RESERVE_BYTES);ledger.release(key);released=true;},{bytes});
 }
 
 export type SupportContact = {
