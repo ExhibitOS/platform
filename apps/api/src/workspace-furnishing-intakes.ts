@@ -245,9 +245,21 @@ export class WorkspaceFurnishingIntakes {
   const record:FrameImageFit={version:1,profile:'contain-contact-v1',sourceSha256:primary.sha256,pixelWidth:pixels.width,pixelHeight:pixels.height};
   await this.checkArtwork(c,s,artwork);await this.writer?.assertLive();return record;
  }
+ async modelSource(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
+  if(typeof id==='string'&&installedFrameDescriptorFor(id)){const model=await this.installedFrame(c,s,version,id);return {sha256:model.sha256,mime:model.mime,bytes:model.bytes.length,read:async()=>model.bytes};}
+  const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(!this.portableImportKey(s.tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256))throw new ApiError(409,'ASSET_INTEGRITY');const blobs=this.blobs;
+  return {sha256:row.descriptor.model.sha256,mime:row.descriptor.model.mime,bytes:row.descriptor.model.bytes,read:async()=>{
+   if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);
+   let bytes:Buffer;try{bytes=Buffer.from(await blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+   if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+   if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return bytes;
+  }};
+ }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
   if(typeof id==='string'&&installedFrameDescriptorFor(id))return this.installedFrame(c,s,version,id);
-  const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(!this.portableImportKey(s.tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256))throw new ApiError(409,'ASSET_INTEGRITY');let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:row.descriptor.model.mime,sha256:row.descriptor.model.sha256};}
+  const source=await this.modelSource(c,s,id,version,purpose);return {bytes:await source.read(),mime:source.mime,sha256:source.sha256};
+ }
+
  /** Fence the complete publication after I/O so one model cannot expire
   * while another model is being read. The caller holds the policy locks. */
  async publicationFence(c:PoolClient,descriptors:readonly WorkspaceFurnishingDescriptor[]){

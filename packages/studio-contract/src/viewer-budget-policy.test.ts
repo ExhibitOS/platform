@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {expect,test} from 'vitest';
+import type {Exhibition} from '@exhibitos/spec';
+import {VIEWER_BUDGET_NAMESPACE as N,VIEWER_BUDGET_METRICS,viewerBudgetPolicyFor,validateViewerBudgetPolicy,setViewerBudgetPolicy,setViewerBudgetOverrides,setViewerBudgetTargetProfile,resetViewerBudgetPolicy,selectViewerBudgetProfile,resolveViewerBudgetPolicy,evaluateViewerBudgetUsage,type ViewerBudgetPolicy,type ViewerBudgetUsage} from './viewer-budget-policy.js';
+const fixture=()=>({extensions:{'org.example/opaque':{id:'unchanged'}},rooms:[{id:'same-room'}]} as unknown as Exhibition);
+const usage=(complete=true):ViewerBudgetUsage=>({scope:'wholeExhibition',complete,colorDraws:10,displayTriangles:100,shadowCasterTriangles:100,shadowDepthTriangles:100,residentBytes:1024,transitionBytes:2048,contributors:[]});
+test('absence and each resolved profile retain current recommended limits without mutating source or device baseline',()=>{
+ const d=fixture(),before=structuredClone(d);expect(validateViewerBudgetPolicy(d).valid).toBe(true);expect(viewerBudgetPolicyFor(d)).toEqual({version:1,policyVersion:1,profiles:{}});
+ expect(resolveViewerBudgetPolicy(d,'standard').admission.colorDraws).toBe(384);expect(resolveViewerBudgetPolicy(d,'compact').admission.displayTriangles).toBe(250000);expect(resolveViewerBudgetPolicy(d,'native').admission.displayTriangles).toBe(350000);
+ const baseline={residentBytes:336*1024*1024,transitionBytes:448*1024*1024},copy=structuredClone(baseline);expect(resolveViewerBudgetPolicy(d,'standard',baseline).recommended.residentBytes).toBe(baseline.residentBytes);expect(baseline).toEqual(copy);expect(d).toEqual(before);
+});
+test('expert overrides, warning and admission decisions use the same effective values with no hidden default rejection',()=>{
+ const d=setViewerBudgetOverrides(fixture(),'standard',{admission:{colorDraws:700},warning:{colorDraws:650}}),resolved=resolveViewerBudgetPolicy(d,'standard');
+ expect(resolved.recommended.colorDraws).toBe(384);expect(resolved.admission.colorDraws).toBe(700);expect(evaluateViewerBudgetUsage(resolved,{...usage(),colorDraws:600}).status).toBe('within');expect(evaluateViewerBudgetUsage(resolved,{...usage(),colorDraws:650}).warnings).toContain('colorDraws');expect(evaluateViewerBudgetUsage(resolved,{...usage(),colorDraws:701}).admissionExceeded).toContain('colorDraws');
+});
+test('per-profile reset preserves other settings, target selection, unrelated data and other exhibitions; full reset restores absence',()=>{
+ const original=fixture(),other=fixture(),before=structuredClone(original);let d=setViewerBudgetTargetProfile(original,'compact');d=setViewerBudgetOverrides(d,'standard',{admission:{colorDraws:500}});d=setViewerBudgetOverrides(d,'compact',{admission:{colorDraws:450}});
+ const reset=setViewerBudgetOverrides(d,'standard',null);expect(viewerBudgetPolicyFor(reset).profiles.standard).toBeUndefined();expect(viewerBudgetPolicyFor(reset).profiles.compact!.admission!.colorDraws).toBe(450);expect(viewerBudgetPolicyFor(reset).targetProfile).toBe('compact');expect(resetViewerBudgetPolicy(d)).toEqual(original);expect(original).toEqual(before);expect(other).toEqual(before);
+ expect(setViewerBudgetPolicy(original,{version:1,policyVersion:1,profiles:{},targetProfile:'auto'})).toEqual(original);expect(setViewerBudgetPolicy({...original,extensions:{[N]:{version:99}}} as never,null)).toEqual({...original,extensions:undefined});
+});
+test('persisted target is distinct from read-only inspection profile, actual automatic selection and native editor context',()=>{
+ const d=setViewerBudgetTargetProfile(fixture(),'compact');expect(selectViewerBudgetProfile(d,{nativeEditor:false,automaticProfile:'standard'})).toMatchObject({storedTargetProfile:'compact',effectiveProfile:'compact',selection:'exhibition-target'});expect(selectViewerBudgetProfile(d,{nativeEditor:false,automaticProfile:'compact',requestedProfile:'standard'})).toMatchObject({storedTargetProfile:'compact',effectiveProfile:'standard',selection:'request'});expect(selectViewerBudgetProfile(d,{nativeEditor:true,automaticProfile:'compact'}).effectiveProfile).toBe('native');expect(selectViewerBudgetProfile(fixture(),{nativeEditor:false,automaticProfile:'compact'})).toMatchObject({effectiveProfile:'compact',selection:'automatic'});
+});
+test('closed versions, profiles, fields and numeric validation reject coercion and hardware-capability overrides',()=>{
+ const valid:ViewerBudgetPolicy={version:1,policyVersion:1,profiles:{standard:{admission:{colorDraws:500}}}};
+ for(const edit of [(p:Record<string,unknown>)=>p.version=2,p=>p.policyVersion=2,p=>p.hardware={maxTextureSize:8192},p=>p.targetProfile='native',p=>p.profiles={unknown:{}},p=>p.profiles={standard:{admission:{maxTextureSize:8192}}},p=>p.profiles={standard:{admission:{colorDraws:'500'}}},p=>p.profiles={standard:{admission:{colorDraws:0}}},p=>p.profiles={standard:{warning:{residentBytes:-1}}}]){const p=structuredClone(valid) as unknown as Record<string,unknown>;edit(p);expect(validateViewerBudgetPolicy({extensions:{[N]:p}} as never).valid).toBe(false);expect(()=>setViewerBudgetPolicy(fixture(),p as never)).toThrow('VIEWER_BUDGET_POLICY_INVALID');}
+ for(const value of [Infinity,NaN,1.5,Number.MAX_SAFE_INTEGER+1])expect(()=>setViewerBudgetOverrides(fixture(),'standard',{admission:{colorDraws:value}})).toThrow();expect(setViewerBudgetOverrides(fixture(),'standard',{admission:{residentBytes:Number.MAX_SAFE_INTEGER}})).toBeDefined();
+});
+test('unknown and incomplete scoped estimates are never silently zero or an all-exhibition success, while established lower-bound exceedance remains visible',()=>{
+ const p=resolveViewerBudgetPolicy(fixture(),'standard');expect(evaluateViewerBudgetUsage(p,{...usage(),residentBytes:null}).unknown).toContain('residentBytes');expect(evaluateViewerBudgetUsage(p,usage(false)).status).toBe('unknown');expect(evaluateViewerBudgetUsage(p,{...usage(false),colorDraws:400}).admissionExceeded).toContain('colorDraws');expect(evaluateViewerBudgetUsage(p,{...usage(),scope:'currentView'}).scope).toBe('currentView');for(const key of VIEWER_BUDGET_METRICS)expect(()=>evaluateViewerBudgetUsage(p,{...usage(),[key]:NaN})).toThrow('VIEWER_BUDGET_USAGE_INVALID');
+});

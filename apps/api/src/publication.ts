@@ -1,3 +1,4 @@
+import {VIEWER_BUDGET_NAMESPACE,validateViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import {approvedGpuModelPublicationSource} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel,type ArtworkGpuModel} from '@exhibitos/studio-contract';
 import {publicationThumbnailsCurrent} from './publication-thumbnail-freshness.ts';
@@ -219,7 +220,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     return projectPublicationCore(candidate,prepared,at,media,cover,furnishings,publicationBytesHash);
 }
 function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string,workspaceAuthorized=false,materialAuthorized=false){
-    if(candidate.artworks.some(artwork=>!validateArtworkGpuModel(artwork).valid))throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!validateViewerBudgetPolicy(candidate).valid||candidate.artworks.some(artwork=>!validateArtworkGpuModel(artwork).valid))throw new ApiError(422,'PUBLICATION_NOT_READY');
     // A workspace map must never be silently dropped from a public projection.
     // Until byte authority and public resource delivery are connected, fail closed.
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE)&&!materialAuthorized)throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
@@ -245,7 +246,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [FURNISHING_NAMESPACE, FURNISHING_WALKING_COLLISION_NAMESPACE, DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, LIGHT_ATTACHMENT_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE, FOOTSTEP_RESOURCE_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [VIEWER_BUDGET_NAMESPACE, FURNISHING_NAMESPACE, FURNISHING_WALKING_COLLISION_NAMESPACE, DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, LIGHT_ATTACHMENT_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE, FOOTSTEP_RESOURCE_NAMESPACE].includes(key)));
     doc.extensions[PRESENTATION_NAMESPACE]={...presentationFor(doc),watermark:watermarkFor(doc)} as unknown as NonNullable<Exhibition['extensions']>[string];
     const lightDetails=doc.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
     const attachments=doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;

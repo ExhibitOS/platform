@@ -23,7 +23,7 @@ export const hasSupportContactMaterialHook=(material:THREE.Material)=>
   supportMaterialHooks.get(material)===material.onBeforeCompile;
 export type ShadowCandidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D;authoredCastShadow?:boolean;sourceLightId?:string;targetPlacementId?:string};
 export type ShadowSourceReport = {sourceLightId?:string;targetPlacementId?:string;casters:number;triangles:number;depthDraws:number;targetCasters:number;targetTriangles:number;omittedTargetCasters:number};
-export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number;sourceLightId?:string;targetPlacementId?:string;targetCasters?:number;targetTriangles?:number;omittedTargetCasters?:number;mapCount?:number;mapBytes?:number;requestedSources?:number;deferredSources?:number;sources?:ShadowSourceReport[]};
+export type ShadowReport = {depthTriangles?:number;depthDraws?:number;mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number;sourceLightId?:string;targetPlacementId?:string;targetCasters?:number;targetTriangles?:number;omittedTargetCasters?:number;mapCount?:number;mapBytes?:number;requestedSources?:number;deferredSources?:number;sources?:ShadowSourceReport[]};
 
 /** Inspect referenced positions, including arbitrarily oriented planes. No welding,
  * geometry edits or per-frame scan. Degenerate/deformed surfaces keep native policy. */
@@ -57,7 +57,8 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
  * room labels never change lighting variants, receiver ownership or map identity.
  * No point-light cube maps or new lights; depth work stays globally bounded. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
-  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity) {
+  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity,triangleLimits={shadowCasterTriangles:SHADOW_TRIANGLE_LIMIT,shadowDepthTriangles:SHADOW_TRIANGLE_LIMIT}) {
+  if(Object.values(triangleLimits).some(value=>!Number.isSafeInteger(value)||value<1))throw Error('SHADOW_POLICY_INVALID');
   const fixedWorld=worldBounds&&!worldBounds.isEmpty()&&[...worldBounds.min.toArray(),...worldBounds.max.toArray()].every(Number.isFinite)?worldBounds.clone():undefined;
   let dirty=true,disposed=false,updates=0,selected:ShadowCandidate|undefined,capture:THREE.Box3|undefined;
   type Plan={candidate:ShadowCandidate;capture:THREE.Box3};
@@ -88,7 +89,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const afterRender=()=>{for(const [material]of depthSides)restoreDepth(material);};
   const poses=new Map<THREE.DirectionalLight,{original:THREE.DirectionalLight['shadow']['updateMatrices'];proxy:THREE.DirectionalLight}>();
   let targetCasters=0,targetTriangles=0,omittedTargetCasters=0;
-  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0,omittedCasters=0)=>report({mode,mapSize:mode==='bounded'?512:0,casters,triangles,updates,omittedCasters,...(selected?.sourceLightId?{sourceLightId:selected.sourceLightId}:{}),...(selected?.authoredCastShadow&&selected.targetPlacementId?{targetPlacementId:selected.targetPlacementId,targetCasters,targetTriangles,omittedTargetCasters}:{}),...(requestedSources>1?{mapCount:mode==='bounded'?plans.length:0,mapBytes:mode==='bounded'?plans.length*SHADOW_RESERVE_BYTES:0,requestedSources,deferredSources,sources:sourceReports}:{})});
+  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0,omittedCasters=0)=>report({mode,depthTriangles:mode==='bounded'?sourceReports.reduce((n,row)=>n+row.triangles,0):0,depthDraws:mode==='bounded'?sourceReports.reduce((n,row)=>n+row.depthDraws,0):0,mapSize:mode==='bounded'?512:0,casters,triangles,updates,omittedCasters,...(selected?.sourceLightId?{sourceLightId:selected.sourceLightId}:{}),...(selected?.authoredCastShadow&&selected.targetPlacementId?{targetPlacementId:selected.targetPlacementId,targetCasters,targetTriangles,omittedTargetCasters}:{}),...(requestedSources>1?{mapCount:mode==='bounded'?plans.length:0,mapBytes:mode==='bounded'?plans.length*SHADOW_RESERVE_BYTES:0,requestedSources,deferredSources,sources:sourceReports}:{})});
   const releaseMap=(light:ShadowCandidate['light'])=>{light.castShadow=false;light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;if(light instanceof three.DirectionalLight){const pose=poses.get(light);if(pose){light.shadow.updateMatrices=pose.original;poses.delete(light);}}};
   const disabled=compact?'compact':mapCapacity<1?'budget':undefined;
   const restoreFlags=()=>{
@@ -252,7 +253,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
       const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||mesh.intersectsFrustum(frustum)).length;
       if(!passes)continue;
-      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>SHADOW_TRIANGLE_LIMIT||depthTriangles+cost*passes>SHADOW_TRIANGLE_LIMIT||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>triangleLimits.shadowCasterTriangles||depthTriangles+cost*passes>triangleLimits.shadowDepthTriangles||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
       meshes.push(mesh);triangles+=cost;depthTriangles+=cost*passes;depthDraws+=draws*passes;if(isPrimaryTarget(mesh)){targetCasters++;targetTriangles+=cost;}
     }
     omittedLast=omittedCasters;

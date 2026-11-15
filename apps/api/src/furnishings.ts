@@ -12,7 +12,7 @@ import {readFurnishingBytes} from './furnishing-assets.ts';
 export {readFurnishingBytes} from './furnishing-assets.ts';
 /** Imported bytes survive reopen/backup independently of the installed library.
  * Public UUID remapping never changes the known catalogue resource identity. */
-export async function furnishingResourcePair(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset,signal?:AbortSignal):Promise<{model:Buffer;notice:Buffer}>{
+export async function furnishingResourcePairSource(c:PoolClient,blobs:BlobStore|undefined,tenantId:string,exhibitionId:string,asset:FurnishingAsset,signal?:AbortSignal) {
  signal?.throwIfAborted();
  let expected:FurnishingAsset;try{expected=furnishingAsset(asset.id,asset.catalogId);}catch{throw new ApiError(404,'FURNISHING_UNAVAILABLE');}
  if(freezeCanonical(asset)!==freezeCanonical(expected))throw new ApiError(409,'FURNISHING_INTEGRITY');
@@ -20,16 +20,27 @@ export async function furnishingResourcePair(c:PoolClient,blobs:BlobStore,tenant
  const rows=(await c.query('SELECT role,resource_path,bytes,sha256,object_key FROM studio_furnishing_resources WHERE tenant_id=$1 AND exhibition_id=$2 AND catalog_id=$3 AND catalog_version=$4',[tenantId,exhibitionId,asset.catalogId,asset.catalogVersion])).rows;
  // A restored/imported half-pair is invalid, never a reason to mix persisted
  // and installed sources. Built-in fallback is allowed only for zero rows.
- if(!rows.length)return {model:await readFurnishingBytes(asset,'model',signal),notice:await readFurnishingBytes(asset,'notice',signal)};
+ if(!rows.length)return {read:async()=>({model:await readFurnishingBytes(asset,'model',signal),notice:await readFurnishingBytes(asset,'notice',signal)})};
  if(rows.length!==2||new Set(rows.map(row=>row.role)).size!==2||rows.some(row=>row.role!=='model'&&row.role!=='notice'))throw new ApiError(409,'FURNISHING_INTEGRITY');
- const read=async(role:'model'|'notice')=>{
+ const resources=new Map<'model'|'notice',{row:typeof rows[number];bytes:number;hash:string}>();
+ for(const role of ['model','notice'] as const){
   const row=rows.find(row=>row.role===role),path=role==='model'?entry.path:entry.rights.noticePath,bytes=role==='model'?asset.bytes:asset.rights.notice.bytes,hash=role==='model'?asset.sha256:asset.rights.notice.sha256;
   if(!row||row.resource_path!==path||Number(row.bytes)!==bytes||row.sha256!==hash||typeof row.object_key!=='string'||!row.object_key.startsWith(tenantId+'/'))throw new ApiError(409,'FURNISHING_INTEGRITY');
-  signal?.throwIfAborted();let data:Buffer;try{if(signal&&!blobs.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');data=Buffer.from(await (blobs.getBounded?blobs.getBounded(row.object_key,bytes,signal):blobs.get(row.object_key,signal)));}catch{throw new ApiError(409,'FURNISHING_INTEGRITY');}signal?.throwIfAborted();
+  resources.set(role,{row,bytes,hash});
+ }
+ if(!blobs)throw new ApiError(503,'FURNISHING_UNAVAILABLE');
+ const store=blobs;
+ const read=async(role:'model'|'notice')=>{
+  const {row,bytes,hash}=resources.get(role)!;
+  signal?.throwIfAborted();let data:Buffer;try{if(signal&&!store.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');data=Buffer.from(await (store.getBounded?store.getBounded(row.object_key,bytes,signal):store.get(row.object_key,signal)));}catch{throw new ApiError(409,'FURNISHING_INTEGRITY');}signal?.throwIfAborted();
   if(data.length!==bytes||createHash('sha256').update(data).digest('hex')!==hash)throw new ApiError(409,'FURNISHING_INTEGRITY');return data;
  };
- return {model:await read('model'),notice:await read('notice')};
+ return {read:async()=>({model:await read('model'),notice:await read('notice')})};
 }
+export async function furnishingResourcePair(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset,signal?:AbortSignal):Promise<{model:Buffer;notice:Buffer}>{
+ return (await furnishingResourcePairSource(c,blobs,tenantId,exhibitionId,asset,signal)).read();
+}
+
 export async function furnishingResourceBytes(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset,role:'model'|'notice'){
  if(role!=='model'&&role!=='notice')throw new ApiError(404,'FURNISHING_UNAVAILABLE');
  return (await furnishingResourcePair(c,blobs,tenantId,exhibitionId,asset))[role];

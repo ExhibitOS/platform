@@ -1,3 +1,9 @@
+import type {BlobStore} from '@exhibitos/storage';
+import type {Cms} from './cms.ts';
+import {viewerBudgetAssetSource} from './viewer-budget-producer.ts';
+import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
+import {analyzeViewerBudget,type ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
+import {ordinaryViewerBudgetPolicyDelta} from './viewer-budget-policy-delta.ts';
 import {ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
 import {nativeFrameImageFitProposal,type NativeFrameImageFitCommand} from './native-frame-image-fit.ts';
 export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
@@ -48,7 +54,7 @@ export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand;
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -84,12 +90,13 @@ function sorted(value: unknown): string {
 }
 const hash = (value: unknown) =>
   createHash("sha256").update(sorted(value)).digest("hex");
-function checked(input: StudioInput, bounded=false) {
+function checked(input: StudioInput, bounded=false, skipBudget=false) {
   uuid(input.requestId);
   if (
     input.draft?.kind !== "exhibition-draft" ||
     !validateLifecycle(input.draft,undefined,bounded?{archiveProfile:"bounded-file-v1"}:undefined).valid ||
     !validateArchitecture(input.draft.candidate).valid ||
+    !skipBudget&&!validateViewerBudgetPolicy(input.draft.candidate).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
     !validateArchitecturalFinishes(input.draft.candidate).valid || !validateStudioPlaques(input.draft.candidate).valid || !validateStudioBenches(input.draft.candidate).valid || !validateFurnishingWalkingCollision(input.draft.candidate).valid || !validateViewingPlan(input.draft.candidate).valid ||
@@ -131,7 +138,9 @@ export class Studio {
   private readonly nativeBoundedEditing:boolean;
   private readonly workspaceMaterial:WorkspaceMaterialIntakes|undefined;
   private readonly workspaceFurnishing:WorkspaceFurnishingIntakes|undefined;
-  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;}
+  private readonly budgetCms:Cms|undefined;
+  private readonly budgetBlobs:BlobStore|undefined;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,budgetCms?:Cms,budgetBlobs?:BlobStore) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;this.budgetCms=budgetCms;this.budgetBlobs=budgetBlobs;}
   private boundedCapability(s:Session,row:{id:string;revision:number;metadata:Draft}) {
     if(!this.nativeOexWorkspace||!this.nativeBoundedEditing)throw new ApiError(403,'FORBIDDEN');
     return {version:1 as const,kind:'native-bounded-edit-v1' as const,tenantId:s.tenantId,principalId:s.userId,workspaceId:this.nativeOexWorkspace.workspaceId,exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata)};
@@ -225,7 +234,7 @@ export class Studio {
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
-    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta&&!benchVisualDelta&&!benchForwardDelta&&!railDelta&&!railNoop)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop&&!infoStandDelta&&!benchVisualDelta&&!benchForwardDelta&&!railDelta&&!railNoop&&!ordinaryViewerBudgetPolicyDelta(row.metadata,input.draft))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
   async proposeNativeDefaultSeats(c:PoolClient,s:Session,input:NativeDefaultSeatProposalInput) {
@@ -357,6 +366,43 @@ export class Studio {
   async put(c:PoolClient,s:Session,id:string,input:StudioInput,match:string):Promise<StudioResponse>{
     return this.putInternal(c,s,id,input,match);
   }
+  /** Read-only authoring inspection binds both saved head and exact dirty candidate. */
+  async prepareViewerBudget(c:PoolClient,s:Session,id:string,options:ViewerBudgetAnalysisOptions={},input?:StudioInput&{expectedRevision:number},match?:string){
+    const row=await this.access(c,s,id),head=etag(row.revision,row.metadata);
+    const draft=input?.draft??row.metadata as Draft;
+    if(input){
+      if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
+      if(match!==head||input.expectedRevision!==row.revision)throw new ApiError(412,'REMOTE_CONFLICT');
+      checked(input,!!row.nativeBounded);
+      if(draft.id.toLowerCase()!==row.metadata.id.toLowerCase()||draft.exhibitionId.toLowerCase()!==id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
+    }
+    const binding={exhibitionId:id,savedRevision:row.revision,etag:head,draftId:draft.id,draftEditVersion:draft.editVersion,source:input?'draft' as const:'saved' as const};
+    const candidate=structuredClone(draft.candidate),initial=analyzeViewerBudget(candidate,binding,options);
+    return {candidate,binding,options:structuredClone(options),initial};
+  }
+  async viewerBudget(c:PoolClient,s:Session,id:string,options:ViewerBudgetAnalysisOptions={},input?:StudioInput&{expectedRevision:number},match?:string){
+    return (await this.prepareViewerBudget(c,s,id,options,input,match)).initial;
+  }
+  viewerBudgetSource(c:PoolClient,s:Session,candidate:Draft['candidate'],reference:ViewerBudgetAssetReference){
+    return viewerBudgetAssetSource(c,s,candidate,reference,this.budgetCms,this.workspaceFurnishing,this.budgetBlobs);
+  }
+  async assertViewerBudgetCurrent(c:PoolClient,s:Session,id:string,head:string){
+    const row=await this.access(c,s,id);if(etag(row.revision,row.metadata)!==head)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
+  }
+
+  /** Settings reuse the ordinary save transaction, source checks and durable receipts. */
+  async putViewerBudget(c:PoolClient,s:Session,id:string,input:{requestId:string;expectedRevision:number;policy:ViewerBudgetPolicy|null},match:string){
+    uuid(input.requestId);
+    const row=await this.access(c,s,id),payloadHash=hash({method:'PUT_VIEWER_BUDGET',id,match,input});
+    const replay=await this.receipt(c,s,{requestId:input.requestId,draft:row.metadata},payloadHash);
+    if(replay)return replay;
+    if(input.expectedRevision!==row.revision||match!==etag(row.revision,row.metadata))throw new ApiError(412,'REMOTE_CONFLICT');
+    if(!Number.isSafeInteger(row.metadata.editVersion+1))throw new ApiError(409,'REVISION_LIMIT');
+    let candidate:Draft['candidate'];
+    try{candidate=setViewerBudgetPolicy(row.metadata.candidate,input.policy);}catch{throw new ApiError(422,'VIEWER_BUDGET_POLICY_INVALID');}
+    const draft={...structuredClone(row.metadata),candidate,editVersion:row.metadata.editVersion+1,updatedAt:new Date().toISOString()} as Draft;
+    return this.putInternal(c,s,id,{requestId:input.requestId,draft},match,undefined,payloadHash);
+  }
   /** Server-only narrow operation; authorization and verified approval remain caller obligations. */
   async proposeNativeAuthoring(c:PoolClient,s:Session,id:string,input:NativeAuthoringProposalInput,match:string){
     const owner=this.nativeOexWorkspace;
@@ -370,10 +416,12 @@ export class Studio {
     const head=etag(row.revision,row.metadata);
     if(expectedRevision!==row.revision||match!==head)throw new ApiError(412,'REMOTE_CONFLICT');
     const draft=row.metadata as Draft;
-    checked({draft,requestId});
+    const budgetCommand=request.type==='set-viewer-budget-policy';
+    checked({draft,requestId},budgetCommand&&!!row.nativeBounded,budgetCommand);
     let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string};
     try{
-      if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
+      if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
+      else if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
       else if(request.type==='reconcile-frame-image-fit'){
         const service=this.workspaceFurnishing,workspace=draft.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as import('@exhibitos/studio-contract').WorkspaceFurnishings|undefined;
         if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');
@@ -395,7 +443,7 @@ export class Studio {
     }catch{
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
     }
-    checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});
+    checked({draft:{...draft,candidate:result.candidate} as Draft,requestId},budgetCommand&&!!row.nativeBounded);
     return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result}};
   }
 
@@ -461,6 +509,7 @@ export class Studio {
     input: StudioInput,
     match: string,
     replacement?:{prior:Artwork;next:Artwork;placementId?:string|undefined;mode?:'same-artwork-model'|undefined},
+    requestHashOverride?:string,
   ): Promise<StudioResponse> {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
@@ -471,7 +520,7 @@ export class Studio {
     const infoStandDelta=this.nativeBoundedEditing&&!!this.nativeOexWorkspace&&ordinaryWorkspaceInfoStandReplacementDelta(row.metadata,input.draft);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||railDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsCeilingRail()||benchVisualDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||benchForwardDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||ordinaryViewerBudgetPolicyDelta(row.metadata,input.draft)||(await ordinaryRoomBaseLightEdit(c,{tenantId:s.tenantId,exhibitionId:id,revision:row.revision},row.metadata,input.draft))||railDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsCeilingRail()||benchVisualDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||benchForwardDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||infoStandDelta&&!!this.workspaceFurnishing?.hasWriterLease()&&this.workspaceFurnishing.supportsRoomVisual()||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId,replacement.mode)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
@@ -481,7 +530,7 @@ export class Studio {
       if(!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
       await this.workspaceFurnishing.authorize(c,s);
     }
-    const payloadHash = hash({ method: "PUT", id, match, input });
+    const payloadHash = requestHashOverride??hash({ method: "PUT", id, match, input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
     if (match !== etag(row.revision, row.metadata))

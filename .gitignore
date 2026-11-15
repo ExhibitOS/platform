@@ -42,6 +42,7 @@ dist/
 /apps/api/dist-public-export/
 /apps/web/dist-reference-demo-static/
 /apps/web/dist-reference-demo-cover/
+/apps/web/dist-budget-analysis/
 build/
 coverage/
 .next/

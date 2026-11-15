@@ -650,7 +650,7 @@ export class Cms {
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
   /** Explicit approved inventory only; no asset ID outside the current snapshot is readable. */
-  async approvedVariantOriginal(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
+  async approvedVariantSource(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
     const {artwork}=await this.studioArtwork(c,s,id);
     if(artwork.revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
     const declared=artwork.assets.find(a=>a.id.toLowerCase()===assetId.toLowerCase());
@@ -661,9 +661,17 @@ export class Cms {
     const row=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,assetId])).rows[0];
     if(!row||!allowedRights(row.rights,'display')||json(row.rights)!==json(artwork.rights))throw new ApiError(403,'RIGHTS_DENIED');
     if(row.sha256!==declared.sha256||Number(row.bytes)!==declared.bytes||row.mime!==declared.mime)throw new ApiError(409,'ASSET_INTEGRITY');
-    const bytes=Buffer.from(await this.blobs.get(row.object_key));
-    if(bytes.length!==declared.bytes||sha256(bytes)!==declared.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
-    return bytes;
+    const blobs=this.blobs;
+    return {sha256:declared.sha256,bytes:declared.bytes,mime:declared.mime,read:async()=>{
+      if(!allowedRights(row.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+      const bytes=Buffer.from(await blobs.get(row.object_key));
+      if(bytes.length!==declared.bytes||sha256(bytes)!==declared.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+      if(!allowedRights(row.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+      return bytes;
+    }};
+  }
+  async approvedVariantOriginal(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
+    return (await this.approvedVariantSource(c,s,id,assetId,expectedRevision)).read();
   }
   async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number,watermark?:DisplayWatermark,checkpoint?:()=>void) {
     checkpoint?.();const original=await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision);
