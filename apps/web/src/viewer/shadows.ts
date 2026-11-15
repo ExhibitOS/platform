@@ -5,6 +5,9 @@ import type {AssetPeakBudget} from './loading';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
+// A small global pool supports independently authored sources without assuming
+// arbitrary material/shadow sampler capacity. Further sources report deferred.
+export const SHADOW_MAP_LIMIT = 2;
 /** r186 PCF: outer Vogel tap sqrt(4.5/5)*radius plus the hardware tap's
  * diagonal footprint. Express the receiver offset in fitted world units. */
 export function directionalNormalBias(width:number,height:number,radius:number){
@@ -57,7 +60,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   type Plan={candidate:ShadowCandidate;capture:THREE.Box3};
   let plans:Plan[]=[],requestedSources=0,deferredSources=0,sourceReports:ShadowSourceReport[]=[];
   const anchors=new Map<ShadowCandidate['light'],THREE.Vector3>();
-  let mapCapacity=Math.max(0,Math.min(Math.floor(availableBytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
+  let mapCapacity=Math.max(0,Math.min(SHADOW_MAP_LIMIT,Math.floor(availableBytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
   let view:THREE.Camera|undefined,captureAnchor:THREE.Vector3|undefined,viewRotation:THREE.Quaternion|undefined,captureProjection:THREE.Matrix4|undefined,omittedLast=0;
   let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
   const dependencyCaches=new Map<ShadowCandidate['light'],{version:number;view:THREE.Matrix4;projection:THREE.Matrix4;light:THREE.Matrix4;lightProjection:THREE.Matrix4;regions:THREE.Box3[]}>();
@@ -283,7 +286,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
   const setAvailableBytes=(bytes:number)=>{
     if(disposed)return;
-    const capacity=Math.max(0,Math.min(Math.floor(bytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
+    const capacity=Math.max(0,Math.min(SHADOW_MAP_LIMIT,Math.floor(bytes/SHADOW_RESERVE_BYTES),Math.floor(maxDepthDraws)));
     if(capacity===mapCapacity)return;
     mapCapacity=capacity;dirty=true;
     // Release removed GPU targets synchronously, before an owner returns their
@@ -301,7 +304,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
  * this lease BEFORE new required-display admission. Never reclaim artwork. */
 export function leaseOptionalShadowMaps(pass:Pick<ReturnType<typeof installBoundedShadows>,'setAvailableBytes'>,
   requestedSources:number,ledger:Pick<AssetPeakBudget,'total'|'reserve'|'release'>,limit:number){
-  const count=Math.max(0,Math.min(requestedSources-1,Math.floor((limit-ledger.total())/SHADOW_RESERVE_BYTES)));
+  const count=Math.max(0,Math.min(SHADOW_MAP_LIMIT-1,requestedSources-1,Math.floor((limit-ledger.total())/SHADOW_RESERVE_BYTES)));
   if(!Number.isSafeInteger(count)||count<1)return undefined;
   const key='viewer:optional-shadow-maps',bytes=count*SHADOW_RESERVE_BYTES;
   // reserve() independently checks current live allocations, including holds.

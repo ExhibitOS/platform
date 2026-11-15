@@ -271,6 +271,16 @@ test('depth work uses the renderer sphere predicate when a tighter mesh box miss
   expect(mesh.castShadow).toBe(false);expect(h.mesh.castShadow).toBe(true);
   pass.dispose();geometry.dispose();mesh.material.dispose();
 });
+test('the global two-map pool defers additional sources without reserving unused maps',()=>{
+  const h=setup();h.pass.dispose();
+  const lights=Array.from({length:3},(_,i)=>{const light=new three.DirectionalLight();light.position.set(i-1,8,4);h.room.add(light,light.target);return light;});
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,lights.map(light=>({room:h.room,light,authoredCastShadow:true})),false,3*SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(lights.map(light=>light.castShadow)).toEqual([true,true,false]);
+  expect(reports.at(-1)).toMatchObject({requestedSources:3,deferredSources:1,mapCount:2,mapBytes:2*SHADOW_RESERVE_BYTES});
+  const ledger=new AssetPeakBudget(10*SHADOW_RESERVE_BYTES,()=>0),release=leaseOptionalShadowMaps(pass,3,ledger,10*SHADOW_RESERVE_BYTES)!;
+  expect(release.bytes).toBe(SHADOW_RESERVE_BYTES);expect(ledger.reservedBytes()).toBe(SHADOW_RESERVE_BYTES);
+  release();pass.dispose();
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();
