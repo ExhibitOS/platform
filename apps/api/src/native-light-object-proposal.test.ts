@@ -37,3 +37,10 @@ it('preserves exact set-object no-ops, returns the removed target, and rejects f
  const broken=structuredClone(f.candidate);broken.extensions={...broken.extensions,'org.exhibitos.studio/furnishing-visuals':{version:1,assets:[],bindings:[{hostKind:'light',hostId:f.light.id,assetId:randomUUID(),pose:{position:[0,0,0],yaw:0,scale:1}}]}};
  expect(validateFurnishings(broken).valid).toBe(false);expect(()=>nativeLightObjectProposal(broken,{type:'remove-light-object',lightId:f.light.id},f.scope)).toThrow();expect(f.candidate).toEqual(before);
 });
+
+it('changes authored shadow intent through the scoped typed light operation and rejects nonboolean requests atomically',()=>{
+ const f=fixture(),before=structuredClone(f.candidate),command={type:'set-light-object' as const,lightId:f.light.id,light:{...f.fields,castsShadow:true},settings:{fixture:'none' as const}};
+ const enabled=nativeLightObjectProposal(f.candidate,command,f.scope);expect(enabled.candidate.lights[0]).toEqual({...before.lights[0],castsShadow:true});expect(f.candidate).toEqual(before);
+ const disabled=nativeLightObjectProposal(enabled.candidate,{...command,light:{...f.fields,castsShadow:false}},f.scope);expect(disabled.candidate.lights[0]!.castsShadow).toBe(false);
+ for(const invalid of ['true',1,null])expect(()=>nativeLightObjectProposal(f.candidate,{...command,light:{...f.fields,castsShadow:invalid as unknown as boolean}},f.scope)).toThrow();expect(f.candidate).toEqual(before);
+});

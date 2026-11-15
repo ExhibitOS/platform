@@ -89,9 +89,11 @@ it('proposes only a checked change to the current saved draft through the instal
   expect(updateReply.statusCode,updateReply.body).toBe(200);
   expect(updateReply.json().candidate.lights).toEqual([{...originalLight,intensity:100}]);
   expect(lightDetailsFor(updateReply.json().candidate)).toEqual([{lightId:originalId,fixture:'none'}]);
-  for(const fields of [{roomId:randomUUID()},{castsShadow:true},{transform:{...originalFields.transform,scale:[2,2,2]}},{id:originalId}]){
+  for(const fields of [{roomId:randomUUID()},{castsShadow:'true'},{transform:{...originalFields.transform,scale:[2,2,2]}},{id:originalId}]){
    expect((await post({...updatePayload,request:{...updatePayload.request,light:{...updatePayload.request.light,...fields}}})).statusCode).toBe(422);
   }
+  const shadowReply=await post({...updatePayload,request:{...updatePayload.request,light:{...updatePayload.request.light,castsShadow:true}}});
+  expect(shadowReply.statusCode,shadowReply.body).toBe(200);expect(shadowReply.json().candidate.lights[0].castsShadow).toBe(true);
   expect((await post({...updatePayload,request:{...updatePayload.request,unrelated:true}})).statusCode).toBe(400);
   expect((await post(updatePayload,{'if-match':''})).statusCode).toBe(400);
   const fixturePayload={...payload,request:{...binding,type:'set-furnishing-visual',hostKind:'light',hostId:originalId,catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}}};
