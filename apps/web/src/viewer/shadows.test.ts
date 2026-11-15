@@ -183,6 +183,7 @@ test('independently authored sculpture lights in two rooms both retain stable ca
   const h=setup();h.pass.dispose();
   const other=new three.Group();other.position.x=8;const secondMesh=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());other.add(secondMesh);
   const first=new three.SpotLight(),second=new three.SpotLight();first.position.set(0,4,-2);second.position.set(0,4,-2);h.room.add(first,first.target);other.add(second,second.target);
+  first.angle=Math.PI/6;second.angle=Math.PI/6;
   const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
   const reports:ShadowReport[]=[];
   const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:first,authoredCastShadow:true,sourceLightId:'first'},{room:other,light:second,authoredCastShadow:true,sourceLightId:'second'}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
