@@ -18,9 +18,9 @@ async function fixture(mode:'success'|'authority'|'descriptor'|'descriptor-encod
  const room=new three.Group(),scene=new three.Scene(),controller=new AbortController();scene.add(room);
  if(mode==='scene'){
   const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);
-  for(let i=0;i<(publicDiagnostics===undefined?384:256)-plan.draws;i++)scene.add(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()));
+  for(let i=0;i<384-plan.draws;i++)scene.add(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()));
  }
- if(mode==='triangles'||mode==='cancelled-triangles'){const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);const geometry=new three.BufferGeometry();geometry.setAttribute('position',new three.BufferAttribute(new Float32Array((200000-(mode==='cancelled-triangles'?1:plan.triangles))*9),3));scene.add(new three.Mesh(geometry,new three.MeshBasicMaterial()));}
+ if(mode==='triangles'||mode==='cancelled-triangles'){const plan=workspaceFurnishingModelPreflight(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),bytes.length,DEVICE_BUDGETS.desktop);const geometry=new three.BufferGeometry();geometry.setAttribute('position',new three.BufferAttribute(new Float32Array((350000-(mode==='cancelled-triangles'?1:plan.triangles))*9),3));scene.add(new three.Mesh(geometry,new three.MeshBasicMaterial()));}
  const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/display-check')?(mode==='authority'?new Response(null,{status:403}):mode==='descriptor-encoding'?new Response(new Uint8Array([255]),{headers:{'content-type':'application/json'}}):Response.json(mode==='descriptor'?{...item,name:'Changed'}:item)):(mode==='fetch'?new Response(null,{status:404}):new Response(new Uint8Array(mode==='integrity'?new Uint8Array(bytes.length):bytes),{headers:{'content-type':'model/gltf-binary'}})));
  let unavailable=false;const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(999),signal:controller.signal,unavailable:()=>unavailable,budget:DEVICE_BUDGETS.desktop,transitionBytes:mode==='bytes'?bytes.length*4-1:mode==='replacement'?bytes.length*4+1:64*1024*1024,...(publicDiagnostics===undefined?{nativeEditor:true as const}:{publicAuthority:{check:async()=>{},valid:()=>true},modelSource:()=>({check:async()=>{},open:async()=>fetcher('model')}),...(publicDiagnostics?{failureDiagnostics:true as const}:{})}),resident:()=>0,changed:()=>{},fetcher});
  return {runtime,room,scene,controller,fetcher,bytes,item,setUnavailable:(value:boolean)=>{unavailable=value;}};
@@ -30,13 +30,13 @@ it.each([false,true])('keeps public fetch failure fallback and cleanup identical
   expect(await f.runtime.start()).toEqual({loaded:0,failed:2});
   const readout=f.runtime.readout();expect(readout).toMatchObject({settled:true,loaded:0,failed:2});
   expect(readout.failures).toHaveLength(enabled?2:0);
-  expect(readout.sceneBudget===undefined).toBe(!enabled);
+  expect(readout.sceneBudget?.drawLimit).toBe(384);
   if(enabled)for(const [i,row]of readout.failures.entries())expect(row).toMatchObject({placementId:id(3+i),furnishingId:f.item.id,stage:'model-fetch',code:'WORKSPACE_MODEL_FETCH',httpKind:'model',httpStatus:404});
   expect(f.runtime.ledger.reservedBytes()).toBe(0);expect(f.room.children).toEqual([]);
   expect(f.runtime.trianglePressure()).toBeUndefined();
  }finally{f.runtime.dispose();}
 });
-it('records a public scene refusal with the same 256 draw limit and preserves the admitted object',async()=>{
+it('records a public scene refusal with the bounded384 draw limit and preserves the admitted object',async()=>{
  const f=await fixture('scene',2,true);try{
   expect(await f.runtime.start()).toEqual({loaded:1,failed:1});
   expect(f.runtime.readout().failures).toMatchObject([{placementId:id(4),stage:'scene-reserve',code:'WORKSPACE_SCENE_BUDGET',remainingDraws:0,requestedDraws:1}]);
@@ -112,13 +112,13 @@ it('never forwards arbitrary exception text or lets diagnostic recording alter t
 it('measures initial staging scene capacity and live successful reservations without charging refusals',async()=>{
  const f=await fixture('scene',2,true);try{
   const before=f.runtime.readout().sceneBudget!;
-  expect(before).toMatchObject({drawLimit:256,initialDraws:255,reservedDraws:0,remainingDraws:1,initialInventory:{meshDraws:255,instancedMeshDraws:0,lineDraws:0,pointsDraws:0}});
+  expect(before).toMatchObject({drawLimit:384,initialDraws:383,reservedDraws:0,remainingDraws:1,initialInventory:{meshDraws:383,instancedMeshDraws:0,lineDraws:0,pointsDraws:0}});
   expect(await f.runtime.start()).toEqual({loaded:1,failed:1});
   const after=f.runtime.readout().sceneBudget!;
-  expect(after).toMatchObject({drawLimit:256,initialDraws:255,reservedDraws:1,remainingDraws:0});
-  expect(after.initialDraws+after.reservedDraws+after.remainingDraws).toBe(256);
+  expect(after).toMatchObject({drawLimit:384,initialDraws:383,reservedDraws:1,remainingDraws:0});
+  expect(after.initialDraws+after.reservedDraws+after.remainingDraws).toBe(384);
   expect(after.initialTriangles+after.reservedTriangles+after.remainingTriangles).toBe(after.triangleLimit);
-  after.initialInventory.meshDraws=999;expect(f.runtime.readout().sceneBudget!.initialInventory.meshDraws).toBe(255);
+  after.initialInventory.meshDraws=999;expect(f.runtime.readout().sceneBudget!.initialInventory.meshDraws).toBe(383);
   f.runtime.dispose();expect(f.runtime.readout().sceneBudget).toMatchObject({reservedDraws:0,remainingDraws:1});
  }finally{f.runtime.dispose();for(const child of f.scene.children)if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}}
 });

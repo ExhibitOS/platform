@@ -21,7 +21,7 @@ async function fixture(){const bytes=await readFile(fixtureURL('fixtures/synthet
 it('loads two distinct room poses through the owner adapter and tears both down',async()=>{const f=await fixture();expect(f.runtime.availability(id(3))).toBe('pending');expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(f.room.children).toHaveLength(2);expect(f.runtime.availability(id(3))).toBe('ready');f.room.visible=false;expect(f.runtime.availability(id(3))).toBe('pending');f.room.visible=true;expect(f.room.children.map(o=>o.position.x)).toEqual([1,-1]);expect(f.fetcher.mock.calls.filter(([url])=>String(url).endsWith('/model'))).toHaveLength(2);f.runtime.enforce();f.runtime.dispose();expect(f.runtime.availability(id(3))).toBe('failed');expect(f.room.children).toHaveLength(0);});
 it('removes mounted models when the actual owner check denies revalidation',async()=>{vi.useFakeTimers();const f=await fixture();await f.runtime.start();f.deny();await vi.advanceTimersByTimeAsync(5000);expect(f.runtime.availability(id(3))).toBe('failed');expect(f.room.children).toHaveLength(0);expect(f.changed).toHaveBeenCalled();f.runtime.dispose();});
 it('counts existing scene meshes and refuses a scene over the budget',()=>{const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial({transparent:true,side:three.DoubleSide}),mesh=new three.Mesh(geometry,material);scene.add(mesh);expect(existingSceneCost(three,scene)).toEqual({draws:2,triangles:24});geometry.dispose();material.dispose();});
-it('reserves measured populated-scene headroom only for the native editor', async () => {
+it('admits the populated viewer/native workload while retaining finite scene and byte fences', async () => {
  const room=new three.Group(),scene=new three.Scene(),geometry=new three.BufferGeometry(),material=new three.MeshBasicMaterial();
  geometry.setIndex(new three.BufferAttribute(new Uint32Array(164_595*3),1));
  room.add(new three.Mesh(geometry,material));
@@ -33,8 +33,9 @@ it('reserves measured populated-scene headroom only for the native editor', asyn
  const options={three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(9),signal:new AbortController().signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:229_066_026,resident:()=>178_716_671,changed:()=>{}};
  try{
   expect(existingSceneCost(three,scene)).toEqual({draws:276,triangles:164_595});
-  expect(()=>createOwnerFurnishingScene(options)).toThrow(FurnishingSceneCapacityError);
-  expect(()=>createOwnerFurnishingScene({...options,nativeEditor:true,publicAuthority:{check:async()=>{},valid:()=>true}})).toThrow(FurnishingSceneCapacityError);
+  const viewer=createOwnerFurnishingScene(options);expect(viewer.readout().sceneBudget).toMatchObject({drawLimit:384,triangleLimit:350000});viewer.dispose();
+  const publicViewer=createOwnerFurnishingScene({...options,nativeEditor:true,publicAuthority:{check:async()=>{},valid:()=>true}});expect(publicViewer.readout().sceneBudget?.drawLimit).toBe(384);publicViewer.dispose();
+  const extra=Array.from({length:109},()=>new three.Line(new three.BufferGeometry(),material));room.add(...extra);expect(()=>createOwnerFurnishingScene(options)).toThrow(FurnishingSceneCapacityError);room.remove(...extra);for(const line of extra)line.geometry.dispose();
   const runtime=createOwnerFurnishingScene({...options,nativeEditor:true});
   try{
    const release=runtime.reservePreview(34,10_068);
@@ -42,7 +43,8 @@ it('reserves measured populated-scene headroom only for the native editor', asyn
    expect(()=>runtime.ledger.reserve('pressure-overflow',43_411_620)).toThrow();
    runtime.ledger.release('required-furnishings');
    expect(()=>runtime.reservePreview(75,1)).toThrow('WORKSPACE_SCENE_BUDGET');
-   expect(()=>runtime.reservePreview(1,25_338)).toThrow('WORKSPACE_SCENE_BUDGET');
+   expect(runtime.readout().sceneBudget?.triangleLimit).toBe(350000);
+   expect(()=>runtime.reservePreview(1,175_338)).toThrow('WORKSPACE_SCENE_BUDGET');
    release();
   }finally{runtime.dispose();}
  }finally{
@@ -50,7 +52,7 @@ it('reserves measured populated-scene headroom only for the native editor', asyn
   material.dispose();
  }
 });
-it('uses the same scene budget for a competing artwork preview',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(()=>f.runtime.reservePreview(257,1)).toThrow('WORKSPACE_SCENE_BUDGET');const release=f.runtime.reservePreview(1,1);release();f.runtime.dispose();});
+it('uses the same scene budget for a competing artwork preview',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(()=>f.runtime.reservePreview(385,1)).toThrow('WORKSPACE_SCENE_BUDGET');const release=f.runtime.reservePreview(1,1);release();f.runtime.dispose();});
 it('keeps an unresolved scene reservation across teardown and refuses a new scene until it drains',async()=>{const f=await fixture();f.runtime.ledger.reserve('pending',1);f.runtime.dispose();await expect(fixture()).rejects.toThrow('WORKSPACE_SCENE_DRAINING');f.runtime.ledger.release('pending');const next=await fixture();next.runtime.dispose();});
 it('charges a double-sided artwork as two passes when turned into a ghost',()=>{const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial({side:three.DoubleSide}),mesh=new three.Mesh(geometry,material);scene.add(mesh);expect(existingSceneCost(three,scene)).toEqual({draws:1,triangles:12});expect(existingSceneCost(three,scene,true)).toEqual({draws:2,triangles:24});geometry.dispose();material.dispose();});
 
@@ -72,8 +74,8 @@ it('loads a public furnishing through the shared artwork ledger and removes it o
 });
 
 it.each([
- {name:'desktop',budget:deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true}),initial:160000,grown:165101,limit:200000},
- {name:'known high-memory Compact',budget:selectedDeviceBudget('compact',{deviceMemory:8}),initial:2940,grown:114511,limit:160000},
+ {name:'desktop',budget:deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true}),initial:160000,grown:263000,limit:350000},
+ {name:'known high-memory Compact',budget:selectedDeviceBudget('compact',{deviceMemory:8}),initial:2940,grown:222926,limit:250000},
 ])('keeps approved furnishings after $name artwork growth and still retires an over-limit scene',async({budget,initial,grown,limit})=>{
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9);
  const item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
@@ -81,8 +83,8 @@ it.each([
  const candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
  const room=new three.Group(),scene=new three.Scene(),controller=new AbortController();
  expect(budget.maxSceneTriangles).toBe(limit);
- expect(deviceBudget({coarsePointer:true}).maxSceneTriangles).toBeUndefined();
- expect(deviceBudget({deviceMemory:4,coarsePointer:false,finePointer:true}).maxSceneTriangles).toBeUndefined();
+ expect(deviceBudget({coarsePointer:true}).maxSceneTriangles).toBe(350000);
+ expect(deviceBudget({deviceMemory:4,coarsePointer:false,finePointer:true}).maxSceneTriangles).toBe(250000);
  const fetcher=vi.fn(async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary','x-exhibitos-publication-revision':'f'.repeat(64)}})),check=async()=>{};
  const geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial(),artwork=new three.Mesh(geometry,material);
  geometry.setIndex(new three.BufferAttribute(new Uint16Array(initial*3),1));
@@ -103,7 +105,22 @@ it.each([
 
 it('does not quarantine an unrelated artwork reservation when a public furnishing scene is disposed',async()=>{
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9),item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}},extension={version:1 as const,furnishings:[item],placements:[{id:id(3),roomId:id(1),furnishingId:item.id,furnishingVersion:1 as const,position:[1,0,1] as [number,number,number],yaw:0,scale:1}]},candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}},room=new three.Group(),scene=new three.Scene(),controller=new AbortController(),ledger=new AssetPeakBudget(64*1024*1024,()=>0),url=`/api/v1/publications/${publicationId}/assets/${item.id}`,fetcher=vi.fn(async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary','x-exhibitos-publication-revision':'f'.repeat(64)}})),check=vi.fn(async()=>{});scene.add(room);
- ledger.reserve('artwork',1024);const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:controller.signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},ledger,modelSource:descriptor=>publicWorkspaceModelSource(publicationId,'f'.repeat(64),[{assetId:item.id,mime:item.model.mime,url}],extension,descriptor,fetcher,check),publicAuthority:{check,valid:()=>true}});expect(await runtime.start()).toEqual({loaded:1,failed:0});const extraGeometry=new three.BoxGeometry(),extraMaterial=new three.MeshBasicMaterial(),extra=new three.Group();for(let i=0;i<257;i++)extra.add(new three.Mesh(extraGeometry,extraMaterial));scene.add(extra);expect(existingSceneCost(three,scene).draws).toBeGreaterThan(256);let visibleAtFrame=-1;guardedXrFrame(runtime.enforce,()=>{},()=>{},()=>{visibleAtFrame=room.children.length;})(0);expect(visibleAtFrame).toBe(0);expect(runtime.stats()).toEqual({loaded:0,failed:1});runtime.dispose();scene.remove(extra);extra.clear();extraGeometry.dispose();extraMaterial.dispose();expect(ledger.reservedBytes()).toBe(1024);const next=await fixture();next.runtime.dispose();ledger.release('artwork');
+ ledger.reserve('artwork',1024);const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:controller.signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},ledger,modelSource:descriptor=>publicWorkspaceModelSource(publicationId,'f'.repeat(64),[{assetId:item.id,mime:item.model.mime,url}],extension,descriptor,fetcher,check),publicAuthority:{check,valid:()=>true}});expect(await runtime.start()).toEqual({loaded:1,failed:0});const extraGeometry=new three.BoxGeometry(),extraMaterial=new three.MeshBasicMaterial(),extra=new three.Group();for(let i=0;i<385;i++)extra.add(new three.Mesh(extraGeometry,extraMaterial));scene.add(extra);expect(existingSceneCost(three,scene).draws).toBeGreaterThan(384);let visibleAtFrame=-1;guardedXrFrame(runtime.enforce,()=>{},()=>{},()=>{visibleAtFrame=room.children.length;})(0);expect(visibleAtFrame).toBe(0);expect(runtime.stats()).toEqual({loaded:0,failed:1});runtime.dispose();scene.remove(extra);extra.clear();extraGeometry.dispose();extraMaterial.dispose();expect(ledger.reservedBytes()).toBe(1024);const next=await fixture();next.runtime.dispose();ledger.release('artwork');
+});
+
+it('uses the same bounded desktop envelope for initial admission and live public enforcement',async()=>{
+ const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),publicationId=id(9),item={id:id(2),version:1 as const,kind:'bench' as const,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
+ const extension={version:1 as const,furnishings:[item],placements:[{id:id(3),roomId:id(1),furnishingId:item.id,furnishingVersion:1 as const,position:[1,0,1] as [number,number,number],yaw:0,scale:1}]},candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}},before=JSON.stringify(candidate),room=new three.Group(),scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial(),baseline=new three.Group();
+ for(let i=0;i<300;i++)baseline.add(new three.Mesh(geometry,material));scene.add(baseline,room);
+ const url=`/api/v1/publications/${publicationId}/assets/${item.id}`,fetcher=vi.fn(async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':item.model.mime,'x-exhibitos-publication-revision':'f'.repeat(64)}})),check=vi.fn(async()=>{});
+ const runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:publicationId,signal:new AbortController().signal,unavailable:()=>false,budget:deviceBudget({finePointer:true,coarsePointer:false}),transitionBytes:64*1024*1024,resident:()=>0,changed:()=>{},modelSource:descriptor=>publicWorkspaceModelSource(publicationId,'f'.repeat(64),[{assetId:item.id,mime:item.model.mime,url}],extension,descriptor,fetcher,check),publicAuthority:{check,valid:()=>true}});
+ try{
+  expect(runtime.readout().sceneBudget).toMatchObject({drawLimit:384,initialDraws:300});
+  expect(await runtime.start()).toEqual({loaded:1,failed:0});runtime.enforce();expect(runtime.stats()).toEqual({loaded:1,failed:0});
+  const extra=384-existingSceneCost(three,scene).draws;for(let i=0;i<extra;i++)baseline.add(new three.Mesh(geometry,material));runtime.enforce();expect(runtime.stats().loaded).toBe(1);
+  baseline.add(new three.Mesh(geometry,material));runtime.enforce();expect(runtime.stats()).toEqual({loaded:0,failed:1});expect(runtime.readout().sceneBudget).toMatchObject({drawLimit:384,checkedDraws:385});
+  expect(JSON.stringify(candidate)).toBe(before);expect(room.children).toHaveLength(0);
+ }finally{runtime.dispose();geometry.dispose();material.dispose();}
 });
 
 it('hides the entire public scene at the earliest furnishing expiry',async()=>{
@@ -125,8 +142,8 @@ it('receiver shading leaves the admitted scene capacity unchanged and keeps load
  });
  expect(await runtime.start()).toEqual({loaded:1,failed:0});
  const geometry=new three.BoxGeometry(),material=new three.MeshStandardMaterial(),receiver=new three.Mesh(geometry,material);room.add(receiver);
- const filler=new three.Group(),fillerDraws=256-existingSceneCost(three,scene).draws;for(let i=0;i<fillerDraws;i++)filler.add(new three.Mesh(geometry,material));scene.add(filler);
- const before=existingSceneCost(three,scene);expect(before.draws).toBe(256);
+ const filler=new three.Group(),fillerDraws=384-existingSceneCost(three,scene).draws;for(let i=0;i<fillerDraws;i++)filler.add(new three.Mesh(geometry,material));scene.add(filler);
+ const before=existingSceneCost(three,scene);expect(before.draws).toBe(384);
  const contacts=installSupportContactShadows(three,[{room,receiver,position:[0,.002,0],rotation:[0,0,0,1],width:.1,height:.1}],true,()=>{});const camera=new three.PerspectiveCamera(70,1,.1,100);camera.position.set(0,1,3);camera.lookAt(0,0,0);contacts.setView(camera);
  expect(existingSceneCost(three,scene)).toEqual(before);
  runtime.enforce();expect(runtime.stats()).toEqual({loaded:1,failed:0});

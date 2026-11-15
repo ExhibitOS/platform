@@ -8,6 +8,9 @@ export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
 // A small global pool supports independently authored sources without assuming
 // arbitrary material/shadow sampler capacity. Further sources report deferred.
 export const SHADOW_MAP_LIMIT = 2;
+// Two approved100k bodies, their supports and bounded structural occluders.
+// Existing display buffers are reused; only dirty cached maps submit this work.
+export const SHADOW_TRIANGLE_LIMIT = 250000;
 /** r186 PCF: outer Vogel tap sqrt(4.5/5)*radius plus the hardware tap's
  * diagonal footprint. Express the receiver offset in fitted world units. */
 export function directionalNormalBias(width:number,height:number,radius:number){
@@ -65,6 +68,10 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
   const dependencyCaches=new Map<ShadowCandidate['light'],{version:number;view:THREE.Matrix4;projection:THREE.Matrix4;light:THREE.Matrix4;lightProjection:THREE.Matrix4;regions:THREE.Box3[]}>();
   const sourceRooms=[...new Set(candidates.map(candidate=>candidate.room))];
+  const sourceRoots=sourceRooms.filter(room=>{
+    for(let parent=room.parent;parent;parent=parent.parent)if(sourceRooms.includes(parent))return false;
+    return true;
+  });
   const planarity=new WeakMap<THREE.BufferGeometry,{position:unknown;positionVersion:number;index:unknown;indexVersion:number;result:boolean}>();
   const cachedPlanar=(geometry:THREE.BufferGeometry)=>{
     const position=geometry.getAttribute('position'),index=geometry.index;
@@ -119,7 +126,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   };
   const fit=(candidate:ShadowCandidate)=>{
     const {light}=candidate;light.updateWorldMatrix(true,false);light.target.updateWorldMatrix(true,false);
-    const box=fixedWorld?.clone()??new three.Box3();if(!fixedWorld)for(const room of sourceRooms){room.updateWorldMatrix(true,true);box.expandByObject(room);}
+    const box=fixedWorld?.clone()??new three.Box3();if(!fixedWorld)for(const room of sourceRoots)box.expandByObject(room);
     const size=box.getSize(new three.Vector3());
     if(box.isEmpty()||![...box.min.toArray(),...box.max.toArray()].every(Number.isFinite))return false;
     const position=light.getWorldPosition(new three.Vector3()),target=light.target.getWorldPosition(new three.Vector3());
@@ -173,6 +180,9 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(!dirty)return;dirty=false;
     targetCasters=0;targetTriangles=0;omittedTargetCasters=0;
     if(disabled){emit(disabled);return;}
+    // flush precedes renderer.render: refresh nested placement transforms before
+    // fitting source frusta and measuring caster bounds, including fixedWorld.
+    for(const room of sourceRoots)room.updateWorldMatrix(true,true);
     const previous=plans;
     // Explicit preferences are stable document inputs, never pass-owned Three flags.
     const authored=candidates.filter(c=>c.authoredCastShadow===true);
@@ -242,7 +252,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
       const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||mesh.intersectsFrustum(frustum)).length;
       if(!passes)continue;
-      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000||depthTriangles+cost*passes>100000||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>SHADOW_TRIANGLE_LIMIT||depthTriangles+cost*passes>SHADOW_TRIANGLE_LIMIT||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
       meshes.push(mesh);triangles+=cost;depthTriangles+=cost*passes;depthDraws+=draws*passes;if(isPrimaryTarget(mesh)){targetCasters++;targetTriangles+=cost;}
     }
     omittedLast=omittedCasters;

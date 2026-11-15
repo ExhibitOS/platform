@@ -5,8 +5,8 @@ import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;materialPlanningBytes?:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
- compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
- desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
+ compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxSceneTriangles:250000,maxCacheBytes:32*1024*1024,entranceAssets:4},
+ desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxSceneTriangles:350000,maxCacheBytes:96*1024*1024,entranceAssets:4},
 };
 /** Canvas width is a resolution/layout input, not a device capacity signal.
  * Keep the existing standard default and constrained-memory preset; neither
@@ -26,7 +26,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
  // These are tracked allocation ceilings, with the same texture edge.
- if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000,maxSceneTriangles:200000},memory);
+ if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000},memory);
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
@@ -66,13 +66,12 @@ function baseSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Param
  // GiB branch leaves room after scene/material reservations and a required
  // model swap. Aggregate scene geometry is separate from the 20k/model
  // limit, so loading other approved artworks does not retire furnishings.
- // Five admitted 20k sculptures plus the observed 14.5k architecture/furnishing
- // scene require a separate aggregate allowance with useful remaining headroom.
- // This does not raise per-model, texture, draw, byte or concurrency limits.
- // Other branches retain their current policy.
+ // The aggregate scene allowance also includes approved physical fixtures.
+ // Per-model quality, texture size and concurrency remain Compact; byte
+ // allowances in this branch retain their existing independently bounded policy.
  if(profile==='compact'&&input.deviceMemory!==undefined&&Number.isFinite(input.deviceMemory)&&input.deviceMemory>4){
   const capable=input.deviceMemory>=8;
-  return selectedImageCapacity({...DEVICE_BUDGETS.compact,maxCacheBytes:(capable?128:48)*1024*1024,maxTransitionBytes:(capable?160:64)*1024*1024,...(capable?{maxSceneTriangles:160000}:{})},input.deviceMemory);
+  return selectedImageCapacity({...DEVICE_BUDGETS.compact,maxCacheBytes:(capable?128:48)*1024*1024,maxTransitionBytes:(capable?160:64)*1024*1024},input.deviceMemory);
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
@@ -90,13 +89,14 @@ function baseSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Param
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  const current=baseSelectedDeviceBudget(profile,input);
  if(input.deviceMemory!==undefined||input.coarsePointer!==true||input.finePointer!==false)return current;
- // Current R97 measures 114,519 triangles with five Compact models and seven
+ // The retained R97 baseline measured114,519 triangles with five Compact models and seven
  // furnishings. Keep useful aggregate headroom without raising the 20k tier.
- if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024,maxSceneTriangles:160000};
+ if(profile==='compact')return {...current,maxCacheBytes:128*1024*1024,maxTransitionBytes:160*1024*1024};
  // The retained no-hint trial admitted the ordinary Hayes tier at 336/448 MiB.
  // Preserve its 192 MiB material plans and actual holds. R97 adds the Greek
- // model to the former ~174.5k scene: 250k leaves room beyond ~194.5k.
- if(profile==='auto')return {...current,maxCacheBytes:336*1024*1024,maxTransitionBytes:448*1024*1024,materialPlanningBytes:current.maxCacheBytes,maxSceneTriangles:250000};
+ // model to the former~174.5k scene. The common aggregate allowance also
+ // covers the later physical fixture workload; material plans stay unchanged.
+ if(profile==='auto')return {...current,maxCacheBytes:336*1024*1024,maxTransitionBytes:448*1024*1024,materialPlanningBytes:current.maxCacheBytes};
  return current;
 }
 /** Extra artwork capacity must not silently enlarge initial material plans.

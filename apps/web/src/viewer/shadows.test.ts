@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,directionalNormalBias,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
 import {AssetPeakBudget} from './loading';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
@@ -156,7 +156,7 @@ test('authored target geometry and its support take bounded priority while trans
   const support=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());support.position.y=-1;
   const glass=new three.Mesh(new three.BoxGeometry(2,3,2),new three.MeshStandardMaterial({transparent:true,opacity:.07,side:three.DoubleSide}));
   target.add(sculpture,support,glass);
-  const architecture=new three.Mesh(new three.BoxGeometry(8,1,8),new three.MeshStandardMaterial());architecture.position.y=-2;architecture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(60000),1));h.room.add(architecture);
+  const architecture=new three.Mesh(new three.BoxGeometry(8,1,8),new three.MeshStandardMaterial());architecture.position.y=-2;architecture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(600000),1));h.room.add(architecture);
   const spot=new three.SpotLight();spot.position.set(1,4,-2);h.room.add(spot,spot.target);
   const reports:ShadowReport[]=[],fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(5,5,5));
   const material=sculpture.material,color=material.color.clone(),glassMaterial=glass.material,raycast=glass.raycast;
@@ -169,7 +169,10 @@ test('authored target geometry and its support take bounded priority while trans
   expect(reports.at(-1)?.updates).toBe(1);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
   // A real variant swap invalidates the map; it keeps the same world capture.
   sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300000),1));pass.invalidate();pass.flush(camera);
-  expect(reports.at(-1)).toMatchObject({targetTriangles:100000,targetCasters:1,omittedTargetCasters:1,updates:2});
+  expect(reports.at(-1)).toMatchObject({targetTriangles:100012,targetCasters:2,omittedTargetCasters:0,updates:2});
+  expect(support.castShadow).toBe(true);
+  sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(SHADOW_TRIANGLE_LIMIT*3),1));pass.invalidate();pass.flush(camera);
+  expect(reports.at(-1)).toMatchObject({targetTriangles:SHADOW_TRIANGLE_LIMIT,targetCasters:1,omittedTargetCasters:1,updates:3});
   expect(support.castShadow).toBe(false);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
   pass.dispose();expect(sculpture.castShadow||support.receiveShadow||glass.castShadow).toBe(false);
 });
@@ -197,6 +200,21 @@ test('independently authored sculpture lights in two rooms both retain stable ca
   first.shadow.updateMatrices(first);second.shadow.updateMatrices(second);const before=[first.shadow.matrix.clone(),second.shadow.matrix.clone()];
   const camera=contactView(8);pass.flush(camera);expect(first.shadow.matrix.equals(before[0]!)).toBe(true);expect(second.shadow.matrix.equals(before[1]!)).toBe(true);
   pass.dispose();expect(first.castShadow||second.castShadow||h.mesh.castShadow||secondMesh.castShadow).toBe(false);
+});
+test('two independent100k bodies retain their real supports while repeated structural depth work stays bounded',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const other=new three.Group();other.position.x=8;const rooms=[h.room,other],reports:ShadowReport[]=[],bodies:three.Mesh[]=[],supports:three.Mesh[]=[],candidates=[];
+  for(const room of rooms){const id=crypto.randomUUID(),target=new three.Group();target.userData.placementId=id;room.add(target);
+    const geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(300000),1));const body=new three.Mesh(geometry,new three.MeshStandardMaterial()),support=new three.Mesh(new three.BoxGeometry(.5,1,.5),new three.MeshStandardMaterial());support.position.y=-1;target.add(body,support);bodies.push(body);supports.push(support);
+    const light=new three.SpotLight();light.position.set(0,4,-2);light.angle=Math.PI/6;room.add(light,light.target);candidates.push({room,light,authoredCastShadow:true,targetPlacementId:id});
+  }
+  const structure=new three.Mesh(new three.BoxGeometry(14,1,14),new three.MeshStandardMaterial());structure.position.set(4,-2,0);structure.geometry.setIndex(new three.BufferAttribute(new Uint32Array(90000),1));h.room.add(structure);
+  const fixed=new three.Box3(new three.Vector3(-5,-3,-7),new three.Vector3(13,5,7)),pass=installBoundedShadows(three,h.renderer,candidates,false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
+  pass.flush(contactView());expect([...bodies,...supports].every(mesh=>mesh.castShadow)).toBe(true);expect(structure.castShadow).toBe(false);expect(structure.receiveShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({mapCount:2,casters:4,triangles:200024,omittedCasters:1,sources:[{targetCasters:2,targetTriangles:100012,omittedTargetCasters:0},{targetCasters:2,targetTriangles:100012,omittedTargetCasters:0}]});
+  expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.triangles,0)).toBeLessThanOrEqual(SHADOW_TRIANGLE_LIMIT);
+  const updates=reports.at(-1)!.updates;pass.flush(contactView(8));expect(reports.at(-1)!.updates).toBe(updates);
+  pass.dispose();for(const mesh of [...bodies,...supports,structure]){mesh.geometry.dispose();(mesh.material as three.Material).dispose();}
 });
 test('a pooled source beyond the available map memory is deferred and released on preference changes',()=>{
   const h=setup();h.pass.dispose();
@@ -242,17 +260,17 @@ test('optional maps use idle owner bytes and dispose their target before require
   resident=0;pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});pass.dispose();
 });
 test('overlapping material groups cannot bypass the existing triangle bound',()=>{
-  const h=setup(),geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
-  geometry.clearGroups();geometry.addGroup(0,180000,0);geometry.addGroup(0,180000,1);
+  const h=setup(),geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(390000),1));
+  geometry.clearGroups();geometry.addGroup(0,390000,0);geometry.addGroup(0,390000,1);
   const materials=[new three.MeshStandardMaterial(),new three.MeshStandardMaterial()],repeated=new three.Mesh(geometry,materials);h.room.add(repeated);
   h.pass.flush();expect(h.mesh.castShadow).toBe(true);expect(repeated.castShadow).toBe(false);
   expect(h.reports.at(-1)).toMatchObject({casters:1,triangles:12,omittedCasters:1});
   h.pass.dispose();geometry.dispose();for(const material of materials)material.dispose();
 });
-test('the pool counts repeated caster triangles across maps against the unchanged depth triangle bound',()=>{
+test('the pool counts repeated caster triangles across maps against the bounded dirty depth allowance',()=>{
   const h=setup();h.pass.dispose();
   const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
-  const geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  const geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(390000),1));
   const mesh=new three.Mesh(geometry,new three.MeshStandardMaterial());h.room.add(mesh);
   const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r));
   pass.flush();expect(mesh.castShadow).toBe(false);expect(h.mesh.castShadow).toBe(true);
@@ -262,7 +280,7 @@ test('the pool counts repeated caster triangles across maps against the unchange
 });
 test('depth work uses the renderer sphere predicate when a tighter mesh box misses a map',()=>{
   const h=setup();h.pass.dispose();const second=new three.SpotLight();second.position.set(0,4,-2);second.angle=.1;h.room.add(second,second.target);
-  const geometry=new three.BoxGeometry(.1,10,.1);geometry.setIndex(new three.BufferAttribute(new Uint32Array(180000),1));
+  const geometry=new three.BoxGeometry(.1,10,.1);geometry.setIndex(new three.BufferAttribute(new Uint32Array(390000),1));
   const mesh=new three.Mesh(geometry,new three.MeshStandardMaterial());mesh.position.x=3;h.room.add(mesh);
   const fixed=new three.Box3(new three.Vector3(-5,-6,-5),new three.Vector3(5,6,5));
   const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,()=>{},fixed);
@@ -386,10 +404,10 @@ test('one sun changing eligible room reuses its map and keeps the fitted directi
 });
 test('excess caster triangles and transparent shells omit shadows without dropping scene geometry',()=>{
   const h=setup();h.mesh.material.transparent=true;h.pass.flush();expect(h.reports.at(-1)?.casters).toBe(0);expect(h.mesh.castShadow).toBe(false);
-  h.mesh.material.transparent=false;h.mesh.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300003),1));h.pass.invalidate();h.pass.flush();
-  expect(h.reports.at(-1)?.mode).toBe('unavailable');expect(h.room.children).toContain(h.mesh);expect(h.mesh.geometry.index?.count).toBe(300003);h.pass.dispose();
+  h.mesh.material.transparent=false;h.mesh.geometry.setIndex(new three.BufferAttribute(new Uint32Array((SHADOW_TRIANGLE_LIMIT+1)*3),1));h.pass.invalidate();h.pass.flush();
+  expect(h.reports.at(-1)?.mode).toBe('unavailable');expect(h.room.children).toContain(h.mesh);expect(h.mesh.geometry.index?.count).toBe((SHADOW_TRIANGLE_LIMIT+1)*3);h.pass.dispose();
 });
-test('one oversized caster does not disable other bounded room shadows or change visible geometry',()=>{const h=setup(),mesh=new three.InstancedMesh(new three.BoxGeometry(1,1,1),h.mesh.material,9000),identity=new three.Matrix4();for(let i=0;i<9000;i++)mesh.setMatrixAt(i,identity);mesh.computeBoundingBox();mesh.computeBoundingSphere();h.room.add(mesh);h.pass.flush();expect(h.reports.at(-1)?.mode).toBe('bounded');expect(h.reports.at(-1)?.omittedCasters).toBe(1);expect(h.reports.at(-1)!.triangles).toBeLessThanOrEqual(100000);expect(mesh.castShadow).toBe(false);expect(mesh.receiveShadow).toBe(true);expect(h.mesh.castShadow).toBe(true);expect(h.room.children).toContain(mesh);expect(mesh.count).toBe(9000);h.pass.dispose();mesh.dispose();mesh.geometry.dispose();});
+test('one oversized caster does not disable other bounded room shadows or change visible geometry',()=>{const h=setup(),mesh=new three.InstancedMesh(new three.BoxGeometry(1,1,1),h.mesh.material,22000),identity=new three.Matrix4();for(let i=0;i<22000;i++)mesh.setMatrixAt(i,identity);mesh.computeBoundingBox();mesh.computeBoundingSphere();h.room.add(mesh);h.pass.flush();expect(h.reports.at(-1)?.mode).toBe('bounded');expect(h.reports.at(-1)?.omittedCasters).toBe(1);expect(h.reports.at(-1)!.triangles).toBeLessThanOrEqual(SHADOW_TRIANGLE_LIMIT);expect(mesh.castShadow).toBe(false);expect(mesh.receiveShadow).toBe(true);expect(h.mesh.castShadow).toBe(true);expect(h.room.children).toContain(mesh);expect(mesh.count).toBe(22000);h.pass.dispose();mesh.dispose();mesh.geometry.dispose();});
 
 function contactView(x=0){
   const camera=new three.PerspectiveCamera(70,1,.1,100);camera.position.set(x,1,3);camera.lookAt(x,0,0);camera.updateMatrixWorld();return camera;

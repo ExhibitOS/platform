@@ -13,6 +13,7 @@ import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost,FurnishingSceneCapacityError} from './workspace-furnishing/owner-scene';
+import {sceneTriangleLimit} from './workspace-furnishing/scene-cost';
 import {WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
 import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
@@ -602,7 +603,8 @@ export function GeometryPreview({
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const authoredShadowCount=document.lights.filter(light=>light.castsShadow===true&&(light.type==='spot'||light.type==='directional')).length;
-      // Match existing aggregate scene draw ceilings; DeviceBudget has no draw field.
+      // Depth work has its own ceiling. A larger desktop color-scene admission
+      // does not multiply dirty shadow work or create a DeviceBudget draw field.
       const depthDrawBudget=session&&!publicSource?384:256;
       // Preserve the existing single-map carve and every artwork/material limit.
       // Additional maps need a reversible, no-reclaim lease after actual loading.
@@ -1009,7 +1011,7 @@ export function GeometryPreview({
       const syncSelectedFindBounds=()=>selectedFindBounds?.sync(selectionRef.current?.kind==='placement'?selectionRef.current.id:undefined,selectedFindAvailable());
       const trace: {
         started: number;
-        samples: Array<{ at: number; ms: number; triangles: number }>;
+        samples: Array<{ at: number; ms: number; triangles: number;drawCalls:number }>;
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
       let projectionStamp = "", framePixelBudget:number|undefined;
@@ -1042,7 +1044,7 @@ export function GeometryPreview({
         ownerFurnishingFrame=requestAnimationFrame(()=>{
           ownerFurnishingFrame=0;
           if(disposed||gpuLost)return;
-          if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());
+          if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify({...ownerFurnishings.stats(),sceneBudget:ownerFurnishings.readout().sceneBudget});
           refreshExit();
           shadowPass.invalidate();
           render();
@@ -1095,6 +1097,9 @@ export function GeometryPreview({
             trace.samples.push({
               at,
               ms: performance.now() - at,
+              // r186 resets info before shadow rendering: this is the observed
+              // total of color and any dirty depth draws, not GPU duration.
+              drawCalls: renderer.info.render.calls,
               triangles: renderer.info.render.triangles,
             });
           return true;
@@ -1112,7 +1117,7 @@ export function GeometryPreview({
       let catalogBenchReady:(id:string)=>boolean=()=>false,catalogOtherReady:(kind:string,id:string)=>boolean=()=>false;
       let contactBench:{model:Object3D;hostId:string}|undefined;
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogBenchReady=catalog.ready;catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;catalogOtherReady=catalog.ready;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,sceneTriangleLimit(viewerBudget??nativeModelBudget,!!(session&&!publicSource&&ownerWorkspaceFurnishings)),()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;catalogOtherReady=catalog.ready;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -2177,7 +2182,7 @@ export function GeometryPreview({
           retryOrigins.set(artworkRevisionId,{artworkRevisionId,assetId,stage,atMs:performance.now(),errorCode});
           if(retryOrigins.size>64)retryOrigins.delete(retryOrigins.keys().next().value!);
         };
-        let currentArtwork:string|undefined;
+        let currentArtwork:string|undefined,furnishingWarning:string|undefined;
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
         const viewInterests=new Map<string,ViewInterest>(),optionalResidentWaits=new Map<string,ResidentRetryWait>(),coldQueuedSince=new Map<string,{key:string;since:number}>();
@@ -2495,6 +2500,7 @@ export function GeometryPreview({
         };
         const update = () => {
           if (disposed || gpuLost || publicDisplayStopped) return;
+          if(ownerFurnishings){const stats=ownerFurnishings.stats();renderer.domElement.dataset.workspaceFurnishings=JSON.stringify({...stats,sceneBudget:ownerFurnishings.readout().sceneBudget});if(stats.failed)furnishingWarning='일부 비품을 불러오지 못했어요. 텍스트 관람에서 전체 작품 정보를 확인할 수 있어요.';}
           updateArtworkNotice();
           const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
           const selectedLimits=detailArt?requestLimits({detailPromotion:true,detailBudget:selectedBudget(detailArt)}):undefined;
@@ -2568,7 +2574,7 @@ export function GeometryPreview({
           });
           setPublicMessage(minimumBlocked.size>0?"표시할 메모리가 부족해 일부 작품을 아직 준비하지 못했어요. 작품 목록에서도 감상할 수 있어요.":failed.size > 0
             ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
-            : materialBudgetDeferred.size>0 ? "작품을 준비하고 있어요." : "");
+            : materialBudgetDeferred.size>0 ? "작품을 준비하고 있어요." : furnishingWarning??"");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
@@ -3846,8 +3852,12 @@ export function GeometryPreview({
             const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,abort.signal,AbortSignal.timeout(10000)])});
             if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();signal.throwIfAborted();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');
           };
-          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed:workspaceFurnishingsChanged,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},...(diagnosticsEnabled()?{failureDiagnostics:true}:{}),disposeSource:()=>workspaceCache.dispose()});
-          const result=await ownerFurnishings.start();contactFurnishingsSettled=true;if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setPublicMessage('일부 비품을 불러오지 못했어요.');workspaceFurnishingsChanged();}
+          try{ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed:workspaceFurnishingsChanged,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},...(diagnosticsEnabled()?{failureDiagnostics:true}:{}),disposeSource:()=>workspaceCache.dispose()});}
+          catch(error){workspaceCache.dispose();if(!(error instanceof FurnishingSceneCapacityError))throw error;
+            renderer.domElement.dataset.workspaceFurnishings=JSON.stringify({reason:error.message,sceneBudget:error.sceneBudget});
+            furnishingWarning='일부 비품이 이 관람 환경의 3D 표시 예산을 넘어 보이지 않아요. 텍스트 관람에서 전체 작품 정보를 확인할 수 있어요.';update();return;
+          }
+          const result=await ownerFurnishings.start();contactFurnishingsSettled=true;if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)furnishingWarning='일부 비품을 불러오지 못했어요. 텍스트 관람에서 전체 작품 정보를 확인할 수 있어요.';workspaceFurnishingsChanged();update();}
         }
         return;
       }
@@ -3912,7 +3922,7 @@ export function GeometryPreview({
           ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,nativeEditor:true,resident:()=>localResidentBytes+byteCache.stats().bytes,changed:workspaceFurnishingsChanged});
         } catch (error) {
           if (!(error instanceof FurnishingSceneCapacityError)) throw error;
-          renderer.domElement.dataset.workspaceFurnishings = JSON.stringify({ reason: error.message });
+          renderer.domElement.dataset.workspaceFurnishings = JSON.stringify({ reason: error.message,sceneBudget:error.sceneBudget });
           setMessage('장면의 표시 한도에 도달해 작업 공간 비품을 표시하지 못했어요. 전시 편집은 계속할 수 있습니다.');
           snapshotFurnishingsSettled=true;if(nativeSelection)setReady(true);return;
         }
