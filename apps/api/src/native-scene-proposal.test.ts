@@ -35,15 +35,16 @@ it('retains unique room base, stable-ID, binding limit and closed details valida
  expect(()=>nativeSceneProposal(source,{type:'add-light',light:created,settings:{...settings,fixture:'spot-can'}})).toThrow('LIGHT_DETAILS_INVALID');
 });
 
-it('does not make existing light purpose, room, shadow, scale or units mutable',()=>{
+it('keeps existing light purpose, room, scale and units fixed and rejects unsupported shadow sources',()=>{
  const source:Exhibition=newDraft().candidate,created=light(source.rooms[0]!.id);
  source.lights.push(created);
  const {id,...fields}=created;
  expect(()=>nativeSceneProposal(source,{type:'set-light-details',lightId:id,light:fields,settings})).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
  // Use the actual source room for a valid established binding.
  const valid=nativeSceneProposal({...source,lights:[]},{type:'add-light',light:created,settings}).candidate;
- const changed:Partial<Omit<ExhibitionLight,'id'>>[]=[{roomId:randomUUID()},{castsShadow:true},{transform:{...fields.transform,scale:[2,2,2]}},{unit:'lux'}];
+ const changed:Partial<Omit<ExhibitionLight,'id'>>[]=[{roomId:randomUUID()},{transform:{...fields.transform,scale:[2,2,2]}},{unit:'lux'}];
  for(const delta of changed)expect(()=>nativeSceneProposal(valid,{type:'set-light-details',lightId:id,light:{...fields,...delta},settings:{fixture:'none'}})).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
+ expect(()=>nativeSceneProposal(valid,{type:'set-light-details',lightId:id,light:{...fields,castsShadow:true},settings:{fixture:'none'}})).toThrow('LIGHT_DETAILS_SHADOW_TYPE');
  const edited=nativeSceneProposal(valid,{type:'set-light-details',lightId:id,light:{...fields,intensity:20},settings:{fixture:'none'}}).candidate;
  expect(lightDetailsFor(edited)).toEqual([{lightId:id,fixture:'none',purpose:'room-base',basePlacement:'manual'} satisfies LightDetails]);
 });
