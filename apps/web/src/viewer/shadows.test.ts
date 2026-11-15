@@ -125,6 +125,50 @@ test('primary switch releases old target before another map can be allocated; di
   h.light.intensity=0;pass.invalidate();pass.flush();expect(freed).toBe(1);expect(h.light.shadow.map).toBeNull();expect(second.castShadow).toBe(true);
   pass.dispose();pass.dispose();expect(freed).toBe(1);
 });
+test('an explicit authored spot owns the one map ahead of an automatic directional source',()=>{
+  const h=setup();h.pass.dispose();
+  const spot=new three.SpotLight();spot.position.set(0,4,0);spot.target.position.set(0,0,2);h.room.add(spot,spot.target);
+  const sourceLightId=crypto.randomUUID(),reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light},{room:h.room,light:spot,authoredCastShadow:true,sourceLightId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(h.light.castShadow).toBe(false);expect(spot.castShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({mode:'bounded',sourceLightId,mapSize:512,updates:1});
+  expect(spot.shadow.autoUpdate||h.renderer.shadowMap.autoUpdate).toBe(false);
+  pass.flush();expect(reports).toHaveLength(1);pass.dispose();
+});
+test('an inactive explicit source does not silently substitute automatic room illumination',()=>{
+  const h=setup();h.pass.dispose();
+  const spot=new three.SpotLight();spot.position.set(0,4,0);h.room.add(spot,spot.target);
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light},{room:h.room,light:spot,authoredCastShadow:true}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();const map=new three.WebGLRenderTarget(512,512),dispose=vi.fn();map.addEventListener('dispose',dispose);spot.shadow.map=map;
+  spot.intensity=0;pass.invalidate();pass.flush();
+  expect(dispose).toHaveBeenCalledTimes(1);expect(reports.at(-1)?.mode).toBe('unavailable');
+  expect(h.light.castShadow||spot.castShadow||h.renderer.shadowMap.enabled).toBe(false);pass.dispose();
+});
+test('authored target geometry and its support take bounded priority while transparent glass stays unchanged',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const target=new three.Group(),targetPlacementId=crypto.randomUUID();target.userData.placementId=targetPlacementId;h.room.add(target);
+  const sculpture=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial({color:0x998877}));
+  sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(270000),1));
+  const support=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());support.position.y=-1;
+  const glass=new three.Mesh(new three.BoxGeometry(2,3,2),new three.MeshStandardMaterial({transparent:true,opacity:.07,side:three.DoubleSide}));
+  target.add(sculpture,support,glass);
+  const architecture=new three.Mesh(new three.BoxGeometry(8,1,8),new three.MeshStandardMaterial());architecture.position.y=-2;architecture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(60000),1));h.room.add(architecture);
+  const spot=new three.SpotLight();spot.position.set(1,4,-2);h.room.add(spot,spot.target);
+  const reports:ShadowReport[]=[],fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(5,5,5));
+  const material=sculpture.material,color=material.color.clone(),glassMaterial=glass.material,raycast=glass.raycast;
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:spot,authoredCastShadow:true,targetPlacementId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
+  const camera=contactView();pass.flush(camera);
+  expect(reports.at(-1)).toMatchObject({mode:'bounded',targetPlacementId,targetCasters:2,targetTriangles:90012,omittedTargetCasters:0,omittedCasters:1});
+  expect(sculpture.castShadow&&support.castShadow).toBe(true);expect(architecture.castShadow||glass.castShadow).toBe(false);
+  expect(sculpture.material).toBe(material);expect(material.color).toEqual(color);expect(glass.material).toBe(glassMaterial);expect(glass.raycast).toBe(raycast);expect(glass.visible).toBe(true);
+  spot.shadow.updateMatrices(spot);const matrix=spot.shadow.matrix.clone();camera.position.x=8;camera.lookAt(0,0,0);camera.updateMatrixWorld();pass.flush(camera);
+  expect(reports.at(-1)?.updates).toBe(1);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
+  // A real variant swap invalidates the map; it keeps the same world capture.
+  sculpture.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300000),1));pass.invalidate();pass.flush(camera);
+  expect(reports.at(-1)).toMatchObject({targetTriangles:100000,targetCasters:1,omittedTargetCasters:1,updates:2});
+  expect(support.castShadow).toBe(false);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
+  pass.dispose();expect(sculpture.castShadow||support.receiveShadow||glass.castShadow).toBe(false);
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();

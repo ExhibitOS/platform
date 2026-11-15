@@ -14,8 +14,8 @@ const supportMaterialHooks=new WeakMap<THREE.Material,THREE.Material['onBeforeCo
  * material marker or another caller's shader with the same name. */
 export const hasSupportContactMaterialHook=(material:THREE.Material)=>
   supportMaterialHooks.get(material)===material.onBeforeCompile;
-type Candidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D};
-export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number};
+export type ShadowCandidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D;authoredCastShadow?:boolean;sourceLightId?:string;targetPlacementId?:string};
+export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number;sourceLightId?:string;targetPlacementId?:string;targetCasters?:number;targetTriangles?:number;omittedTargetCasters?:number};
 
 /** Inspect referenced positions, including arbitrarily oriented planes. No welding,
  * geometry edits or per-frame scan. Degenerate/deformed surfaces keep native policy. */
@@ -49,9 +49,9 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
  * room labels never change lighting variants, receiver ownership or map identity.
  * No point-light cube maps or new lights; depth work stays globally bounded. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
-  candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3) {
+  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3) {
   const fixedWorld=worldBounds&&!worldBounds.isEmpty()&&[...worldBounds.min.toArray(),...worldBounds.max.toArray()].every(Number.isFinite)?worldBounds.clone():undefined;
-  let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
+  let dirty=true,disposed=false,updates=0,selected:ShadowCandidate|undefined,capture:THREE.Box3|undefined;
   let view:THREE.Camera|undefined,captureAnchor:THREE.Vector3|undefined,viewRotation:THREE.Quaternion|undefined,captureProjection:THREE.Matrix4|undefined,omittedLast=0;
   let receiverBounds:THREE.Box3[]=[],receiverVersion=0;
   let dependencyCache:{version:number;view:THREE.Matrix4;projection:THREE.Matrix4;light:THREE.Matrix4;lightProjection:THREE.Matrix4;regions:THREE.Box3[]}|undefined;
@@ -71,8 +71,9 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const restoreDepth=(material:THREE.Material)=>{const side=depthSides.get(material);if(side!==undefined){material.side=side;depthSides.delete(material);}};
   const afterRender=()=>{for(const [material]of depthSides)restoreDepth(material);};
   const poses=new Map<THREE.DirectionalLight,{original:THREE.DirectionalLight['shadow']['updateMatrices'];proxy:THREE.DirectionalLight}>();
-  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0,omittedCasters=0)=>report({mode,mapSize:mode==='bounded'?512:0,casters,triangles,updates,omittedCasters});
-  const releaseMap=(light:Candidate['light'])=>{light.castShadow=false;light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;if(light instanceof three.DirectionalLight){const pose=poses.get(light);if(pose){light.shadow.updateMatrices=pose.original;poses.delete(light);}}};
+  let targetCasters=0,targetTriangles=0,omittedTargetCasters=0;
+  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0,omittedCasters=0)=>report({mode,mapSize:mode==='bounded'?512:0,casters,triangles,updates,omittedCasters,...(selected?.sourceLightId?{sourceLightId:selected.sourceLightId}:{}),...(selected?.authoredCastShadow&&selected.targetPlacementId?{targetPlacementId:selected.targetPlacementId,targetCasters,targetTriangles,omittedTargetCasters}:{})});
+  const releaseMap=(light:ShadowCandidate['light'])=>{light.castShadow=false;light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;if(light instanceof three.DirectionalLight){const pose=poses.get(light);if(pose){light.shadow.updateMatrices=pose.original;poses.delete(light);}}};
   const disabled=compact?'compact':availableBytes<SHADOW_RESERVE_BYTES?'budget':undefined;
   const restoreFlags=()=>{
     afterRender();
@@ -98,7 +99,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     const ownedAfter:THREE.Mesh['onAfterShadow']=(...args)=>restoreDepth(args[5]);
     hooks.set(mesh,{before,after,ownedBefore,ownedAfter});mesh.onBeforeShadow=ownedBefore;mesh.onAfterShadow=ownedAfter;
   };
-  let priorLight:Candidate['light']|undefined,priorAnchor:THREE.Vector3|undefined;
+  let priorLight:ShadowCandidate['light']|undefined,priorAnchor:THREE.Vector3|undefined;
   const priority=(mesh:THREE.Mesh)=>{
     let artwork:unknown;
     for(let node:THREE.Object3D|null=mesh;node;node=node.parent){
@@ -107,7 +108,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     }
     return artwork==='sculpture'?1:artwork===undefined?2:3;
   };
-  const fit=(candidate:Candidate)=>{
+  const fit=(candidate:ShadowCandidate)=>{
     const {light}=candidate;light.updateWorldMatrix(true,false);light.target.updateWorldMatrix(true,false);
     const box=fixedWorld?.clone()??new three.Box3();if(!fixedWorld)for(const room of sourceRooms){room.updateWorldMatrix(true,true);box.expandByObject(room);}
     const size=box.getSize(new three.Vector3());
@@ -161,15 +162,24 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       }
     }
     if(!dirty)return;dirty=false;
+    targetCasters=0;targetTriangles=0;omittedTargetCasters=0;
     if(disabled){emit(disabled);return;}
     const previous=selected;
     priorLight=previous?.light;priorAnchor=captureAnchor?.clone();
-    // Keep a positive directional source ahead of spots. Authored values never
-    // change; only representative shadow-source policy changes from room-based.
-    const ordered=[...candidates.filter(c=>c.light instanceof three.DirectionalLight),...candidates.filter(c=>c.light instanceof three.SpotLight)];
+    // Explicit sources own the single map when present. Preserve the historical
+    // automatic source policy for documents without an authored preference.
+    // Capture the document flag separately: this pass owns Three's castShadow.
+    const authored=candidates.filter(c=>c.authoredCastShadow===true);
+    const ordered=authored.length?authored:[...candidates.filter(c=>c.light instanceof three.DirectionalLight),...candidates.filter(c=>c.light instanceof three.SpotLight)];
     selected=ordered.find(candidate=>candidate.light.intensity>0&&fit(candidate));
     if(previous&&previous.light!==selected?.light)releaseMap(previous.light);
     if(!selected){captureAnchor=view?.getWorldPosition(new three.Vector3());viewRotation=view?.getWorldQuaternion(new three.Quaternion());captureProjection=view?.projectionMatrix.clone();restoreFlags();renderer.shadowMap.enabled=false;emit('unavailable');return;}
+    const targetId=selected.authoredCastShadow?selected.targetPlacementId:undefined;
+    const isTarget=(mesh:THREE.Mesh)=>{
+      if(!targetId)return false;
+      for(let node:THREE.Object3D|null=mesh;node;node=node.parent)if(typeof node.userData.placementId==='string'&&node.userData.placementId.toLowerCase()===targetId.toLowerCase())return true;
+      return false;
+    };
     const frustum=view?new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(view.projectionMatrix,view.matrixWorldInverse)):undefined;
     const position=view?.getWorldPosition(new three.Vector3());
     const seen=new Set<THREE.Mesh>(),rows:{mesh:THREE.Mesh;box:THREE.Box3;cost:number;visible:boolean;distance:number}[]=[];
@@ -184,8 +194,8 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     // Bound persistent receiver references. Omitted geometry is still rendered.
     // Camera motion cannot exchange architectural occluders for nearby frames.
     // Stable traversal order resolves equal priority within the same scene.
-    if(fixedWorld)rows.sort((a,b)=>priority(a.mesh)-priority(b.mesh));
-    else rows.sort((a,b)=>Number(b.visible)-Number(a.visible)||a.distance-b.distance);
+    if(fixedWorld)rows.sort((a,b)=>Number(isTarget(b.mesh))-Number(isTarget(a.mesh))||priority(a.mesh)-priority(b.mesh));
+    else rows.sort((a,b)=>Number(isTarget(b.mesh))-Number(isTarget(a.mesh))||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const receivers=rows.slice(0,256),eligible=new Set(receivers.map(row=>row.mesh));
     receiverBounds=receivers.map(row=>row.box);receiverVersion++;
     for(const mesh of [...flags.keys()])if(!eligible.has(mesh))restoreMesh(mesh);
@@ -193,12 +203,12 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     for(const [mesh,h]of hooks){if(mesh.onBeforeShadow===h.ownedBefore)mesh.onBeforeShadow=h.before;if(mesh.onAfterShadow===h.ownedAfter)mesh.onAfterShadow=h.after;}hooks.clear();
     // Small structural occluders first, then visible work; retain relevant
     // offscreen occluders in the capture rather than frustum-only shadowing.
-    if(!fixedWorld)receivers.sort((a,b)=>Number(b.cost<=12)-Number(a.cost<=12)||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
+    if(!fixedWorld)receivers.sort((a,b)=>Number(isTarget(b.mesh))-Number(isTarget(a.mesh))||Number(b.cost<=12)-Number(a.cost<=12)||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const meshes:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
     for(const {mesh,box,cost} of receivers){
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
-      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000){omittedCasters++;continue;}
-      meshes.push(mesh);triangles+=cost;
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000){omittedCasters++;if(isTarget(mesh))omittedTargetCasters++;continue;}
+      meshes.push(mesh);triangles+=cost;if(isTarget(mesh)){targetCasters++;targetTriangles+=cost;}
     }
     omittedLast=omittedCasters;
     if(!meshes.length){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable',0,0,omittedCasters);return;}

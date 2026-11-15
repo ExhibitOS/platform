@@ -64,7 +64,7 @@ import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/p
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
-import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -893,9 +893,9 @@ export function GeometryPreview({
           extent / 1000,
           extent * 100,
         );
-      const shadowCandidates=[...scriptLights.values()].flatMap(({light})=>{
+      const shadowCandidates:ShadowCandidate[]=[...scriptLights.values()].flatMap(({light})=>{
         const item=document.lights.find(item=>scriptLights.get(item.id)?.light===light),room=item&&rooms.get(item.roomId.toLowerCase());
-        return room&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room}]:[];
+        return room&&item&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId}]:[];
       });
       for(const room of rooms.values())shadowCandidates.push({light:sun,room});
       // Architecture is immutable for this renderer lifetime. A bounded whole
