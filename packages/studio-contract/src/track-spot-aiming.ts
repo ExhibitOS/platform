@@ -53,17 +53,26 @@ const around=(pivot:WasherVector,q:WasherQuaternion):WasherPose=>({position:sub(
 const contains=(intervals:readonly (readonly [number,number])[],n:number)=>intervals.some(([lo,hi])=>n>=lo&&n<=hi);
 const validIntervals=(v:unknown):v is readonly (readonly [number,number])[]=>Array.isArray(v)&&v.length>0&&v.every(p=>tuple(p,2)&&p[0]!<=p[1]!);
 
-/** Select an equivalent full-turn representative, not a clamped angle. At
- * most three integer candidates per supplied interval; no travel sampling. */
+/** Select a full-turn representative, including a numerically indistinguishable
+ * endpoint after inverse-transform/atan2 roundoff. This is only for derived
+ * target angles; explicit manual positions retain strict interval membership.
+ * At most three integer candidates per interval; no travel sampling. */
 function representative(base:number,intervals:readonly (readonly [number,number])[],reference:number):number|undefined{
  let best:number|undefined;
  for(const [lo,hi]of intervals){
   const first=Math.ceil((lo-base)/TAU),last=Math.floor((hi-base)/TAU);
-  if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||first>last)continue;
+  if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last))continue;
   for(const turn of [first,last,Math.round((reference-base)/TAU)]){
-   if(turn<first||turn>last)continue;
-   const angle=base+turn*TAU;
-   if(angle<lo||angle>hi)continue;
+   if(!Number.isSafeInteger(turn))continue;
+   let angle=base+turn*TAU;
+   if(angle<lo||angle>hi){
+    const endpoint=angle<lo?lo:hi;
+    // Eight rounding units in radian arithmetic, never a mechanical tolerance.
+    // The original target remains authoritative and its optical residual is
+    // checked below even when the exact endpoint represents this inverse.
+    if(Math.abs(angle-endpoint)>8*Number.EPSILON*Math.max(1,Math.abs(angle),Math.abs(endpoint)))continue;
+    angle=endpoint;
+   }
    if(best===undefined||Math.abs(angle-reference)<Math.abs(best-reference))best=angle;
   }
  }

@@ -86,6 +86,35 @@ test('source limits reject rather than clamp target directions or manual positio
  expect(solve(input)).toMatchObject({reachable:false,reason:'OUTSIDE_ENVELOPE'});
 });
 
+test('translated endpoint rays retain their exact source envelope without admitting outside directions',()=>{
+ for(const yaw of [-Math.PI,-1.2,0,.7,Math.PI])for(const pitch of [-Math.PI/2,0]){
+  const input=fixture();input.mountPose.position=[0,4,0];input.intent={kind:'manual',yaw,pitch};
+  const manual=success(solve(input));
+  const target=manual.emitter.map((n,i)=>n+2*manual.direction[i]!) as WasherVector;
+  input.intent={kind:'target',point:target};
+  const inverse=success(solve(input));
+  expect(inverse.pitch).toBeGreaterThanOrEqual(-Math.PI/2);expect(inverse.pitch).toBeLessThanOrEqual(0);
+  expect(inverse.resolvedTarget).toEqual(target);expect(inverse.residual).toBeLessThan(1e-12);
+  close(inverse.direction,manual.direction);
+ }
+ for(const pitch of [1e-12,-Math.PI/2-1e-12]){
+  const input=fixture();input.mountPose.position=[0,4,0];
+  // Exclude the physically equivalent opposite-yaw branch for the lower pole.
+  input.envelope.yawIntervals=[[-.5,.5]];
+  input.intent={kind:'target',point:[0,3.85+2*Math.sin(pitch),-2*Math.cos(pitch)]};
+  expect(solve(input)).toMatchObject({reachable:false,reason:'OUTSIDE_ENVELOPE'});
+ }
+ const input=fixture();input.mountPose.position=[0,4,0];
+ input.envelope.yawIntervals=[[-.5,.5]];
+ const yaw=.5+1e-12;
+ input.intent={kind:'target',point:[-2*Math.sin(yaw),3,-2*Math.cos(yaw)]};
+ expect(solve(input)).toMatchObject({reachable:false,reason:'OUTSIDE_ENVELOPE'});
+ for(const pitch of [Number.EPSILON,1e-12,-Math.PI/2-1e-12]){
+  input.intent={kind:'manual',yaw:0,pitch};
+  expect(solve(input)).toMatchObject({reachable:false,reason:'OUTSIDE_ENVELOPE'});
+ }
+});
+
 test('equivalent yaw branches fit source intervals and preserve admissible previous continuity',()=>{
  const input=fixture();input.intent={kind:'target',point:[0,-1,2]};
  input.envelope.yawIntervals=[[Math.PI,Math.PI]];
