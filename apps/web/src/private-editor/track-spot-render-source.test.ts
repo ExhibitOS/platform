@@ -41,13 +41,13 @@ function collisionTriangles(mesh:NonNullable<ReturnType<typeof furnishingCollisi
  const rows:number[][]=[];for(let i=0;i<mesh.indices.length;i+=3){const values:number[]=[];for(let j=0;j<3;j++){const index=mesh.indices[i+j]!*3;values.push(...mesh.vertices.slice(index,index+3));}rows.push(values);}
  return rows.sort((a,b)=>{for(let i=0;i<a.length;i++){const delta=a[i]!-b[i]!;if(Math.abs(delta)>1e-6)return delta;}return 0;});
 }
-it('keeps actual source triangles, normals, materials, aperture, collision and ray hits while reducing14 parts to5 draws',async()=>{
+it('keeps actual source triangles, normals, materials, aperture, collision and ray hits while reducing14 parts to7 draws',async()=>{
  const {source}=await input(),original=await loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES);
  const originalNodes=[...original.model.children],buffers=originalNodes.map(node=>{const geometry=(node as three.Mesh).geometry;return Object.values(geometry.attributes).map(attribute=>new Uint8Array(attribute.array.buffer,attribute.array.byteOffset,attribute.array.byteLength).slice());});
  const owner=createTrackSpotRenderSource(three,original,asset),pose=resolved(3),reference=original.model.clone(true);applyWallwasherModelPose(three,reference,asset,pose);
  const visual=owner.instantiate(pose,FURNISHING_RESERVE_BYTES-owner.baseResident);
  try{
-  expect(existingSceneCost(three,reference)).toEqual({draws:14,triangles:4260});expect(existingSceneCost(three,visual.model)).toEqual({draws:5,triangles:4260});
+  expect(existingSceneCost(three,reference)).toEqual({draws:14,triangles:4260});expect(existingSceneCost(three,visual.model)).toEqual({draws:7,triangles:4260});
   equivalent(records(reference),records(visual.model));
   expect(visual.model.children).toHaveLength(2);const [fixed,head]=visual.model.children;
   expect(fixed!.position.toArray()).toEqual(pose.fixedPose.position);expect(head!.quaternion.toArray()).toEqual(pose.headPose.rotation);
@@ -68,8 +68,8 @@ it('shares only immutable source/merged buffers across14 independently posed fix
  let used=owner.baseResident;const visuals:ReturnType<typeof owner.instantiate>[]=[],lenses:three.Mesh[]=[];
  try{
   for(let i=0;i<14;i++){const shared=owner.sharedResident(),visual=owner.instantiate(resolved(i),FURNISHING_RESERVE_BYTES-used);used+=owner.sharedResident()-shared+visual.resident;visuals.push(visual);scene.add(visual.model);visual.model.traverse(node=>{if(node instanceof three.Mesh&&node.userData.name==='Lens_opaque')lenses.push(node);});}
-  expect(existingSceneCost(three,scene)).toEqual({draws:70,triangles:59640});expect(used).toBeLessThan(FURNISHING_RESERVE_BYTES);
-  const geometries=new Set<three.BufferGeometry>();scene.traverse(node=>{if(node instanceof three.Mesh)geometries.add(node.geometry);});expect(geometries.size).toBe(5);
+  expect(existingSceneCost(three,scene)).toEqual({draws:98,triangles:59640});expect(used).toBeLessThan(FURNISHING_RESERVE_BYTES);
+  const geometries=new Set<three.BufferGeometry>();scene.traverse(node=>{if(node instanceof three.Mesh)geometries.add(node.geometry);});expect(geometries.size).toBe(7);
   expect(new Set(lenses.map(lens=>lens.material)).size).toBe(14);expect(new Set(lenses).size).toBe(14);
   const first=lenses[0]!.material as three.MeshStandardMaterial,second=lenses[1]!.material as three.MeshStandardMaterial;first.emissive.setRGB(1,0,0);expect(second.emissive.r).toBe(0);
   const disposed=[...geometries].map(geometry=>vi.spyOn(geometry,'dispose'));owner.dispose();owner.dispose();expect(scene.children).toHaveLength(0);expect(release).toHaveBeenCalledOnce();for(const spy of disposed)expect(spy).toHaveBeenCalledOnce();
@@ -79,14 +79,14 @@ it('uses one verified fetch but checks every binding authority and disposes sour
  const {source}=await input(),roomId=crypto.randomUUID(),room=new three.Group(),scene=new three.Scene();scene.add(room);
  const items=Array.from({length:14},(_,i)=>({asset,binding:{hostKind:'light' as const,hostId:crypto.randomUUID(),assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},resolved:{source:entry,roomId,parent:identity,pose:identity,mountProfile:'museum-track-spot-fixed-head-v1' as const,wallwasher:resolved(i)},source}));
  const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{}, {scene,enabled:()=>true});
- try{expect((await runtime.start()).every(row=>row.status==='ready')).toBe(true);expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check.mock.calls.length).toBeGreaterThanOrEqual(14);expect(existingSceneCost(three,room)).toEqual({draws:70,triangles:59640});expect(runtime.collisions.size).toBe(14);runtime.dispose();expect(room.children).toHaveLength(0);}finally{runtime.dispose();}
+ try{expect((await runtime.start()).every(row=>row.status==='ready')).toBe(true);expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check.mock.calls.length).toBeGreaterThanOrEqual(14);expect(existingSceneCost(three,room)).toEqual({draws:98,triangles:59640});expect(runtime.collisions.size).toBe(14);runtime.dispose();expect(room.children).toHaveLength(0);}finally{runtime.dispose();}
 });
 it('retains admission and authority fences when a verified source is already shared',async()=>{
  const {source}=await input(),roomId=crypto.randomUUID(),room=new three.Group();let allowed=true;
  source.check.mockImplementation(async()=>{if(!allowed)throw Error('CATALOG_SCOPE_EXPIRED');});
  const items=Array.from({length:2},(_,i)=>({asset,binding:{hostKind:'light' as const,hostId:crypto.randomUUID(),assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},resolved:{source:entry,roomId,parent:identity,pose:identity,mountProfile:'museum-track-spot-fixed-head-v1' as const,wallwasher:resolved(i)},source}));
  const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{allowed=false;});
- try{expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','fallback']);expect(source.fetcher).toHaveBeenCalledOnce();expect(existingSceneCost(three,room)).toEqual({draws:5,triangles:4260});}finally{runtime.dispose();}
+ try{expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','fallback']);expect(source.fetcher).toHaveBeenCalledOnce();expect(existingSceneCost(three,room)).toEqual({draws:7,triangles:4260});}finally{runtime.dispose();}
  const next=await input(),original=await loadCatalogModel(three,entry,next.source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES),owner=createTrackSpotRenderSource(three,original,asset);
  try{expect(()=>owner.instantiate(resolved(),0)).toThrow('CATALOG_BUDGET');expect(owner.sharedResident()).toBe(0);expect(original.model.children).toHaveLength(14);expect(original.model.parent).toBeNull();}finally{owner.dispose();}
 });

@@ -3,18 +3,18 @@ import type * as Three from 'three';
 import {TransformControls,TransformControlsGizmo,TransformControlsPlane} from 'three/addons/controls/TransformControls.js';
 import type {WorkspaceSceneDrawInventory} from './failure-readout';
 import type {DeviceBudget} from '../viewer/loading';
-/** Conservative whole-scene admission, not a measured GPU draw/time limit.
- * The existing desktop artwork policy (320MiB and >=150k/model) shares the
- * populated native editor's bounded384 envelope. Touch/compact/unknown policies
- * retain256; canvas size or document complexity never grants more capacity. */
-export function sceneDrawLimit(budget:Pick<DeviceBudget,'maxCacheBytes'|'maxTriangles'>,nativeEditor=false){
- return nativeEditor||budget.maxCacheBytes>=320*1024*1024&&budget.maxTriangles>=150000?384:256;
-}
-/** The approved fixture workload adds62,926 potential color triangles.300k
- * accommodates the previous200k envelope plus that delta and bounded headroom.
- * Shared fixture buffers keep memory admission separate; shadow limits stay put. */
-export function sceneTriangleLimit(budget:Pick<DeviceBudget,'maxCacheBytes'|'maxTriangles'|'maxSceneTriangles'>,nativeEditor=false){
- if(nativeEditor)return 300000;
+/** Conservative all-room/hidden-object envelope, NOT a GPU call/time limit.
+ * Reuses the native384 bound. After exact fixture batching, the new workload
+ * adds78 potential model draws:256+78+18fallbacks+9guides=361, below384.
+ * A missing hardware hint or a smaller texture preset must not hide objects.
+ * Per-model/byte/pixel policies and actual per-frame culling remain separate. */
+export const SCENE_DRAW_LIMIT=384;
+/** Standard350k covers the previous250k envelope+62,926 fixture triangles;
+ * Compact250k covers its previous populated160k envelope+the same workload.
+ * The profile owns this aggregate allowance; explicit lower caller limits win.
+ * Per-model geometry quality and dirty shadow work remain separate. */
+export function sceneTriangleLimit(budget:Pick<DeviceBudget,'maxTriangles'|'maxSceneTriangles'>,nativeEditor=false){
+ if(nativeEditor)return 350000;
  return budget.maxSceneTriangles??budget.maxTriangles;
 }
 type Cost={draws:number;triangles:number};

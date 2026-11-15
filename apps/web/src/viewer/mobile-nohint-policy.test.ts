@@ -7,7 +7,7 @@ test('ordinary selection preserves known/invalid hints and non-mobile pointer po
   expect(selectedDeviceBudget('auto',{...mobile,deviceMemory})).toEqual(deviceBudget({...mobile,deviceMemory}));
   expect(selectedDeviceBudget('compact',{...mobile,deviceMemory})).toEqual(selectedDeviceBudget('compact',{deviceMemory}));
  }
- expect(selectedDeviceBudget('auto',{coarsePointer:false,finePointer:true})).toMatchObject({maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:150000,maxSceneTriangles:200000});
+ expect(selectedDeviceBudget('auto',{coarsePointer:false,finePointer:true})).toMatchObject({maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:150000,maxSceneTriangles:350000});
  expect(selectedDeviceBudget('auto',{coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
  for(const input of [{coarsePointer:false,finePointer:false},{}])expect(selectedDeviceBudget('auto',input)).toEqual(DEVICE_BUDGETS.desktop);
  for(const input of [{coarsePointer:false,finePointer:true},{coarsePointer:true,finePointer:true},{coarsePointer:false,finePointer:false},{coarsePointer:true},{}])expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
@@ -15,8 +15,8 @@ test('ordinary selection preserves known/invalid hints and non-mobile pointer po
 });
 test('current R97 Compact costs leave aggregate headroom without lifting model quality or concurrency',()=>{
  const current=DEVICE_BUDGETS.compact,candidate=selectedDeviceBudget('compact',mobile);
- expect(current.maxSceneTriangles??current.maxTriangles).toBe(20000);
- expect(candidate).toEqual({...current,maxCacheBytes:128*mib,maxTransitionBytes:160*mib,maxSceneTriangles:160000});
+ expect(current.maxSceneTriangles).toBe(250000);
+ expect(candidate).toEqual({...current,maxCacheBytes:128*mib,maxTransitionBytes:160*mib});
  const observed=114519;
  expect(observed).toBeGreaterThan(100000);
  expect(candidate.maxSceneTriangles!-observed).toBeGreaterThan(candidate.maxSceneTriangles!*.25);
@@ -25,7 +25,7 @@ test('current R97 Compact costs leave aggregate headroom without lifting model q
 });
 test('Auto keeps its ordinary tier and reserves aggregate room for the current Greek plus Hayes swap',()=>{
  const current=deviceBudget(mobile),candidate=selectedDeviceBudget('auto',mobile);
- expect(candidate).toEqual({...current,maxCacheBytes:336*mib,maxTransitionBytes:448*mib,materialPlanningBytes:192*mib,maxSceneTriangles:250000});
+ expect(candidate).toEqual({...current,maxCacheBytes:336*mib,maxTransitionBytes:448*mib,materialPlanningBytes:192*mib});
  // Current five-model Compact scene, replacing only Hayes20k with ordinary100k.
  const modeled=114519+80000;
  expect(candidate.maxSceneTriangles!-modeled).toBeGreaterThan(candidate.maxSceneTriangles!*.2);

@@ -8,6 +8,9 @@ export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
 // A small global pool supports independently authored sources without assuming
 // arbitrary material/shadow sampler capacity. Further sources report deferred.
 export const SHADOW_MAP_LIMIT = 2;
+// Two approved100k bodies, their supports and bounded structural occluders.
+// Existing display buffers are reused; only dirty cached maps submit this work.
+export const SHADOW_TRIANGLE_LIMIT = 250000;
 /** r186 PCF: outer Vogel tap sqrt(4.5/5)*radius plus the hardware tap's
  * diagonal footprint. Express the receiver offset in fitted world units. */
 export function directionalNormalBias(width:number,height:number,radius:number){
@@ -242,7 +245,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
       const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||mesh.intersectsFrustum(frustum)).length;
       if(!passes)continue;
-      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000||depthTriangles+cost*passes>100000||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>SHADOW_TRIANGLE_LIMIT||depthTriangles+cost*passes>SHADOW_TRIANGLE_LIMIT||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
       meshes.push(mesh);triangles+=cost;depthTriangles+=cost*passes;depthDraws+=draws*passes;if(isPrimaryTarget(mesh)){targetCasters++;targetTriangles+=cost;}
     }
     omittedLast=omittedCasters;
