@@ -7,6 +7,31 @@ import {fixtureURL,readOex} from '@exhibitos/spec';
 import {applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry,type FurnishingCommand} from '@exhibitos/studio-contract';
 import {catalogOtherSources,installCatalogOtherVisuals} from './catalog-bench-renderer';
 import {loadCatalogModel} from './catalog-furnishing-loader';
+import {articulatedTrackSpotCandidate,lightId as articulatedLightId,assetId as articulatedAssetId} from '../../../../packages/studio-contract/test-fixtures/articulated-track-spot.js';
+import {existingSceneCost} from '../workspace-furnishing/scene-cost';
+
+it('loads the admitted articulated catalogue model under one room transform',async()=>{
+ const {candidate:document}=articulatedTrackSpotCandidate(),lightId=articulatedLightId,assetId=articulatedAssetId;
+ const model=await readFile(furnishingCatalogueEntry('museum-track-spot-articulated').path);
+ const publicationId=crypto.randomUUID(),revision='a'.repeat(64),url=`/api/v1/publications/${publicationId}/assets/${assetId}`;
+ const items=catalogOtherSources(document,{
+  publicationId,revisionSha256:revision,assets:[{assetId,url,mime:'model/gltf-binary'}],check:async()=>{},
+  fetcher:async()=>new Response(new Uint8Array(model),{headers:{'x-exhibitos-publication-revision':revision}}),
+ });
+ expect(items).toHaveLength(1);
+ const resolved=items[0]!.resolved;
+ if(!('articulated' in resolved)||!resolved.articulated)throw Error('Missing articulated pose');
+ const room=new three.Group();room.position.set(4,0,7);
+ const owner=installCatalogOtherVisuals(three,items,new Map([[resolved.roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,20000,()=>{});
+ try{
+  expect(await owner.start()).toEqual([{kind:'light',id:lightId,status:'ready'}]);
+  const mounted=room.children[0]!.children[0]!;
+  expect(mounted.children).toHaveLength(3);
+  expect(mounted.children[0]!.getWorldPosition(new three.Vector3()).toArray()).toEqual(resolved.articulated.fixedPose.position.map((n,i)=>n+room.position.getComponent(i)));
+  expect(existingSceneCost(three,mounted)).toEqual({draws:8,triangles:5544});
+ }finally{owner.dispose();}
+ expect(room.children).toEqual([]);
+});
 
 it('loads the three immutable host visuals with correct parents and restores fallbacks on disposal or rejected authority',async()=>{
  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex')));let doc=structuredClone(original.exhibition);const room=doc.rooms[0]!,light=doc.lights[0]!,opening=doc.openings[0]!,wall=doc.surfaces.find(s=>s.id===opening.surfaceId)!,placement=doc.placements.find(p=>doc.artworks.some(a=>a.revisionId===p.artworkRevisionId&&a.artworkType==='sculpture'))!;
@@ -96,6 +121,9 @@ it.each([
  const loader=await import('./catalog-furnishing-loader'),{furnishingAsset}=await import('@exhibitos/studio-contract'),asset=furnishingAsset(crypto.randomUUID(),catalogId),source=furnishingCatalogueEntry(asset.catalogId),roomId=crypto.randomUUID(),lightId=crypto.randomUUID(),model=new three.Group(),untouched=new three.Group();model.add(untouched);
  const identity={position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]},release=vi.fn(()=>model.removeFromParent()),spy=vi.spyOn(loader,'loadCatalogModel').mockResolvedValue({model,triangles:source.triangles,resident:1024,dispose:release});
  const item={asset,binding:{hostKind:'light' as const,hostId:lightId,assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},...(selectedBy==='context'?{expectedCoupled:true}:{}),resolved:{source,roomId,parent:identity,pose:identity,...(selectedBy==='tag'?{mountProfile:'museum-track-spot-fixed-head-v1' as const}:{})},source:{url:'/synthetic-static-missing',fetcher:vi.fn<typeof fetch>(),check:async()=>{},revision:'a'.repeat(64)}};
- const room=new three.Group(),fallback=new three.Group(),changed=vi.fn();room.add(fallback);const visual=installCatalogOtherVisuals(three,[item],new Map([[roomId,room]]),new Map([[lightId,[fallback]]]),new Map(),new AbortController().signal,()=>false,20000,changed);
+ const room=new three.Group(),fallback=new three.Group(),changed=vi.fn();room.add(fallback);
+ // Deliberately bypass the static contract to test rejection of malformed runtime input.
+ const invalidItem=item as unknown as Parameters<typeof installCatalogOtherVisuals>[1][number];
+ const visual=installCatalogOtherVisuals(three,[invalidItem],new Map([[roomId,room]]),new Map([[lightId,[fallback]]]),new Map(),new AbortController().signal,()=>false,20000,changed);
  try{expect(await visual.start()).toEqual([{kind:'light',id:lightId,status:'fallback'}]);expect(fallback.visible).toBe(true);expect(room.children).toEqual([fallback]);expect(model.parent).toBeNull();expect(model.children).toEqual([untouched]);expect(release).toHaveBeenCalledOnce();expect(changed).not.toHaveBeenCalled();}finally{visual.dispose();spy.mockRestore();}
 });
