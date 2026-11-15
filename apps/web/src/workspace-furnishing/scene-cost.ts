@@ -44,10 +44,10 @@ export function registerTransformControlsSceneCost(three:typeof Three,control:Tr
 
 /** Conservative scene draw/triangle usage includes hidden meshes and groups. */
 export function existingSceneCost(three:typeof Three,scene:Three.Object3D,ghost=false,inventory?:WorkspaceSceneDrawInventory){
- let draws=0,triangles=0;const checked=new Map<RegisteredControl,boolean>();
+ let draws=0,triangles=0;const checked=new Map<RegisteredControl,boolean>(),chargedRoots=new Set<RegisteredControl>();
  scene.traverse(node=>{
   const registered=roots.get(node)??descendants.get(node);
-  if(registered){let valid=checked.get(registered);if(valid===undefined){valid=registered.valid();checked.set(registered,valid);}if(valid){if(node===registered.root){const peak=ghost?registered.ghost:registered.normal;draws+=peak.cost.draws;triangles+=peak.cost.triangles;if(inventory)addInventory(inventory,peak.inventory);}return;}}
+  if(registered){let valid=checked.get(registered);if(valid===undefined){valid=registered.valid();checked.set(registered,valid);}if(valid&&(node===registered.root||chargedRoots.has(registered))){if(node===registered.root){chargedRoots.add(registered);const peak=ghost?registered.ghost:registered.normal;draws+=peak.cost.draws;triangles+=peak.cost.triangles;if(inventory)addInventory(inventory,peak.inventory);}return;}}
   if(!(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points))return;const materials=Array.isArray(node.material)?node.material:[node.material],geometry=node.geometry,instances=node instanceof three.InstancedMesh?node.count:1;
   if(!Number.isSafeInteger(instances)||instances<0)throw Error('WORKSPACE_SCENE_BUDGET');const passes=materials.reduce((n,m)=>n+((ghost||m.transparent)&&m.side===three.DoubleSide&&!m.forceSinglePass?2:1),0),groups=Array.isArray(node.material)?Math.max(1,geometry.groups.length):1,count=geometry.index?.count??geometry.attributes.position?.count??0;
   // An instanced mesh submits one draw per pass/group; only triangle work scales

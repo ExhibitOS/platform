@@ -18,6 +18,8 @@ it('reserves the maximum complete control mode and independent triangle maximum,
   const before=new OwnerPreviewBudget('synthetic',fetch,256-222,200000),hold=before.reserve(34,10068);expect(()=>before.reserve(49,100)).toThrow('WORKSPACE_SCENE_BUDGET');hold();
   release=registerTransformControlsSceneCost(three,f.control);
   expect(existingSceneCost(three,f.root)).toEqual({draws:19,triangles:1920});expect(existingSceneCost(three,f.scene).draws).toBe(173);
+  // A descendant-only query cannot borrow a root charge outside its traversal.
+  expect(existingSceneCost(three,f.gizmo.gizmo.translate)).toEqual({draws:13,triangles:224});
   const after=new OwnerPreviewBudget('synthetic',fetch,256-173,200000),a=after.reserve(34,10068),b=after.reserve(49,100);expect(after.remaining().remainingDraws).toBe(0);expect(()=>after.reserve(1,0)).toThrow('WORKSPACE_SCENE_BUDGET');a();b();
   release();release();expect(existingSceneCost(three,f.scene).draws).toBe(222);
  }finally{release();geometry.dispose();material.dispose();f.dispose();}
