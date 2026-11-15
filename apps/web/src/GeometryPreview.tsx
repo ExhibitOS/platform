@@ -652,7 +652,8 @@ export function GeometryPreview({
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
       const fixedResourceReserve=qualityFrameReserve+environmentReserve+shadowReserve+plaqueReserve+mapThumbnailReserve+suppliedThumbnailReserve+retainedMaterialBytes+benchReserve+otherReserve+snapshotReserve;
       const resourceLimits=(materialBytes:number)=>assetResourceLimits(resources?.maxCacheBytes??33554432,resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432,fixedResourceReserve+materialBytes);
-      const initialResourceLimits=resourceLimits(materialReserve);
+      let initialResourceLimits:ReturnType<typeof assetResourceLimits>;
+      try{initialResourceLimits=resourceLimits(materialReserve);}catch(error){renderer.dispose();renderer.forceContextLoss();throw error;}
       let assetBudgetBytes=initialResourceLimits.resident,transitionBudgetBytes=initialResourceLimits.transition;
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const refreshAssetLimits=()=>{

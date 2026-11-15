@@ -2,7 +2,7 @@
 import {test,expect} from 'vitest';
 import {setViewerBudgetOverrides,resetViewerBudgetPolicy,VIEWER_BUDGET_NAMESPACE,resolveViewerBudgetPolicy,evaluateViewerBudgetUsage} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
-import {DEVICE_BUDGETS,selectedDeviceBudget} from './loading';
+import {DEVICE_BUDGETS,selectedDeviceBudget,AssetPeakBudget} from './loading';
 import {sceneDrawLimit,sceneTriangleLimit} from '../workspace-furnishing/scene-cost';
 import {exhibitionViewerBudget,selectedExhibitionViewerBudget,assetResourceLimits} from './exhibition-budget';
 
@@ -39,5 +39,6 @@ test('preserves the existing explicit image allowance without a memory override'
 test('honors a transition override below resident capacity rather than increasing the actual ledger',()=>{
  const mib=1024*1024,document=setViewerBudgetOverrides(newDraft().candidate,'standard',{admission:{residentBytes:512*mib,transitionBytes:128*mib}}),{budget}=exhibitionViewerBudget(document,'standard',DEVICE_BUDGETS.desktop);
  const limits=assetResourceLimits(budget.maxCacheBytes,budget.maxTransitionBytes!,32*mib);expect(limits).toEqual({resident:480*mib,transition:96*mib});
+ const ledger=new AssetPeakBudget(limits.transition,()=>0);expect(()=>ledger.reserve('parse',97*mib)).toThrow('ASSET_TRANSITION_PEAK');ledger.reserve('parse',96*mib);ledger.release('parse');
  expect(()=>assetResourceLimits(budget.maxCacheBytes,budget.maxTransitionBytes!,129*mib)).toThrow('MATERIAL_SOURCE_BUDGET');
 });
