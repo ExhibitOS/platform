@@ -17,7 +17,13 @@ export interface WorkspaceFailureObserver {
  failure(error:unknown,currentBytes?:number):void;
 }
 export interface WorkspaceFailureRow extends WorkspaceFailureDetails {placementId:string;furnishingId:string;furnishingVersion:number;modelSha256:string}
-export interface WorkspaceFailureReadout {version:1;settled:boolean;loaded:number;failed:number;truncated:boolean;failures:WorkspaceFailureRow[]}
+export interface WorkspaceSceneDrawInventory {meshDraws:number;instancedMeshDraws:number;lineDraws:number;pointsDraws:number;overlayDraws:number;directHiddenDraws:number;multiMaterialDraws:number}
+export interface WorkspaceSceneBudgetReadout {
+ drawLimit:number;triangleLimit:number;initialDraws:number;initialTriangles:number;
+ reservedDraws:number;reservedTriangles:number;remainingDraws:number;remainingTriangles:number;
+ initialInventory:WorkspaceSceneDrawInventory;
+}
+export interface WorkspaceFailureReadout {version:1;settled:boolean;loaded:number;failed:number;truncated:boolean;failures:WorkspaceFailureRow[];sceneBudget?:WorkspaceSceneBudgetReadout}
 /** Fixed diagnostic values only. Never copy arbitrary exception text, URLs or bodies. */
 function failureCode(error:unknown,stage:Stage):WorkspaceFailureDetails['code']{
  if(error instanceof Error){

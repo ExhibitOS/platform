@@ -3,7 +3,7 @@ import type * as Three from 'three';
 import {isBuiltInGalleryStool,furnishingWalkingCollisionLookup,benchesFor,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceBenchVisual,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {AssetPeakBudget,type DeviceBudget} from '../viewer/loading';
 import {OwnerPreviewBudget} from './owner-preview-budget';
-import {workspaceFailureObserver,type WorkspaceFailureDetails,type WorkspaceFailureRow,type WorkspaceFailureReadout} from './failure-readout';
+import {workspaceFailureObserver,type WorkspaceFailureDetails,type WorkspaceFailureRow,type WorkspaceFailureReadout,type WorkspaceSceneDrawInventory} from './failure-readout';
 import {mountOwnerWorkspacePlacement} from './owner-placement';
 import type {WorkspaceModelSource} from './model-loader';
 import type {WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
@@ -23,13 +23,20 @@ class FurnishingPeakBudget extends AssetPeakBudget {
 }
 
 /** Conservative scene draw/triangle usage includes hidden meshes and groups. */
-export function existingSceneCost(three:typeof Three,scene:Three.Object3D,ghost=false){
+export function existingSceneCost(three:typeof Three,scene:Three.Object3D,ghost=false,inventory?:WorkspaceSceneDrawInventory){
  let draws=0,triangles=0;
  scene.traverse(node=>{if(!(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points))return;const materials=Array.isArray(node.material)?node.material:[node.material],geometry=node.geometry,instances=node instanceof three.InstancedMesh?node.count:1;
   if(!Number.isSafeInteger(instances)||instances<0)throw Error('WORKSPACE_SCENE_BUDGET');const passes=materials.reduce((n,m)=>n+((ghost||m.transparent)&&m.side===three.DoubleSide&&!m.forceSinglePass?2:1),0),groups=Array.isArray(node.material)?Math.max(1,geometry.groups.length):1,count=geometry.index?.count??geometry.attributes.position?.count??0;
   // An instanced mesh submits one draw per pass/group; only triangle work scales
   // with its instance count (including zero instances producing no draw).
-  draws+=instances>0?passes*groups:0;if(node instanceof three.Mesh)triangles+=Math.ceil(count/3)*passes*groups*instances;
+  const chargedDraws=instances>0?passes*groups:0;draws+=chargedDraws;if(node instanceof three.Mesh)triangles+=Math.ceil(count/3)*passes*groups*instances;
+  if(inventory){
+   const kind=node instanceof three.InstancedMesh?'instancedMeshDraws':node instanceof three.Mesh?'meshDraws':node instanceof three.Line?'lineDraws':'pointsDraws';inventory[kind]+=chargedDraws;
+   // These overlap the renderer classes. Direct visibility is not ancestor visibility.
+   if(node.userData.sceneSnapshotOverlay===true)inventory.overlayDraws+=chargedDraws;
+   if(!node.visible)inventory.directHiddenDraws+=chargedDraws;
+   if(Array.isArray(node.material))inventory.multiMaterialDraws+=chargedDraws;
+  }
  });if(!Number.isSafeInteger(draws)||!Number.isSafeInteger(triangles))throw Error('WORKSPACE_SCENE_BUDGET');return {draws,triangles};
 }
 export class FurnishingSceneCapacityError extends Error {
@@ -55,7 +62,9 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  const captureFailures=nativeEditor||(options.failureDiagnostics===true&&!!options.publicAuthority);
  const sceneDraws=nativeEditor?384:256;
  const sceneTriangles=nativeEditor?200_000:(options.budget.maxSceneTriangles??options.budget.maxTriangles);
- const cost=existingSceneCost(options.three,options.scene),remainingDraws=sceneDraws-cost.draws,remainingTriangles=sceneTriangles-cost.triangles;
+ // The extra inventory is collected only for opted-in public staging diagnostics.
+ const initialInventory:WorkspaceSceneDrawInventory|undefined=options.failureDiagnostics===true&&options.publicAuthority?{meshDraws:0,instancedMeshDraws:0,lineDraws:0,pointsDraws:0,overlayDraws:0,directHiddenDraws:0,multiMaterialDraws:0}:undefined;
+ const cost=existingSceneCost(options.three,options.scene,false,initialInventory),remainingDraws=sceneDraws-cost.draws,remainingTriangles=sceneTriangles-cost.triangles;
  if(!Number.isSafeInteger(options.transitionBytes)||options.transitionBytes<1)throw Error('WORKSPACE_SCENE_BUDGET');
  if(remainingDraws<1||remainingTriangles<1)throw new FurnishingSceneCapacityError();
  const scope=new OwnerPreviewBudget(options.tenantId,options.fetcher??fetch,remainingDraws,remainingTriangles),ledger=options.ledger?new FurnishingPeakBudget(options.ledger):new AssetPeakBudget(options.transitionBytes,options.resident),controller=new AbortController(),parent=()=>controller.abort(options.signal.reason);options.signal.addEventListener('abort',parent,{once:true});if(options.signal.aborted)parent();
@@ -72,7 +81,10 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
   const descriptor=extension.furnishings.find(d=>d.id===placement.furnishingId&&d.version===placement.furnishingVersion);if(!descriptor)return;
   firstFailures.set(placement.id.toLowerCase(),{placementId:placement.id,furnishingId:descriptor.id,furnishingVersion:descriptor.version,modelSha256:descriptor.model.sha256,...details});
  };
- const readout=():WorkspaceFailureReadout=>({version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row}))});
+ const readout=():WorkspaceFailureReadout=>{
+  const remaining=scope.remaining();
+  return {version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row})),...(initialInventory?{sceneBudget:{drawLimit:sceneDraws,triangleLimit:sceneTriangles,initialDraws:cost.draws,initialTriangles:cost.triangles,reservedDraws:remainingDraws-remaining.remainingDraws,reservedTriangles:remainingTriangles-remaining.remainingTriangles,...remaining,initialInventory:{...initialInventory}}}:{})};
+ };
  const trianglePressure=()=>{
   if(!nativeEditor||!finished||stopped||controller.signal.aborted||options.unavailable()||failed<1||firstFailures.size!==failed)return;
   const rows=[...firstFailures.values()];
