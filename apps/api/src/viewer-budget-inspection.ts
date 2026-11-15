@@ -34,10 +34,10 @@ export async function runViewerBudgetCPU(input:ViewerBudgetGeometryInput):Promis
  }finally{closing=true;if(timer)clearTimeout(timer);await worker?.terminate();await Promise.allSettled(reads);active--;}
 }
 export async function inspectViewerBudget(prepared:Prepared,acquire:(reference:ViewerBudgetAssetReference)=>Promise<ViewerBudgetAssetSource>,finish:(references:ViewerBudgetAssetReference[])=>Promise<void>,cpu=runViewerBudgetCPU){
- const references=new Map<string,ViewerBudgetAssetReference>(),cache=new Map<string,Promise<Uint8Array>>();
+ const references=new Map<string,ViewerBudgetAssetReference>(),cache=new Map<string,Promise<Uint8Array>>(),bodies=new Map<string,Promise<Uint8Array>>();
  const facts=await cpu({candidate:prepared.candidate,profile:prepared.initial.selection.effectiveProfile,resolvedPolicy:prepared.initial.resolvedPolicy,loadVerifiedAsset:reference=>{
   const key=JSON.stringify(reference);let value=cache.get(key);
-  if(!value){value=(async()=>{const source=await acquire(reference);const bytes=await readViewerBudgetSource(source);references.set(key,reference);return bytes;})();cache.set(key,value);}
+  if(!value){value=(async()=>{const source=await acquire(reference),digestKey=`${source.sha256}:${source.bytes}:${source.mime}`;let body=bodies.get(digestKey);if(!body){body=readViewerBudgetSource(source);bodies.set(digestKey,body);}const bytes=await body;references.set(key,reference);return bytes;})();cache.set(key,value);}
   return value;
  }});
  await finish([...references.values()]);
