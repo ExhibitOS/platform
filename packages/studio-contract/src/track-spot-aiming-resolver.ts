@@ -38,6 +38,7 @@ export function resolveTrackSpotAiming(document:Exhibition,lightId:string,explic
  const fail=(reason:TrackSpotAimingFailureReason,remedy:string):TrackSpotAimingFailure=>({reachable:false,reason,remedy,requestedTarget});
  if(!validateTrackSpotAimBinding(value))return fail('INVALID_BINDING','Choose the known articulated fixture and an explicit rail mount and aiming intent.');
  const binding=value;
+ if(binding.aim.kind==='point')requestedTarget=[...binding.aim.position];
  try{
   const ext:unknown=document.extensions?.[visuals];if(!object(ext)||ext.version!==1||!Array.isArray(ext.bindings)||!Array.isArray(ext.assets))return fail('INVALID_SOURCE','Select the exact supported articulated catalogue source.');
   const matches=ext.bindings.filter(object).filter(v=>v.hostKind==='light'&&typeof v.hostId==='string'&&same(v.hostId,lightId)),visual=matches[0];
@@ -61,7 +62,7 @@ export function resolveTrackSpotAiming(document:Exhibition,lightId:string,explic
   if(certified===undefined){
    const [x,y,z]=corners.reduce((sum,p)=>sum.map((n,i)=>n+p[i]!/4) as AffinePoint,[0,0,0] as AffinePoint),railRotation:[number,number,number,number]=[0,Math.sin(rail.yaw/2),0,Math.cos(rail.yaw/2)];
    const alignment=Math.abs(result.fixedPose.rotation.reduce((sum,n,i)=>sum+n*railRotation[i]!,0));
-   if(Math.abs(y-g.min[1])>1e-6||Math.abs(z)>1e-6||x-.0475<g.min[0]-1e-6||x+.0475>g.max[0]+1e-6||alignment<1-1e-7&&!whiteRailOppositeHeading(descriptor,result.fixedPose.rotation,railRotation))return fail('RAIL_CONTACT','Align the adapter to the selected rail and keep its complete footprint in contact.');
+   if(Math.abs(y-g.min[1])>1e-6||Math.abs(z)>1e-6||x-.0475<g.min[0]-1e-6||x+.0475>g.max[0]+1e-6||corners.some(p=>Math.abs(p[1]-g.min[1])>1e-6||p[0]<g.min[0]-1e-6||p[0]>g.max[0]+1e-6||p[2]<g.min[2]-1e-6||p[2]>g.max[2]+1e-6)||alignment<1-1e-7&&!whiteRailOppositeHeading(descriptor,result.fixedPose.rotation,railRotation))return fail('RAIL_CONTACT','Align the adapter to the selected rail and keep its complete footprint in contact.');
   }
   const light=document.lights.find(v=>same(v.id,lightId))!,room=document.rooms.find(v=>same(v.id,light.roomId))!;
   const poses={fixed:fixedPose,yoke:rigid(result.yokePose),head:rigid(result.headPose)};

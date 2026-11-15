@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import {paintingWasherCandidate,lightId,assetId} from '../test-fixtures/wallwasher.js';
-import {WORKSPACE_FURNISHING_NAMESPACE,ceilingRailAttachmentMatrix,ceilingRailDerivedPose,type WorkspaceFurnishingDescriptor} from './workspace-furnishing.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,ceilingRailAttachmentMatrix,ceilingRailDerivedPose,validateWorkspaceFurnishings,type WorkspaceFurnishingDescriptor,type WorkspaceFurnishings} from './workspace-furnishing.js';
 import {ARTICULATED_TRACK_SPOT_IDENTITY} from './track-spot-articulated-profile.js';
 import type {TrackSpotAimBinding} from './track-spot-aim-binding.js';
 import {resolveTrackSpotAiming,materializeTrackSpotAiming} from './track-spot-aiming-resolver.js';
@@ -52,4 +52,11 @@ it('recomputes the explicit artwork target after motion and never substitutes th
  const first=resolveTrackSpotAiming(document,lightId);expect(first.reachable).toBe(true);if(!first.reachable)throw Error(first.reason);expect(first.resolvedTarget).toEqual([-2.2,1.5,-4.8]);
  document.placements[0]!.transform.position[0]+=.2;const before=structuredClone(document),moved=resolveTrackSpotAiming(document,lightId);expect(moved.reachable).toBe(true);if(!moved.reachable)throw Error(moved.reason);expect(moved.fixedPose).toEqual(first.fixedPose);expect(moved.emitter).not.toEqual(first.emitter);expect(document).toEqual(before);
  document.placements.shift();expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:false,reason:'INVALID_TARGET'});expect(document.lights[0]!.targetPlacementId).toBe(shadowId);
+});
+
+it('requires the complete adapter footprint on an ordinary linear rail and preserves rejected point diagnostics',()=>{
+ const {document,binding}=fixture(),workspace=document.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings,descriptor=workspace.furnishings[0]!;
+ descriptor.model.sha256='f'.repeat(64);descriptor.fit!.sourceSha256=descriptor.model.sha256;const g=descriptor.fit!.geometry;if(g.profile!=='passive-ceiling-rail-v1')throw Error('fixture');g.min[2]=-.005;g.max[2]=.005;binding.mount.position[2]=0;
+ expect(validateWorkspaceFurnishings(document).valid).toBe(true);expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
+ binding.aim={kind:'point',position:[0,-1,0]};expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:false,reason:'INVALID_TARGET',requestedTarget:[0,-1,0]});
 });
