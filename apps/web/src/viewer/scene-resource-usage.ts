@@ -25,7 +25,7 @@ export function collectSceneResourceUsage(three:typeof Three,scene:Three.Object3
  frame?:{calls:number;triangles:number};
 }):SceneResourceUsage{
  const cost=existingSceneCost(three,scene);
- return {scope:'mounted-scene',complete:input.settled,colorDraws:cost.draws,displayTriangles:cost.triangles,
+ return {scope:'mounted-scene',complete:input.settled&&!input.shadow?.omittedCasters&&!input.shadow?.deferredSources,colorDraws:cost.draws,displayTriangles:cost.triangles,
   shadowCasterTriangles:integer(input.shadow?.triangles),shadowDepthTriangles:integer(input.shadow?.depthTriangles),shadowDepthDraws:integer(input.shadow?.depthDraws),
   residentBytes:integer(input.residentBytes),transitionBytes:integer(input.transitionBytes),
   currentFrame:{scope:'current-view',colorAndDirtyDepthDraws:integer(input.frame?.calls),colorAndDirtyDepthTriangles:integer(input.frame?.triangles)},

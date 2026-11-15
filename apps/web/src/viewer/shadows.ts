@@ -57,7 +57,8 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
  * room labels never change lighting variants, receiver ownership or map identity.
  * No point-light cube maps or new lights; depth work stays globally bounded. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
-  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity) {
+  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity,triangleLimits={shadowCasterTriangles:SHADOW_TRIANGLE_LIMIT,shadowDepthTriangles:SHADOW_TRIANGLE_LIMIT}) {
+  if(Object.values(triangleLimits).some(value=>!Number.isSafeInteger(value)||value<1))throw Error('SHADOW_POLICY_INVALID');
   const fixedWorld=worldBounds&&!worldBounds.isEmpty()&&[...worldBounds.min.toArray(),...worldBounds.max.toArray()].every(Number.isFinite)?worldBounds.clone():undefined;
   let dirty=true,disposed=false,updates=0,selected:ShadowCandidate|undefined,capture:THREE.Box3|undefined;
   type Plan={candidate:ShadowCandidate;capture:THREE.Box3};
@@ -252,7 +253,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       if(!capture?.intersectsBox(box)||mesh.userData.exhibitosPlaque===true)continue;
       const passes=[...sourceFrusta.values()].filter(frustum=>!mesh.frustumCulled||mesh.intersectsFrustum(frustum)).length;
       if(!passes)continue;
-      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>SHADOW_TRIANGLE_LIMIT||depthTriangles+cost*passes>SHADOW_TRIANGLE_LIMIT||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>triangleLimits.shadowCasterTriangles||depthTriangles+cost*passes>triangleLimits.shadowDepthTriangles||depthDraws+draws*passes>maxDepthDraws){omittedCasters++;if(isPrimaryTarget(mesh))omittedTargetCasters++;continue;}
       meshes.push(mesh);triangles+=cost;depthTriangles+=cost*passes;depthDraws+=draws*passes;if(isPrimaryTarget(mesh)){targetCasters++;targetTriangles+=cost;}
     }
     omittedLast=omittedCasters;

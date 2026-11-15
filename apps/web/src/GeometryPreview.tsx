@@ -14,7 +14,7 @@ import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost,FurnishingSceneCapacityError} from './workspace-furnishing/owner-scene';
-import {sceneTriangleLimit} from './workspace-furnishing/scene-cost';
+import {sceneTriangleLimit,sceneDrawLimit} from './workspace-furnishing/scene-cost';
 import {WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
 import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
@@ -229,7 +229,7 @@ export function GeometryPreview({
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
-  onResourceUsageReady?:(source:{document:Document;read:()=>SceneResourceUsage}|null)=>void;
+  onResourceUsageReady?:(source:{document:Document;policy?:import('@exhibitos/studio-contract').ResolvedViewerBudgetPolicy;read:()=>SceneResourceUsage}|null)=>void;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean;firstEntranceFrame:boolean;entranceAssetFailed:boolean;error?:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
@@ -241,7 +241,7 @@ export function GeometryPreview({
   onPrivateViewReady?:(getter:(()=>PrivateView|undefined)|null)=>void;
   viewerBudget?: DeviceBudget;
   /** Editor host resource accounting; does not enable visitor navigation. */
-  resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
+  resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'|'maxSceneTriangles'|'sceneAdmission'|'viewerPolicy'>;
   onSceneSnapshotReady?:(source:{document:Document;capture:SceneSnapshotCapture;idle():boolean}|null)=>void;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
@@ -922,10 +922,10 @@ export function GeometryPreview({
         latestShadow=value;
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve+(releaseExtraShadows?.bytes??0)});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
-      },fixedShadowWorld,depthDrawBudget);owned.push(shadowPass,{dispose:releaseOptionalShadows});
+      },fixedShadowWorld,depthDrawBudget,resources?.sceneAdmission);owned.push(shadowPass,{dispose:releaseOptionalShadows});
       let resourceObservations=():{settled:boolean;residentBytes?:number;transitionBytes?:number}=>({settled:false});
       let resourceCatalogSettled=false;
-      resourceUsageCallback.current?.({document,read:()=>{
+      resourceUsageCallback.current?.({document,policy:resources?.viewerPolicy,read:()=>{
         if(disposed||gpuLost||abort.signal.aborted)throw Error('SCENE_RESOURCE_USAGE_UNAVAILABLE');
         const observed=resourceObservations();
         return collectSceneResourceUsage(three,scene,rooms,{...observed,settled:observed.settled&&resourceCatalogSettled,shadow:latestShadow,frame:renderer.info.render});
@@ -1080,6 +1080,14 @@ export function GeometryPreview({
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
           ownerFurnishings?.enforce();
+          if(viewerBudget?.sceneAdmission&&!ownerFurnishings){
+            const cost=existingSceneCost(three,scene),drawLimit=sceneDrawLimit(viewerBudget),triangleLimit=sceneTriangleLimit(viewerBudget);
+            const admitted=cost.draws<=drawLimit&&cost.triangles<=triangleLimit;
+            canvas.dataset.sceneAdmission=JSON.stringify({policyVersion:viewerBudget.viewerPolicy?.policyVersion??1,drawLimit,triangleLimit,...cost,admitted});
+            const issue='이 전시가 선택한 3D 허용 한도를 넘었어요. 전시의 예산 설정을 조정하거나 텍스트 관람을 이용하세요.';
+            if(!admitted){setSceneIssue(issue);return false;}
+            setSceneIssue(current=>current===issue?'':current);
+          }
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           contactShadows?.setView(camera);shadowPass.flush(camera);

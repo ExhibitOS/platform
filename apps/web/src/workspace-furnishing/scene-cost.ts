@@ -13,10 +13,12 @@ export const SCENE_DRAW_LIMIT=384;
  * Compact250k covers its previous populated160k envelope+the same workload.
  * The profile owns this aggregate allowance; explicit lower caller limits win.
  * Per-model geometry quality and dirty shadow work remain separate. */
-export function sceneTriangleLimit(budget:Pick<DeviceBudget,'maxTriangles'|'maxSceneTriangles'>,nativeEditor=false){
+export function sceneTriangleLimit(budget:Pick<DeviceBudget,'maxTriangles'|'maxSceneTriangles'|'sceneAdmission'>,nativeEditor=false){
+ if(budget.sceneAdmission)return budget.sceneAdmission.displayTriangles;
  if(nativeEditor)return 350000;
  return budget.maxSceneTriangles??budget.maxTriangles;
 }
+export function sceneDrawLimit(budget:Pick<DeviceBudget,'sceneAdmission'>){return budget.sceneAdmission?.colorDraws??SCENE_DRAW_LIMIT;}
 type Cost={draws:number;triangles:number};
 type Peak={cost:Cost;inventory:WorkspaceSceneDrawInventory};
 type RegisteredControl={root:Three.Object3D;normal:Peak;ghost:Peak;valid:()=>boolean};

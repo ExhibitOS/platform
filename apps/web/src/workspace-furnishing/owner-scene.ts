@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {existingSceneCost,SCENE_DRAW_LIMIT,sceneTriangleLimit} from './scene-cost';
+import {existingSceneCost,sceneDrawLimit,sceneTriangleLimit} from './scene-cost';
 export {existingSceneCost} from './scene-cost';
 import {isBuiltInGalleryStool,furnishingWalkingCollisionLookup,benchesFor,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceBenchVisual,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {AssetPeakBudget,type DeviceBudget} from '../viewer/loading';
@@ -46,7 +46,7 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  const nativeEditor=options.nativeEditor===true&&!options.publicAuthority&&!options.modelSource;
  // Public diagnostic collection is opt-in and never changes admission capacity.
  const captureFailures=nativeEditor||(options.failureDiagnostics===true&&!!options.publicAuthority);
- const sceneDraws=SCENE_DRAW_LIMIT;
+ const sceneDraws=sceneDrawLimit(options.budget);
  const sceneTriangles=sceneTriangleLimit(options.budget,nativeEditor);
  // Aggregate policy/accounting is inspectable without another diagnostic build.
  // These are conservative scene counts, not measured GPU memory or frame time.
