@@ -48,8 +48,9 @@ export function resolveCoupledWallwasher(document:Exhibition,binding:FurnishingB
    const contactPlane={pose:{...surface.transform,position:[surface.transform.position[0],placement.position[1]+g.min[1],surface.transform.position[2]] as [number,number,number]},dimensions:surface.dimensions};
    let resolved;try{resolved=resolveWallwasherFromEmitter({profile,opticalPose,ceilingSurface:contactPlane});}catch{continue;}
    const mount=resolved.fixedPose,c=Math.cos(placement.yaw),s=Math.sin(placement.yaw),dx=mount.position[0]-placement.position[0],dz=mount.position[2]-placement.position[2],x=c*dx-s*dz,z=s*dx+c*dz;
+   const mountPose:ArtifactPose={position:[...mount.position],rotation:[...mount.rotation],scale:[...mount.scale]};
    const grouped=groupedRailContact(descriptor!,profile.mountFootprint.map(point=>{
-    const world=artifactPoint([...point] as AffinePoint,mount),dx=world[0]-placement.position[0],dz=world[2]-placement.position[2];
+    const world=artifactPoint([...point] as AffinePoint,mountPose),dx=world[0]-placement.position[0],dz=world[2]-placement.position[2];
     return [c*dx-s*dz,world[1]-placement.position[1],s*dx+c*dz] as AffinePoint;
    }));
    if(grouped!==undefined){if(grouped)matches.push(resolved);continue;}
