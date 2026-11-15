@@ -8,7 +8,7 @@ function fixture(){
  const camera=new three.PerspectiveCamera();camera.position.set(3,4,5);camera.lookAt(0,0,0);
  const control=new TransformControls(camera),root=control.getHelper(),scene=new three.Scene(),target=new three.Object3D();scene.add(root,target);
  const gizmo=root.children.find((node):node is TransformControlsGizmo=>node instanceof TransformControlsGizmo)!,plane=root.children.find((node):node is TransformControlsPlane=>node instanceof TransformControlsPlane)!;
- return {camera,control,root,scene,target,gizmo,plane,dispose(){const geometries=new Set<three.BufferGeometry>(),materials=new Set<three.Material>();root.traverse(node=>{if(node instanceof three.Mesh||node instanceof three.Line){geometries.add(node.geometry);for(const material of Array.isArray(node.material)?node.material:[node.material])materials.add(material);}});for(const geometry of geometries)geometry.dispose();for(const material of materials)material.dispose();}};
+ return {camera,control,root,scene,target,gizmo,plane,planeMaterial:plane.material as three.Material,dispose(){const geometries=new Set<three.BufferGeometry>(),materials=new Set<three.Material>();root.traverse(node=>{if(node instanceof three.Mesh||node instanceof three.Line){geometries.add(node.geometry);for(const material of Array.isArray(node.material)?node.material:[node.material])materials.add(material);}});for(const geometry of geometries)geometry.dispose();for(const material of materials)material.dispose();}};
 }
 function renderedCost(root:three.Object3D){let draws=0,triangles=0;root.traverseVisible(node=>{if(!(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points))return;if(!Array.isArray(node.material)&&!node.material.visible)return;const cost=existingSceneCost(three,node.clone(false));draws+=cost.draws;triangles+=cost.triangles;});return {draws,triangles};}
 it('reserves the maximum complete control mode and independent triangle maximum, preserving the 256 cap',()=>{
@@ -30,7 +30,7 @@ it('bounds all modes, handle axes and drag states without removing pickers or ch
    const rendered=renderedCost(f.root),reserved=existingSceneCost(three,f.root);expect(reserved).toEqual({draws:19,triangles:1920});expect(rendered.draws).toBeLessThanOrEqual(reserved.draws);expect(rendered.triangles).toBeLessThanOrEqual(reserved.triangles);
    for(const key of ['translate','rotate','scale'] as const){expect(f.gizmo.picker[key].visible).toBe(false);expect(f.gizmo.gizmo[key].visible).toBe(key===mode);expect(f.gizmo.helper[key].visible).toBe(key===mode);}
   }
-  const after:three.Object3D[]=[];f.root.traverse(node=>after.push(node));expect(after).toEqual(nodes);expect(f.plane.material.visible).toBe(false);expect(f.control.object).toBe(f.target);
+  const after:three.Object3D[]=[];f.root.traverse(node=>after.push(node));expect(after).toEqual(nodes);expect(f.planeMaterial.visible).toBe(false);expect(f.control.object).toBe(f.target);
  }finally{release();f.dispose();}
 });
 it('keeps ordinary hidden geometry conservative and ignores untrusted control-like metadata',()=>{
@@ -40,7 +40,7 @@ it('keeps ordinary hidden geometry conservative and ignores untrusted control-li
 it('falls back to full conservative cost if a picker or the hidden drag plane becomes renderable',()=>{
  const f=fixture(),release=registerTransformControlsSceneCost(three,f.control);try{
   f.gizmo.picker.translate.visible=true;expect(existingSceneCost(three,f.root)).toEqual({draws:68,triangles:3460});f.gizmo.picker.translate.visible=false;
-  f.plane.material.visible=true;expect(existingSceneCost(three,f.root)).toEqual({draws:68,triangles:3460});f.plane.material.visible=false;expect(existingSceneCost(three,f.root).draws).toBe(19);
+  f.planeMaterial.visible=true;expect(existingSceneCost(three,f.root)).toEqual({draws:68,triangles:3460});f.planeMaterial.visible=false;expect(existingSceneCost(three,f.root).draws).toBe(19);
  }finally{release();f.dispose();}
 });
 it('counts additions and falls back after reparenting or changing registered geometry/material structure',()=>{

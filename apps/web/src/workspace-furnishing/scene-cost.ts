@@ -17,7 +17,8 @@ function addInventory(target:WorkspaceSceneDrawInventory,source:WorkspaceSceneDr
 export function registerTransformControlsSceneCost(three:typeof Three,control:TransformControls){
  const root=control.getHelper();if(!(control instanceof TransformControls)||roots.has(root))return ()=>{};
  const gizmo=root.children.find((node):node is TransformControlsGizmo=>node instanceof TransformControlsGizmo),plane=root.children.find((node):node is TransformControlsPlane=>node instanceof TransformControlsPlane);
- if(!gizmo||!plane||root.children.length!==2)return ()=>{};
+ if(!gizmo||!plane||Array.isArray(plane.material)||root.children.length!==2)return ()=>{};
+ const planeMaterial=plane.material;
  const modes=['translate','rotate','scale'] as const,groups=modes.flatMap(mode=>[gizmo.gizmo[mode],gizmo.helper[mode],gizmo.picker[mode]]);
  if(groups.some(group=>!group)||gizmo.children.length!==9||groups.some(group=>group.parent!==gizmo))return ()=>{};
  const nodes:Three.Object3D[]=[];root.traverse(node=>{if(node!==root)nodes.push(node);});
@@ -27,7 +28,7 @@ export function registerTransformControlsSceneCost(three:typeof Three,control:Tr
   const geometry=node.geometry,materials=Array.isArray(node.material)?[...node.material]:[node.material];
   return [{node,geometry,arrayMaterial:Array.isArray(node.material),groupCount:geometry.groups.length,indexCount:geometry.index?.count,positionCount:geometry.attributes.position?.count,materials,traits:materials.map(material=>({material,transparent:material.transparent,side:material.side,forceSinglePass:material.forceSinglePass}))}];
  });
- const valid=()=>control.getHelper()===root&&modes.includes(control.mode)&&plane.material.visible===false&&modes.every(mode=>gizmo.picker[mode].visible===false)&&parents.every(row=>row.node.parent===row.parent)&&bodies.every(row=>{
+ const valid=()=>control.getHelper()===root&&modes.includes(control.mode)&&plane.material===planeMaterial&&planeMaterial.visible===false&&modes.every(mode=>gizmo.picker[mode].visible===false)&&parents.every(row=>row.node.parent===row.parent)&&bodies.every(row=>{
   const materials=Array.isArray(row.node.material)?row.node.material:[row.node.material];
   return Array.isArray(row.node.material)===row.arrayMaterial&&row.geometry.groups.length===row.groupCount&&row.node.geometry===row.geometry&&row.geometry.index?.count===row.indexCount&&row.geometry.attributes.position?.count===row.positionCount&&materials.length===row.materials.length&&row.traits.every((trait,index)=>materials[index]===trait.material&&trait.material.transparent===trait.transparent&&trait.material.side===trait.side&&trait.material.forceSinglePass===trait.forceSinglePass);
  });
