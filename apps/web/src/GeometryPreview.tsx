@@ -1,4 +1,4 @@
-import {clearNativeCameraPose,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
+import {clearNativeCameraPose,nativeCameraPoseRefresh,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
 import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
 import {detailPickHit} from './viewer/detail-picking';
 import {gpuModelCapability} from './viewer/gpu-model-capability';
@@ -304,6 +304,7 @@ export function GeometryPreview({
   const cameraInteractionSetter=useRef<((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null>(null);
   const cameraAppliedToken=useRef<string|undefined>(undefined);
   const nativeCameraPoseFrame=useRef(nativeCameraPose);nativeCameraPoseFrame.current=nativeCameraPose;
+  const nativePoseRefresh=useRef<ReturnType<typeof nativeCameraPoseRefresh>|null>(null);
   useEffect(()=>{onCameraInteractionReady?.(cameraInteractionSetter.current);return()=>onCameraInteractionReady?.(null);},[onCameraInteractionReady]);
   const privateViewCallback=useRef(onPrivateViewReady);privateViewCallback.current=onPrivateViewReady;
   const privateViewInitial=useRef(initialPrivateView);privateViewInitial.current=initialPrivateView;
@@ -314,7 +315,7 @@ export function GeometryPreview({
   const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
   const placementSync=useRef<(()=>void)|null>(null);
   useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
-  useEffect(()=>{editingSync.current?.();cameraAppliedToken.current=cameraFrameToken;},[editing,selection,document,cameraFrameToken]);
+  useEffect(()=>{editingSync.current?.();cameraAppliedToken.current=cameraFrameToken;nativePoseRefresh.current?.request();},[editing,selection,document,cameraFrameToken]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
   const [xrRunning,setXrRunning]=useState(false);
@@ -1360,6 +1361,9 @@ export function GeometryPreview({
       const resetEditorOrbit=(ids:readonly number[])=>{if(disposed)return;controls.disconnect();for(const id of ids)if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);controls.connect(renderer.domElement);controls.enabled=editorOrbitAvailable();};
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,resetOrbit:resetEditorOrbit,resumeOrbit:()=>{if(editorOrbitAvailable())controls.enabled=true;},onCameraReset:reason=>{selectedFindBounds?.reset();resetCameraMapping();cameraInteractionCallbacks.current.onCameraInteractionReset?.(reason);},previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
       nativePoseEditorIdle=()=>!!editor&&!editor.busy;
+      const poseRefresh=nativeCameraPoseFrame.current?nativeCameraPoseRefresh(clearNativePose,()=>{const canvas=renderer.domElement;if(!disposed&&!gpuLost&&canvas.isConnected&&!canvas.ownerDocument.hidden&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden')render();}):null;
+      nativePoseRefresh.current=poseRefresh;
+      const refreshNativePose=()=>poseRefresh?.request();
       cameraInvalidate.current=editor?()=>{selectedFindBounds?.reset();editor.invalidate();}:null;
       const cameraInteraction=(mode:CameraInteractionMode,forceReset=false,frameToken?:string,resetReason:'hidden'|'unavailable'='unavailable')=>{const bridge=editingRef.current,canvas=renderer.domElement;if(!editor||disposed)return false;if(forceReset&&mode==='object'){editor.invalidate(resetReason);resetCameraMapping();return true;}if(gpuLost||!bridge||bridge.disabled||cameraAppliedToken.current!==frameToken||bridge.document!==document&&!onlyLightColorChanged(document,bridge.document)||canvas.ownerDocument.hidden||canvas.closest('[hidden],[inert]')||canvas.style.visibility==='hidden'||suspendedRef.current||xrActive.current||currentWalkMode.current.walking||seatedBenchRef.current||viewingStyleRef.current!=='free')return false;if(!editor.setCameraMode(mode))return false;controls.touches.ONE=mode==='camera-pan'?three.TOUCH.PAN:three.TOUCH.ROTATE;controls.mouseButtons.LEFT=mode==='camera-pan'?three.MOUSE.PAN:three.MOUSE.ROTATE;return true;};
       cameraInteractionSetter.current=editor?cameraInteraction:null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(cameraInteractionSetter.current);
@@ -1368,9 +1372,10 @@ export function GeometryPreview({
       editingSync.current=()=>{syncSelectedFindBounds();const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        poseRefresh?.dispose();if(nativePoseRefresh.current===poseRefresh)nativePoseRefresh.current=null;
         clearNativePose();
-        renderer.domElement.ownerDocument.removeEventListener('visibilitychange',clearNativePose);
-        renderer.domElement.ownerDocument.defaultView?.removeEventListener('blur',clearNativePose);
+        renderer.domElement.ownerDocument.removeEventListener('visibilitychange',refreshNativePose);
+        renderer.domElement.ownerDocument.defaultView?.removeEventListener('blur',refreshNativePose);
         ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);
         snapshotCallback.current?.(null);
         if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
@@ -1422,7 +1427,7 @@ export function GeometryPreview({
       };
       mapPoseRefresh.current=publishMapPose;
       if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
-      if(nativeCameraPoseFrame.current){renderer.domElement.ownerDocument.addEventListener('visibilitychange',clearNativePose);renderer.domElement.ownerDocument.defaultView?.addEventListener('blur',clearNativePose);}
+      if(poseRefresh){renderer.domElement.ownerDocument.addEventListener('visibilitychange',refreshNativePose);renderer.domElement.ownerDocument.defaultView?.addEventListener('blur',refreshNativePose);}
       materialWork=loadMaterialPhases(
         async()=>{const changed=()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}};const status=await floorTextures.start(changed),workspaceStatus=workspaceTextures?await workspaceTextures.start(changed):{};if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status:{...status,...workspaceStatus},maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
         async()=>{const status=await surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}},

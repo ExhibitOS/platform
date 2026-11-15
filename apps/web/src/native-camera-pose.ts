@@ -8,6 +8,21 @@ function vector(value:unknown):[number,number,number]|undefined {
  return result as [number,number,number];
 }
 export function clearNativeCameraPose(dataset:DOMStringMap){delete dataset.nativeCameraPose;}
+/** Coalesce synchronous lifecycle invalidations after the current callback.
+ * The callback must render normally: only that render may publish a fresh pose. */
+export function nativeCameraPoseRefresh(clear:()=>void,render:()=>void){
+ let pending=false,disposed=false;
+ return {
+  request(){
+   if(disposed)return;
+   clear();
+   if(pending)return;
+   pending=true;
+   queueMicrotask(()=>{if(disposed||!pending)return;pending=false;render();});
+  },
+  dispose(){disposed=true;pending=false;clear();},
+ };
+}
 /** Read-only actual rendered-frame sample. Missing data is unavailable, never a requested-pose fallback. */
 export function publishNativeCameraPose(dataset:DOMStringMap,sample?:Sample){
  clearNativeCameraPose(dataset);
