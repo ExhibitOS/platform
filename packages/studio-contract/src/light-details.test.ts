@@ -39,3 +39,14 @@ test('authored shadow intent toggles atomically without changing source, light i
   expect(setLightDetails(enabled,id,{...on,castsShadow:false},settings)).toEqual(d);
   for(const invalid of [null,0,1,'true',undefined])expect(()=>setLightDetails(d,id,{...l,castsShadow:invalid as unknown as boolean},settings)).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
 });
+
+test.each(['point','area'] as const)('rejects newly authored %s shadow sources while preserving legacy values and allowing preference removal',type=>{
+ const d=fixture(),source=d.lights[0]!;source.type=type;source.unit=type==='area'?'lumen':'candela';delete source.beamAngle;delete source.targetPlacementId;if(type==='area')source.dimensions={width:1,height:1};
+ const settings={fixture:'none' as const};d.extensions![N]={version:1,lights:[{lightId:id,...settings}]};const {id:_,...fields}=source;void _;
+ const before=structuredClone(d);expect(()=>setLightDetails(d,id,{...fields,castsShadow:true},settings)).toThrow('LIGHT_DETAILS_SHADOW_TYPE');expect(d).toEqual(before);
+ source.castsShadow=true;const legacy=structuredClone(d);expect(setLightDetails(d,id,{...fields,castsShadow:true},settings)).toEqual(legacy);
+ expect(setLightDetails(d,id,{...fields,castsShadow:false},settings).lights[0]!.castsShadow).toBe(false);
+ const spot=fixture(),{id:__,...spotFields}=spot.lights[0]!;void __;
+ const enabled=setLightDetails(spot,id,{...spotFields,castsShadow:true},{fixture:'spot-can'});
+ expect(()=>setLightDetails(enabled,id,{...fields,castsShadow:true},settings)).toThrow('LIGHT_DETAILS_SHADOW_TYPE');
+});
