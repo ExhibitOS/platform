@@ -24,3 +24,14 @@ test.each(['auto','manual','unknown','removed'])('room base %s intent and off st
  }
  expect(source).toEqual(before);
 });
+
+test.each([true,false])('authored shadow intent %s survives draft validation and typed OEX/public projections',castsShadow=>{
+ const draft=fixture(),source=draft.candidate,before=structuredClone(source),{id,...light}=source.lights[0]!;
+ const {lightId,...settings}=lightDetailsFor(source)[0]!;void lightId;
+ const changed=setLightDetails(source,id,{...light,castsShadow},settings);
+ expect(validateDraft({...draft,candidate:changed}).valid).toBe(true);expect(()=>checkOexProfile(changed)).not.toThrow();
+ for(const projected of [remapOex(changed).exhibition,projectPublication(changed,[],'2026-11-15T00:00:00.000Z').snapshot]){
+  expect(projected.lights[0]!.castsShadow).toBe(castsShadow);expect(validateStudioLightDetails(projected).valid).toBe(true);
+ }
+ expect(source).toEqual(before);
+});

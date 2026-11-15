@@ -24,8 +24,18 @@ test('closed settings reject coercion, unsupported fixture/type, invalid K/RGB, 
 test('new atomic direct RGB change clears K without touching source/opaque data; immutable fields and unit conversion remain fenced',()=>{
   const d=fixture(),before=structuredClone(d),{id:_,...l}=d.lights[0]!,{lightId:__,temperatureKelvin:___,...settings}=details();void _;void __;void ___;
   const next=setLightDetails(d,id,{...l,color:[.2,.3,.4]},settings);expect(lightDetailsFor(next)[0]!.temperatureKelvin).toBeUndefined();expect(next.lights[0]!.color).toEqual([.2,.3,.4]);expect(next.extensions!['org.example/opaque']).toEqual(d.extensions!['org.example/opaque']);expect(d).toEqual(before);
-  for(const change of [{roomId:art},{castsShadow:true},{unit:'lux' as const}])expect(()=>setLightDetails(d,id,{...l,...change},settings)).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
+  for(const change of [{roomId:art},{unit:'lux' as const}])expect(()=>setLightDetails(d,id,{...l,...change},settings)).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
 });
 test('typed light reference remap never changes UUID-shaped prose or target point coordinates',()=>{
   const value={version:1,lights:[{lightId:id,fixture:'none',aim:{kind:'point',position:[0,1,0]}}]} as StudioLightDetails,before=structuredClone(value),next=remapStudioLightDetails(value,new Map([[id,room]]));expect(next.lights[0]).toEqual({...value.lights[0],lightId:room});expect(value).toEqual(before);expect(()=>remapStudioLightDetails(value,new Map())).toThrow('LIGHT_DETAILS_REFERENCE');
+});
+
+test('authored shadow intent toggles atomically without changing source, light identity or settings',()=>{
+  const d=fixture(),before=structuredClone(d),{id:_,...l}=d.lights[0]!,{lightId:__,...settings}=details();void _;void __;
+  const enabled=setLightDetails(d,id,{...l,castsShadow:true},settings);
+  expect(enabled.lights[0]).toEqual({...d.lights[0],castsShadow:true});
+  expect(enabled.extensions).toEqual(d.extensions);expect(d).toEqual(before);
+  const {id:___,...on}=enabled.lights[0]!;void ___;
+  expect(setLightDetails(enabled,id,{...on,castsShadow:false},settings)).toEqual(d);
+  for(const invalid of [null,0,1,'true',undefined])expect(()=>setLightDetails(d,id,{...l,castsShadow:invalid as unknown as boolean},settings)).toThrow('LIGHT_DETAILS_FIELDS_CHANGED');
 });

@@ -199,7 +199,7 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   const next=structuredClone(candidate),index=next.lights.findIndex(l=>same(l.id,lightId));if(index<0)throw Error('LIGHT_DETAILS_REFERENCE');
   const original=next.lights[index]!;
   const units={point:'candela',spot:'candela',directional:'lux',area:'lumen'} as const;
-  if(Object.hasOwn(light,'id')||Object.hasOwn(settings,'lightId')||light.roomId!==original.roomId||light.castsShadow!==original.castsShadow||JSON.stringify(light.transform.scale)!==JSON.stringify(original.transform.scale)||light.unit!==(light.type===original.type?original.unit:units[light.type]))throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
+  if(Object.hasOwn(light,'id')||Object.hasOwn(settings,'lightId')||light.roomId!==original.roomId||typeof light.castsShadow!=='boolean'||JSON.stringify(light.transform.scale)!==JSON.stringify(original.transform.scale)||light.unit!==(light.type===original.type?original.unit:units[light.type]))throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
   next.lights[index]={...structuredClone(light),id:original.id};
   const bindings=lightDetailsFor(next),at=bindings.findIndex(b=>same(b.lightId,lightId));
   const prior=bindings[at],purpose=prior?.purpose;
