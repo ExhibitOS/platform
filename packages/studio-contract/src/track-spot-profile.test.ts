@@ -53,3 +53,33 @@ it('uses the actual admitted rail height for nonzero ceiling gap',()=>{
  expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(validateFurnishings(e).valid).toBe(true);
  const r=resolve(e);if(!('wallwasher'in r))throw Error('expected static');expect(r.wallwasher.fixedPose.position[1]).toBeCloseTo(3.945,9);
 });
+
+function groupedTrackCandidate(e=staticTrackCandidate()){
+ e.rooms[0]!.dimensions.depth=10;e.surfaces[0]!.dimensions.height=10;
+ const rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {furnishings:{model:unknown;fit:unknown}[];placements:{position:number[];yaw:number}[];ceilingAttachments:{anchor:number[];yaw:number}[]};
+ const model={mime:'model/gltf-binary',sha256:'5cc5d772acd4087c5d7d26b5f24e2fe38626b1315e377210410954abf7d4ff44',bytes:377576};
+ rail.furnishings[0]!.model=model;rail.furnishings[0]!.fit={version:1,sourceSha256:model.sha256,sourceBytes:model.bytes,geometry:{profile:'passive-ceiling-rail-v1',min:[-3.2175,-.035,-2.698],max:[2.648545,0,2.548]}};
+ rail.placements[0]!.position=[0,4,0];rail.placements[0]!.yaw=0;rail.ceilingAttachments[0]!.anchor=[0,0];rail.ceilingAttachments[0]!.yaw=0;
+ return e;
+}
+it('resolves a perpendicular off-origin fixture on actual grouped contact geometry without editing its light or binding',()=>{
+ const e=staticTrackCandidate(),lights=structuredClone(e.lights),bindings=structuredClone(furnishingsFor(e)!.bindings),grouped=groupedTrackCandidate(structuredClone(e));
+ expect(validateWorkspaceFurnishings(grouped).valid).toBe(true);expect(validateFurnishings(grouped).valid).toBe(true);
+ const before=resolve(e),after=resolve(grouped);expect('wallwasher'in before&&'wallwasher'in after).toBe(true);
+ if(!('wallwasher'in before)||!('wallwasher'in after))throw Error('expected coupled');
+ expect(after.wallwasher).toEqual(before.wallwasher);expect(grouped.lights).toEqual(lights);expect(furnishingsFor(grouped)!.bindings).toEqual(bindings);
+ expect(resolve(JSON.parse(JSON.stringify(grouped)))).toEqual(after);
+});
+it('rejects a grouped mount shifted off the certified contact even while inside its aggregate bounds',()=>{
+ const e=groupedTrackCandidate(),rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{position:number[]}[];ceilingAttachments:{anchor:number[]}[]};
+ rail.placements[0]!.position[0]=.03;rail.ceilingAttachments[0]!.anchor[0]=.03;
+ expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(()=>resolve(e)).toThrow('TRACK_SPOT_RAIL_CONTACT_UNAVAILABLE');
+});
+it('checks grouped contact in source coordinates under a rotated rail placement',()=>{
+ const e=groupedTrackCandidate(),yaw=.2,c=Math.cos(yaw),s=Math.sin(yaw),rotate=(p:number[])=>[c*p[0]!+s*p[2]!,p[1]!,-s*p[0]!+c*p[2]!] as [number,number,number];
+ const rail=e.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{yaw:number}[];ceilingAttachments:{yaw:number}[]};rail.placements[0]!.yaw=yaw;rail.ceilingAttachments[0]!.yaw=-yaw;
+ const light=e.lights[0]!,position=rotate(light.transform.position);light.transform.position=position;
+ const attachment=e.extensions!['org.exhibitos.studio/light-attachments'] as unknown as {lights:{anchor:number[]}[]};attachment.lights[0]!.anchor=[position[0],position[2]];
+ const details=e.extensions!['org.exhibitos.studio/light-details'] as unknown as {lights:{aim:{position:number[]}}[]};details.lights[0]!.aim.position=rotate(details.lights[0]!.aim.position);
+ expect(validateWorkspaceFurnishings(e).valid).toBe(true);expect(validateFurnishings(e).valid).toBe(true);expect('wallwasher'in resolve(e)).toBe(true);
+});
