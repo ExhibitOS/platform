@@ -46,7 +46,7 @@ export function trackSpotAimContext(document:Exhibition,lightId:string,binding:T
  const descriptor=rail&&workspace.furnishings.find(f=>same(f.id,rail.furnishingId)&&f.version===rail.furnishingVersion);
  const attachments=rail?workspace.ceilingAttachments?.filter(a=>same(a.placementId,rail.id))??[]:[];
  const surface=attachments[0]&&document.surfaces.find(s=>same(s.id,attachments[0]!.surfaceId));
- if(rails.length!==1||!rail||!same(rail.roomId,light.roomId)||descriptor?.kind!=='ceiling-rail'||descriptor.fit?.geometry.profile!=='passive-ceiling-rail-v1'||attachments.length!==1||!surface||surface.type!=='ceiling'||!same(surface.roomId,light.roomId))return fail('TRACK_SPOT_AIM_RAIL_REQUIRED');
+ if(rails.length!==1||!rail||rail.scale!==1||!same(rail.roomId,light.roomId)||descriptor?.kind!=='ceiling-rail'||descriptor.fit?.geometry.profile!=='passive-ceiling-rail-v1'||attachments.length!==1||!surface||surface.type!=='ceiling'||!same(surface.roomId,light.roomId))return fail('TRACK_SPOT_AIM_RAIL_REQUIRED');
  const railPose:ArtifactPose={position:[...rail.position],rotation:[0,Math.sin(rail.yaw/2),0,Math.cos(rail.yaw/2)],scale:[1,1,1]},yaw=rail.yaw+binding.mount.yaw;
  const mountPose:ArtifactPose={position:artifactPoint(binding.mount.position,railPose),rotation:[0,Math.sin(yaw/2),0,Math.cos(yaw/2)],scale:[1,1,1]};
  // Full adapter-footprint contact and swept-part bounds belong to the source

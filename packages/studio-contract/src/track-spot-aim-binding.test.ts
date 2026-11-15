@@ -10,7 +10,7 @@ function fixture(){
   lights:[{id:id(3),roomId:id(1),type:'spot',targetPlacementId:id(99)}],
   artworks:[{revisionId:id(4),dimensions:{width:2,height:2,depth:.2},transform:{...pose(),position:[.2,.4,.1]}}],
   placements:[{id:id(5),roomId:id(1),artworkRevisionId:id(4),transform:{position:[1,1,-2],rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2],scale:[2,1,1]}}],
-  extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:11,furnishings:[{id:id(6),version:1,kind:'ceiling-rail',fit:{geometry:{profile:'passive-ceiling-rail-v1'}}}],placements:[{id:id(7),roomId:id(1),furnishingId:id(6),furnishingVersion:1,position:[0,5,0],yaw:Math.PI/2}],ceilingAttachments:[{placementId:id(7),surfaceId:id(2)}]}}} as unknown as Exhibition;
+  extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:11,furnishings:[{id:id(6),version:1,kind:'ceiling-rail',fit:{geometry:{profile:'passive-ceiling-rail-v1'}}}],placements:[{id:id(7),roomId:id(1),furnishingId:id(6),furnishingVersion:1,position:[0,5,0],yaw:Math.PI/2,scale:1}],ceilingAttachments:[{placementId:id(7),surfaceId:id(2)}]}}} as unknown as Exhibition;
  const binding:TrackSpotAimBinding={version:1,profile:'track-spot-aim-v1',mount:{railPlacementId:id(7),position:[2,-.035,.25],yaw:.2},aim:{kind:'placement-center',placementId:id(5),offset:[.3,.2,.4]}};
  return {document,binding};
 }
@@ -41,4 +41,9 @@ it('keeps manual and room-point intent distinct, rejects outside-room points, an
 it('admits only the closed versioned intent schema; this alone does not qualify source geometry or joint limits',()=>{
  const {binding}=fixture();expect(validateTrackSpotAimBinding(binding)).toBe(true);
  for(const value of [{...binding,version:2},{...binding,profile:'museum-track-spot-fixed-head-v1'},{...binding,extra:true},{...binding,mount:{...binding.mount,position:[NaN,0,0]}},{...binding,aim:{kind:'placement-center',placementId:id(5)}}])expect(validateTrackSpotAimBinding(value)).toBe(false);
+});
+
+it('rejects a scaled rail instead of silently solving a different mount',()=>{
+ const {document,binding}=fixture(),workspace=document.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as {placements:{scale:number}[]};
+ workspace.placements[0]!.scale=2;expect(()=>trackSpotAimContext(document,id(3),binding)).toThrow('TRACK_SPOT_AIM_RAIL_REQUIRED');
 });

@@ -1,0 +1,6 @@
+Museum track spotlight articulated rest-source candidate r2
+
+Creator and rights holder: ExhibitOS. The user directs CC0 1.0 for ExhibitOS-created assets to the extent rights are held or exercisable.
+License: Creative Commons CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).
+
+This notice covers the source-derived articulated spotlight r2 geometry, materials and editable master, including its modified neck and stem. The retained museum-track-spot original and fixed-pose candidate remain separately preserved. Artwork, rail assets, previews and third-party works are not included. This notice does not establish product registration, supported range, mechanical qualification or release approval.
