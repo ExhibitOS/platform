@@ -2,6 +2,7 @@
 import type * as Three from 'three';
 import {REFINED_BENCH} from '@exhibitos/studio-contract';
 import {geometryResidentBytes,modelGeometryResidentBytes} from '../viewer/loading';
+import {recordCatalogDecodeRetirement} from './catalog-decode-ownership';
 
 /** Only the immutable refined bench admits one bounded, embedded oak PNG.
  * Twelve bytes/pixel reserve decoded CPU pixels plus GPU mip levels and margin. */
@@ -39,6 +40,7 @@ export async function loadCatalogModel(three:typeof Three,asset:{bytes:number;sh
   const gltf=await new GLTFLoader(manager).parseAsync(bytes.buffer,'');model=gltf.scene;let triangles=0;const textures=new Set<Three.Texture>();const attributes:Array<Three.BufferAttribute|Three.InterleavedBufferAttribute>=[];
   model.traverse(node=>{if(node instanceof three.Mesh){resources.add(node.geometry);attributes.push(...Object.values(node.geometry.attributes) as Array<Three.BufferAttribute|Three.InterleavedBufferAttribute>);if(node.geometry.index)attributes.push(node.geometry.index);triangles+=(node.geometry.index?.count??node.geometry.attributes.position?.count??0)/3;for(const material of Array.isArray(node.material)?node.material:[node.material]){resources.add(material);for(const v of Object.values(material))if(v instanceof three.Texture){textures.add(v);resources.add(v);if(v.image&&typeof v.image.close==='function')images.add(v.image);}}}});
   const resident=geometryResidentBytes(attributes)+n*4+textureBytes;active();if((textureBytes?textures.size!==1||[...textures].some(texture=>{const image=texture.image as {width?:number;height?:number}|undefined;return image?.width!==1024||image?.height!==512;}):textures.size>0)||triangles>asset.triangles||triangles>maxTriangles||resident>maxBytes)throw Error('CATALOG_BUDGET');await source.check();active();
+  if(!textureBytes)recordCatalogDecodeRetirement(three,model,bytes);
   return {model,triangles,resident,dispose};
  }catch(error){dispose();throw error;}
 }

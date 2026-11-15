@@ -1,0 +1,6 @@
+Painting rectangular dark track
+
+Creator and rights holder: ExhibitOS. The user directs CC0 1.0 for ExhibitOS-created assets to the extent rights are held or exercisable.
+License: Creative Commons CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).
+
+This notice covers the newly authored closed rectangular track geometry, materials and editable master, using the retained ExhibitOS track profile and colors. Earlier network versions and original white and dark 1m tracks remain separately preserved. Artwork, fixtures, previews and third-party works are not included. This notice does not establish product registration, mechanical fit or release approval.

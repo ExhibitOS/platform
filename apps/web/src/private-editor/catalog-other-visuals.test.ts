@@ -86,8 +86,14 @@ it('loads the static track spot through the coupled branch without changing its 
  try{expect(await visual.start()).toEqual([{kind:'light',id:lightId,status:'ready'}]);expect(model.children).toHaveLength(14);expect(model.parent).toBeNull();const mounted=room.children.find(node=>node!==fallback)!.children[0]!;expect(mounted.children.map(n=>n.children.length)).toEqual([9,5]);expect(lens.material).toBe(material);expect(lens.geometry.groups).toEqual(groups);expect(fallback.visible).toBe(false);visual.dispose();expect(release).toHaveBeenCalledOnce();expect(room.children).toEqual([fallback]);expect(fallback.visible).toBe(true);}finally{visual.dispose();spy.mockRestore();}
 });
 
-it.each(['context','tag'] as const)('rejects a missing static track-spot result selected by %s while retaining fallback and original scene ownership',async selectedBy=>{
- const loader=await import('./catalog-furnishing-loader'),{furnishingAsset}=await import('@exhibitos/studio-contract'),asset=furnishingAsset(crypto.randomUUID(),'museum-track-spot'),source=furnishingCatalogueEntry(asset.catalogId),roomId=crypto.randomUUID(),lightId=crypto.randomUUID(),model=new three.Group(),untouched=new three.Group();model.add(untouched);
+it.each([
+ {catalogId:'museum-track-spot',selectedBy:'context'},
+ {catalogId:'museum-track-spot',selectedBy:'tag'},
+ {catalogId:'museum-track-spot-fixed-64p1',selectedBy:'context'},
+ {catalogId:'museum-track-spot-fixed-64p1',selectedBy:'tag'},
+ {catalogId:'museum-track-spot-fixed-64p1',selectedBy:'identity'},
+] as const)('rejects a missing $catalogId coupled result selected by $selectedBy while retaining fallback and scene ownership',async({catalogId,selectedBy})=>{
+ const loader=await import('./catalog-furnishing-loader'),{furnishingAsset}=await import('@exhibitos/studio-contract'),asset=furnishingAsset(crypto.randomUUID(),catalogId),source=furnishingCatalogueEntry(asset.catalogId),roomId=crypto.randomUUID(),lightId=crypto.randomUUID(),model=new three.Group(),untouched=new three.Group();model.add(untouched);
  const identity={position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]},release=vi.fn(()=>model.removeFromParent()),spy=vi.spyOn(loader,'loadCatalogModel').mockResolvedValue({model,triangles:source.triangles,resident:1024,dispose:release});
  const item={asset,binding:{hostKind:'light' as const,hostId:lightId,assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},...(selectedBy==='context'?{expectedCoupled:true}:{}),resolved:{source,roomId,parent:identity,pose:identity,...(selectedBy==='tag'?{mountProfile:'museum-track-spot-fixed-head-v1' as const}:{})},source:{url:'/synthetic-static-missing',fetcher:vi.fn<typeof fetch>(),check:async()=>{},revision:'a'.repeat(64)}};
  const room=new three.Group(),fallback=new three.Group(),changed=vi.fn();room.add(fallback);const visual=installCatalogOtherVisuals(three,[item],new Map([[roomId,room]]),new Map([[lightId,[fallback]]]),new Map(),new AbortController().signal,()=>false,20000,changed);
