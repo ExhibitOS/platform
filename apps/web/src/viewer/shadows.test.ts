@@ -179,6 +179,18 @@ test('target omission accounting includes the receiver cap as well as the caster
   expect(target.children.filter(mesh=>(mesh as three.Mesh).castShadow)).toHaveLength(64);
   pass.dispose();geometry.dispose();material.dispose();
 });
+test('independently authored sculpture lights in two rooms both retain stable cached maps',()=>{
+  const h=setup();h.pass.dispose();
+  const other=new three.Group();other.position.x=8;const secondMesh=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());other.add(secondMesh);
+  const first=new three.SpotLight(),second=new three.SpotLight();first.position.set(0,4,-2);second.position.set(0,4,-2);h.room.add(first,first.target);other.add(second,second.target);
+  const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:first,authoredCastShadow:true},{room:other,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,()=>{},fixed);
+  pass.flush(contactView());expect(first.castShadow).toBe(true);expect(second.castShadow).toBe(true);
+  expect(h.mesh.castShadow&&secondMesh.castShadow).toBe(true);
+  first.shadow.updateMatrices(first);second.shadow.updateMatrices(second);const before=[first.shadow.matrix.clone(),second.shadow.matrix.clone()];
+  const camera=contactView(8);pass.flush(camera);expect(first.shadow.matrix.equals(before[0]!)).toBe(true);expect(second.shadow.matrix.equals(before[1]!)).toBe(true);
+  pass.dispose();expect(first.castShadow||second.castShadow||h.mesh.castShadow||secondMesh.castShadow).toBe(false);
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();
