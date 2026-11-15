@@ -1,3 +1,4 @@
+import {inspectViewerBudget} from './viewer-budget-inspection.ts';
 import type {ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
 import type {ViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
@@ -305,8 +306,21 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  else app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
  const viewerBudgetQuery=object({profile:{enum:['standard','compact','native']},context:{enum:['viewer','native']},automaticProfile:{enum:['standard','compact']}},[]);
- app.get(`${sp}/:id/viewer-budget`,{schema:{querystring:viewerBudgetQuery}},call(false,async(c,s,req,reply)=>{const result=await studio.viewerBudget(c,s,(req.params as {id:string}).id,req.query as ViewerBudgetAnalysisOptions);reply.header('etag',result.binding.etag).header('cache-control','no-store');return result;}));
- app.post(`${sp}/:id/viewer-budget-analysis`,{bodyLimit:1048576,schema:{body:object({requestId:id,expectedRevision:{type:'integer',minimum:1,maximum:2147483647},draft:{type:'object'},options:{type:'object'}},['requestId','expectedRevision','draft'])}},call(true,async(c,s,req,reply)=>{const body=req.body as StudioInput&{expectedRevision:number;options?:ViewerBudgetAnalysisOptions};const result=await studio.viewerBudget(c,s,(req.params as {id:string}).id,body.options??{},body,requiredMatch(req.headers['if-match']));reply.header('etag',result.binding.etag).header('cache-control','no-store');return result;}));
+ const viewerBudgetInspection=(dirty:boolean)=>async(req:FastifyRequest,reply:FastifyReply)=>{
+  guarded(req,dirty);reply.header('cache-control','no-store');
+  const {tenantId,id:exhibitionId}=req.params as {tenantId:string;id:string};uuid(tenantId);
+  const csrf=typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined;
+  const body=dirty?req.body as StudioInput&{expectedRevision:number;options?:ViewerBudgetAnalysisOptions}:undefined;
+  // Return from auth.request only after COMMIT released all advisory/row locks.
+  const prepared=await auth.request(token(req),tenantId,csrf,dirty,(c,s)=>studio.prepareViewerBudget(c,s,exhibitionId,(dirty?body?.options??{}:req.query as ViewerBudgetAnalysisOptions),body,body?requiredMatch(req.headers['if-match']):undefined));
+  const result=await inspectViewerBudget(prepared,
+   reference=>auth.request(token(req),tenantId,undefined,false,async(c,s)=>{await studio.assertViewerBudgetCurrent(c,s,exhibitionId,prepared.binding.etag);return studio.viewerBudgetSource(c,s,prepared.candidate,reference);}),
+   references=>auth.request(token(req),tenantId,undefined,false,async(c,s)=>{await studio.assertViewerBudgetCurrent(c,s,exhibitionId,prepared.binding.etag);for(const reference of references)await studio.viewerBudgetSource(c,s,prepared.candidate,reference);})
+  );
+  reply.header('etag',result.binding.etag);return result;
+ };
+ app.get(`${sp}/:id/viewer-budget`,{schema:{querystring:viewerBudgetQuery}},viewerBudgetInspection(false));
+ app.post(`${sp}/:id/viewer-budget-analysis`,{bodyLimit:1048576,schema:{body:object({requestId:id,expectedRevision:{type:'integer',minimum:1,maximum:2147483647},draft:{type:'object'},options:{type:'object'}},['requestId','expectedRevision','draft'])}},viewerBudgetInspection(true));
  if(!freshOexTest)app.put(`${sp}/:id/viewer-budget`,{bodyLimit:69632,schema:{body:object({requestId:id,expectedRevision:{type:'integer',minimum:1,maximum:2147483647},policy:{anyOf:[{type:'object'},{type:'null'}]}})}},call(true,async(c,s,req,reply)=>{const result=await studio.putViewerBudget(c,s,(req.params as {id:string}).id,req.body as {requestId:string;expectedRevision:number;policy:ViewerBudgetPolicy|null},requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
  const freezes=store&&freezeConfig?new Freezes(pool,store,freezeConfig):null;

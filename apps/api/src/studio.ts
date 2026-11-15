@@ -1,6 +1,6 @@
 import type {Cms} from './cms.ts';
-import {viewerBudgetProducer,viewerBudgetAssetLoader} from './viewer-budget-producer.ts';
-import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy} from '@exhibitos/studio-contract';
+import {viewerBudgetAssetSource} from './viewer-budget-producer.ts';
+import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
 import {analyzeViewerBudget,type ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
 import {ordinaryViewerBudgetPolicyDelta} from './viewer-budget-policy-delta.ts';
 import {ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
@@ -365,23 +365,29 @@ export class Studio {
     return this.putInternal(c,s,id,input,match);
   }
   /** Read-only authoring inspection binds both saved head and exact dirty candidate. */
-  async viewerBudget(c:PoolClient,s:Session,id:string,options:ViewerBudgetAnalysisOptions={},input?:StudioInput&{expectedRevision:number},match?:string){
+  async prepareViewerBudget(c:PoolClient,s:Session,id:string,options:ViewerBudgetAnalysisOptions={},input?:StudioInput&{expectedRevision:number},match?:string){
     const row=await this.access(c,s,id),head=etag(row.revision,row.metadata);
     const draft=input?.draft??row.metadata as Draft;
     if(input){
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
       if(match!==head||input.expectedRevision!==row.revision)throw new ApiError(412,'REMOTE_CONFLICT');
       checked(input,!!row.nativeBounded);
-      if(draft.id!==row.metadata.id||draft.exhibitionId!==id)throw new ApiError(422,'DRAFT_ID_MISMATCH');
-      await assertWorkspaceMaterialSnapshot(c,s,draft.candidate,this.workspaceMaterial);
-      await assertWorkspaceFurnishingSnapshot(c,s,draft.candidate,this.workspaceFurnishing);
+      if(draft.id.toLowerCase()!==row.metadata.id.toLowerCase()||draft.exhibitionId.toLowerCase()!==id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
     }
     const binding={exhibitionId:id,savedRevision:row.revision,etag:head,draftId:draft.id,draftEditVersion:draft.editVersion,source:input?'draft' as const:'saved' as const};
-    const initial=analyzeViewerBudget(draft.candidate,binding,options),producer=await viewerBudgetProducer();
-    if(!producer)return initial;
-    const facts=await producer({candidate:draft.candidate,profile:initial.selection.effectiveProfile,resolvedPolicy:initial.resolvedPolicy,loadVerifiedAsset:viewerBudgetAssetLoader(c,s,draft.candidate,this.budgetCms,this.workspaceFurnishing)});
-    return analyzeViewerBudget(draft.candidate,binding,options,facts);
+    const candidate=structuredClone(draft.candidate),initial=analyzeViewerBudget(candidate,binding,options);
+    return {candidate,binding,options:structuredClone(options),initial};
   }
+  async viewerBudget(c:PoolClient,s:Session,id:string,options:ViewerBudgetAnalysisOptions={},input?:StudioInput&{expectedRevision:number},match?:string){
+    return (await this.prepareViewerBudget(c,s,id,options,input,match)).initial;
+  }
+  viewerBudgetSource(c:PoolClient,s:Session,candidate:Draft['candidate'],reference:ViewerBudgetAssetReference){
+    return viewerBudgetAssetSource(c,s,candidate,reference,this.budgetCms,this.workspaceFurnishing);
+  }
+  async assertViewerBudgetCurrent(c:PoolClient,s:Session,id:string,head:string){
+    const row=await this.access(c,s,id);if(etag(row.revision,row.metadata)!==head)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
+  }
+
   /** Settings reuse the ordinary save transaction, source checks and durable receipts. */
   async putViewerBudget(c:PoolClient,s:Session,id:string,input:{requestId:string;expectedRevision:number;policy:ViewerBudgetPolicy|null},match:string){
     uuid(input.requestId);
