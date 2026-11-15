@@ -6,6 +6,7 @@ import {test,expect,vi,afterEach} from 'vitest';
 import * as three from 'three';
 import {applyLightObjectCommand,lightAttachmentPose,ceilingRailDerivedPose,ceilingRailAttachmentMatrix,WORKSPACE_FURNISHING_NAMESPACE,furnishingCatalogueEntry,resolveViewerBudgetPolicy,setViewerBudgetOverrides,evaluateViewerBudgetUsage} from '@exhibitos/studio-contract';
 import {paintingWasherCandidate,lightId,assetId} from '../../../../packages/studio-contract/test-fixtures/wallwasher';
+import {validateDraft} from '../drafts/validator';
 import {newDraft} from '../drafts/example';
 import {syntheticArtwork,newPlacement} from '../placement/model';
 import {existingSceneCost} from '../workspace-furnishing/scene-cost';
@@ -46,4 +47,14 @@ test('uses the actual seven-draw museum transformation in CPU analysis and the s
  const bound=applyLightObjectCommand(aimed,{type:'set-light-fixture',lightId,visual:{catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}}},{newAssetId:assetId}).candidate,document=setViewerBudgetOverrides(bound,'standard',{admission:{colorDraws:512,displayTriangles:500000}}),resolvedPolicy=resolveViewerBudgetPolicy(document,'standard');
  const result=await analyzeViewerBudgetGeometry({candidate:document,profile:'standard',resolvedPolicy,loadVerifiedAsset:async reference=>reference.sha256===model.sha256?railBytes:museum});
  expect(result.wholeExhibition.contributors.find(row=>row.id==='catalogue:light:'+lightId)?.usage).toMatchObject({colorDraws:7,displayTriangles:4260});expect(evaluateViewerBudgetUsage(resolvedPolicy,result.wholeExhibition).admissionExceeded).not.toContain('colorDraws');
+});
+
+test('reports requested shadow work above a chosen low cap instead of reporting the already omitted zero work',async()=>{
+ const body=await sculpture(),candidate=newDraft().candidate,art=syntheticArtwork();art.assets[0]!.bytes=body.length;art.assets[0]!.sha256=digest(body);candidate.artworks=[art];candidate.placements=[newPlacement(art,candidate.rooms[0]!.id)];candidate.lights=[];
+ const document=setViewerBudgetOverrides(candidate,'standard',{admission:{shadowCasterTriangles:1,shadowDepthTriangles:1}}),policy=resolveViewerBudgetPolicy(document,'standard'),result=await analyzeViewerBudgetGeometry({candidate:document,profile:'standard',resolvedPolicy:policy,loadVerifiedAsset:async()=>body});
+ expect(result.wholeExhibition.shadowCasterTriangles).toBeGreaterThan(1);expect(evaluateViewerBudgetUsage(policy,result.wholeExhibition).admissionExceeded).toContain('shadowCasterTriangles');
+});
+test('known policy syntax is validated while low performance admission keeps authoring available',()=>{
+ const draft=newDraft();draft.candidate=setViewerBudgetOverrides(draft.candidate,'standard',{admission:{colorDraws:1}});expect(validateDraft(draft).valid).toBe(true);
+ const malformed=structuredClone(draft);malformed.candidate.extensions!['org.exhibitos.studio/viewer-budget']={version:2,policyVersion:1,profiles:{}};const result=validateDraft(malformed);expect(result.valid).toBe(false);expect(result.errors.some(error=>error.code==='VIEWER_BUDGET_POLICY_INVALID')).toBe(true);
 });
