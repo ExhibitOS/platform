@@ -601,7 +601,10 @@ export function GeometryPreview({
       const resources=viewerBudget??resourceBudget;
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
-      const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      const authoredShadowCount=document.lights.filter(light=>light.castsShadow===true&&(light.type==='spot'||light.type==='directional')).length;
+      const depthDrawBudget=resources?.maxDrawCalls??DEVICE_BUDGETS.desktop.maxDrawCalls;
+      const shadowMapCount=Math.min(Math.max(1,authoredShadowCount),Math.floor(depthDrawBudget),Math.floor((resources?.maxCacheBytes??33554432)/SHADOW_RESERVE_BYTES));
+      const shadowReserve=compactQuality?0:shadowMapCount*SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
       const mapImageIds=document.placements.filter(p=>document.artworks.some(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase()&&a.artworkType==='image')).map(p=>p.id);
       const mapThumbnailReserve=viewerBudget&&onMapThumbnail?mapThumbnailRosterReserve(mapImageIds.length):0;
@@ -907,7 +910,7 @@ export function GeometryPreview({
       const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
-      },fixedShadowWorld);owned.push(shadowPass);
+      },fixedShadowWorld,depthDrawBudget);owned.push(shadowPass);
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {

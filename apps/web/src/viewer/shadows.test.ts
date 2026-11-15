@@ -184,12 +184,41 @@ test('independently authored sculpture lights in two rooms both retain stable ca
   const other=new three.Group();other.position.x=8;const secondMesh=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());other.add(secondMesh);
   const first=new three.SpotLight(),second=new three.SpotLight();first.position.set(0,4,-2);second.position.set(0,4,-2);h.room.add(first,first.target);other.add(second,second.target);
   const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
-  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:first,authoredCastShadow:true},{room:other,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,()=>{},fixed);
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:first,authoredCastShadow:true,sourceLightId:'first'},{room:other,light:second,authoredCastShadow:true,sourceLightId:'second'}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),fixed);
   pass.flush(contactView());expect(first.castShadow).toBe(true);expect(second.castShadow).toBe(true);
+  expect(reports.at(-1)).toMatchObject({mapCount:2,mapBytes:2*SHADOW_RESERVE_BYTES,requestedSources:2,deferredSources:0,sources:[{sourceLightId:'first',casters:1},{sourceLightId:'second',casters:1}]});
   expect(h.mesh.castShadow&&secondMesh.castShadow).toBe(true);
   first.shadow.updateMatrices(first);second.shadow.updateMatrices(second);const before=[first.shadow.matrix.clone(),second.shadow.matrix.clone()];
   const camera=contactView(8);pass.flush(camera);expect(first.shadow.matrix.equals(before[0]!)).toBe(true);expect(second.shadow.matrix.equals(before[1]!)).toBe(true);
   pass.dispose();expect(first.castShadow||second.castShadow||h.mesh.castShadow||secondMesh.castShadow).toBe(false);
+});
+test('a pooled source beyond the available map memory is deferred and released on preference changes',()=>{
+  const h=setup();h.pass.dispose();
+  const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const candidates=[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}];
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,candidates,false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,mapBytes:SHADOW_RESERVE_BYTES,deferredSources:1});
+  expect(h.light.castShadow).toBe(true);expect(second.castShadow).toBe(false);
+  const map=new three.WebGLRenderTarget(512,512);h.light.shadow.map=map;const released=vi.fn();map.addEventListener('dispose',released);
+  candidates[0]!.authoredCastShadow=false;pass.invalidate();pass.flush();
+  expect(released).toHaveBeenCalledOnce();expect(h.light.shadow.map).toBeNull();expect(h.light.castShadow).toBe(false);expect(second.castShadow).toBe(true);
+  pass.dispose();expect(second.castShadow).toBe(false);
+});
+test('multiple material groups share the global depth draw allowance across pooled maps',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const geometry=new three.BoxGeometry(),materials=[new three.MeshStandardMaterial(),new three.MeshStandardMaterial()];
+  // Two actual groups rather than counting this multi-material mesh as one draw.
+  geometry.clearGroups();geometry.addGroup(0,18,0);geometry.addGroup(18,18,1);
+  const grouped=new three.Mesh(geometry,materials),extra=new three.Mesh(new three.BoxGeometry(),materials[0]);h.room.add(grouped,extra);
+  const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+  const reports:ShadowReport[]=[];
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,2*SHADOW_RESERVE_BYTES,r=>reports.push(r),undefined,4);
+  pass.flush();expect(grouped.castShadow).toBe(true);expect(extra.castShadow).toBe(false);
+  expect(reports.at(-1)).toMatchObject({casters:1,omittedCasters:1,mapCount:2,sources:[{depthDraws:2},{depthDraws:2}]});
+  expect(reports.at(-1)!.sources!.reduce((sum,row)=>sum+row.depthDraws,0)).toBe(4);
+  pass.dispose();geometry.dispose();for(const material of materials)material.dispose();extra.geometry.dispose();
 });
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
