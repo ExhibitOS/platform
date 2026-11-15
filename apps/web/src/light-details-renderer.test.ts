@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
 import * as three from 'three';
-import {setLightDetails} from '@exhibitos/studio-contract';
+import {setLightDetails,resolveTrackSpotAiming} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {newLight} from './placement/model';
 import {installLightDetails} from './light-details-renderer';
+import {articulatedTrackFixture} from './private-editor/articulated-track.test-fixture';
 function fixture(){
   const d=newDraft().candidate,l=newLight(d.rooms[0]!.id,'spot');l.transform.position=[0,2.4,1];l.color=[.2,.3,.4];d.lights=[l];const {id,...light}=l;
   const document=setLightDetails(d,id,light,{fixture:'spot-can',aim:{kind:'point',position:[0,1,0]},penumbra:.4,range:7}),room=new three.Group(),spot=new three.SpotLight(new three.Color().setRGB(...l.color),l.intensity);spot.position.fromArray(l.transform.position);room.add(spot);const rooms=new Map([[l.roomId.toLowerCase(),room]]),lights=new Map([[id,{light:spot}]]);return {document,room,spot,rooms,lights};
@@ -28,4 +29,34 @@ test('procedural lenses follow their own live light while bodies and illuminatio
  lens.onBeforeRender({} as three.WebGLRenderer,{} as three.Scene,{} as three.Camera,lens.geometry,material,null as unknown as three.Group);
  expect(material.emissive.toArray()).toEqual([0,0,0]);expect(otherMaterial.emissiveIntensity).toBe(.5);expect(((firstGroup.children[0] as three.Mesh).material as three.MeshStandardMaterial).toJSON()).toEqual(body);
  h.spot.intensity=document.lights[0]!.intensity;expect(h.spot.toJSON()).toEqual(illumination);expect(h.room.children.filter(o=>o instanceof three.Light)).toHaveLength(2);owner.dispose();
+});
+
+test('known articulated optics use the Shared emitter and exact target and restore stale base optics on disposal',()=>{
+ const {document,binding,lightId}=articulatedTrackFixture(),before=structuredClone(document),room=new three.Group(),spot=new three.SpotLight();
+ spot.position.set(4,2,3);spot.quaternion.setFromAxisAngle(new three.Vector3(0,1,0),.4);room.add(spot);
+ const originalPosition=spot.position.clone(),originalQuaternion=spot.quaternion.clone(),originalTarget=spot.target;
+ const rooms=new Map([[document.rooms[0]!.id.toLowerCase(),room]]),lights=new Map([[lightId,{light:spot}]]),result=resolveTrackSpotAiming(document,lightId);
+ if(!result.reachable)throw Error(result.reason);
+ const owner=installLightDetails(three,document,rooms,lights,false);
+ expect(spot.position.toArray()).toEqual(result.emitter);expect(spot.target.position.toArray()).toEqual(result.resolvedTarget);
+ expect(owner.records[0]).toMatchObject({fixtureMeshes:0,guideCount:0,range:7,penumbra:.35});
+ expect(document).toEqual(before);owner.dispose();owner.dispose();
+ expect(spot.position).toEqual(originalPosition);expect(spot.quaternion.toArray()).toEqual(originalQuaternion.toArray());expect(spot.target).toBe(originalTarget);expect(room.children).toEqual([spot]);
+ binding.aim={kind:'point',position:[-.8,1.5,-1.2]};
+ const moved=resolveTrackSpotAiming(document,lightId);if(!moved.reachable)throw Error(moved.reason);
+ const next=installLightDetails(three,document,rooms,lights,true);
+ expect(moved.fixedPose).toEqual(result.fixedPose);expect(spot.position.toArray()).toEqual(moved.emitter);expect(spot.position.toArray()).not.toEqual(result.emitter);
+ expect(next.records[0]!.guideCount).toBe(1);next.dispose();expect(spot.position).toEqual(originalPosition);
+});
+
+test('manual joint optics keep their resolved ray and invalid known intent never mutates live lights',()=>{
+ const {document,binding,lightId}=articulatedTrackFixture(),room=new three.Group(),spot=new three.SpotLight();spot.position.set(2,3,4);room.add(spot);
+ const rooms=new Map([[document.rooms[0]!.id.toLowerCase(),room]]),lights=new Map([[lightId,{light:spot}]]);
+ binding.aim={kind:'manual',yaw:.2,pitch:-.8};const result=resolveTrackSpotAiming(document,lightId);if(!result.reachable)throw Error(result.reason);
+ const owner=installLightDetails(three,document,rooms,lights,false);
+ const ray=spot.target.position.clone().sub(spot.position).normalize();result.direction.forEach((n,i)=>expect(ray.getComponent(i)).toBeCloseTo(n,12));owner.dispose();
+ const position=spot.position.clone(),target=spot.target,children=[...room.children];
+ binding.aim={kind:'point',position:[-1,4,-1.2]};
+ expect(()=>installLightDetails(three,document,rooms,lights,false)).toThrow();
+ expect(spot.position).toEqual(position);expect(spot.target).toBe(target);expect(room.children).toEqual(children);
 });
