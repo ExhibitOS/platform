@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {lstat} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {Exhibition} from '@exhibitos/spec';
@@ -12,8 +13,12 @@ import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts
  * fixed by the server build and is never derived from a document or request. */
 export async function viewerBudgetProducer():Promise<ViewerBudgetGeometryAnalyzer|null>{
  const url=new URL(import.meta.url.endsWith('.ts')?'../dist/viewer-budget-geometry.mjs':'./viewer-budget-geometry.mjs',import.meta.url);
- try{const module=await import(url.href) as {analyzeViewerBudgetGeometry?:ViewerBudgetGeometryAnalyzer};if(typeof module.analyzeViewerBudgetGeometry!=='function')throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_UNAVAILABLE');return module.analyzeViewerBudgetGeometry;}
- catch(error){if(error&&typeof error==='object'&&'code'in error&&error.code==='ERR_MODULE_NOT_FOUND'&&'url'in error&&error.url===url.href)return null;throw error;}
+ const file=await lstat(url).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
+ if(!file)return null;
+ if(!file.isFile()||file.isSymbolicLink())throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_UNAVAILABLE');
+ const module=await import(url.href) as {analyzeViewerBudgetGeometry?:ViewerBudgetGeometryAnalyzer};
+ if(typeof module.analyzeViewerBudgetGeometry!=='function')throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_UNAVAILABLE');
+ return module.analyzeViewerBudgetGeometry;
 }
 /** Per-request source cache. Metadata and client-reported costs are never bytes
  * authority. Missing permission/unsupported source is handled as unknown by the
