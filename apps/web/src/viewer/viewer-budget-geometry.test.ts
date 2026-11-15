@@ -11,17 +11,19 @@ import {newDraft} from '../drafts/example';
 import {syntheticArtwork,newPlacement} from '../placement/model';
 import {existingSceneCost} from '../workspace-furnishing/scene-cost';
 import {loadBudgetGeometry} from './viewer-budget-glb';
+import {DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from './loading';
 import {analyzeViewerBudgetGeometry} from './viewer-budget-geometry';
 const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllGlobals());
 async function sculpture(){return new Uint8Array(await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')));}
-function materialVersion(bytes:Uint8Array,blend:boolean,embeddedTexture=false){
+function materialVersion(bytes:Uint8Array,blend:boolean,embeddedTexture=false,primitiveCopies?:number){
  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),length=view.getUint32(12,true),doc=JSON.parse(new TextDecoder().decode(bytes.subarray(20,20+length)));let bin=bytes.subarray(28+length);
  if(embeddedTexture){
   const png=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=','base64')),offset=bin.length,combined=new Uint8Array(Math.ceil((offset+png.length)/4)*4);combined.set(bin);combined.set(png,offset);bin=combined;doc.buffers[0].byteLength=bin.length;doc.bufferViews??=[];const bufferView=doc.bufferViews.length;doc.bufferViews.push({buffer:0,byteOffset:offset,byteLength:png.length});doc.images=[{bufferView,mimeType:'image/png'}];doc.textures=[{source:0}];doc.materials??=[{}];
   for(const material of doc.materials){material.pbrMetallicRoughness??={};material.pbrMetallicRoughness.baseColorTexture={index:0};}
  }
  for(const material of doc.materials??[])Object.assign(material,{alphaMode:blend?'BLEND':'OPAQUE',doubleSided:blend});
+ if(primitiveCopies!==undefined){const primitive=doc.meshes[0].primitives[0];doc.meshes=[{primitives:Array.from({length:primitiveCopies},()=>structuredClone(primitive))}];doc.nodes=[{mesh:0}];doc.scenes=[{nodes:[0]}];doc.scene=0;}
  const json=new TextEncoder().encode(JSON.stringify(doc)),size=Math.ceil(json.length/4)*4,result=new Uint8Array(28+size+bin.length),v=new DataView(result.buffer);v.setUint32(0,0x46546c67,true);v.setUint32(4,2,true);v.setUint32(8,result.length,true);v.setUint32(12,size,true);v.setUint32(16,0x4e4f534a,true);result.fill(32,20,20+size);result.set(json,20);v.setUint32(20+size,bin.length,true);v.setUint32(24+size,0x004e4942,true);result.set(bin,28+size);return result;
 }
 test('CPU loading preserves actual GLTF material pass semantics and rejects mismatched identities without acquiring a renderer',async()=>{
@@ -79,4 +81,16 @@ test('constructs and disposes native control geometry without a DOM connection',
 test('inspects embedded-texture GLB geometry without network or image decoder acquisition',async()=>{
  const body=materialVersion(await sculpture(),false,true);vi.stubGlobal('fetch',vi.fn(()=>{throw Error('UNEXPECTED_FETCH');}));vi.stubGlobal('createImageBitmap',vi.fn(()=>{throw Error('UNEXPECTED_IMAGE_DECODE');}));
  const loaded=await loadBudgetGeometry(body,{sha256:digest(body),bytes:body.length});try{expect(loaded.hasTextures).toBe(true);expect(existingSceneCost(three,loaded.model).draws).toBeGreaterThan(0);expect(fetch).not.toHaveBeenCalled();expect(createImageBitmap).not.toHaveBeenCalled();}finally{loaded.dispose();}
+});
+
+test('keeps the independent workspace 256-pass profile unknown above its boundary despite a raised scene allowance',async()=>{
+ const raw=await sculpture(),candidate=setViewerBudgetOverrides(newDraft().candidate,'standard',{admission:{colorDraws:900}}),roomId=candidate.rooms[0]!.id,id=crypto.randomUUID(),pid=crypto.randomUUID(),policy=resolveViewerBudgetPolicy(candidate,'standard');
+ const analyze=async(copies:number,maxTriangles?:number)=>{
+  const body=materialVersion(raw,true,false,copies),model={mime:'model/gltf-binary',bytes:body.length,sha256:digest(body)};
+  candidate.extensions![WORKSPACE_FURNISHING_NAMESPACE]={version:11,furnishings:[{id,version:1,kind:'pedestal',name:'Synthetic repeated primitives',provenance:'Synthetic source',rights:{holder:'Synthetic',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:true,export:true,commercial:true}},model}],placements:[{id:pid,roomId,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}],frameAttachments:[],openingAttachments:[],ceilingAttachments:[]};
+  return {body,result:await analyzeViewerBudgetGeometry({candidate,profile:'standard',...(maxTriangles===undefined?{}:{selectionBudget:{maxTriangles,maxTextureSize:2048}}),loadVerifiedAsset:async()=>body})};
+ };
+ const edge=await analyze(128);expect(workspaceFurnishingModelPreflight(new Uint8Array(edge.body).buffer,edge.body.length,DEVICE_BUDGETS.desktop).draws).toBe(256);expect(edge.result.wholeExhibition.complete).toBe(true);expect(edge.result.wholeExhibition.contributors.find(row=>row.id==='workspace:'+pid)?.usage.colorDraws).toBe(256);
+ const over=await analyze(129);expect(()=>workspaceFurnishingModelPreflight(new Uint8Array(over.body).buffer,over.body.length,{...DEVICE_BUDGETS.desktop,sceneAdmission:{colorDraws:900,displayTriangles:350000,shadowCasterTriangles:250000,shadowDepthTriangles:250000}})).toThrow('ASSET_BUDGET_EXCEEDED');expect(over.result.wholeExhibition.complete).toBe(false);expect(over.result.assumptions.some(value=>value.includes('workspace:'+pid+':ASSET_BUDGET_EXCEEDED'))).toBe(true);expect(evaluateViewerBudgetUsage(policy,over.result.wholeExhibition).status).not.toBe('within');
+ const deferred=await analyze(1,1);expect(deferred.result.wholeExhibition.complete).toBe(false);expect(deferred.result.wholeExhibition.contributors.find(row=>row.id==='workspace:'+pid)?.usage.displayTriangles).toBeGreaterThan(1);expect(deferred.result.assumptions.some(value=>value.includes('workspace:'+id+':selected-profile:ASSET_BUDGET_EXCEEDED'))).toBe(true);expect(evaluateViewerBudgetUsage(policy,deferred.result.wholeExhibition).status).toBe('unknown');
 });
