@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import * as three from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
-import {surfacePanels,wallFinishesFor,floorFor,furnishingsFor,resolveFurnishing,WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,frameAttachmentMetricFit,artworkFrameModel,artworkFrameFit,portalFinishModel,benchesFor,resolveViewerBudgetPolicy,freezeCanonical,daylightFor,daylightDirection,type ViewerBudgetGeometryInput,type ViewerBudgetGeometryResult,type ViewerBudgetAssetReference,type ViewerBudgetUsage,type WorkspaceFurnishings,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import {surfacePanels,wallFinishesFor,floorFor,furnishingsFor,resolveFurnishing,WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,frameAttachmentMetricFit,artworkFrameModel,artworkFrameFit,portalFinishModel,benchesFor,lightDetailsFor,spaceLightingFor,resolveViewerBudgetPolicy,freezeCanonical,daylightFor,daylightDirection,type ViewerBudgetGeometryInput,type ViewerBudgetGeometryResult,type ViewerBudgetAssetReference,type ViewerBudgetUsage,type WorkspaceFurnishings,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {workspaceFitGeometry,qualifiedRectangularPortalTarget,qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models';
 import {installDecor} from '../installation-renderer';
 import {installBenches} from '../bench-renderer';
 import {installArchitecturalFinishes} from '../architectural-finishes-renderer';
 import {installLightDetails} from '../light-details-renderer';
-import {installPlaques} from '../plaque-renderer';
+import {installPlaques,plaqueTextureReserve} from '../plaque-renderer';
+import {environmentEstimate} from './render-quality';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from '../workspace-furnishing/frame-pose';
 import {fitRectangularPortal,fitModularPortal,biasPairedPortalWalls} from '../workspace-furnishing/portal-pose';
 import {existingSceneCost,registerTransformControlsSceneCost} from '../workspace-furnishing/scene-cost';
@@ -24,7 +25,7 @@ import {loadBudgetGeometry} from './viewer-budget-glb';
 const pose=(object:three.Object3D,value:{position:readonly number[];rotation:readonly number[];scale:readonly number[]})=>{object.position.fromArray(value.position);object.quaternion.fromArray(value.rotation);object.scale.fromArray(value.scale);};
 function ownedClone(source:three.Object3D){
  const model=source.clone(true),geometries=new Map<three.BufferGeometry,three.BufferGeometry>(),materials=new Map<three.Material,three.Material>();
- model.traverse(node=>{if(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points){let geometry=geometries.get(node.geometry);if(!geometry){geometry=node.geometry.clone();geometries.set(node.geometry,geometry);}node.geometry=geometry;
+ model.traverse(node=>{if(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points){const original:three.BufferGeometry=node.geometry;let geometry=geometries.get(original);if(!geometry){const copy=original.clone();geometries.set(original,copy);geometry=copy;}node.geometry=geometry;
   const copy=(material:three.Material)=>{let result=materials.get(material);if(!result){result=material.clone();materials.set(material,result);}return result;};node.material=Array.isArray(node.material)?node.material.map(copy):copy(node.material);
  }});return model;
 }
@@ -84,7 +85,8 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   for(const surface of candidate.surfaces){const group=new three.Group();pose(group,surface.transform);group.userData.exhibitosShadowArchitecture=true;surfaces.set(surface.id.toLowerCase(),group);rooms.get(surface.roomId.toLowerCase())?.add(group);const material=new three.MeshStandardMaterial({side:three.DoubleSide});surfaceMaterials.set(surface.id.toLowerCase(),material);
    if(!styled.has(surface.id.toLowerCase()))for(const panel of surfacePanels(surface,candidate.openings)){const mesh=new three.Mesh(new three.PlaneGeometry(panel.width,panel.height),material);mesh.position.set(panel.x,panel.y,0);group.add(mesh);}
   }
-  owned.push(installArchitecturalFinishes(three,candidate,surfaces,surfaceMaterials),installBenches(three,candidate,rooms),installDecor(three,candidate,rooms));
+  const decor=installDecor(three,candidate,rooms);for(const placement of candidate.placements){const group=decor.groups.get(placement.id.toLowerCase()),art=candidate.artworks.find(a=>a.revisionId===placement.artworkRevisionId);if(group&&art)group.userData.viewerArtworkType=art.artworkType;}
+  owned.push(installArchitecturalFinishes(three,candidate,surfaces,surfaceMaterials),installBenches(three,candidate,rooms),decor);
   const plaques=installPlaques(three,candidate,rooms,profile==='compact',()=>{throw Error('CPU_ANALYSIS_NO_CANVAS');});owned.push(plaques);
   if(plaques.meshes.length){memoryComplete=false;assumptions.push('Plaque geometry is included; canvas texture allocation is not decoded by this CPU analysis.');}
   if(profile==='native'){
@@ -136,21 +138,23 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   let shadow:ShadowReport|undefined;
   if(spatialComplete){
    const candidates:ShadowCandidate[]=[];for(const item of candidate.lights){const light=lights.get(item.id)!.light,room=rooms.get(item.roomId.toLowerCase());if(room&&(light instanceof three.SpotLight||light instanceof three.DirectionalLight))candidates.push({light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId});}
-   const sun=new three.DirectionalLight(0xffffff,candidate.lights.length?0:3),daylight=daylightFor(candidate);if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100));sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20,30,25);scene.add(sun);for(const room of rooms.values())candidates.push({light:sun,room});
+   const roomBase=new Set(lightDetailsFor(candidate).filter(row=>row.purpose==='room-base').map(row=>row.lightId.toLowerCase())),hasAuthored=candidate.lights.some(light=>!roomBase.has(light.id.toLowerCase()));
+   const sun=new three.DirectionalLight(0xffffff,spaceLightingFor(candidate)||hasAuthored?0:3),daylight=daylightFor(candidate);if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100));sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20,30,25);scene.add(sun);for(const room of rooms.values())candidates.push({light:sun,room});
    const world=new three.Box3();for(const group of surfaces.values())world.expandByObject(group);const fixed=!world.isEmpty()&&Math.max(...world.getSize(new three.Vector3()).toArray())<=32?world:undefined;
    const renderer={shadowMap:{enabled:false,autoUpdate:true,type:three.PCFShadowMap}} as unknown as three.WebGLRenderer;
-   const pass=installBoundedShadows(three,renderer,candidates,profile==='compact',2*SHADOW_RESERVE_BYTES,value=>{shadow=value;},fixed,profile==='native'?384:256,{shadowCasterTriangles:policy.admission.shadowCasterTriangles,shadowDepthTriangles:policy.admission.shadowDepthTriangles});owned.push(pass);pass.flush();
+   const pass=installBoundedShadows(three,renderer,candidates,profile==='compact',2*SHADOW_RESERVE_BYTES,value=>{shadow=value;},fixed,profile==='native'?384:256,{shadowCasterTriangles:Number.MAX_SAFE_INTEGER,shadowDepthTriangles:Number.MAX_SAFE_INTEGER});owned.push(pass);pass.flush();
   }
   const cost=existingSceneCost(three,scene),geometry=geometryBytes(scene),complete=unknown.length===0&&memoryComplete&&!(shadow?.omittedCasters||shadow?.deferredSources);
   if(catalogResident>4*1024*1024){memoryComplete=false;assumptions.push('Catalogue-other source/node demand exceeds the independent 4 MiB renderer suballocation; inspect fixture contributors before runtime use.');}
   assumptions.push(`Selected per-model allowance ${budget.maxTriangles} triangles / ${budget.maxTextureSize}px (${input.selectionBudget?'explicit runtime selection':'profile default'}); no device performance guarantee.`,
    'Whole-exhibition geometry includes hidden authored objects and retained procedural fallbacks; it is not a current-view draw count.',
    'Memory describes an all-selected-assets scenario, not current-view residency or download traffic. Unsupported texture/material allocations remain unknown.',
-   'Shadow work uses the same bounded CPU source/frustum planner; omitted/deferred sources prevent a complete claim.',
+   'Shadow values describe requested work before the chosen triangle admission caps, using the same source/frustum planner and independent map/caster/depth-draw bounds. Actual Viewer applies the chosen caps and may omit work; omitted/deferred sources prevent a complete claim.',
    'Room scenarios can overlap in one view; their individual success is not an all-view safety guarantee. No GPU time or physical VRAM is measured.',...unknown);
   if(candidate.extensions?.['org.exhibitos.studio/workspace-materials']||candidate.extensions?.['org.exhibitos.studio/floors']||candidate.extensions?.['org.exhibitos.studio/materials']){memoryComplete=false;assumptions.push('Authored floor/surface/environment material allocations require their resource planner; geometry and inspected asset memory are lower bounds.');}
   const usage=(scope:ViewerBudgetUsage['scope'],draws:number,triangles:number,contributors:ViewerBudgetUsage['contributors'],resident:number|null,transition:number|null):ViewerBudgetUsage=>({scope,complete:complete&&memoryComplete,colorDraws:draws,displayTriangles:triangles,shadowCasterTriangles:scope==='wholeExhibition'?shadow?.triangles??null:null,shadowDepthTriangles:scope==='wholeExhibition'?shadow?.depthTriangles??null:null,residentBytes:resident,transitionBytes:transition,contributors,assumptions:[...assumptions]});
-  const resident=geometry-geometryBytesMany(catalogModels)+catalogResident+textureBytes,wholeExhibition=usage('wholeExhibition',cost.draws,cost.triangles,assetCosts,resident,resident+decodePeak);
+  const fixedReserve=environmentEstimate(budget.maxTextureSize<=512?64:128).generationPeakBytes+(budget.maxTextureSize<=512?0:SHADOW_RESERVE_BYTES)+plaqueTextureReserve(candidate,budget.maxTextureSize<=512);
+  const resident=geometry-geometryBytesMany(catalogModels)+catalogResident+textureBytes+fixedReserve,wholeExhibition=usage('wholeExhibition',cost.draws,cost.triangles,assetCosts,resident,resident+decodePeak);
   const analyzedSections=[...rooms].map(([roomId,room])=>{const cost=existingSceneCost(three,room);return usage('analyzedSection',cost.draws,cost.triangles,assetCosts.filter(row=>row.roomId?.toLowerCase()===roomId),geometryBytes(room),null);}).sort((a,b)=>(b.colorDraws??0)-(a.colorDraws??0));
   return {accountingVersion:1,profile,wholeExhibition,analyzedSections,assumptions};
  }finally{
