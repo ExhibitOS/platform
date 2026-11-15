@@ -4,7 +4,7 @@ import {expect,it} from 'vitest';
 import {furnishingAsset,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {readFurnishingBytes,readInstalledFurnishing} from './furnishing-assets.ts';
 const id='11111111-1111-4111-8111-111111111111';
-it.each(['museum-track-spot','museum-track-spot-fixed-64p1'] as const)('reads both exact packaged publication resources for %s',async catalogId=>{
+it.each(['museum-track-spot','museum-track-spot-fixed-64p1','museum-track-spot-articulated'] as const)('reads both exact packaged publication resources for %s',async catalogId=>{
  const asset=furnishingAsset(id,catalogId),entry=furnishingCatalogueEntry(catalogId);
  for(const role of ['model','notice'] as const){
   const bytes=await readFurnishingBytes(asset,role);
