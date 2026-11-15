@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,directionalNormalBias,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,directionalNormalBias,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
 import {AssetPeakBudget} from './loading';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
@@ -258,6 +258,17 @@ test('optional maps use idle owner bytes and dispose their target before require
   // The unchanged full display fits again without eviction or LOD replacement.
   expect(ledger.total()).toBe(resident);ledger.reserve('full-display',2*SHADOW_RESERVE_BYTES);expect(ledger.total()).toBe(limit);
   resident=0;pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});pass.dispose();
+});
+test('a settled visible working set can borrow the second map while off-room artworks remain unloaded',()=>{
+ const h=setup();h.pass.dispose();const second=new three.DirectionalLight();second.position.set(-4,8,4);h.room.add(second,second.target);
+ const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true},{room:h.room,light:second,authoredCastShadow:true}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r)),ledger=new AssetPeakBudget(3*SHADOW_RESERVE_BYTES,()=>SHADOW_RESERVE_BYTES);
+ const models=Array.from({length:19},(_,i)=>({required:i<3,ready:i<3}));pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});
+ const attempt=()=>shadowWorkingSetReady(models)?leaseOptionalShadowMaps(pass,2,ledger,3*SHADOW_RESERVE_BYTES):undefined;
+ models[2]!.ready=false;expect(attempt()).toBeUndefined();expect(ledger.reservedBytes()).toBe(0);
+ models[2]!.ready=true;ledger.reserve('required-pending',SHADOW_RESERVE_BYTES+1);expect(attempt()).toBeUndefined();ledger.release('required-pending');
+ const release=attempt()!;expect(release.bytes).toBe(SHADOW_RESERVE_BYTES);pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:2,deferredSources:0,mapBytes:2*SHADOW_RESERVE_BYTES});
+ release();pass.flush();expect(reports.at(-1)).toMatchObject({mapCount:1,deferredSources:1});expect(ledger.reservedBytes()).toBe(0);
+ for(const model of models)model.required=false;expect(attempt()).toBeUndefined();pass.dispose();
 });
 test('overlapping material groups cannot bypass the existing triangle bound',()=>{
   const h=setup(),geometry=new three.BoxGeometry();geometry.setIndex(new three.BufferAttribute(new Uint32Array(390000),1));

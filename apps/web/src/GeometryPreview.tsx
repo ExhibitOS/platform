@@ -65,7 +65,7 @@ import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/p
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
-import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -3783,7 +3783,9 @@ export function GeometryPreview({
         const updateOptionalShadowMaps=()=>{
           if(compactQuality||authoredShadowCount<2||releaseExtraShadows||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled||!contactFurnishingsSettled)return;
           if(pending.size||materialBudgetDeferred.size||residentMinimumWait.size||optionalResidentWaits.size||scheduler.stats().active||scheduler.stats().queued)return;
-          if(!arts.every(art=>objects.has(art.revisionId)&&active.has(art.revisionId)))return;
+          // Off-room lazy assets need not all coexist before an idle map can
+          // borrow bytes. Every currently required display still must be ready.
+          if(!shadowWorkingSetReady(arts.map(({revisionId:id})=>({required:observedVisible.get(id)===true||observedEligible.get(id)===true||mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||id===detailPinnedArtwork,ready:objects.has(id)&&active.has(id)}))))return;
           // Contact setup can reclaim encoded cache; complete it BEFORE borrowing
           // idle memory so an optional map never causes that reclamation.
           if(contactEligible&&contactReceivers?.length&&!contactShadows)return;

@@ -309,6 +309,14 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   return {flush,afterRender,dependencies,setAvailableBytes,invalidate:()=>{if(!disposed)dirty=true;},dispose};
 }
 
+/** Off-room lazy assets are independent of the settled required display set.
+ * Unknown/empty demand never authorizes an optional map allocation. */
+export function shadowWorkingSetReady(models:Iterable<{required:boolean;ready:boolean}>){
+ let required=0;
+ for(const model of models){if(!model.required)continue;required++;if(!model.ready)return false;}
+ return required>0;
+}
+
 /** Optional maps borrow only already-unoccupied owner-ledger capacity. The
  * caller verifies required representations/phases are settled, and releases
  * this lease BEFORE new required-display admission. Never reclaim artwork. */
