@@ -1438,4 +1438,35 @@ export const USER_ASSET_CATALOGUE = [
       "recipe": "original-v1"
     }
   },
+  {
+    "id": "dark-track-network",
+    "version": 1,
+    "mime": "model/gltf-binary",
+    "bytes": 377576,
+    "sha256": "5cc5d772acd4087c5d7d26b5f24e2fe38626b1315e377210410954abf7d4ff44",
+    "triangles": 12306,
+    "bounds": {
+      "min": [
+        -3.2175,
+        -0.035,
+        -2.698
+      ],
+      "max": [
+        2.648545,
+        0,
+        2.548
+      ]
+    },
+    "rights": {
+      "licenseId": "CC0-1.0",
+      "noticePath": "assets/furnishings/exhibitos-authored-20261115/dark-track-network/LICENSE-NOTICE.txt",
+      "noticeBytes": 675,
+      "noticeSha256": "457bcee247bc32866c58c18631327c1df6b8fa51352dcb1f3ff94aca764c9889"
+    },
+    "provenance": {
+      "sourceSha256": "5cc5d772acd4087c5d7d26b5f24e2fe38626b1315e377210410954abf7d4ff44",
+      "recipe": "original-v1"
+    },
+    "path": "assets/furnishings/exhibitos-authored-20261115/dark-track-network/model.glb"
+  },
 ] as const satisfies readonly UserAssetCatalogueEntry[];
