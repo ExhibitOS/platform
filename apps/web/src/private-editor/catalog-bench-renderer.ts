@@ -89,7 +89,7 @@ function otherCatalogSources(document:Exhibition,sourceFor:(asset:CatalogAsset)=
   const asset=value.assets.find(a=>a.id.toLowerCase()===binding.assetId.toLowerCase());if(!asset)return [];
   const source=sourceFor(asset);if(!source)return [];
   try{
-   const coupling:{expectedCoupled?:boolean}={expectedCoupled:isMuseumTrackSpotCatalogId(asset.catalogId)&&binding.hostKind==='light'&&trackSpotStaticRailContext(document,binding.hostId)};
+   const coupling:{expectedCoupled?:boolean}={expectedCoupled:isMuseumTrackSpotCatalogId(asset.catalogId)&&binding.hostKind==='light'&&(asset.catalogId==='museum-track-spot-fixed-64p1'||trackSpotStaticRailContext(document,binding.hostId))};
    return [{binding,asset,...coupling,resolved:resolveFurnishing(document,binding,asset),source}];
   }catch{return [];}
  });
@@ -124,7 +124,7 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    }else visual=await loadCatalogModel(three,resolved.source,item.source,signal,()=>disposed||unavailable(),Math.max(0,maxTriangles-triangles),remaining);
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
-   if(item.expectedCoupled||item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined||mountProfile!==undefined){
+   if(item.expectedCoupled||item.asset.catalogId==='museum-track-spot-fixed-64p1'||item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined||mountProfile!==undefined){
     const expectedProfile=isMuseumTrackSpotCatalogId(item.asset.catalogId)?'museum-track-spot-fixed-head-v1':item.asset.catalogId==='museum-wallwasher-rear-relief'?'museum-wallwasher-rear-relief-fixed-head-v1':undefined;
     if(!expectedProfile||mountProfile!==expectedProfile||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
     if(!sharedTrack)applyWallwasherModelPose(three,visual.model,item.asset,wallwasher);
