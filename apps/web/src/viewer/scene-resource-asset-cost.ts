@@ -16,8 +16,9 @@ export async function sceneResourceAssetCost(three:typeof Three,admittedModel:Th
  const attributes:(Three.BufferAttribute|Three.InterleavedBufferAttribute)[]=[];
  admittedModel.traverse(node=>{
   if(!(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points))return;
-  attributes.push(...Object.values(node.geometry.attributes));
-  for(const values of Object.values(node.geometry.morphAttributes))if(values)attributes.push(...values);
+  const geometry:Three.BufferGeometry=node.geometry;
+  attributes.push(...Object.values(geometry.attributes));
+  for(const values of Object.values(geometry.morphAttributes))if(values)attributes.push(...values);
   if(node.geometry.index)attributes.push(node.geometry.index);
   if(node instanceof three.InstancedMesh){attributes.push(node.instanceMatrix);if(node.instanceColor)attributes.push(node.instanceColor);}
  });
