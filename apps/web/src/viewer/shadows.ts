@@ -197,6 +197,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(fixedWorld)rows.sort((a,b)=>Number(isTarget(b.mesh))-Number(isTarget(a.mesh))||priority(a.mesh)-priority(b.mesh));
     else rows.sort((a,b)=>Number(isTarget(b.mesh))-Number(isTarget(a.mesh))||Number(b.visible)-Number(a.visible)||a.distance-b.distance);
     const receivers=rows.slice(0,256),eligible=new Set(receivers.map(row=>row.mesh));
+    omittedTargetCasters=rows.slice(256).filter(({mesh,box})=>isTarget(mesh)&&capture?.intersectsBox(box)&&mesh.userData.exhibitosPlaque!==true).length;
     receiverBounds=receivers.map(row=>row.box);receiverVersion++;
     for(const mesh of [...flags.keys()])if(!eligible.has(mesh))restoreMesh(mesh);
     for(const {mesh} of receivers){if(!flags.has(mesh))flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=false;mesh.receiveShadow=true;}

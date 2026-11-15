@@ -169,6 +169,16 @@ test('authored target geometry and its support take bounded priority while trans
   expect(support.castShadow).toBe(false);spot.shadow.updateMatrices(spot);expect(spot.shadow.matrix.equals(matrix)).toBe(true);
   pass.dispose();expect(sculpture.castShadow||support.receiveShadow||glass.castShadow).toBe(false);
 });
+test('target omission accounting includes the receiver cap as well as the caster cap',()=>{
+  const h=setup();h.pass.dispose();h.room.remove(h.mesh);
+  const target=new three.Group(),targetPlacementId=crypto.randomUUID();target.userData.placementId=targetPlacementId;h.room.add(target);
+  const geometry=new three.BoxGeometry(),material=new three.MeshStandardMaterial();
+  for(let i=0;i<257;i++)target.add(new three.Mesh(geometry,material));
+  const reports:ShadowReport[]=[],pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light,authoredCastShadow:true,targetPlacementId}],false,SHADOW_RESERVE_BYTES,r=>reports.push(r));
+  pass.flush();expect(reports.at(-1)).toMatchObject({targetCasters:64,targetTriangles:768,omittedTargetCasters:193});
+  expect(target.children.filter(mesh=>(mesh as three.Mesh).castShadow)).toHaveLength(64);
+  pass.dispose();geometry.dispose();material.dispose();
+});
 test('camera crossing a doorway keeps both receivers, authored source and map identity',()=>{
   const h=setup();h.pass.dispose();
   const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(),h.mesh.material),spot=new three.SpotLight();
