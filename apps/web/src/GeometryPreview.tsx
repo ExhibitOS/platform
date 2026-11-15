@@ -1,3 +1,4 @@
+import {collectSceneResourceUsage,type SceneResourceUsage} from './viewer/scene-resource-usage';
 import {clearNativeCameraPose,nativeCameraPoseRefresh,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
 import {nativeSelectedFindBounds,type NativeFindBounds} from './native-selected-find-bounds';
 import {detailPickHit} from './viewer/detail-picking';
@@ -170,6 +171,7 @@ export function GeometryPreview({
   openingViewpoint,
   onXrReady,
   onXrArtworks,
+  onResourceUsageReady,
   onRenderState,
   onEntranceSceneReady,
   onCameraInteractionReady,
@@ -227,6 +229,7 @@ export function GeometryPreview({
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
+  onResourceUsageReady?:(source:{document:Document;read:()=>SceneResourceUsage}|null)=>void;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean;firstEntranceFrame:boolean;entranceAssetFailed:boolean;error?:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
@@ -444,6 +447,7 @@ export function GeometryPreview({
   const enteredWalking=useRef(false);
   useEffect(()=>{if(immersive&&entranceMode!=='cover'&&ready&&(entranceReadiness?firstEntranceFrame:assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry,entranceMode,entranceReadiness,firstEntranceFrame]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
+  const resourceUsageCallback=useRef(onResourceUsageReady);resourceUsageCallback.current=onResourceUsageReady;
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
   useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed,entranceMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
@@ -913,10 +917,19 @@ export function GeometryPreview({
       for(const surface of surfaces.values()){surface.updateWorldMatrix(true,true);shadowWorldBounds.expandByObject(surface);}
       for(const room of rooms.values())room.traverse(node=>{if(node.userData.catalogImplicitFloor===true){node.updateWorldMatrix(true,false);shadowWorldBounds.expandByObject(node);}});
       const fixedShadowWorld=!shadowWorldBounds.isEmpty()&&Math.max(...shadowWorldBounds.getSize(new three.Vector3()).toArray())<=32?shadowWorldBounds:undefined;
+      let latestShadow:import('./viewer/shadows').ShadowReport|undefined;
       const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
+        latestShadow=value;
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve+(releaseExtraShadows?.bytes??0)});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
       },fixedShadowWorld,depthDrawBudget);owned.push(shadowPass,{dispose:releaseOptionalShadows});
+      let resourceObservations=():{settled:boolean;residentBytes?:number;transitionBytes?:number}=>({settled:false});
+      let resourceCatalogSettled=false;
+      resourceUsageCallback.current?.({document,read:()=>{
+        if(disposed||gpuLost||abort.signal.aborted)throw Error('SCENE_RESOURCE_USAGE_UNAVAILABLE');
+        const observed=resourceObservations();
+        return collectSceneResourceUsage(three,scene,rooms,{...observed,settled:observed.settled&&resourceCatalogSettled,shadow:latestShadow,frame:renderer.info.render});
+      }});
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {
@@ -2229,6 +2242,10 @@ export function GeometryPreview({
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{
           diagnosticPeak=Math.max(diagnosticPeak,total);
         }:undefined);
+        void Promise.allSettled([materialWork,...catalogSettled]).then(()=>{resourceCatalogSettled=true;});
+        resourceObservations=()=>({settled:floorSettled&&surfaceSettled&&pending.size===0&&failed.size===0&&(!hasWorkspaceFurnishings||ownerFurnishings?.readout().settled===true),
+          residentBytes:resident()+Math.max(0,viewerBudget.maxCacheBytes-assetBudgetBytes),
+          transitionBytes:peak.total()+Math.max(0,(viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes)-transitionBudgetBytes)});
         if(contactEligible){
           owned.push({dispose:releaseContact});
           let ready=false;
@@ -3863,8 +3880,12 @@ export function GeometryPreview({
       }
       // The local/native path uses the same bounded readout as public loading,
       // without adopting the public scheduler or its revision-based counters.
+      void Promise.allSettled([materialWork,...catalogSettled]).then(()=>{resourceCatalogSettled=true;});
       const nativeLoadedModels=new Map<string,NativeLoadedModel>();
       const localStages=createPreparationStages(document.artworks),residentArtwork=new Set<InstanceType<typeof three.Object3D>>();let localResidentBytes=0;
+      resourceObservations=()=>({settled:snapshotFurnishingsSettled&&floorSettled&&surfaceSettled&&unavailable===0,
+        residentBytes:localResidentBytes+byteCache.stats().bytes+Math.max(0,(resources?.maxCacheBytes??33554432)-assetBudgetBytes),
+        transitionBytes:(ownerFurnishings?.ledger.total()??localResidentBytes+byteCache.stats().bytes)+Math.max(0,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-transitionBudgetBytes)});
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
           (a) =>
@@ -3975,6 +3996,7 @@ export function GeometryPreview({
     });
     buildSettled=building.then(()=>{},()=>{});
     return () => {
+      resourceUsageCallback.current?.(null);
       navigationCallbacks.current.onPresenceSceneReady?.(null);
       navigationCallbacks.current.onScriptSceneReady?.(null);
       const next=qualityIntent.current;
