@@ -22,7 +22,7 @@ it('admits exact articulated entry and aim updates through the authenticated CAS
  const app=buildApp({pool:{connect:async()=>client} as unknown as Pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>true});
  const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId,requestId:randomUUID()};
  const request={...binding,...fixture.command};
- const post=(input:unknown)=>app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`,headers:{host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf,'if-match':etag(revision,draft)},payload:{expectedRevision:revision,request:input}});
+ const post=(input:unknown,match=etag(revision,draft))=>app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`,headers:{host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf,'if-match':match},payload:{expectedRevision:revision,request:input}});
  try{
   const before=structuredClone(draft),response=await post(request);expect(response.statusCode,response.body).toBe(200);
   const candidate=response.json().candidate;expect(validateFurnishings(candidate).valid).toBe(true);expect(resolveTrackSpotAiming(candidate,lightId).reachable).toBe(true);expect(lightDetailsFor(candidate)[0]!.trackAim).toEqual(fixture.trackAim);expect(draft).toEqual(before);
@@ -30,7 +30,20 @@ it('admits exact articulated entry and aim updates through the authenticated CAS
   draft.candidate=candidate;const {id,...light}=candidate.lights[0]!;void id;
   const update={...binding,type:'set-light-object',lightId,light,settings:{fixture:'none',trackAim:{...fixture.trackAim,aim:{kind:'manual',yaw:0,pitch:-1}}}};
   const changed=await post(update);expect(changed.statusCode,changed.body).toBe(200);expect(lightDetailsFor(changed.json().candidate)[0]!.trackAim!.aim).toEqual(update.settings.trackAim.aim);
-  expect((await post({...update,settings:{...update.settings,trackAim:{...update.settings.trackAim,aim:{kind:'manual',yaw:0,pitch:.1}}}})).statusCode).toBe(422);
+  const rejectedUpdate=await post({...update,settings:{...update.settings,trackAim:{...fixture.trackAim,aim:{kind:'manual',yaw:0,pitch:.1}}}});
+  expect(rejectedUpdate.statusCode).toBe(422);
+  expect(rejectedUpdate.json()).toMatchObject({code:'AUTHORING_PROPOSAL_INVALID',message:'TRACK_SPOT_AIM_OUTSIDE_ENVELOPE: Choose joint angles inside the verified source envelope.',fieldErrors:[]});
+  draft.candidate=fixture.base;
+  const rejectedEntry=await post({...request,visual:{...request.visual,trackAim:{...fixture.trackAim,aim:{kind:'manual',yaw:0,pitch:.1}}}});
+  expect(rejectedEntry.statusCode).toBe(422);
+  expect(rejectedEntry.json()).toMatchObject({code:'AUTHORING_PROPOSAL_INVALID',message:'TRACK_SPOT_AIM_OUTSIDE_ENVELOPE: Choose joint angles inside the verified source envelope.',fieldErrors:[]});
+  const badPoint={...request,visual:{...request.visual,trackAim:{...fixture.trackAim,aim:{kind:'point',position:[0,10,0]}}}};
+  const rejectedPoint=await post(badPoint);
+  expect(rejectedPoint.statusCode).toBe(422);
+  expect(rejectedPoint.json()).toMatchObject({code:'AUTHORING_PROPOSAL_INVALID',message:'TRACK_SPOT_AIM_INVALID_TARGET: Choose an existing artwork placement or point in the same room.'});
+  const stale=await post(badPoint,etag(revision-1,draft));
+  expect(stale.statusCode).toBe(412);
+  expect(stale.json()).toMatchObject({code:'REMOTE_CONFLICT',message:'REMOTE_CONFLICT',fieldErrors:[]});
   expect(queries.some(sql=>/^(UPDATE|INSERT|DELETE)/.test(sql))).toBe(false);
  }finally{await app.close();}
 });

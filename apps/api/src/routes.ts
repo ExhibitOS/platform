@@ -73,6 +73,7 @@ import {isHayesReleaseContext} from './hayes-original-attempt.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
+import {NativeTrackSpotAimProposalError} from './api-error.ts';
 import type { Pool, PoolClient } from 'pg';
 export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
@@ -97,7 +98,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const framework=error as {validation?:unknown;statusCode?:number};
   const status=error instanceof ApiError ? error.status : framework.validation || framework.statusCode===400 ? 400 : framework.statusCode===413 ? 413 : framework.statusCode===415 ? 415 : 500;
   const code=error instanceof ApiError ? error.code : status===400?'INVALID_INPUT':status===413?'BODY_TOO_LARGE':status===415?'UNSUPPORTED_MEDIA_TYPE':'INTERNAL_ERROR';
-  return reply.code(status).send({code,message:code,fieldErrors:[],requestId:request.id});
+  const message=error instanceof NativeTrackSpotAimProposalError?error.message:code;
+  return reply.code(status).send({code,message,fieldErrors:[],requestId:request.id});
  });
  const str={type:'string'}, id={type:'string',format:'uuid'};
  const object=(properties:Record<string,unknown>,required=Object.keys(properties))=>({type:'object',additionalProperties:false,properties,required});

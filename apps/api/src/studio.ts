@@ -43,6 +43,7 @@ import {consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,type NativeOe
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
 import { ApiError, uuid, type Session } from "./auth.ts";
+import {NativeTrackSpotAimProposalError} from './api-error.ts';
 export type Draft = Extract<Lifecycle, { kind: "exhibition-draft" }>;
 export interface StudioResponse {
   revision: number;
@@ -440,7 +441,15 @@ export class Studio {
       else if(request.type==='set-pedestal'||request.type==='add-light')result=nativeSceneProposal(draft.candidate,request);
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
-    }catch{
+    }catch(error){
+      const articulated=operation.type==='set-light-fixture'&&operation.visual?.catalogId==='museum-track-spot-articulated'
+        ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
+      const issue=error instanceof Error?error.cause:undefined;
+      if(articulated&&issue&&typeof issue==='object'&&'code' in issue&&'remedy' in issue
+        &&typeof issue.code==='string'&&/^TRACK_SPOT_AIM_[A-Z_]{1,48}$/.test(issue.code)
+        &&typeof issue.remedy==='string'&&issue.remedy.length>0&&issue.remedy.length<=256){
+        throw new NativeTrackSpotAimProposalError(issue.code,issue.remedy);
+      }
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
     }
     checked({draft:{...draft,candidate:result.candidate} as Draft,requestId},budgetCommand&&!!row.nativeBounded);

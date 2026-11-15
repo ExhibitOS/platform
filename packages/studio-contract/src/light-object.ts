@@ -85,7 +85,12 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
   case 'set-light-object':{
    if(!closed(command,['type','lightId','light','settings'],['attachment'])||!object(command.light)||!object(command.settings)||Object.hasOwn(command.light,'id')||Object.hasOwn(command.settings,'lightId'))fail();
    next=setLightDetails(next,light.id,command.light,command.settings);
-   if(command.settings.trackAim){const result=resolveTrackSpotAiming(next,light.id);if(!result.reachable)return fail('TRACK_SPOT_AIM_'+result.reason);const pose={position:[...result.emitter] as [number,number,number],rotation:[...result.headPose.rotation] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};if(!sameLightPose(command.light.transform,light.transform)&&!sameLightPose(command.light.transform,pose))fail('TRACK_SPOT_AIM_MOUNT_EDIT_REQUIRED');next.lights.find(v=>same(v.id,light.id))!.transform=pose;}
+   if(command.settings.trackAim){const result=resolveTrackSpotAiming(next,light.id);
+    if(!result.reachable){
+      const code='TRACK_SPOT_AIM_'+result.reason;
+      throw new Error(code,{cause:{code,remedy:result.remedy}});
+    }
+    const pose={position:[...result.emitter] as [number,number,number],rotation:[...result.headPose.rotation] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};if(!sameLightPose(command.light.transform,light.transform)&&!sameLightPose(command.light.transform,pose))fail('TRACK_SPOT_AIM_MOUNT_EDIT_REQUIRED');next.lights.find(v=>same(v.id,light.id))!.transform=pose;}
    if(Object.hasOwn(command,'attachment')){
     if(command.attachment!==null)next=manualizeRoomBaseLight(next,light.id);
     if(command.attachment===undefined||command.attachment!==null&&(!closed(command.attachment,['surfaceId','anchor','gap'])||Object.hasOwn(command.attachment,'lightId')))return fail();
@@ -124,7 +129,11 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
     const entry:LightDetails={...retained,lightId:light.id,fixture:'none',trackAim:structuredClone(visual.trackAim)};
     if(index<0)details.push(entry);else details[index]=entry;writeBindings(next,LIGHT_DETAILS_NAMESPACE,details);
     if(next.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,lightAttachmentsFor(next).filter(b=>!same(b.lightId,light.id)));
-    const result=resolveTrackSpotAiming(next,light.id);if(!result.reachable)return fail('TRACK_SPOT_AIM_'+result.reason);
+    const result=resolveTrackSpotAiming(next,light.id);
+    if(!result.reachable){
+      const code='TRACK_SPOT_AIM_'+result.reason;
+      throw new Error(code,{cause:{code,remedy:result.remedy}});
+    }
     next.lights.find(v=>same(v.id,light.id))!.transform={position:[...result.emitter],rotation:[...result.headPose.rotation],scale:[1,1,1]};
     break;
    }

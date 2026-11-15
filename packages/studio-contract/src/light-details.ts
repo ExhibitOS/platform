@@ -228,5 +228,11 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   if(at<0)bindings.push(entry);else bindings[at]=entry;
   next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string]};
   if(next.extensions?.[TEMPLATE_NAMESPACE]){const template=next.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};template.modified=true;}
-  if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');return next;
+  const validation=validateStudioLightDetails(next);
+  if(!validation.valid){
+    const trackPath=`/lights/${at<0?bindings.length-1:at}/trackAim`;
+    const issue=settings.trackAim&&validation.errors.find(error=>error.path.endsWith(trackPath)&&error.code.startsWith('TRACK_SPOT_AIM_'));
+    throw new Error('LIGHT_DETAILS_INVALID',issue?{cause:{code:issue.code,remedy:issue.message}}:undefined);
+  }
+  return next;
 }
