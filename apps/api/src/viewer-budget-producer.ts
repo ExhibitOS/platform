@@ -1,9 +1,11 @@
+import type {BlobStore} from '@exhibitos/storage';
+import {furnishingResourcePairSource} from './furnishings.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {lstat} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {Exhibition} from '@exhibitos/spec';
-import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,furnishingsFor,validateFurnishings,type WorkspaceFurnishings,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
 import type {PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import {ApiError} from './api-error.ts';
@@ -20,9 +22,15 @@ export async function viewerBudgetProducerURL():Promise<URL|null>{
 export type ViewerBudgetAssetSource={sha256:string;bytes:number;mime:string;read:()=>Promise<Uint8Array>};
 /** Metadata/rights acquisition runs in a short authenticated transaction. The
  * returned read closes over immutable source metadata, never the DB client. */
-export async function viewerBudgetAssetSource(c:PoolClient,s:Session,candidate:Exhibition,ref:ViewerBudgetAssetReference,cms?:Cms,furnishings?:WorkspaceFurnishingIntakes):Promise<ViewerBudgetAssetSource>{
+export async function viewerBudgetAssetSource(c:PoolClient,s:Session,candidate:Exhibition,ref:ViewerBudgetAssetReference,cms?:Cms,furnishings?:WorkspaceFurnishingIntakes,blobs?:BlobStore):Promise<ViewerBudgetAssetSource>{
  let source:ViewerBudgetAssetSource;
- if(ref.kind==='furnishing'){
+ if(ref.kind==='furnishing'&&ref.furnishingId===undefined){
+  if(!validateFurnishings(candidate).valid)throw new ApiError(409,'FURNISHING_INTEGRITY');
+  const asset=furnishingsFor(candidate)?.assets.find(x=>x.id===ref.assetId),hint=ref as ViewerBudgetAssetReference&{catalogId?:unknown;catalogVersion?:unknown};
+  if(!asset||hint.catalogId!==undefined&&hint.catalogId!==asset.catalogId||hint.catalogVersion!==undefined&&hint.catalogVersion!==asset.catalogVersion)throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
+  const pair=await furnishingResourcePairSource(c,blobs,s.tenantId,candidate.id,asset);
+  source={sha256:asset.sha256,bytes:asset.bytes,mime:asset.mime,read:async()=>(await pair.read()).model};
+ }else if(ref.kind==='furnishing'){
   const inventory=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
   const declared=inventory?.furnishings.find(x=>x.id===ref.furnishingId&&x.version===ref.furnishingVersion);
   if(!furnishings||!declared||!isDeepStrictEqual(await furnishings.readVersion(c,s,declared.id,declared.version),declared))throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');

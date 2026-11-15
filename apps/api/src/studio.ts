@@ -1,3 +1,4 @@
+import type {BlobStore} from '@exhibitos/storage';
 import type {Cms} from './cms.ts';
 import {viewerBudgetAssetSource} from './viewer-budget-producer.ts';
 import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
@@ -138,7 +139,8 @@ export class Studio {
   private readonly workspaceMaterial:WorkspaceMaterialIntakes|undefined;
   private readonly workspaceFurnishing:WorkspaceFurnishingIntakes|undefined;
   private readonly budgetCms:Cms|undefined;
-  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,budgetCms?:Cms) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;this.budgetCms=budgetCms;}
+  private readonly budgetBlobs:BlobStore|undefined;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,budgetCms?:Cms,budgetBlobs?:BlobStore) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;this.budgetCms=budgetCms;this.budgetBlobs=budgetBlobs;}
   private boundedCapability(s:Session,row:{id:string;revision:number;metadata:Draft}) {
     if(!this.nativeOexWorkspace||!this.nativeBoundedEditing)throw new ApiError(403,'FORBIDDEN');
     return {version:1 as const,kind:'native-bounded-edit-v1' as const,tenantId:s.tenantId,principalId:s.userId,workspaceId:this.nativeOexWorkspace.workspaceId,exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata)};
@@ -382,7 +384,7 @@ export class Studio {
     return (await this.prepareViewerBudget(c,s,id,options,input,match)).initial;
   }
   viewerBudgetSource(c:PoolClient,s:Session,candidate:Draft['candidate'],reference:ViewerBudgetAssetReference){
-    return viewerBudgetAssetSource(c,s,candidate,reference,this.budgetCms,this.workspaceFurnishing);
+    return viewerBudgetAssetSource(c,s,candidate,reference,this.budgetCms,this.workspaceFurnishing,this.budgetBlobs);
   }
   async assertViewerBudgetCurrent(c:PoolClient,s:Session,id:string,head:string){
     const row=await this.access(c,s,id);if(etag(row.revision,row.metadata)!==head)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
