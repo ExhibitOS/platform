@@ -40,7 +40,7 @@ function checkedObservation(value:unknown):ViewerBudgetObservation {
 export function analyzeViewerBudget(candidate:Exhibition,binding:ViewerBudgetAnalysisBinding,options:ViewerBudgetAnalysisOptions={},producer?:ViewerBudgetGeometryResult|null) {
  if(!object(options)||!only(options,['profile','context','automaticProfile','recommendedBaseline','observations'])||options.context!==undefined&&!['viewer','native'].includes(options.context)||options.observations!==undefined&&!Array.isArray(options.observations))throw new ApiError(422,'VIEWER_BUDGET_ANALYSIS_INPUT_INVALID');
  let selection,policy,resolvedPolicy;
- try{policy=viewerBudgetPolicyFor(candidate);selection=selectViewerBudgetProfile(candidate,{nativeEditor:options.context==='native',automaticProfile:options.automaticProfile??'standard',...(options.profile?{requestedProfile:options.profile}:{})});resolvedPolicy=resolveViewerBudgetPolicy(candidate,selection.effectiveProfile,options.recommendedBaseline);}catch{throw new ApiError(422,'VIEWER_BUDGET_POLICY_INVALID');}
+ try{policy=viewerBudgetPolicyFor(candidate);selection=selectViewerBudgetProfile(candidate,{nativeEditor:options.context==='native',automaticProfile:options.automaticProfile===undefined?'standard':options.automaticProfile,...(options.profile!==undefined?{requestedProfile:options.profile}:{})});resolvedPolicy=resolveViewerBudgetPolicy(candidate,selection.effectiveProfile,options.recommendedBaseline);}catch{throw new ApiError(422,'VIEWER_BUDGET_POLICY_INVALID');}
  const inputSHA256=viewerBudgetSHA256(candidate),policySHA256=viewerBudgetSHA256(resolvedPolicy);
  const observations=(options.observations??[]).map(value=>{
   const observation=checkedObservation(value);

@@ -87,3 +87,9 @@ it('roundtrips target, overrides and reset through actual OEX bytes',async()=>{
  const reset=setViewerBudgetPolicy(decoded.exhibition,null),reopened=await readOex(await writeOex(reset,new Map(),options));
  expect(reopened.exhibition.extensions?.[N]).toBeUndefined();
 });
+
+it('rejects explicitly invalid analysis profiles instead of silently treating them as automatic',()=>{
+ const f=fixture(),binding={exhibitionId:f.row.id,savedRevision:2,etag:etag(2,f.draft),draftId:f.draft.id,draftEditVersion:f.draft.editVersion,source:'saved' as const};
+ for(const profile of ['',false,0,null])expect(()=>analyzeViewerBudget(f.draft.candidate,binding,{profile} as never)).toThrow('VIEWER_BUDGET_POLICY_INVALID');
+ for(const automaticProfile of ['',false,0,null])expect(()=>analyzeViewerBudget(f.draft.candidate,binding,{automaticProfile} as never)).toThrow('VIEWER_BUDGET_POLICY_INVALID');
+});
