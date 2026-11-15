@@ -486,7 +486,7 @@ export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRo
 async function verifyArticulatedStudioContract(source, manifestPath) {
   const manifest = await checkedSource(manifestPath, 'file');
   const bytes = await readFile(manifest);
-  if (createHash('sha256').update(bytes).digest('hex') !== '5ddb32171cf057d0df179786ffdb37e3ab878c0a13d0eaba285a9a3e81df5f9c')
+  if (createHash('sha256').update(bytes).digest('hex') !== '4cb0526f7868c03a8279739fec0a06bb0df649e6d551a4df04b4496e8f81dfe4')
     fail('NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID');
   const expected = JSON.parse(bytes.toString('utf8'));
   const actual = await inventory(join(source, 'packages/studio-contract/dist'));
