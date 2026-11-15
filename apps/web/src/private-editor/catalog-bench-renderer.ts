@@ -3,7 +3,7 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicAsset} from '../publication-client';
 import type {Session} from '../cms-client';
-import {furnishingsFor,resolveFurnishing,trackSpotStaticRailContext,validateFurnishings} from '@exhibitos/studio-contract';
+import {furnishingsFor,resolveFurnishing,trackSpotStaticRailContext,validateFurnishings,isMuseumTrackSpotCatalogId} from '@exhibitos/studio-contract';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {applyWallwasherModelPose} from './wallwasher-model-pose';
 import {createTrackSpotRenderSource} from './track-spot-render-source';
@@ -89,7 +89,7 @@ function otherCatalogSources(document:Exhibition,sourceFor:(asset:CatalogAsset)=
   const asset=value.assets.find(a=>a.id.toLowerCase()===binding.assetId.toLowerCase());if(!asset)return [];
   const source=sourceFor(asset);if(!source)return [];
   try{
-   const coupling:{expectedCoupled?:boolean}={expectedCoupled:asset.catalogId==='museum-track-spot'&&binding.hostKind==='light'&&trackSpotStaticRailContext(document,binding.hostId)};
+   const coupling:{expectedCoupled?:boolean}={expectedCoupled:isMuseumTrackSpotCatalogId(asset.catalogId)&&binding.hostKind==='light'&&trackSpotStaticRailContext(document,binding.hostId)};
    return [{binding,asset,...coupling,resolved:resolveFurnishing(document,binding,asset),source}];
   }catch{return [];}
  });
@@ -106,7 +106,7 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
   let visual:Awaited<ReturnType<typeof loadCatalogModel>>|undefined;const previous=(fallback??[]).map(object=>({object,visible:object.visible})),collisionId=binding.hostKind+':'+binding.hostId.toLowerCase();
   try{
    const wallwasher='wallwasher' in resolved?resolved.wallwasher:undefined,mountProfile='mountProfile' in resolved?resolved.mountProfile:undefined;
-   const sharedTrack=item.asset.catalogId==='museum-track-spot'&&binding.hostKind==='light'&&mountProfile==='museum-track-spot-fixed-head-v1'&&!!wallwasher&&[resolved.parent,resolved.pose].every(p=>p.position.every(n=>n===0)&&p.rotation.every((n,i)=>n===(i===3?1:0))&&p.scale.every(n=>n===1));
+   const sharedTrack=isMuseumTrackSpotCatalogId(item.asset.catalogId)&&binding.hostKind==='light'&&mountProfile==='museum-track-spot-fixed-head-v1'&&!!wallwasher&&[resolved.parent,resolved.pose].every(p=>p.position.every(n=>n===0)&&p.rotation.every((n,i)=>n===(i===3?1:0))&&p.scale.every(n=>n===1));
    if(sharedTrack){
     museumTrackSpotProfile(item.asset);
     // Recheck this binding's authority even when bytes/geometry are already
@@ -125,7 +125,7 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
    if(item.expectedCoupled||item.asset.catalogId==='museum-wallwasher-rear-relief'||wallwasher!==undefined||mountProfile!==undefined){
-    const expectedProfile=item.asset.catalogId==='museum-track-spot'?'museum-track-spot-fixed-head-v1':item.asset.catalogId==='museum-wallwasher-rear-relief'?'museum-wallwasher-rear-relief-fixed-head-v1':undefined;
+    const expectedProfile=isMuseumTrackSpotCatalogId(item.asset.catalogId)?'museum-track-spot-fixed-head-v1':item.asset.catalogId==='museum-wallwasher-rear-relief'?'museum-wallwasher-rear-relief-fixed-head-v1':undefined;
     if(!expectedProfile||mountProfile!==expectedProfile||!wallwasher||binding.hostKind!=='light'||[resolved.parent,resolved.pose].some(p=>p.position.some(n=>n!==0)||p.rotation.some((n,i)=>n!==(i===3?1:0))||p.scale.some(n=>n!==1)))throw Error('WALLWASHER_MODEL_PAIR_INVALID');
     if(!sharedTrack)applyWallwasherModelPose(three,visual.model,item.asset,wallwasher);
     if(lights&&item.asset.catalogId==='museum-wallwasher-rear-relief'){const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;if(!light)throw Error('WALLWASHER_EMITTER_LIGHT_REQUIRED');

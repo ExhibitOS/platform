@@ -2,9 +2,9 @@
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import * as three from 'three';
-import {expect,it,vi} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
 import {furnishingAsset,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
-import {MUSEUM_TRACK_SPOT_PROFILE as profile,MUSEUM_TRACK_SPOT_STATIC_PITCH as headPitch} from '../../../../packages/studio-contract/src/track-spot-profile.js';
+import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import {resolveWallwasherMountHead} from '../../../../packages/studio-contract/src/wallwasher-mount-head.js';
 import {sceneResourceAssetCost} from '../viewer/scene-resource-asset-cost';
 import {existingSceneCost} from '../workspace-furnishing/scene-cost';
@@ -15,7 +15,8 @@ import {loadCatalogModel} from './catalog-furnishing-loader';
 import {FURNISHING_RESERVE_BYTES,installCatalogOtherVisuals} from './catalog-bench-renderer';
 
 const identity={position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};
-const asset=furnishingAsset('10000000-0000-4000-8000-000000000001','museum-track-spot'),entry=furnishingCatalogueEntry(asset.catalogId);
+describe.each(['museum-track-spot','museum-track-spot-fixed-64p1'] as const)('%s',catalogId=>{
+const asset=furnishingAsset('10000000-0000-4000-8000-000000000001',catalogId),entry=furnishingCatalogueEntry(asset.catalogId),profile=museumTrackSpotProfile(asset),headPitch=profile.headPitchIntervals[0]![0];
 function resolved(i=0):ResolvedWallwasher{
  const q=Math.SQRT1_2,yaw=i*Math.PI/8;
  return {headPitch,...resolveWallwasherMountHead({profile,headPitch,mountPose:{position:[i%3-1,3.965,Math.floor(i/3)-2],rotation:new three.Quaternion().setFromAxisAngle(new three.Vector3(0,1,0),yaw).toArray() as [number,number,number,number],scale:[1,1,1]},ceilingSurface:{pose:{...identity,position:[0,3.965,0],rotation:[q,0,0,q]},dimensions:{width:20,height:20}}})};
@@ -93,4 +94,26 @@ it('retains admission and authority fences when a verified source is already sha
  try{expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','fallback']);expect(source.fetcher).toHaveBeenCalledOnce();expect(existingSceneCost(three,room)).toEqual({draws:7,triangles:4260});}finally{runtime.dispose();}
  const next=await input(),original=await loadCatalogModel(three,entry,next.source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES),owner=createTrackSpotRenderSource(three,original,asset);
  try{expect(()=>owner.instantiate(resolved(),0)).toThrow('CATALOG_BUDGET');expect(owner.sharedResident()).toBe(0);expect(original.model.children).toHaveLength(14);expect(original.model.parent).toBeNull();}finally{owner.dispose();}
+});
+});
+
+it('admits nine corrected fixtures and five preserved originals together within the existing scene hold',async()=>{
+ const roomId=crypto.randomUUID(),room=new three.Group(),q=Math.SQRT1_2;
+ const sources=await Promise.all((['museum-track-spot-fixed-64p1','museum-track-spot'] as const).map(async catalogId=>{
+  const asset=furnishingAsset(crypto.randomUUID(),catalogId),entry=furnishingCatalogueEntry(catalogId),profile=museumTrackSpotProfile(asset),bytes=await readFile(entry.path),revision='b'.repeat(64);
+  expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
+  return {asset,entry,profile,source:{url:'/mixed/'+catalogId,revision,check:vi.fn(async()=>{}),fetcher:vi.fn(async()=>new Response(bytes,{headers:{'x-exhibitos-publication-revision':revision}}))}};
+ }));
+ const items=Array.from({length:14},(_,i)=>{
+  const {asset,entry,profile,source}=sources[i<9?0:1]!,headPitch=profile.headPitchIntervals[0]![0],yaw=i*Math.PI/8;
+  const wallwasher={headPitch,...resolveWallwasherMountHead({profile,headPitch,mountPose:{position:[i%3-1,3.965,Math.floor(i/3)-2],rotation:new three.Quaternion().setFromAxisAngle(new three.Vector3(0,1,0),yaw).toArray() as [number,number,number,number],scale:[1,1,1]},ceilingSurface:{pose:{...identity,position:[0,3.965,0],rotation:[q,0,0,q]},dimensions:{width:20,height:20}}})};
+  return {asset,binding:{hostKind:'light' as const,hostId:crypto.randomUUID(),assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},resolved:{source:entry,roomId,parent:identity,pose:identity,mountProfile:'museum-track-spot-fixed-head-v1' as const,wallwasher},source};
+ });
+ const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{});
+ try{
+  expect((await runtime.start()).map(row=>row.status)).toEqual(Array(14).fill('ready'));
+  expect(existingSceneCost(three,room)).toEqual({draws:98,triangles:59640});
+  for(const {source}of sources){expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check).toHaveBeenCalled();}
+ }finally{runtime.dispose();}
+ expect(room.children).toHaveLength(0);
 });

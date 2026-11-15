@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import {museumWallwasherRearReliefProfile} from '../../../../packages/studio-contract/src/wallwasher-rear-relief-profile.js';
-import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
+import {museumTrackSpotProfile,isMuseumTrackSpotCatalogId} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import type {WallwasherFixtureAssetIdentity} from '../../../../packages/studio-contract/src/wallwasher-fixture-profile.js';
 import type {resolveWallwasherFromEmitter} from '../../../../packages/studio-contract/src/wallwasher-from-emitter.js';
 
@@ -16,7 +16,7 @@ const vectorClose=(a:readonly number[],b:readonly number[],epsilon=1e-6)=>a.leng
  * checks. Validate the entire flat model BEFORE changing any scene membership.
  * No vertex edits, copies, textures, new materials, or resource ownership. */
 export function applyWallwasherModelPose(three:typeof Three,model:Three.Object3D,asset:WallwasherFixtureAssetIdentity,resolved:ResolvedWallwasher){
- const profile=asset.catalogId==='museum-track-spot'?museumTrackSpotProfile(asset):museumWallwasherRearReliefProfile(asset);
+ const profile=isMuseumTrackSpotCatalogId(asset.catalogId)?museumTrackSpotProfile(asset):museumWallwasherRearReliefProfile(asset);
  const sourceParts=[...profile.fixedParts,...profile.headParts];
  const identity=(node:Three.Object3D)=>vectorClose(node.position.toArray(),[0,0,0],1e-9)&&vectorClose(node.quaternion.toArray(),[0,0,0,1],1e-9)&&vectorClose(node.scale.toArray(),[1,1,1],1e-9);
  if(!resolved||!profile.headPitchIntervals.some(([a,b])=>a===b&&a===resolved.headPitch)||model.parent||!identity(model)||!model.visible||!model.matrixAutoUpdate||!model.matrixWorldAutoUpdate||model.children.length!==sourceParts.length)fail();
