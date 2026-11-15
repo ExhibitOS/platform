@@ -18,7 +18,7 @@ import {nativeOrdinaryInventory} from '../native-ordinary-scene-variants';
 import {centerMetricModel,artifactMetricModel} from './metric-model';
 import {containedImageSize} from './flat-image-view';
 import {embeddedJpegSize} from './detail-model-admission';
-import {DEVICE_BUDGETS,selectAssetVariant,geometryResidentBytes,modelGeometryResidentBytes,modelDecodeReserve,imageDecodeReserve,textureResidentBytes,type DeviceBudget} from './loading';
+import {DEVICE_BUDGETS,selectAssetVariant,geometryResidentBytes,modelGeometryResidentBytes,modelDecodeReserve,imageDecodeReserve,textureResidentBytes,workspaceFurnishingModelPreflight,type DeviceBudget} from './loading';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES,type ShadowCandidate,type ShadowReport} from './shadows';
 import {loadBudgetGeometry} from './viewer-budget-glb';
 
@@ -66,7 +66,14 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
    })();references.set(identity,value);
   }return value;
  };
- const glb=async(reference:ViewerBudgetAssetReference)=>{const body=await read(reference),key=reference.sha256+':'+reference.bytes;let value=models.get(key);if(!value){value=loadBudgetGeometry(body,reference,Math.max(1,maximumAnalysisBytes-analysisBytes)).then(loaded=>{if(analysisBytes+loaded.geometryBytes*2>maximumAnalysisBytes){loaded.dispose();throw Error('SCENE_RESOURCE_ANALYSIS_BUDGET');}analysisBytes+=loaded.geometryBytes*2;return loaded;});models.set(key,value);}return {body,loaded:await value};};
+ const glb=async(reference:ViewerBudgetAssetReference,workspace=false)=>{
+  const body=await read(reference);
+  // Reuse the decoder's independent workspace profile (including its 256
+  // rendered-pass guard). Inspect demand before soft admission caps instead
+  // of treating an unsupported model as complete under a raised scene policy.
+  if(workspace)workspaceFurnishingModelPreflight(new Uint8Array(body).buffer,body.byteLength,{...budget,maxTriangles:Number.MAX_SAFE_INTEGER,maxTextureSize:Number.MAX_SAFE_INTEGER,maxCacheBytes:Number.MAX_SAFE_INTEGER,maxTransitionBytes:Number.MAX_SAFE_INTEGER});
+  const key=reference.sha256+':'+reference.bytes;let value=models.get(key);if(!value){value=loadBudgetGeometry(body,reference,Math.max(1,maximumAnalysisBytes-analysisBytes)).then(loaded=>{if(analysisBytes+loaded.geometryBytes*2>maximumAnalysisBytes){loaded.dispose();throw Error('SCENE_RESOURCE_ANALYSIS_BUDGET');}analysisBytes+=loaded.geometryBytes*2;return loaded;});models.set(key,value);}return {body,loaded:await value};
+ };
  const contribution=(id:string,label:string,roomId:string,model:three.Object3D)=>{const cost=existingSceneCost(three,model);assetCosts.push({id,label,roomId,usage:{colorDraws:cost.draws,displayTriangles:cost.triangles}});};
  const memory=(body:Uint8Array,workspace=false)=>{
   try{const reserve=modelDecodeReserve(body.byteLength,{...budget,maxCacheBytes:Number.MAX_SAFE_INTEGER},new Uint8Array(body).buffer,undefined,'complete');decodePeak=Math.max(decodePeak,reserve);
@@ -130,7 +137,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   }
   const workspace=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
   const mountWorkspace=async(descriptor:WorkspaceFurnishingDescriptor,roomId:string,id:string,apply:(model:three.Object3D)=>void)=>{
-   const reference:ViewerBudgetAssetReference={kind:'furnishing',furnishingId:descriptor.id,furnishingVersion:descriptor.version,sha256:descriptor.model.sha256,bytes:descriptor.model.bytes,mime:descriptor.model.mime},{body,loaded}=await glb(reference),model=ownedClone(loaded.model);apply(model);rooms.get(roomId.toLowerCase())?.add(model);memory(body,true);contribution('workspace:'+id,descriptor.name,roomId,model);
+   const reference:ViewerBudgetAssetReference={kind:'furnishing',furnishingId:descriptor.id,furnishingVersion:descriptor.version,sha256:descriptor.model.sha256,bytes:descriptor.model.bytes,mime:descriptor.model.mime},{body,loaded}=await glb(reference,true),model=ownedClone(loaded.model);apply(model);rooms.get(roomId.toLowerCase())?.add(model);memory(body,true);contribution('workspace:'+id,descriptor.name,roomId,model);
   };
   for(const placement of workspace?.placements??[]){try{const descriptor=workspace!.furnishings.find(f=>f.id===placement.furnishingId&&f.version===placement.furnishingVersion);if(!descriptor)throw Error('WORKSPACE_PLACEMENT_INVALID');await mountWorkspace(descriptor,placement.roomId,placement.id,model=>{model.position.fromArray(placement.position);model.rotation.y=placement.yaw;model.scale.setScalar(placement.scale);const bench=benchesFor(candidate).find(b=>b.workspaceVisual?.placementId===placement.id);if(bench?.workspaceVisual?.modelForward==='positive-z'){const basis=new three.Group();basis.rotation.y=Math.PI;for(const node of [...model.children])basis.add(node);model.add(basis);}});}catch(error){unknown.push('workspace:'+placement.id+':'+token(error));memoryComplete=false;spatialComplete=false;}}
   for(const attachment of workspace?.frameAttachments??[]){try{const descriptor=workspace!.furnishings.find(f=>f.id===attachment.furnishingId&&f.version===attachment.furnishingVersion),target=candidate.placements.find(p=>p.id===attachment.placementId),art=candidate.artworks.find(a=>a.revisionId===attachment.artworkRevisionId);if(!descriptor||!target||!art)throw Error('WORKSPACE_PLACEMENT_INVALID');await mountWorkspace(descriptor,target.roomId,attachment.placementId,model=>{const measured=workspaceFitGeometry(descriptor),ring=measured&&(measured.profile==='straight-ring-v1'||measured.profile==='straight-miter-ring-v1')?measured:undefined,source=artworkFrameModel(descriptor.model.sha256,descriptor.model.bytes),metric=ring?frameAttachmentMetricFit(candidate,attachment,art,ring):undefined,fit=ring?metric:source&&artworkFrameFit(source,art.dimensions.width,art.dimensions.height),z=ring?.imagePlaneZ??source?.imagePlaneZ;if(!fit||z===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');fitArtworkFrameGeometry(three,model,fit);model.matrix.copy(artworkFrameMatrix(three,target.transform,art.transform,z,metric?.rigidFrame??false));model.matrixAutoUpdate=false;});}catch(error){unknown.push('frame:'+attachment.placementId+':'+token(error));memoryComplete=false;spatialComplete=false;}}
