@@ -2,6 +2,21 @@
 import type * as Three from 'three';
 import {TransformControls,TransformControlsGizmo,TransformControlsPlane} from 'three/addons/controls/TransformControls.js';
 import type {WorkspaceSceneDrawInventory} from './failure-readout';
+import type {DeviceBudget} from '../viewer/loading';
+/** Conservative whole-scene admission, not a measured GPU draw/time limit.
+ * The existing desktop artwork policy (320MiB and >=150k/model) shares the
+ * populated native editor's bounded384 envelope. Touch/compact/unknown policies
+ * retain256; canvas size or document complexity never grants more capacity. */
+export function sceneDrawLimit(budget:Pick<DeviceBudget,'maxCacheBytes'|'maxTriangles'>,nativeEditor=false){
+ return nativeEditor||budget.maxCacheBytes>=320*1024*1024&&budget.maxTriangles>=150000?384:256;
+}
+/** The approved fixture workload adds62,926 potential color triangles.300k
+ * accommodates the previous200k envelope plus that delta and bounded headroom.
+ * Shared fixture buffers keep memory admission separate; shadow limits stay put. */
+export function sceneTriangleLimit(budget:Pick<DeviceBudget,'maxCacheBytes'|'maxTriangles'|'maxSceneTriangles'>,nativeEditor=false){
+ if(nativeEditor)return 300000;
+ return budget.maxSceneTriangles??budget.maxTriangles;
+}
 type Cost={draws:number;triangles:number};
 type Peak={cost:Cost;inventory:WorkspaceSceneDrawInventory};
 type RegisteredControl={root:Three.Object3D;normal:Peak;ghost:Peak;valid:()=>boolean};

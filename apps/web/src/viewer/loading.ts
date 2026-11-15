@@ -26,7 +26,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
  // These are tracked allocation ceilings, with the same texture edge.
- if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000,maxSceneTriangles:200000},memory);
+ if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000,maxSceneTriangles:300000},memory);
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
@@ -76,7 +76,7 @@ function baseSelectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Param
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
-  if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...DESKTOP_NEAR_BUDGET,...desktopArtworkCapacity},memory);
+  if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...DESKTOP_NEAR_BUDGET,...desktopArtworkCapacity,maxSceneTriangles:300000},memory);
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
     ?{...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024}
     :DESKTOP_NEAR_BUDGET;

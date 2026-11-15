@@ -3,6 +3,23 @@ import * as three from 'three';
 import {expect,it} from 'vitest';
 import {existingSceneCost} from './owner-scene';
 import {OwnerPreviewBudget} from './owner-preview-budget';
+import {sceneDrawLimit,sceneTriangleLimit} from './scene-cost';
+import {DEVICE_BUDGETS,deviceBudget,selectedDeviceBudget} from '../viewer/loading';
+
+it('uses the bounded desktop scene envelope while retaining touch and constrained policies',()=>{
+ const desktop=deviceBudget({finePointer:true,coarsePointer:false});
+ expect(sceneDrawLimit(desktop)).toBe(384);
+ expect(sceneDrawLimit(DEVICE_BUDGETS.desktop)).toBe(256);
+ expect(sceneDrawLimit(deviceBudget({deviceMemory:4}))).toBe(256);
+ expect(sceneDrawLimit(selectedDeviceBudget('auto',{coarsePointer:true,finePointer:false}))).toBe(256);
+ expect(sceneDrawLimit(selectedDeviceBudget('desktop',{coarsePointer:true,finePointer:false}))).toBe(256);
+ expect(sceneDrawLimit({...desktop,maxTriangles:100000})).toBe(256);
+ expect(sceneDrawLimit(DEVICE_BUDGETS.compact,true)).toBe(384);
+ expect(sceneTriangleLimit(desktop)).toBe(300000);
+ expect(sceneTriangleLimit(DEVICE_BUDGETS.desktop)).toBe(100000);
+ expect(sceneTriangleLimit(selectedDeviceBudget('auto',{coarsePointer:true,finePointer:false}))).toBe(250000);
+ expect(sceneTriangleLimit(DEVICE_BUDGETS.compact,true)).toBe(300000);
+});
 
 it('counts an instanced batch once per rendering pass while retaining every instance triangle',()=>{
  const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial({side:three.DoubleSide});

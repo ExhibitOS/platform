@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {existingSceneCost} from './scene-cost';
+import {existingSceneCost,sceneDrawLimit,sceneTriangleLimit} from './scene-cost';
 export {existingSceneCost} from './scene-cost';
 import {isBuiltInGalleryStool,furnishingWalkingCollisionLookup,benchesFor,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceBenchVisual,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {AssetPeakBudget,type DeviceBudget} from '../viewer/loading';
@@ -25,7 +25,8 @@ class FurnishingPeakBudget extends AssetPeakBudget {
 }
 
 export class FurnishingSceneCapacityError extends Error {
- constructor(){super('WORKSPACE_SCENE_BUDGET');}
+ readonly sceneBudget:{initialDraws:number;initialTriangles:number;drawLimit:number;triangleLimit:number};
+ constructor(cost:{draws:number;triangles:number},drawLimit:number,triangleLimit:number){super('WORKSPACE_SCENE_BUDGET');this.sceneBudget=Object.freeze({initialDraws:cost.draws,initialTriangles:cost.triangles,drawLimit,triangleLimit});}
 }
 
 /** Call enforce before every render and dispose on teardown. Authority is
@@ -45,13 +46,15 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  const nativeEditor=options.nativeEditor===true&&!options.publicAuthority&&!options.modelSource;
  // Public diagnostic collection is opt-in and never changes admission capacity.
  const captureFailures=nativeEditor||(options.failureDiagnostics===true&&!!options.publicAuthority);
- const sceneDraws=nativeEditor?384:256;
- const sceneTriangles=nativeEditor?200_000:(options.budget.maxSceneTriangles??options.budget.maxTriangles);
- // The extra inventory is collected only for opted-in public staging diagnostics.
- const initialInventory:WorkspaceSceneDrawInventory|undefined=options.failureDiagnostics===true&&options.publicAuthority?{meshDraws:0,instancedMeshDraws:0,lineDraws:0,pointsDraws:0,overlayDraws:0,directHiddenDraws:0,multiMaterialDraws:0}:undefined;
+ const sceneDraws=sceneDrawLimit(options.budget,nativeEditor);
+ const sceneTriangles=sceneTriangleLimit(options.budget,nativeEditor);
+ // Aggregate policy/accounting is inspectable without another diagnostic build.
+ // These are conservative scene counts, not measured GPU memory or frame time.
+ const initialInventory:WorkspaceSceneDrawInventory={meshDraws:0,instancedMeshDraws:0,lineDraws:0,pointsDraws:0,overlayDraws:0,directHiddenDraws:0,multiMaterialDraws:0};
  const cost=existingSceneCost(options.three,options.scene,false,initialInventory),remainingDraws=sceneDraws-cost.draws,remainingTriangles=sceneTriangles-cost.triangles;
+ let checkedCost=cost;
  if(!Number.isSafeInteger(options.transitionBytes)||options.transitionBytes<1)throw Error('WORKSPACE_SCENE_BUDGET');
- if(remainingDraws<1||remainingTriangles<1)throw new FurnishingSceneCapacityError();
+ if(remainingDraws<1||remainingTriangles<1)throw new FurnishingSceneCapacityError(cost,sceneDraws,sceneTriangles);
  const scope=new OwnerPreviewBudget(options.tenantId,options.fetcher??fetch,remainingDraws,remainingTriangles),ledger=options.ledger?new FurnishingPeakBudget(options.ledger):new AssetPeakBudget(options.transitionBytes,options.resident),controller=new AbortController(),parent=()=>controller.abort(options.signal.reason);options.signal.addEventListener('abort',parent,{once:true});if(options.signal.aborted)parent();
  type Mounted = Awaited<ReturnType<typeof mountOwnerWorkspacePlacement>>;
  const handles=new Set<Mounted>(),mountedSeats=new Map<string,Mounted>(),retiredSeats=new Set<string>();
@@ -67,8 +70,9 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
   firstFailures.set(placement.id.toLowerCase(),{placementId:placement.id,furnishingId:descriptor.id,furnishingVersion:descriptor.version,modelSha256:descriptor.model.sha256,...details});
  };
  const readout=():WorkspaceFailureReadout=>{
+  if(nativeEditor&&!stopped)checkedCost=existingSceneCost(options.three,options.scene);
   const remaining=scope.remaining();
-  return {version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row})),...(initialInventory?{sceneBudget:{drawLimit:sceneDraws,triangleLimit:sceneTriangles,initialDraws:cost.draws,initialTriangles:cost.triangles,reservedDraws:remainingDraws-remaining.remainingDraws,reservedTriangles:remainingTriangles-remaining.remainingTriangles,...remaining,initialInventory:{...initialInventory}}}:{})};
+  return {version:1,settled:finished,loaded,failed,truncated:failed>32,failures:[...firstFailures.values()].slice(0,32).map(row=>({...row})),sceneBudget:{drawLimit:sceneDraws,triangleLimit:sceneTriangles,initialDraws:cost.draws,initialTriangles:cost.triangles,checkedDraws:checkedCost.draws,checkedTriangles:checkedCost.triangles,reservedDraws:remainingDraws-remaining.remainingDraws,reservedTriangles:remainingTriangles-remaining.remainingTriangles,...remaining,initialInventory:{...initialInventory}}};
  };
  const trianglePressure=()=>{
   if(!nativeEditor||!finished||stopped||controller.signal.aborted||options.unavailable()||failed<1||firstFailures.size!==failed)return;
@@ -80,7 +84,7 @@ export function createOwnerFurnishingScene(options:{three:typeof Three;renderer:
  const sharedCheck=()=>scope.check('publication-authority',controller.signal,async signal=>{if(!options.publicAuthority?.valid())throw Error('WORKSPACE_MODEL_AUTHORITY');await options.publicAuthority.check(signal);signal.throwIfAborted();if(!options.publicAuthority.valid())throw Error('WORKSPACE_MODEL_AUTHORITY');});
  const changed=()=>{if(!stopped)options.changed();};
  const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);options.signal.removeEventListener('abort',parent);for(const handle of handles)try{handle.dispose();}catch{/* Uncertain cleanup keeps its budget held. */}handles.clear();mountedVisuals.clear();mountedSeats.clear();mountedBarriers.clear();mountedStools.clear();mountedCollision.clear();try{options.disposeSource?.();}catch{/* Failed cleanup retains any corresponding budget holds. */}if(ledger.reservedBytes()>0)retiredLedgers.add(ledger);};
- const enforce=()=>{if(options.modelSource&&!stopped){const cost=existingSceneCost(options.three,options.scene);if(!options.publicAuthority?.valid()||cost.draws>256||cost.triangles>sceneTriangles){failed+=loaded;loaded=0;dispose();options.changed();return;}}for(const handle of handles)handle.enforce();};
+ const enforce=()=>{if(options.modelSource&&!stopped){checkedCost=existingSceneCost(options.three,options.scene);if(!options.publicAuthority?.valid()||checkedCost.draws>sceneDraws||checkedCost.triangles>sceneTriangles){failed+=loaded;loaded=0;dispose();options.changed();return;}}for(const handle of handles)handle.enforce();};
  const seatAvailability=(link:WorkspaceBenchVisual):'pending'|'ready'|'unavailable'=>{
   const id=link.placementId.toLowerCase(),bench=seats.get(id);
   if(stopped||controller.signal.aborted||options.unavailable()||retiredSeats.has(id)||bench?.workspaceVisual?.modelSha256!==link.modelSha256

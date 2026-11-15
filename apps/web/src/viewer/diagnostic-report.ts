@@ -67,6 +67,7 @@ function projectFurnishings(value:DiagnosticSnapshot["workspaceFurnishings"]) {
     ...(value.sceneBudget?{sceneBudget:{
       drawLimit:count(value.sceneBudget.drawLimit),triangleLimit:count(value.sceneBudget.triangleLimit),
       initialDraws:count(value.sceneBudget.initialDraws),initialTriangles:count(value.sceneBudget.initialTriangles),
+      ...(value.sceneBudget.checkedDraws===undefined?{}:{checkedDraws:count(value.sceneBudget.checkedDraws)}),...(value.sceneBudget.checkedTriangles===undefined?{}:{checkedTriangles:count(value.sceneBudget.checkedTriangles)}),
       reservedDraws:count(value.sceneBudget.reservedDraws),reservedTriangles:count(value.sceneBudget.reservedTriangles),
       remainingDraws:count(value.sceneBudget.remainingDraws),remainingTriangles:count(value.sceneBudget.remainingTriangles),
       initialInventory:{meshDraws:count(value.sceneBudget.initialInventory.meshDraws),instancedMeshDraws:count(value.sceneBudget.initialInventory.instancedMeshDraws),lineDraws:count(value.sceneBudget.initialInventory.lineDraws),pointsDraws:count(value.sceneBudget.initialInventory.pointsDraws),overlayDraws:count(value.sceneBudget.initialInventory.overlayDraws),directHiddenDraws:count(value.sceneBudget.initialInventory.directHiddenDraws),multiMaterialDraws:count(value.sceneBudget.initialInventory.multiMaterialDraws)},

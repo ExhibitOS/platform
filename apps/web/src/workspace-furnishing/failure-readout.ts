@@ -21,6 +21,7 @@ export interface WorkspaceSceneDrawInventory {meshDraws:number;instancedMeshDraw
 export interface WorkspaceSceneBudgetReadout {
  drawLimit:number;triangleLimit:number;initialDraws:number;initialTriangles:number;
  reservedDraws:number;reservedTriangles:number;remainingDraws:number;remainingTriangles:number;
+ checkedDraws?:number;checkedTriangles?:number;
  initialInventory:WorkspaceSceneDrawInventory;
 }
 export interface WorkspaceFailureReadout {version:1;settled:boolean;loaded:number;failed:number;truncated:boolean;failures:WorkspaceFailureRow[];sceneBudget?:WorkspaceSceneBudgetReadout}
