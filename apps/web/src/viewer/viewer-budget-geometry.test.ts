@@ -85,11 +85,12 @@ test('inspects embedded-texture GLB geometry without network or image decoder ac
 
 test('keeps the independent workspace 256-pass profile unknown above its boundary despite a raised scene allowance',async()=>{
  const raw=await sculpture(),candidate=setViewerBudgetOverrides(newDraft().candidate,'standard',{admission:{colorDraws:900}}),roomId=candidate.rooms[0]!.id,id=crypto.randomUUID(),pid=crypto.randomUUID(),policy=resolveViewerBudgetPolicy(candidate,'standard');
- const analyze=async(copies:number)=>{
+ const analyze=async(copies:number,maxTriangles?:number)=>{
   const body=materialVersion(raw,true,false,copies),model={mime:'model/gltf-binary',bytes:body.length,sha256:digest(body)};
   candidate.extensions![WORKSPACE_FURNISHING_NAMESPACE]={version:11,furnishings:[{id,version:1,kind:'pedestal',name:'Synthetic repeated primitives',provenance:'Synthetic source',rights:{holder:'Synthetic',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:true,export:true,commercial:true}},model}],placements:[{id:pid,roomId,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}],frameAttachments:[],openingAttachments:[],ceilingAttachments:[]};
-  return {body,result:await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:async()=>body})};
+  return {body,result:await analyzeViewerBudgetGeometry({candidate,profile:'standard',...(maxTriangles===undefined?{}:{selectionBudget:{maxTriangles,maxTextureSize:2048}}),loadVerifiedAsset:async()=>body})};
  };
  const edge=await analyze(128);expect(workspaceFurnishingModelPreflight(new Uint8Array(edge.body).buffer,edge.body.length,DEVICE_BUDGETS.desktop).draws).toBe(256);expect(edge.result.wholeExhibition.complete).toBe(true);expect(edge.result.wholeExhibition.contributors.find(row=>row.id==='workspace:'+pid)?.usage.colorDraws).toBe(256);
  const over=await analyze(129);expect(()=>workspaceFurnishingModelPreflight(new Uint8Array(over.body).buffer,over.body.length,{...DEVICE_BUDGETS.desktop,sceneAdmission:{colorDraws:900,displayTriangles:350000,shadowCasterTriangles:250000,shadowDepthTriangles:250000}})).toThrow('ASSET_BUDGET_EXCEEDED');expect(over.result.wholeExhibition.complete).toBe(false);expect(over.result.assumptions.some(value=>value.includes('workspace:'+pid+':ASSET_BUDGET_EXCEEDED'))).toBe(true);expect(evaluateViewerBudgetUsage(policy,over.result.wholeExhibition).status).not.toBe('within');
+ const deferred=await analyze(1,1);expect(deferred.result.wholeExhibition.complete).toBe(false);expect(deferred.result.wholeExhibition.contributors.find(row=>row.id==='workspace:'+pid)?.usage.displayTriangles).toBeGreaterThan(1);expect(deferred.result.assumptions.some(value=>value.includes('workspace:'+id+':selected-profile:ASSET_BUDGET_EXCEEDED'))).toBe(true);expect(evaluateViewerBudgetUsage(policy,deferred.result.wholeExhibition).status).toBe('unknown');
 });

@@ -71,7 +71,13 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   // Reuse the decoder's independent workspace profile (including its 256
   // rendered-pass guard). Inspect demand before soft admission caps instead
   // of treating an unsupported model as complete under a raised scene policy.
-  if(workspace)workspaceFurnishingModelPreflight(new Uint8Array(body).buffer,body.byteLength,{...budget,maxTriangles:Number.MAX_SAFE_INTEGER,maxTextureSize:Number.MAX_SAFE_INTEGER,maxCacheBytes:Number.MAX_SAFE_INTEGER,maxTransitionBytes:Number.MAX_SAFE_INTEGER});
+  if(workspace){
+   const buffer=new Uint8Array(body).buffer;
+   workspaceFurnishingModelPreflight(buffer,body.byteLength,{...budget,maxTriangles:Number.MAX_SAFE_INTEGER,maxTextureSize:Number.MAX_SAFE_INTEGER,maxCacheBytes:Number.MAX_SAFE_INTEGER,maxTransitionBytes:Number.MAX_SAFE_INTEGER});
+   // Keep selected-model eligibility separate from requested demand. A model
+   // deferred by its real quality/byte limits is counted, never called a fit.
+   try{workspaceFurnishingModelPreflight(buffer,body.byteLength,budget);}catch(error){unknown.push('workspace:'+reference.furnishingId+':selected-profile:'+token(error));memoryComplete=false;}
+  }
   const key=reference.sha256+':'+reference.bytes;let value=models.get(key);if(!value){value=loadBudgetGeometry(body,reference,Math.max(1,maximumAnalysisBytes-analysisBytes)).then(loaded=>{if(analysisBytes+loaded.geometryBytes*2>maximumAnalysisBytes){loaded.dispose();throw Error('SCENE_RESOURCE_ANALYSIS_BUDGET');}analysisBytes+=loaded.geometryBytes*2;return loaded;});models.set(key,value);}return {body,loaded:await value};
  };
  const contribution=(id:string,label:string,roomId:string,model:three.Object3D)=>{const cost=existingSceneCost(three,model);assetCosts.push({id,label,roomId,usage:{colorDraws:cost.draws,displayTriangles:cost.triangles}});};
