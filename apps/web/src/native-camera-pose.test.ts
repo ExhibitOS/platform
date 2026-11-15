@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {clearNativeCameraPose,publishNativeCameraPose} from './native-camera-pose';
+import {clearNativeCameraPose,nativeCameraPoseRefresh,publishNativeCameraPose} from './native-camera-pose';
 const frameToken='11111111-1111-4111-8111-111111111111:7';
 const sample=()=>({frameToken,appliedToken:frameToken,available:true,current:()=>true,position:[1,2,3],target:[4,5,6]});
 it('publishes only copied actual position and exact orbit target under the accepted frame',()=>{
@@ -25,4 +25,49 @@ it('rejects malformed or unsafe frame tokens rather than exporting arbitrary tex
 it('keeps default paths absent and clears retired lifecycle data',()=>{
  const dataset:DOMStringMap={};publishNativeCameraPose(dataset);expect(dataset).toEqual({});publishNativeCameraPose(dataset,sample());clearNativeCameraPose(dataset);expect(dataset).toEqual({});
  const position=Object.defineProperty([1,2,3],0,{get(){throw Error('secret getter');}});expect(()=>publishNativeCameraPose(dataset,{...sample(),position})).not.toThrow();expect(dataset).toEqual({});
+});
+it('refreshes after editor synchronization completes the accepted frame token',async()=>{
+ const dataset:DOMStringMap={},input=sample(),next=frameToken.replace(':7',':8');
+ const render=vi.fn(()=>publishNativeCameraPose(dataset,input));
+ const refresh=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
+ // Editor sync renders before its effect marks the new frame applied.
+ input.frameToken=next;render();expect(dataset.nativeCameraPose).toBeUndefined();
+ input.appliedToken=next;refresh.request();expect(dataset.nativeCameraPose).toBeUndefined();
+ await Promise.resolve();
+ expect(JSON.parse(dataset.nativeCameraPose!)).toMatchObject({frameToken:next,position:[1,2,3],target:[4,5,6]});
+ expect(render).toHaveBeenCalledTimes(2);
+ refresh.dispose();
+});
+it('invalidates immediately on blur and renders once after all reset and clear handlers',async()=>{
+ const events=new EventTarget(),dataset:DOMStringMap={},input=sample();
+ const render=vi.fn(()=>publishNativeCameraPose(dataset,input));
+ const refresh=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
+ render();
+ events.addEventListener('blur',()=>{render();refresh.request();});
+ events.addEventListener('blur',()=>{input.position=[2,3,4];clearNativeCameraPose(dataset);refresh.request();});
+ events.dispatchEvent(new Event('blur'));
+ expect(dataset.nativeCameraPose).toBeUndefined();expect(render).toHaveBeenCalledTimes(2);
+ await Promise.resolve();
+ expect(render).toHaveBeenCalledTimes(3);
+ expect(JSON.parse(dataset.nativeCameraPose!)).toMatchObject({position:[2,3,4],target:[4,5,6]});
+ await Promise.resolve();expect(render).toHaveBeenCalledTimes(3); // No continuous loop.
+ refresh.dispose();
+});
+it('rechecks hidden, retired and unapplied frames when the queued render actually runs',async()=>{
+ for(const retire of [(input:ReturnType<typeof sample>)=>{input.available=false;},(input:ReturnType<typeof sample>)=>{input.current=()=>false;},(input:ReturnType<typeof sample>)=>{input.appliedToken=frameToken.replace(':7',':8');}]){
+  const dataset:DOMStringMap={},input=sample(),render=vi.fn(()=>publishNativeCameraPose(dataset,input));
+  const refresh=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
+  render();refresh.request();retire(input);
+  await Promise.resolve();
+  expect(render).toHaveBeenCalledTimes(2);expect(dataset.nativeCameraPose).toBeUndefined();refresh.dispose();
+ }
+});
+it('cancels queued refreshes on disposal without rendering or publishing from an old generation',async()=>{
+ const dataset:DOMStringMap={},render=vi.fn(()=>publishNativeCameraPose(dataset,sample()));
+ const old=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
+ old.request();old.dispose();
+ const successor=nativeCameraPoseRefresh(()=>clearNativeCameraPose(dataset),render);
+ successor.request();old.request();await Promise.resolve();
+ expect(render).toHaveBeenCalledTimes(1);expect(dataset.nativeCameraPose).toBeDefined();
+ successor.dispose();expect(dataset.nativeCameraPose).toBeUndefined();
 });
