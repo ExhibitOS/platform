@@ -1,11 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {aristotleR9Wheat,qualifiedDetailImageProfile,type QualifiedDetailImage} from './detail-image-attempt';
+import {aristotleR9Wheat,qualifiedDetailImageProfile,wingedR12Wheat,type QualifiedDetailImage} from './detail-image-attempt';
 import {matchesMeasuredWheatImage,type DetailProjectionBinding} from './detail-image-eligibility';
 const sha='b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',a='a'.repeat(64),b='b'.repeat(64);
 const binding:DetailProjectionBinding={indexSha256:a,publicationSha256:b,candidate:{artworkRevisionId:'art',sha256:sha,bytes:8291194,mime:'image/jpeg',width:4000,height:3184}};
 const profile:QualifiedDetailImage={staticIndexSha256:a,publicationSha256:b,candidateId:'candidate',sha256:sha,bytes:8291194,mime:'image/jpeg',width:4000,height:3184,reservationBytes:402653184,restoreReservationBytes:69192000,transitionCapBytes:536870912,maxSceneBytes:104857600,maxRestoreWidth:1280,maxRestoreHeight:800,devicePixelRatio:1,detailViewport:{width:692,height:520,canvasWidth:692,canvasHeight:520,pixelRatio:1,devicePixelRatio:1},runtime:{renderer:'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)',platform:'macOS',browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true},revisionSha256:a,artworkRevisionId:'art',sourceBindingSha256:a,featureReportSha256:b,inspector:'inspector',model:'model'};
 const gallery={width:1280,height:800,pixelRatio:1,devicePixelRatio:1};
+it('binds the R285 original to the measured Chrome 157 runtime and exact projection',()=>{
+ const revision='2ac72776350701f79193886e6f4cde84f15e730ed9e1f4e25c812a2d8c153586';
+ const artworkRevisionId='d7005119-f176-4520-bf92-08fb4dbec1f8';
+ const r285=qualifiedDetailImageProfile(revision,artworkRevisionId)!;
+ const attestation:DetailProjectionBinding={
+  indexSha256:'9aa5a8ffdf4b87cbb6454a4588fba7aecf79521fd4eaa41d1cdb8e5272fee0d2',
+  publicationSha256:'2621c0333ab2be272a315c8b3095960b63ae2f781aa1f97b95a3b9c90256233c',
+  candidate:{...binding.candidate,artworkRevisionId},
+ };
+ expect(r285).toMatchObject({candidateId:'7e5d1342-4322-4f5d-a9df-8acb2bccce54',reservationBytes:402653184,
+  maxSceneBytes:201326592,transitionCapBytes:603979776,restoreReservationBytes:69192000,runtime:{browserVersion:'157.0.8103.51'}});
+ expect(matchesMeasuredWheatImage(r285,attestation,gallery)).toBe(true);
+ expect(matchesMeasuredWheatImage({...r285,runtime:wingedR12Wheat.runtime},attestation,gallery)).toBe(false);
+ expect(matchesMeasuredWheatImage(r285,{...attestation,indexSha256:a},gallery)).toBe(false);
+ expect(matchesMeasuredWheatImage(r285,attestation,{...gallery,devicePixelRatio:2})).toBe(false);
+ expect(matchesMeasuredWheatImage({...r285,maxSceneBytes:r285.maxSceneBytes+1},attestation,gallery)).toBe(false);
+ expect(qualifiedDetailImageProfile(revision,wingedR12Wheat.artworkRevisionId)).toBeUndefined();
+ expect(qualifiedDetailImageProfile(wingedR12Wheat.revisionSha256,artworkRevisionId)).toBeUndefined();
+ const earlierAttestation:DetailProjectionBinding={
+  indexSha256:wingedR12Wheat.staticIndexSha256,publicationSha256:wingedR12Wheat.publicationSha256,
+  candidate:{...binding.candidate,artworkRevisionId:wingedR12Wheat.artworkRevisionId},
+ };
+ expect(matchesMeasuredWheatImage(wingedR12Wheat,earlierAttestation,gallery)).toBe(true);
+ expect(matchesMeasuredWheatImage({...wingedR12Wheat,runtime:r285.runtime},earlierAttestation,gallery)).toBe(false);
+});
+
 it('accepts only the measured source, projection, budgets, viewport and graphics configuration',()=>{
  expect(matchesMeasuredWheatImage(profile,binding,gallery)).toBe(true);
  for(const change of [{indexSha256:b},{publicationSha256:a}])expect(matchesMeasuredWheatImage(profile,{...binding,...change},gallery)).toBe(false);

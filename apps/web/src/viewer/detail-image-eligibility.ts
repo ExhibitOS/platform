@@ -22,6 +22,6 @@ export function matchesMeasuredWheatImage(profile:QualifiedDetailImage,binding:D
    )&&profile.restoreReservationBytes===69192000&&profile.maxRestoreWidth===1280&&profile.maxRestoreHeight===800&&profile.devicePixelRatio===1&&
    gallery.width===1280&&gallery.height===800&&gallery.pixelRatio===1&&gallery.devicePixelRatio===1&&
    viewport.width===692&&viewport.height===520&&viewport.canvasWidth===692&&viewport.canvasHeight===520&&viewport.pixelRatio===1&&viewport.devicePixelRatio===1&&
-   runtime.renderer==='ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)'&&runtime.platform==='macOS'&&runtime.browserBrand==='Google Chrome'&&runtime.browserVersion==='156.0.8078.79'&&runtime.samples===4&&runtime.alpha===true&&runtime.depth===true&&runtime.antialias===true&&runtime.preserveDrawingBuffer===true;
+   runtime.renderer==='ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)'&&runtime.platform==='macOS'&&runtime.browserBrand==='Google Chrome'&&runtime.browserVersion===(qualified?.runtime.browserVersion??'156.0.8078.79')&&runtime.samples===4&&runtime.alpha===true&&runtime.depth===true&&runtime.antialias===true&&runtime.preserveDrawingBuffer===true;
  }catch{return false;}
 }
