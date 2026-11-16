@@ -135,3 +135,39 @@ it('includes only the explicitly selected exact049 migration in the current read
  await writeFile(join(migrations,'051_unselected.sql'),'SELECT 1;');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,'051_unselected.sql'));
  await writeFile(join(migrations,name),'changed');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,name));await symlink(new URL('../../../database/native-gpu-model-preparation/'+name,import.meta.url),join(migrations,name));expect((await readiness(pool,selected)).ready).toBe(false);
 });
+
+it('requires the selected exact 052 bench migration and matching ledger', async () => {
+  const {config, pool, rows} = await fixture();
+  const name = '052_workspace_bench_basecolor_preparation.sql';
+  const migrations = join(config.migrationDirectory, '..', 'bench-basecolor');
+  const path = join(migrations, name);
+  const source = new URL('../../../database/native-workspace-bench-basecolor-preparation/' + name, import.meta.url);
+  const sql = await readFile(source);
+  const hash = (body: Buffer | string) => createHash('sha256').update(body).digest('hex');
+  const row = {name, sha256: hash(sql)};
+  const selected = {...config, benchBaseColorMigrationDirectory: migrations};
+  await mkdir(migrations);
+  await writeFile(path, sql);
+  expect((await readiness(pool, config)).ready).toBe(true);
+  expect((await readiness(pool, selected)).ready).toBe(false);
+
+  rows.push(row);
+  expect((await readiness(pool, selected)).ready).toBe(true);
+  expect((await readiness(pool, config)).ready).toBe(false);
+  rows[1] = {...row, sha256: '0'.repeat(64)};
+  expect((await readiness(pool, selected)).ready).toBe(false);
+  rows[1] = row;
+
+  const extra = join(migrations, '053_unexpected.sql');
+  await writeFile(extra, 'SELECT 53;');
+  expect((await readiness(pool, selected)).ready).toBe(false);
+  await rm(extra);
+  await writeFile(path, 'SELECT 52;');
+  rows[1] = {...row, sha256: hash('SELECT 52;')};
+  expect((await readiness(pool, selected)).ready).toBe(false);
+  await rm(path);
+  rows[1] = row;
+  expect((await readiness(pool, selected)).ready).toBe(false);
+  await symlink(source, path);
+  expect((await readiness(pool, selected)).ready).toBe(false);
+});

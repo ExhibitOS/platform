@@ -11,6 +11,8 @@ import {roomCeilingFillDimensions} from './room-envelope-faces.js';
 
 export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as const;
+export const ROOM_CEILING_FILL_PROFILE='room-ceiling-fill-v1' as const;
+export const ROOM_CEILING_FILL_INITIAL_BRIGHTNESS=0.5;
 export const LIGHT_DETAILS_NAMESPACE='org.exhibitos.studio/light-details';
 export const LIGHT_DETAILS_LIMITS=Object.freeze({bindings:32,bytes:16384,fixtureTriangles:1920,fixtureMeshes:64});
 export type ExhibitionLight=Exhibition['lights'][number];
@@ -183,6 +185,13 @@ export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId
   next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights} as unknown as NonNullable<Exhibition['extensions']>[string]};
   if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
   return next;
+}
+/** Only the paired ordinary client opts in. Existing authoring keeps its point recipe for unsupported ceilings. */
+export function ensureOrdinaryRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string,ceilingFillProfile?:typeof ROOM_CEILING_FILL_PROFILE):Exhibition {
+  if(ceilingFillProfile!==ROOM_CEILING_FILL_PROFILE||roomBaseLight(document,roomId))return ensureRoomBaseLight(document,roomId,newLightId);
+  try{deriveRoomCeilingFill(roomCeilingFillDimensions(document,roomId),0);}
+  catch{return ensureRoomBaseLight(document,roomId,newLightId);}
+  return ensureRoomBaseLight(document,roomId,newLightId,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS);
 }
 /** Local room-space cutoff covers the farthest corner up to the existing50m limit.
  * Room rotation/translation/scale remain the owning room's transform. */

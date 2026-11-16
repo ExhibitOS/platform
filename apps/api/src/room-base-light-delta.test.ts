@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {applyLightObjectCommand,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_PROFILE,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {ordinaryRoomBaseLightDelta} from './room-base-light-delta.ts';
@@ -13,6 +13,17 @@ it('admits one atomic new room and its canonical auto base; rejects a missing ba
  expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
  const missing=change(before,d=>d.candidate.rooms.push(room));expect(ordinaryRoomBaseLightDelta(before,missing)).toBe(false);
  const mixed=structuredClone(after);mixed.candidate.title='unrelated';expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
+it('replays the negotiated area default on add and explicit ensure and rejects a different initial brightness',()=>{
+ const before=withBase(),room={...structuredClone(before.candidate.rooms[0]!),id:crypto.randomUUID()};
+ const added=change(before,d=>{d.candidate.rooms.push(room);d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,room.id,undefined,ROOM_CEILING_FILL_PROFILE);});
+ expect(ordinaryRoomBaseLightDelta(before,added)).toBe(true);
+ expect(added.candidate.lights[0]).toEqual(before.candidate.lights[0]);
+ const missing=newDraft(),roomId=missing.candidate.rooms[0]!.id;
+ const ensured=change(missing,d=>{d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,roomId,undefined,ROOM_CEILING_FILL_PROFILE);});
+ expect(ordinaryRoomBaseLightDelta(missing,ensured)).toBe(true);
+ const different=change(missing,d=>{d.candidate=ensureRoomBaseLight(d.candidate,roomId,undefined,.25);});
+ expect(ordinaryRoomBaseLightDelta(missing,different)).toBe(false);
 });
 it('replays resize and world move without resetting off or RGB; reverse replay preserves atomic undo',()=>{
  const before=withBase();before.candidate.lights[0]!.intensity=0;before.candidate.lights[0]!.color=[.1,.3,.7];
