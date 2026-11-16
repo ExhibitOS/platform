@@ -384,14 +384,28 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
  read.mockImplementation(async id=>{const d=descriptors.find(d=>d.id===id);return d?{bytes:Buffer.alloc(d.model.bytes),mime:d.model.mime,sha256:d.model.sha256}:undefined;});
  try{
   expect(thin.id).not.toBe('66d45ba8-457e-4d23-999d-f242fc1c7590');
-  const list=await service.list(f.client,f.session);expect(list.items.map(item=>item.id)).toEqual(descriptors.map(d=>d.id).sort());
-  expect(list.items.find(item=>item.id===thin.id)).toHaveProperty('installedThumbnailProfile','installed-furnishing-thumbnail-v1');expect(list.items.find(item=>item.id===INSTALLED_FRAME_ID)).not.toHaveProperty('installedThumbnailProfile');
+  const registered={...installedFrameDescriptor(),id:id(26)};
+  f.query.mockResolvedValueOnce({rows:[{id:registered.id,version:1,descriptor:registered}],rowCount:1});
+  const list=await service.list(f.client,f.session);
+  expect(list.items.map(item=>item.id)).toEqual([registered.id,...descriptors.map(d=>d.id)].sort());
+  const black=list.items.find(item=>item.id===INSTALLED_FRAME_ID);
+  expect(black).toHaveProperty('installedCatalog',true);
+  expect(black).not.toHaveProperty('installedThumbnailProfile');
+  expect(list.items.find(item=>item.id===thin.id)).toMatchObject({installedCatalog:true,installedThumbnailProfile:'installed-furnishing-thumbnail-v1'});
+  const tenant=list.items.find(item=>item.id===registered.id);
+  expect(tenant).not.toHaveProperty('installedCatalog');
+  expect(tenant).not.toHaveProperty('installedThumbnailProfile');
+  const reads=f.query.mock.calls.length;
+  await expect(service.list(f.client,{...f.session,userId:id(9)})).rejects.toMatchObject({code:'FORBIDDEN'});
+  expect(f.query.mock.calls).toHaveLength(reads);
   expect((await service.list(f.client,f.session,Buffer.from(INSTALLED_FRAME_ID).toString('base64url'))).items.map(item=>item.id)).toEqual([thin.id]);
   expect((await service.list(f.client,f.session,Buffer.from(thin.id).toString('base64url'))).items).toEqual([]);
   expect(await service.readVersion(f.client,f.session,thin.id,1)).toEqual(thin);expect(await service.checkDisplay(f.client,f.session,thin.id,1)).toEqual(thin);
   expect((await service.model(f.client,f.session,thin.id,1,'export')).sha256).toBe(thin.model.sha256);
   await expect(service.readVersion(f.client,f.session,thin.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
-  read.mockResolvedValue(undefined);await expect(service.readVersion(f.client,f.session,thin.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
+  read.mockResolvedValue(undefined);
+  expect((await service.list(f.client,f.session)).items).toEqual([]);
+  await expect(service.readVersion(f.client,f.session,thin.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
   expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing'))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockReset();}
 });

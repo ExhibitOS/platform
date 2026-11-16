@@ -186,17 +186,21 @@ export class WorkspaceFurnishingIntakes {
    'SELECT id,version,descriptor FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id>$4::uuid ORDER BY id,version LIMIT 51',
    [this.owner.workspaceId,s.tenantId,s.userId,after],
   );
-  const candidates=result.rows;
+  const candidates:(typeof result.rows[number]&{installedCatalog?:true})[]=[...result.rows];
   if(this.supportsArtworkFrameModels())for(const descriptor of installedFrameDescriptors())if(descriptor.id>after.toLowerCase()&&await readInstalledFrameById(descriptor.id)){
-   candidates.push({id:descriptor.id,version:1,descriptor});
+   candidates.push({id:descriptor.id,version:1,descriptor,installedCatalog:true});
    candidates.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:a.version-b.version);
   }
   const rows=candidates.slice(0,50),last=rows.at(-1);
   return {
-   items:rows.map(({id,version,descriptor})=>({id,version,kind:descriptor.kind,name:descriptor.name,
-    rightsAvailability:{display:allowedRights(descriptor.rights,'display'),download:allowedRights(descriptor.rights,'download'),export:allowedRights(descriptor.rights,'export')},
-    ...(installedFrameThumbnail(id)?{installedThumbnailProfile:installedFrameThumbnail(id)!.profile}:{}),
-   })),
+   items:rows.map(({id,version,descriptor,installedCatalog})=>{
+    const installedThumbnail=installedCatalog?installedFrameThumbnail(id):undefined;
+    return {id,version,kind:descriptor.kind,name:descriptor.name,
+     rightsAvailability:{display:allowedRights(descriptor.rights,'display'),download:allowedRights(descriptor.rights,'download'),export:allowedRights(descriptor.rights,'export')},
+     ...(installedCatalog?{installedCatalog}:{}),
+     ...(installedThumbnail?{installedThumbnailProfile:installedThumbnail.profile}:{}),
+    };
+   }),
    nextCursor:candidates.length>50&&last?Buffer.from(last.id).toString('base64url'):null,
   };
  }
