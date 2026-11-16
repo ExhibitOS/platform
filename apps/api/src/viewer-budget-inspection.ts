@@ -41,7 +41,7 @@ export async function inspectViewerBudget<B extends Binding>(prepared:Prepared<B
  const defaultViewer=options.context!=='native'&&options.profile===undefined&&options.automaticProfile!=='compact'&&
   options.recommendedBaseline===undefined&&options.observations===undefined;
  const target=defaultViewer?await viewerBudgetEstimateTarget(candidate):null;
- const facts=binding.source==='publication'&&!target?null:await cpu({
+ const facts=defaultViewer&&!target?null:await cpu({
   candidate,profile:target?.selection.effectiveProfile??initial.selection.effectiveProfile,
   resolvedPolicy:target?.policy??initial.resolvedPolicy,...(target?{selectionBudget:target.selectionBudget}:{}),
   loadVerifiedAsset:reference=>{
