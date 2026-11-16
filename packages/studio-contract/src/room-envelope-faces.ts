@@ -36,11 +36,7 @@ export function roomCeilingFillDimensions(document:Exhibition,roomId:string):Roo
  const room=document.rooms.find(value=>same(value.id,roomId));
  if(!room)throw Error('ROOM_CEILING_FILL_GEOMETRY');
  assertRoomEnvelopeFrame(room);
- const faces=new Set<Side>();
- for(const surface of document.surfaces.filter(s=>same(s.roomId,roomId))){
-  const face=roomEnvelopeSide(surface,room);
-  if(!face||faces.has(face))throw Error('ROOM_CEILING_FILL_GEOMETRY');
-  faces.add(face);
- }
+ const ceilings=document.surfaces.filter(surface=>surface.type==='ceiling'&&same(surface.roomId,roomId));
+ if(ceilings.length>1||(ceilings[0]&&roomEnvelopeSide(ceilings[0],room)!=='ceiling'))throw Error('ROOM_CEILING_FILL_GEOMETRY');
  return room.dimensions;
 }

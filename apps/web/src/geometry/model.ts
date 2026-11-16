@@ -3,7 +3,7 @@ import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
   applyLightObjectCommand, type LightObjectCommand,
-  reflowRoomBaseLight, manualizeRoomBaseLight, sameLightPose,
+  reflowRoomBaseLight, manualizeRoomBaseLight, preserveRoomCeilingFillAfterCeilingEdit, sameLightPose,
   reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
   roomBaseLight,
@@ -238,9 +238,11 @@ export function applyGeometryCommand(
     }
     case "add-surface":
       doc.surfaces.push(clone(command.surface));
+      if(command.surface.type==='ceiling')doc=preserveRoomCeilingFillAfterCeilingEdit(doc,command.surface.roomId);
       break;
     case "set-surface":
       replace(doc.surfaces, command.id, command.surface);
+      if(command.surface.type==='ceiling')doc=preserveRoomCeilingFillAfterCeilingEdit(doc,command.surface.roomId);
       break;
     case "add-opening":
       doc.openings.push(clone(command.opening));
