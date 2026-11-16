@@ -81,6 +81,7 @@ import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-pre
 import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
+import {installCeilingFillMask} from './viewer/ceiling-fill';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
 import {benchesFor,experienceFor,furnishingWalkingCollisionLookup,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
@@ -877,6 +878,8 @@ export function GeometryPreview({
         }
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
+      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights);
+      if(ceilingFill)owned.push(ceilingFill);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();
@@ -1094,6 +1097,7 @@ export function GeometryPreview({
           }
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
+          ceilingFill?.prepare(camera);
           contactShadows?.setView(camera);shadowPass.flush(camera);
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
@@ -3806,7 +3810,7 @@ export function GeometryPreview({
             const key='viewer:support-contact';peak.reserve(key,SUPPORT_CONTACT_RESERVE_BYTES,limit);
             releaseContactReservation=()=>peak.release(key);
             contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);});
-            contactShadows.setView(camera);render();
+            ceilingFill?.prepare(camera);contactShadows.setView(camera);render();
           }catch{releaseContact();contactReceivers=undefined;renderer.domElement.dataset.supportContactShadows='unavailable';}
         };
         const updateOptionalShadowMaps=()=>{
