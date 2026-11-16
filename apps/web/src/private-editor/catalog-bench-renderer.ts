@@ -121,7 +121,13 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
      remaining-=source.baseResident;trackSources.set(key,source);
     }
     if(source.triangles>maxTriangles-triangles)throw Error('CATALOG_BUDGET');
-    const before=source.sharedResident();try{visual=source.instantiate(fixturePose!,remaining);}finally{remaining-=source.sharedResident()-before;}
+    let trackLight:Three.SpotLight|undefined;
+    if(item.asset.catalogId==='museum-track-spot-fixed-64p1'&&lights){
+     const light=[...lights].find(([id])=>id.toLowerCase()===binding.hostId.toLowerCase())?.[1].light;
+     if(!(light instanceof three.SpotLight))throw Error('TRACK_SPOT_EMITTER_LIGHT_REQUIRED');
+     trackLight=light;
+    }
+    const before=source.sharedResident();try{visual=source.instantiate(fixturePose!,remaining,trackLight);}finally{remaining-=source.sharedResident()-before;}
    }else visual=await loadCatalogModel(three,resolved.source,item.source,signal,()=>disposed||unavailable(),Math.max(0,maxTriangles-triangles),remaining);
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const target=binding.hostKind==='pedestal'?fallback?.[0]?.parent:room;if(!target)throw Error('CATALOG_HOST');const parent=new three.Group(),p=resolved.parent;parent.position.fromArray(p.position);parent.quaternion.fromArray(p.rotation);parent.scale.fromArray(p.scale);
