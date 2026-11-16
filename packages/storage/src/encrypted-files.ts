@@ -38,3 +38,54 @@ export async function decryptBackupFile(source:string,destination:string,key:Uin
   const result=plain.result();if(expected&&(result.bytes!==expected.bytes||result.sha256!==expected.sha256))throw Error('BACKUP_PLAIN_INTEGRITY');await output.sync();return result;
  }catch{throw Error('BACKUP_DECRYPT_FAILED');}finally{await input.file.close();await output?.close();}
 }
+
+/** Same EXB envelope for a bounded private configuration already in memory. */
+export async function encryptSmallBackupFile(
+ data:Uint8Array, destination:string, key:Uint8Array, aad:string, maxBytes:number,
+):Promise<EncryptedFile>{
+ keyCheck(key,aad);
+ if(data.length<1||data.length>maxBytes)throw Error('BACKUP_FILE_LIMIT');
+ const {length:bytes}=data,sha256=createHash('sha256').update(data).digest('hex');
+ const nonce=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,nonce,{authTagLength:TAG});
+ cipher.setAAD(Buffer.from(aad));
+ const sealed=Buffer.concat([MAGIC,nonce,cipher.update(data),cipher.final(),cipher.getAuthTag()]);
+ const output=await open(destination,'wx',0o600);
+ try{
+  await output.writeFile(sealed);
+  await output.sync();
+ }finally{await output.close();}
+ return {bytes,sha256,cipherBytes:sealed.length,cipherSha256:createHash('sha256').update(sealed).digest('hex')};
+}
+
+/** The caller owns and erases the returned bytes. No unauthenticated plaintext leaves memory. */
+export async function decryptSmallBackupFile(
+ source:string,key:Uint8Array,aad:string,maxBytes:number,expected?:EncryptedFile,cipherSha256=expected?.cipherSha256,
+):Promise<Buffer>{
+ keyCheck(key,aad);
+ const {file,stat}=await regular(source);
+ let plain:Buffer|undefined;
+ try{
+  const size=stat.size;
+  if(size<=HEADER+TAG||size>maxBytes+HEADER+TAG||expected&&size!==expected.cipherBytes)throw Error('BACKUP_FILE_LIMIT');
+  const sealed=Buffer.alloc(size);
+  let offset=0;
+  while(offset<size){
+   const {bytesRead}=await file.read(sealed,offset,size-offset,offset);
+   if(!bytesRead)throw Error('BACKUP_FILE_INVALID');
+   offset+=bytesRead;
+  }
+  const current=await file.stat();
+  if(current.size!==size||current.mtimeMs!==stat.mtimeMs||current.ctimeMs!==stat.ctimeMs||
+     !sealed.subarray(0,MAGIC.length).equals(MAGIC)||cipherSha256&&createHash('sha256').update(sealed).digest('hex')!==cipherSha256)throw Error('BACKUP_CIPHER_INTEGRITY');
+  const decipher=createDecipheriv('aes-256-gcm',key,sealed.subarray(MAGIC.length,HEADER),{authTagLength:TAG});
+  decipher.setAAD(Buffer.from(aad));
+  decipher.setAuthTag(sealed.subarray(size-TAG));
+  plain=decipher.update(sealed.subarray(HEADER,size-TAG));
+  const tail=decipher.final();
+  try{
+   if(tail.length||expected&&(plain.length!==expected.bytes||createHash('sha256').update(plain).digest('hex')!==expected.sha256))throw Error('BACKUP_PLAIN_INTEGRITY');
+  }finally{tail.fill(0);}
+ }catch(error){plain?.fill(0);await file.close().catch(()=>{});throw error;}
+ await file.close().catch(error=>{plain.fill(0);throw error;});
+ return plain;
+}

@@ -7,7 +7,12 @@ import {tmpdir} from 'node:os';
 import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
 import {inventoryCanonical,largeModelInventorySource,type ServiceInventory,type MigrationCatalogEntry} from './service-inventory.js';
-import {encryptBackupFile,decryptBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
+import {encryptBackupFile,decryptBackupFile,encryptSmallBackupFile,decryptSmallBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
+export const NATIVE_SIGNING_CONFIGURATION='freeze-signing-key.json';
+export const NATIVE_SIGNING_CONFIGURATION_LIMIT=65_536;
+const signingConfiguration=(entry:{role:string;name?:string})=>entry.role==='configuration'&&entry.name===NATIVE_SIGNING_CONFIGURATION;
+type SigningConfigurationProtection={protectNativeSigningConfiguration?:boolean};
+
 export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string;aliases?:string[]}
 export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2'|'1.0.0-draft.3';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
 export interface BackupReceipt {id:string;status:'complete';manifestSha256:string;objectCount:number}
@@ -91,7 +96,7 @@ function validateManifest(m:BackupManifest){
  if(databases!==1||keys.size!==m.inventory.objects.length||(m.schemaVersion==='1.0.0-draft.3')!==(aliasCount>0))throw Error('BACKUP_MANIFEST_INVALID');
 }
 /** Operator only: contains all tenants, account hashes and signing configuration. */
-export async function createServiceBackup(options:{pool:Pool;store:BlobStore;destination:string;encryptionKey:Uint8Array;snapshot:Snapshot;dump:(path:string,snapshotId:string)=>Promise<void>;runtime?:{metadata:unknown;files:Map<string,Uint8Array>};configuration?:Map<string,Uint8Array>;deployment?:Map<string,{path:string;bytes:number;sha256:string}>}):Promise<BackupReceipt>{
+export async function createServiceBackup(options:{pool:Pool;store:BlobStore;destination:string;encryptionKey:Uint8Array;snapshot:Snapshot;dump:(path:string,snapshotId:string)=>Promise<void>;runtime?:{metadata:unknown;files:Map<string,Uint8Array>};configuration?:Map<string,Uint8Array>;deployment?:Map<string,{path:string;bytes:number;sha256:string}>}&SigningConfigurationProtection):Promise<BackupReceipt>{
  if(options.encryptionKey.length!==32||!options.store.listAll)throw Error('BACKUP_CONFIG');
  const directory=await privateDirectory(options.destination,true),id=randomUUID(),createdAt=new Date().toISOString();
  await jsonExclusive(join(directory,'writing.json'),{id,status:'writing',createdAt});await mkdir(join(directory,'files'),{mode:0o700});const scratch=await mkdtemp(join(tmpdir(),'exhibitos-backup-private-'));
@@ -112,7 +117,21 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
    const plain=join(scratch,`object-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append('object',plain,{key:o.key});content.set(identity,manifest.files.at(-1)!);
   }
   for(const file of content.values())file.aliases?.sort();
-  for(const [role,files]of [['runtime',options.runtime?.files],['configuration',options.configuration]] as const){if(!files)continue;for(const [name,data]of files){if(!nameValid(name)||!data.length)throw Error('BACKUP_CONFIG');const plain=join(scratch,`extra-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append(role,plain,{name});}}
+  for(const [role,files]of [['runtime',options.runtime?.files],['configuration',options.configuration]] as const){
+   if(!files)continue;
+   for(const [name,data]of files){
+    if(!nameValid(name)||!data.length)throw Error('BACKUP_CONFIG');
+    if(options.protectNativeSigningConfiguration&&signingConfiguration({role,name})){
+     const path=`files/${String(manifest.files.length).padStart(8,'0')}.gcm`;
+     const hashes=await encryptSmallBackupFile(data,join(directory,path),options.encryptionKey,id+':'+path,NATIVE_SIGNING_CONFIGURATION_LIMIT);
+     manifest.files.push({role,path,name,...hashes});
+     continue;
+    }
+    const plain=join(scratch,`extra-${manifest.files.length}`);
+    await writeFile(plain,data,{mode:0o600,flag:'wx'});
+    await append(role,plain,{name});
+   }
+  }
   if(options.deployment){if(options.deployment.size>32)throw Error('BACKUP_DEPLOYMENT_LIMIT');for(const [name,file]of options.deployment){if(!nameValid(name)||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>8*1024*1024*1024||!hex(file.sha256)||resolve(file.path)!==await realpath(file.path))throw Error('BACKUP_DEPLOYMENT_INVALID');await append('deployment',file.path,{name},file);}}
   // Recheck the entire DB/object inventory before publishing a complete receipt.
   if(comparable(await options.snapshot(c))!==comparable(inventory))throw Error('BACKUP_SOURCE_CHANGED');
@@ -123,7 +142,7 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
  }catch{await jsonExclusive(join(directory,'failed.json'),{id,status:'failed'}).catch(()=>{});throw Error('BACKUP_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);await rm(scratch,{recursive:true,force:true});}
 }
-export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt;authenticatedManifestSha256:string}>{
+export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}&SigningConfigurationProtection):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt;authenticatedManifestSha256:string}>{
  const source=await privateDirectory(options.source,false),destination=await privateDirectory(options.destination,true);
  // The attempted boundary is diagnostic only; it does not prove authentication
  // or distinguish crypto errors from I/O, sync or close failures within a call.
@@ -144,7 +163,18 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   phase='file-inventory';
   const fileDirectory=await privateDirectory(join(source,'files'),false),actual=await archiveNames(fileDirectory,manifest.files.length,'BACKUP_FILE_INVENTORY'),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
   phase='files-decrypt';
-  const files=[];for(const f of manifest.files){const plainPath=join(destination,f.path.slice(6)+'.plain');await decryptBackupFile(join(fileDirectory,f.path.slice(6)),plainPath,options.encryptionKey,manifest.id+':'+f.path,f);files.push({...f,plainPath});}
+  const files=[];
+  for(const f of manifest.files){
+   const ciphertext=join(fileDirectory,f.path.slice(6)),aad=manifest.id+':'+f.path;
+   if(options.protectNativeSigningConfiguration&&signingConfiguration(f)){
+    const bytes=await decryptSmallBackupFile(ciphertext,options.encryptionKey,aad,NATIVE_SIGNING_CONFIGURATION_LIMIT,f);
+    bytes.fill(0);
+    continue;
+   }
+   const plainPath=join(destination,f.path.slice(6)+'.plain');
+   await decryptBackupFile(ciphertext,plainPath,options.encryptionKey,aad,f);
+   files.push({...f,plainPath});
+  }
   phase='archive-final';
   if(await archiveInventory(source)!==finderMetadata)throw Error('BACKUP_ARCHIVE_INVENTORY');
   return {manifest,files,receipt,authenticatedManifestSha256:decryptedManifest.sha256};
@@ -161,8 +191,30 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
  // Keep the caller-facing failure generic and unchained to private I/O details.
  throw Error('BACKUP_VERIFY_FAILED');
 }
+/** Read back a single signing entry from the exact authenticated restore stage.
+ * The caller owns and erases the resulting bytes. Nothing is materialized here. */
+export async function readNativeSigningConfiguration(options:{
+ source:string;encryptionKey:Uint8Array;expectedManifestSha256:string;
+}):Promise<Buffer>{
+ try{
+  if(!hex(options.expectedManifestSha256))throw Error('BACKUP_MANIFEST_INTEGRITY');
+  const source=await privateDirectory(options.source,false);
+  const receipt=JSON.parse((await secretRead(join(source,'complete.json'),4096)).toString()) as BackupReceipt;
+  if(receipt.status!=='complete'||typeof receipt.id!=='string'||!/^[-a-f0-9]{36}$/.test(receipt.id)||
+     !hex(receipt.manifestSha256)||!Number.isSafeInteger(receipt.objectCount)||receipt.objectCount<0)throw Error('BACKUP_RECEIPT_INVALID');
+  const manifestBytes=await decryptSmallBackupFile(join(source,'manifest.gcm'),options.encryptionKey,receipt.id+':manifest',16*1024*1024,undefined,receipt.manifestSha256);
+  if(sha(manifestBytes)!==options.expectedManifestSha256)throw Error('BACKUP_MANIFEST_INTEGRITY');
+  const manifest=JSON.parse(manifestBytes.toString()) as BackupManifest;
+  validateManifest(manifest);
+  if(manifest.id!==receipt.id||manifest.inventory.objects.length!==receipt.objectCount)throw Error('BACKUP_RECEIPT_INVALID');
+  const entry=manifest.files.find(signingConfiguration);
+  if(!entry)throw Error('BACKUP_CONFIG');
+  const directory=await privateDirectory(join(source,'files'),false);
+  return await decryptSmallBackupFile(join(directory,entry.path.slice(6)),options.encryptionKey,manifest.id+':'+entry.path,NATIVE_SIGNING_CONFIGURATION_LIMIT,entry);
+ }catch{throw Error('BACKUP_VERIFY_FAILED');}
+}
 /** Fresh isolated target only. A failed candidate is left for inspection, never activated. */
-export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}):Promise<BackupReceipt&{inventory:ServiceInventory;authenticatedManifestSha256:string}>{
+export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}&SigningConfigurationProtection):Promise<BackupReceipt&{inventory:ServiceInventory;authenticatedManifestSha256:string}>{
  if(!options.store.listAll)throw Error('RESTORE_CONFIG');
  const verified=await verifyServiceBackup(options);const c=await options.pool.connect();let locked=false,transaction=false;
  try{
@@ -190,7 +242,7 @@ async function stageVerifiedExtras(verified:Awaited<ReturnType<typeof verifyServ
 /** Resume the SAME quiesced physical candidate after an uncertain restore.
  * Reauthenticate to a NEW quarantine, never replay pg_restore into nonempty DB.
  * Only absent authenticated blobs may be completed; conflicts/extra data refuse. */
-export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;snapshotSystemIdentifier:string}):Promise<BackupReceipt&{authenticatedManifestSha256:string}>{
+export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;snapshotSystemIdentifier:string}&SigningConfigurationProtection):Promise<BackupReceipt&{authenticatedManifestSha256:string}>{
  if(!options.store.listAll)throw Error('RESTORE_CONFIG');
  const verified=await verifyServiceBackup(options);
  const client=await options.pool.connect();

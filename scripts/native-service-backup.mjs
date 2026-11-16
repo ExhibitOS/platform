@@ -122,6 +122,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const {main} = await import('./service-backup.mjs');
     const args=process.argv.slice(2);
     const options={jobBudgetBytes};
+    const signing=process.env.EXHIBITOS_NATIVE_PRIVATE_SIGNING_CONFIGURATION;
+    const outputFd=process.env.EXHIBITOS_NATIVE_SIGNING_OUTPUT_FD;
+    if(signing!==undefined&&signing!=='1')throw Error('BACKUP_CONFIGURATION_INVALID');
+    if(signing==='1')options.protectNativeSigningConfiguration=true;
+    if(outputFd!==undefined){
+      if(signing!=='1'||args[0]!=='read-signing-configuration'||!/^[1-9][0-9]{0,3}$/.test(outputFd))throw Error('BACKUP_CONFIGURATION_INVALID');
+      options.signingOutputFd=Number(outputFd);
+    }
     if(args[0]==='reconcile'){options.restoredSystemIdentifier=nativeRestoreIdentifier(process.env);args[0]='restore';}
     if(args[0]==='restore')options.beforeRestore=await nativeRestorePreflight(process.env);
     const result = await main(args, process.env, options);
