@@ -5,6 +5,7 @@ import type * as Three from 'three';
 
 const passageMetres = .5;
 const boundaryTolerance = .002;
+const allowedWallInset = .01;
 const lightChunk = '#include <lights_fragment_begin>';
 const directAreaCall = 'RE_Direct_RectArea( rectAreaLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
 const materialHooks = new WeakMap<Three.Material, Three.Material['onBeforeCompile']>();
@@ -13,6 +14,23 @@ export const hasCeilingFillMaterialHook = (material: Three.Material) =>
 
 const glsl = (value: number) => value.toFixed(9);
 const components = (values: number[]) => values.map(glsl).join(', ');
+
+/** Map an admitted full-height inset face back to the nominal room plane for
+ * pair comparison only. The original mesh, gap, and opening offset stay exact. */
+function doorwayPlane(
+  room: Exhibition['rooms'][number],
+  wall: Exhibition['surfaces'][number],
+) {
+  const [x, , z] = wall.transform.position;
+  for (const [axis, value, half] of [[0, x, room.dimensions.width / 2], [2, z, room.dimensions.depth / 2]] as const) {
+    const inset = half - Math.abs(value);
+    if (Math.abs(value) < half / 2 || inset < -1e-6 || inset > allowedWallInset + 1e-6) continue;
+    const position = [...wall.transform.position] as [number, number, number];
+    position[axis] = Math.sign(value) * half;
+    return {...wall, transform: {...wall.transform, position}};
+  }
+  return wall;
+}
 
 function roomMask(
   three: typeof Three,
@@ -28,11 +46,15 @@ function roomMask(
   const passages = [];
   for (const door of doc.openings) {
     const other = openings.get(door.connectsToOpeningId?.toLowerCase() ?? '');
-    if (door.type !== 'door' || surfaces.get(door.surfaceId.toLowerCase())?.roomId.toLowerCase() !== id ||
+    const wall = surfaces.get(door.surfaceId.toLowerCase());
+    if (door.type !== 'door' || !wall || wall.roomId.toLowerCase() !== id ||
       other?.type !== 'door' || other.connectsToOpeningId?.toLowerCase() !== door.id.toLowerCase()) continue;
+    const otherWall = surfaces.get(other.surfaceId.toLowerCase());
+    const otherRoom = doc.rooms.find(entry => entry.id.toLowerCase() === otherWall?.roomId.toLowerCase());
+    if (!otherWall || !otherRoom) continue;
     // Reuse the existing rigid face and coincident aperture checks. The pair
     // validator accepts two unconnected references, so strip just their links.
-    const pair = {...doc, openings: [
+    const pair = {...doc, surfaces: [doorwayPlane(room, wall), doorwayPlane(otherRoom, otherWall)], openings: [
       {...door, connectsToOpeningId: undefined}, {...other, connectsToOpeningId: undefined},
     ]};
     try {
