@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect,vi} from 'vitest';
 import {randomBytes,createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,writeFile,access,rename,stat,chmod,symlink,link,realpath,unlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,access,rename,stat,chmod,symlink,link,realpath,unlink,rm} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Pool} from 'pg';
 import {FileBlobStore} from './blobs.js';
-import {createServiceBackup,verifyServiceBackup,restoreServiceBackup,reconcileRestoredServiceBackup} from './service-backup.js';
+import {createServiceBackup,verifyServiceBackup,restoreServiceBackup,reconcileRestoredServiceBackup,readNativeSigningConfiguration,NATIVE_SIGNING_CONFIGURATION} from './service-backup.js';
 import * as encryptedFiles from './encrypted-files.js';
 import * as fsPromises from 'node:fs/promises';
 vi.mock('node:fs/promises',async importOriginal=>{
  const actual=await importOriginal<typeof import('node:fs/promises')>();
- return {...actual,readdir:vi.fn(actual.readdir),opendir:vi.fn(actual.opendir)};
+ return {...actual,readdir:vi.fn(actual.readdir),opendir:vi.fn(actual.opendir),writeFile:vi.fn(actual.writeFile)};
 });
 import type {ServiceInventory} from './service-inventory.js';
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
@@ -249,4 +249,68 @@ test('draft3 reconciliation rejects a conflicting already-present alias',async()
   await expect(reconcileRestoredServiceBackup({pool:f.pool('789'),store:target,source:f.archive,encryptionKey:f.key,destination:join(f.root,'conflict-reconcile'),snapshot:async()=>f.inventory,snapshotSystemIdentifier:'789'})).rejects.toThrow('RESTORE_OBJECT_CONFLICT');
   expect(await target.get(f.keys[1]!)).toEqual(Buffer.from('different bytes'));expect(await f.source.get(f.keys[0]!)).toEqual(f.shared);
  }finally{await fsPromises.rm(f.root,{recursive:true,force:true});}
+});
+
+test('native signing configuration preserves the EXB envelope without plaintext create, verify or restore copies',async()=>{
+ const f=await deploymentFixture();
+ const signing=randomBytes(65_536),other=Buffer.from('ordinary synthetic configuration');
+ const options={...f.options,protectNativeSigningConfiguration:true,
+  configuration:new Map([[NATIVE_SIGNING_CONFIGURATION,signing],['ordinary.json',other]])};
+ const verify={source:options.destination,encryptionKey:options.encryptionKey,protectNativeSigningConfiguration:true,destination:join(f.root,'verify-signing')};
+ const signingDigest=createHash('sha256').update(signing).digest('hex');
+ try{
+  vi.mocked(writeFile).mockClear();
+  await createServiceBackup(options);
+  expect(vi.mocked(writeFile).mock.calls.some(([,bytes])=>Buffer.isBuffer(bytes)&&bytes.equals(signing))).toBe(false);
+  const verified=await verifyServiceBackup(verify);
+  const entry=verified.manifest.files.find(file=>file.name===NATIVE_SIGNING_CONFIGURATION)!;
+  const plain=entry.path.slice(6)+'.plain';
+  expect(entry).toMatchObject({role:'configuration',bytes:65_536,sha256:signingDigest});
+  expect((await readFile(join(options.destination,entry.path))).subarray(0,8).toString()).toBe('EXBK001\0');
+  expect(verified.files.some(file=>file.name===NATIVE_SIGNING_CONFIGURATION)).toBe(false);
+  await expect(access(join(verify.destination,plain))).rejects.toThrow();
+  const restore=join(f.root,'restored-signing');
+  await restoreServiceBackup({...verify,pool:f.makePool('789'),store:f.store,destination:restore,snapshot:async()=>f.inventory,restore:async()=>{}});
+  expect(await readFile(join(restore,'configuration/ordinary.json'))).toEqual(other);
+  await expect(access(join(restore,'configuration',NATIVE_SIGNING_CONFIGURATION))).rejects.toThrow();
+  await expect(access(join(restore,plain))).rejects.toThrow();
+  const material=await readNativeSigningConfiguration({source:verify.source,encryptionKey:verify.encryptionKey,expectedManifestSha256:verified.authenticatedManifestSha256});
+  try{expect(material).toEqual(signing);}finally{material.fill(0);}
+  const ordinary=await verifyServiceBackup({...verify,destination:join(f.root,'ordinary-verify'),protectNativeSigningConfiguration:false});
+  expect(await readFile(ordinary.files.find(file=>file.name===NATIVE_SIGNING_CONFIGURATION)!.plainPath)).toEqual(signing);
+ }finally{signing.fill(0);await rm(f.root,{recursive:true,force:true});}
+});
+
+test('native signing configuration verifies before readback and leaves no plaintext on cancellation or corruption',async()=>{
+ const f=await deploymentFixture();
+ const signing=randomBytes(97);
+ const options={...f.options,protectNativeSigningConfiguration:true,configuration:new Map([[NATIVE_SIGNING_CONFIGURATION,signing]])};
+ const cancelled=join(f.root,'cancelled-archive');
+ let observations=0;
+ try{
+  vi.mocked(writeFile).mockClear();
+  await expect(createServiceBackup({...options,destination:cancelled,snapshot:async()=>{
+   if(++observations===2)throw new DOMException('synthetic cancellation','AbortError');
+   return f.inventory;
+  }})).rejects.toThrow('BACKUP_FAILED');
+  await expect(access(join(cancelled,'complete.json'))).rejects.toThrow();
+  expect(vi.mocked(writeFile).mock.calls.some(([,bytes])=>Buffer.isBuffer(bytes)&&bytes.equals(signing))).toBe(false);
+  const tooLarge=Buffer.alloc(65_537,1);
+  await expect(createServiceBackup({...options,destination:join(f.root,'too-large'),configuration:new Map([[NATIVE_SIGNING_CONFIGURATION,tooLarge]])})).rejects.toThrow('BACKUP_FAILED');
+  await createServiceBackup(options);
+  const verify={source:options.destination,encryptionKey:options.encryptionKey,destination:join(f.root,'verified'),protectNativeSigningConfiguration:true};
+  const verified=await verifyServiceBackup(verify);
+  const readback={source:verify.source,encryptionKey:verify.encryptionKey,expectedManifestSha256:verified.authenticatedManifestSha256};
+  await expect(readNativeSigningConfiguration({...readback,expectedManifestSha256:'0'.repeat(64)})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+  await expect(readNativeSigningConfiguration({...readback,encryptionKey:randomBytes(32)})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+  const entry=verified.manifest.files.find(file=>file.name===NATIVE_SIGNING_CONFIGURATION)!;
+  const path=join(options.destination,entry.path);
+  const ciphertext=await readFile(path);
+  ciphertext[ciphertext.length-1]=ciphertext.at(-1)!^1;
+  await writeFile(path,ciphertext);
+  await expect(readNativeSigningConfiguration(readback)).rejects.toThrow('BACKUP_VERIFY_FAILED');
+  const refused=join(f.root,'refused-verify');
+  await expect(verifyServiceBackup({...verify,destination:refused})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+  await expect(access(join(refused,entry.path.slice(6)+'.plain'))).rejects.toThrow();
+ }finally{signing.fill(0);await rm(f.root,{recursive:true,force:true});}
 });

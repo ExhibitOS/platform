@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {constants} from 'node:fs';
+import {closeSync,constants,fstatSync,writeSync} from 'node:fs';
 import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
 import {resolve,dirname,relative,isAbsolute} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
@@ -10,7 +10,8 @@ import {pipeline} from 'node:stream/promises';
 import {Transform,Writable} from 'node:stream';
 import {Pool} from 'pg';
 import {S3Client} from '@aws-sdk/client-s3';
-import {FileBlobStore,S3BlobStore,PostgresBlobStore,collectServiceInventory} from '../packages/storage/dist/index.js';
+import {FileBlobStore,S3BlobStore,PostgresBlobStore,collectServiceInventory,NATIVE_SIGNING_CONFIGURATION,NATIVE_SIGNING_CONFIGURATION_LIMIT} from '../packages/storage/dist/index.js';
+import {CURRENT_IMAGE_THUMBNAIL_MIGRATION,CURRENT_IMAGE_THUMBNAIL_SHA256,WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,WORKSPACE_FURNISHING_THUMBNAIL_SHA256} from './native-oex-normal-catalog.mjs';
 import {LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,recognizeNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
 
 const fail=code=>{throw Error(code);};
@@ -123,9 +124,9 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 }
 
 function parse(argv){
- const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command))fail('BACKUP_USAGE');
+ const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration','check-restored-inventory','read-signing-configuration'].includes(command))fail('BACKUP_USAGE');
  for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier','--carried-restore-proof-file'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&(flags['--snapshot-system-identifier']||flags['--carried-restore-proof-file']))fail('BACKUP_USAGE');return {command,flags};
+ if(!['check-source-inventory','check-source-configuration','check-restored-inventory','read-signing-configuration'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&(flags['--snapshot-system-identifier']||flags['--carried-restore-proof-file']))fail('BACKUP_USAGE');return {command,flags};
 }
 async function storeFor(environment,allowUninitialized=false){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -135,11 +136,48 @@ async function storeFor(environment,allowUninitialized=false){
  const client=new S3Client({region:environment.AWS_REGION||'us-east-1',...(environment.S3_ENDPOINT?{endpoint:environment.S3_ENDPOINT}:{}),forcePathStyle:environment.S3_FORCE_PATH_STYLE==='1',credentials:{accessKeyId:environment.AWS_ACCESS_KEY_ID,secretAccessKey:environment.AWS_SECRET_ACCESS_KEY,...(environment.AWS_SESSION_TOKEN?{sessionToken:environment.AWS_SESSION_TOKEN}:{})}});
  return {store:new S3BlobStore(client,environment.S3_BUCKET),dispose(){client.destroy();}};
 }
-async function configurationFiles(environment,keyPath){
+async function configurationFiles(environment,keyPath,protectNativeSigningConfiguration){
  if(!environment.BACKUP_CONFIGURATION_FILES)return undefined;let input;try{input=JSON.parse(environment.BACKUP_CONFIGURATION_FILES);}catch{fail('BACKUP_CONFIGURATION_INVALID');}
- if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>32)fail('BACKUP_CONFIGURATION_INVALID');const files=new Map();
- for(const[name,path]of Object.entries(input)){if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string'||resolve(path)===resolve(keyPath))fail('BACKUP_CONFIGURATION_INVALID');files.set(name,await privateFile(path,1024*1024));}
- return files;
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>32)fail('BACKUP_CONFIGURATION_INVALID');
+ const files=new Map();
+ try{
+  for(const[name,path]of Object.entries(input)){
+   if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string'||resolve(path)===resolve(keyPath))fail('BACKUP_CONFIGURATION_INVALID');
+   const protectedSigning=protectNativeSigningConfiguration&&name===NATIVE_SIGNING_CONFIGURATION;
+   files.set(name,protectedSigning?await privateConfigurationFile(path,NATIVE_SIGNING_CONFIGURATION_LIMIT):await privateFile(path,1024*1024));
+  }
+  return files;
+ }catch(error){if(protectNativeSigningConfiguration)files.get(NATIVE_SIGNING_CONFIGURATION)?.fill(0);throw error;}
+}
+
+async function readSigningConfiguration(flags,privateOptions){
+ if(!privateOptions.protectNativeSigningConfiguration||
+    Object.keys(flags).sort().join(',')!=='--key-file,--manifest-file,--manifest-sha256,--source')fail('BACKUP_USAGE');
+ const fd=privateOptions.signingOutputFd;
+ if(!Number.isInteger(fd)||fd<3||fd>1023)fail('BACKUP_CONFIGURATION_INVALID');
+ try{if(!fstatSync(fd).isFIFO())fail('BACKUP_CONFIGURATION_INVALID');}catch{fail('BACKUP_CONFIGURATION_INVALID');}
+ let key,material;
+ try{
+  const source=flags['--source'],manifestPath=flags['--manifest-file'],expectedManifestSha256=flags['--manifest-sha256'],keyPath=flags['--key-file'];
+  if(!isAbsolute(source)||resolve(source)!==source||await realpath(source)!==source||
+     !isAbsolute(manifestPath)||resolve(manifestPath)!==manifestPath||inside(source,keyPath)||inside(source,manifestPath))fail('BACKUP_PATH_OVERLAP');
+  const manifestBytes=await privateFile(manifestPath,16*1024*1024);
+  if(createHash('sha256').update(manifestBytes).digest('hex')!==expectedManifestSha256)fail('BACKUP_VERIFY_FAILED');
+  key=await readBackupKey(keyPath);
+  const backup=await import('../packages/storage/dist/index.js');
+  material=await backup.readNativeSigningConfiguration({source,encryptionKey:key,expectedManifestSha256});
+  const sha256=createHash('sha256').update(material).digest('hex');
+  for(let sent=0;sent<material.length;){
+   const count=writeSync(fd,material,sent,material.length-sent,null);
+   if(count<1)fail('BACKUP_CONFIGURATION_INVALID');
+   sent+=count;
+  }
+  return {operation:'signing-configuration-read',bytes:material.length,sha256};
+ }finally{
+  material?.fill(0);
+  key?.fill(0);
+  closeSync(fd);
+ }
 }
 export async function deploymentFiles(environment,keyPath,destination){
  if(!environment.BACKUP_DEPLOYMENT_FILES)return undefined;
@@ -175,14 +213,26 @@ export async function inventorySnapshotOptions(migrationDirectory,authenticatedM
  * observing the catalog does not authorize or apply a migration. */
 export async function inventorySnapshotOptionsForDatabase(client,migrationDirectory,supplementalDirectory,authenticatedMigrations){
  const workspaceImportDirectory=resolve(supplementalDirectory,'../native-oex-workspace-import/'),workspaceWallImportDirectory=resolve(supplementalDirectory,'../native-oex-workspace-import-wall/'),workspaceFurnishingDirectory=resolve(supplementalDirectory,'../native-workspace-furnishing/'),workspaceFurnishingWriterDirectory=resolve(supplementalDirectory,'../native-workspace-furnishing-writer/'),workspaceFurnishingPublicationDirectory=resolve(supplementalDirectory,'../native-workspace-furnishing-publication/'),workspaceMaterialPublicationDirectory=resolve(supplementalDirectory,'../native-workspace-material-publication/'),workspaceMaterialMultimapDirectory=resolve(supplementalDirectory,'../native-workspace-material-multimap/'),workspaceFramePreparationDirectory=resolve(supplementalDirectory,'../native-workspace-frame-preparation/'),hayesOriginalDirectory=resolve(supplementalDirectory,'../native-hayes-original/'),hayesDispositionDirectory=resolve(supplementalDirectory,'../native-hayes-disposition/'),hayesReleaseDirectory=resolve(supplementalDirectory,'../native-hayes-release/'),modelPreparationDirectory=resolve(supplementalDirectory,'../native-model-preparation/'),freshImageDirectory=resolve(supplementalDirectory,'../native-fresh-image-preparation/'),largeModelDirectory=resolve(supplementalDirectory,'../native-large-model-preparation/');
- const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory});
+ const ledgerQuery='SELECT name,sha256 FROM public.schema_migrations ORDER BY name';
+ const observed=(await client.query(ledgerQuery)).rows;
+ const combinedThumbnails=Array.isArray(observed)&&observed.length===47&&
+  observed[45]?.name===WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION&&observed[46]?.name===CURRENT_IMAGE_THUMBNAIL_MIGRATION;
+ const selectedSupplement=combinedThumbnails?{
+  workspaceFurnishingThumbnailDirectory:resolve(supplementalDirectory,'../native-workspace-furnishing-thumbnail/'),
+  currentImageThumbnailDirectory:resolve(supplementalDirectory,'../native-current-image-thumbnail/'),
+ }:{largeModelDirectory,freshImageDirectory};
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,...selectedSupplement});
  if(!selected)return inventorySnapshotOptions(migrationDirectory,authenticatedMigrations);
  const names=(await readdir(migrationDirectory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort(),catalog=[];
  for(const name of names)catalog.push({name,sha256:createHash('sha256').update(await readFile(resolve(migrationDirectory,name))).digest('hex')});
  const supplemental=[[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256],[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256],[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256],[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256],[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256],[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256],[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256],[WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256],[WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256],[WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256],[WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256],[WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256],[WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256],[WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256],[WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256],[WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256],[HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256],[HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256],[HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256],[MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256]];
- const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
- if(rows[45]?.name===LARGE_MODEL_MIGRATION)supplemental.push([LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256]);
- if(rows[45]?.name===FRESH_IMAGE_MIGRATION)supplemental.push([FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256]);
+ const rows=(await client.query(ledgerQuery)).rows;
+ if(combinedThumbnails){
+  supplemental.push([WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION,WORKSPACE_FURNISHING_THUMBNAIL_SHA256],[CURRENT_IMAGE_THUMBNAIL_MIGRATION,CURRENT_IMAGE_THUMBNAIL_SHA256]);
+ }else{
+  if(rows[45]?.name===LARGE_MODEL_MIGRATION)supplemental.push([LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256]);
+  if(rows[45]?.name===FRESH_IMAGE_MIGRATION)supplemental.push([FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256]);
+ }
  if(!Array.isArray(rows)||rows.length<names.length||rows.length>names.length+supplemental.length)fail('BACKUP_MIGRATION_CATALOG');
  catalog.push(...supplemental.slice(0,rows.length-names.length).map(([name,sha256])=>({name,sha256})));
  if(JSON.stringify(rows)!==JSON.stringify(catalog)||authenticatedMigrations!==undefined&&JSON.stringify(authenticatedMigrations)!==JSON.stringify(catalog))fail('BACKUP_MIGRATION_CATALOG');
@@ -198,8 +248,12 @@ export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
  if(!Number.isSafeInteger(cap)||cap<1024*1024)fail('BACKUP_RESOURCE_BUDGET');return cap;
 }
 export async function main(argv=process.argv.slice(2),environment=process.env,privateOptions={}){
- if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority','restoredSystemIdentifier','beforeRestore'].includes(k))||privateOptions.beforeRestore!==undefined&&typeof privateOptions.beforeRestore!=='function')fail('BACKUP_RESOURCE_BUDGET');
+ if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority','restoredSystemIdentifier','beforeRestore','protectNativeSigningConfiguration','signingOutputFd'].includes(k))||privateOptions.beforeRestore!==undefined&&typeof privateOptions.beforeRestore!=='function')fail('BACKUP_RESOURCE_BUDGET');
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
+ const protectNativeSigningConfiguration=privateOptions.protectNativeSigningConfiguration===true;
+ if(privateOptions.protectNativeSigningConfiguration!==undefined&&typeof privateOptions.protectNativeSigningConfiguration!=='boolean'||
+    privateOptions.signingOutputFd!==undefined&&command!=='read-signing-configuration')fail('BACKUP_CONFIGURATION_INVALID');
+ if(command==='read-signing-configuration')return readSigningConfiguration(flags,privateOptions);
  if(privateOptions.restoredSystemIdentifier!==undefined&&(command!=='restore'||typeof privateOptions.restoredSystemIdentifier!=='string'||! /^[1-9][0-9]{0,19}$/.test(privateOptions.restoredSystemIdentifier)||BigInt(privateOptions.restoredSystemIdentifier)>18446744073709551615n))fail('CANDIDATE_DATABASE_ID_INVALID');
  if(command==='check-source-configuration'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
@@ -207,7 +261,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length<1||Object.keys(input).length>32)fail('BACKUP_CONFIGURATION_INVALID');
   const configuration=new Map();for(const [name,path] of Object.entries(input)){
    if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string')fail('BACKUP_CONFIGURATION_INVALID');
-   configuration.set(name,()=>privateConfigurationFile(path));
+   configuration.set(name,()=>privateConfigurationFile(path,protectNativeSigningConfiguration&&name===NATIVE_SIGNING_CONFIGURATION?NATIVE_SIGNING_CONFIGURATION_LIMIT:undefined));
   }
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   return backup.verifySourceConfiguration({manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],configuration});
@@ -230,7 +284,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  if(command==='create'&&flags['--fresh-destination'])fail('BACKUP_USAGE');
  if(inside(destination,keyPath)||source&&inside(source,keyPath)||source&&inside(source,destination)||source&&inside(destination,source))fail('BACKUP_PATH_OVERLAP');
  const key=await readBackupKey(keyPath),backup=await import('../packages/storage/dist/index.js');
- if(command==='verify'){try{if(flags['--quiesced']||flags['--fresh-destination'])fail('BACKUP_USAGE');const verified=await backup.verifyServiceBackup({source,destination,encryptionKey:key});return {operation:'verified',files:verified.files.length};}finally{key.fill(0);}}
+ if(command==='verify'){try{if(flags['--quiesced']||flags['--fresh-destination'])fail('BACKUP_USAGE');const verified=await backup.verifyServiceBackup({source,destination,encryptionKey:key,protectNativeSigningConfiguration});return {operation:'verified',files:verified.manifest.files.length};}finally{key.fill(0);}}
  if(!flags['--quiesced']||command==='restore'&&!flags['--fresh-destination'])fail('BACKUP_OPERATOR_ACK_REQUIRED');
  if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
@@ -244,12 +298,15 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   };
   if(command==='create'){
    const runtime=environment.FREEZE_RUNTIME_ROOT?await import('../apps/api/dist/freeze.js').then(m=>m.loadFreezeRuntime(environment.FREEZE_RUNTIME_ROOT)):undefined;
-   const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});
-   return {operation:'created',backupId:result.id};
+   const configuration=await configurationFiles(environment,keyPath,protectNativeSigningConfiguration);
+   try{
+    const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration,protectNativeSigningConfiguration,deployment:await deploymentFiles(environment,keyPath,destination)});
+    return {operation:'created',backupId:result.id};
+   }finally{if(protectNativeSigningConfiguration)configuration?.get(NATIVE_SIGNING_CONFIGURATION)?.fill(0);}
   }
-  if(privateOptions.restoredSystemIdentifier!==undefined){const verified=await backup.reconcileRestoredServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,snapshotSystemIdentifier:privateOptions.restoredSystemIdentifier});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};}
+  if(privateOptions.restoredSystemIdentifier!==undefined){const verified=await backup.reconcileRestoredServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,snapshotSystemIdentifier:privateOptions.restoredSystemIdentifier,protectNativeSigningConfiguration});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};}
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');
-  const verified=await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};
+  const verified=await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore,protectNativeSigningConfiguration});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};
  }finally{process.removeListener('SIGINT',interrupted);process.removeListener('SIGTERM',interrupted);await pool.end();await blobs.dispose();key.fill(0);}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
