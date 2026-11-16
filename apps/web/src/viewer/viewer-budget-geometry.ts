@@ -20,6 +20,7 @@ import {nativeOrdinaryInventory} from '../native-ordinary-scene-variants';
 import {centerMetricModel,artifactMetricModel} from './metric-model';
 import {containedImageSize} from './flat-image-view';
 import {embeddedJpegSize} from './detail-model-admission';
+import {selectedExhibitionViewerBudget} from './exhibition-budget';
 import {DEVICE_BUDGETS,selectAssetVariant,geometryResidentBytes,modelGeometryResidentBytes,modelDecodeReserve,imageDecodeReserve,textureResidentBytes,workspaceFurnishingModelPreflight,type DeviceBudget} from './loading';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES,type ShadowCandidate,type ShadowReport} from './shadows';
 import {loadBudgetGeometry} from './viewer-budget-glb';
@@ -39,6 +40,22 @@ function geometryBytesMany(roots:readonly three.Object3D[]){
 const geometryBytes=(root:three.Object3D)=>geometryBytesMany([root]);
 function disposeModel(root:three.Object3D){const resources=new Set<{dispose():void}>();root.traverse(node=>{if(node instanceof three.Mesh||node instanceof three.Line||node instanceof three.Points){resources.add(node.geometry);for(const material of Array.isArray(node.material)?node.material:[node.material])resources.add(material);}});for(const resource of resources)resource.dispose();}
 const token=(error:unknown)=>error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:'ASSET_UNAVAILABLE';
+
+/** Estimate one Viewer scenario using the same selector as the browser. */
+export function selectViewerBudgetEstimateTarget(document: Parameters<typeof selectedExhibitionViewerBudget>[0]) {
+  const requestedMode = 'auto';
+  const hints = {coarsePointer: false, finePointer: true};
+  const {selection, policy, budget} = selectedExhibitionViewerBudget(document, requestedMode, hints);
+
+  return {
+    scenario: 'fine-pointer-no-memory-hint-auto-v1',
+    requestedMode,
+    hints,
+    selection,
+    policy,
+    selectionBudget: {maxTriangles: budget.maxTriangles, maxTextureSize: budget.maxTextureSize},
+  } as const;
+}
 
 /** Authoritative bytes are supplied by the caller. This CPU-only producer
  * assembles the authored scene with existing renderer builders and selectors.
