@@ -35,7 +35,7 @@ function fragment(material: three.Material) {
     vertexShader: three.ShaderLib.standard.vertexShader,
     fragmentShader: three.ShaderLib.standard.fragmentShader,
   };
-  material.onBeforeCompile(shader, {} as three.WebGLRenderer);
+  material.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0], {} as three.WebGLRenderer);
   return shader.fragmentShader;
 }
 
