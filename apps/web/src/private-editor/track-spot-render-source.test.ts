@@ -91,6 +91,36 @@ it('uses one verified fetch but checks every binding authority and disposes sour
  const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{}, {scene,enabled:()=>true});
  try{expect((await runtime.start()).every(row=>row.status==='ready')).toBe(true);expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check.mock.calls.length).toBeGreaterThanOrEqual(14);expect(existingSceneCost(three,room)).toEqual({draws:98,triangles:59640});expect(runtime.collisions.size).toBe(14);runtime.dispose();expect(room.children).toHaveLength(0);}finally{runtime.dispose();}
 });
+it('couples only the mounted fixed64 lens to its own live spot',async()=>{
+ const {source}=await input(),roomId=crypto.randomUUID(),room=new three.Group(),scene=new three.Scene();scene.add(room);
+ const items=[0,1].map(i=>({asset,binding:{hostKind:'light' as const,hostId:crypto.randomUUID(),assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},resolved:{source:entry,roomId,parent:identity,pose:identity,mountProfile:'museum-track-spot-fixed-head-v1' as const,wallwasher:resolved(i)},source}));
+ const warm=new three.SpotLight(0xffbb88,14),other=new three.SpotLight(0xffffff,7);
+ const lights=new Map([[items[0]!.binding.hostId,{light:warm}],[items[1]!.binding.hostId,{light:other}]]);
+ const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{},undefined,lights);
+ try{
+  expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','ready']);
+  const lenses:three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>[]=[];
+  room.traverse(node=>{if(node instanceof three.Mesh&&node.userData.name==='Lens_opaque')lenses.push(node);});
+  expect(lenses).toHaveLength(2);
+  const [lens,otherLens]=[lenses[0]!,lenses[1]!],material=lens.material;
+  const initialOther=otherLens.material.toJSON(),draw=()=>lens.onBeforeRender({} as three.WebGLRenderer,scene,new three.Camera(),lens.geometry,material,null as unknown as three.Group);
+  const enabled=catalogId==='museum-track-spot-fixed-64p1';
+  expect(material.emissive.toArray()).toEqual(enabled?warm.color.toArray():[0,0,0]);
+  if(enabled)expect(material.emissiveIntensity).toBe(14/15);
+  warm.intensity=3;warm.color.setRGB(.2,.4,.8);
+  const live=warm.toJSON();draw();
+  expect(warm.toJSON()).toEqual(live);
+  expect(material.emissive.toArray()).toEqual(enabled?[.2,.4,.8]:[0,0,0]);
+  if(enabled)expect(material.emissiveIntensity).toBe(.75);
+  expect(otherLens.material.toJSON()).toEqual(initialOther);
+  warm.intensity=0;draw();expect(material.emissive.toArray()).toEqual([0,0,0]);
+  warm.intensity=14;draw();expect(material.emissive.toArray()).toEqual(enabled?[.2,.4,.8]:[0,0,0]);
+  warm.visible=false;draw();expect(material.emissive.toArray()).toEqual([0,0,0]);
+  const disposed=vi.spyOn(material,'dispose');runtime.dispose();runtime.dispose();
+  expect(disposed).toHaveBeenCalledOnce();expect(lens.material).not.toBe(material);
+  expect(room.children).toHaveLength(0);
+ }finally{runtime.dispose();}
+});
 it('retains admission and authority fences when a verified source is already shared',async()=>{
  const {source}=await input(),roomId=crypto.randomUUID(),room=new three.Group();let allowed=true;
  source.check.mockImplementation(async()=>{if(!allowed)throw Error('CATALOG_SCOPE_EXPIRED');});

@@ -3,6 +3,7 @@ import type * as Three from 'three';
 import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import {articulatedTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-articulated-profile.js';
 import type {WallwasherFixtureAssetIdentity} from '../../../../packages/studio-contract/src/wallwasher-fixture-profile.js';
+import {coupleFixtureEmission} from '../fixture-emission';
 import {geometryResidentBytes} from '../viewer/loading';
 import {applyWallwasherModelPose,type ResolvedFixturePose} from './wallwasher-model-pose';
 import type {loadCatalogModel} from './catalog-furnishing-loader';
@@ -17,7 +18,7 @@ const fail=()=>{throw Error('CATALOG_BUDGET');};
 /** One scene-owned immutable museum source. Each light keeps independent fixed,
  * optional yoke and head poses and an independent original lens. Equal-material opaque
  * parts WITHIN one frame are combined; all original nodes/buffers are retained.
- * No artist model, source file, material or named pose contract is modified. */
+ * A live fixture updates only its instance-owned lens material. */
 export function createTrackSpotRenderSource(three:typeof Three,template:Template,asset:WallwasherFixtureAssetIdentity){
  const articulated=asset.catalogId==='museum-track-spot-articulated',profile=articulated?articulatedTrackSpotProfile(asset):museumTrackSpotProfile(asset),merged=new Map<string,Three.BufferGeometry>(),instances=new Set<()=>void>(),frameCount=articulated?3:2;
  let nodes=0,sharedBytes=0,disposed=false;template.model.traverse(()=>nodes++);
@@ -74,7 +75,7 @@ export function createTrackSpotRenderSource(three:typeof Three,template:Template
    return geometry;
   }catch(error){geometry.dispose();throw error;}
  };
- const instantiate=(resolved:ResolvedFixturePose,availableBytes:number)=>{
+ const instantiate=(resolved:ResolvedFixturePose,availableBytes:number,light?:Three.SpotLight)=>{
   if(disposed||!Number.isFinite(availableBytes)||availableBytes<(nodes+frameCount)*NODE_BYTES)fail();
   const model=template.model.clone(true),pose=applyWallwasherModelPose(three,model,asset,resolved),plans=plansFor(pose.yoke?[pose.fixed,pose.yoke,pose.head]:[pose.fixed,pose.head]);
   const instanceBytes=(nodes+frameCount+plans.length+2)*NODE_BYTES; // mounting parent + own lens material
@@ -82,15 +83,19 @@ export function createTrackSpotRenderSource(three:typeof Three,template:Template
   if(instanceBytes+growth>availableBytes)fail();
   const lens=pose.head.children.find(node=>node.userData.name==='Lens_opaque') as Three.Mesh<Three.BufferGeometry,Three.Material>|undefined;
   if(!lens||Array.isArray(lens.material))throw Error('WALLWASHER_MODEL_PROFILE_INVALID');
-  const originalLens=lens.material,ownLens=originalLens.clone();lens.material=ownLens;
+  const originalLens=lens.material;
+  const emissionMaterial=light&&originalLens instanceof three.MeshStandardMaterial?originalLens.clone():undefined;
+  if(light&&!emissionMaterial)throw Error('WALLWASHER_MODEL_PROFILE_INVALID');
+  const ownLens=emissionMaterial??originalLens.clone();lens.material=ownLens;
   const created=new Map<string,Three.BufferGeometry>();
   try{for(const plan of plans)if(!merged.has(plan.key))created.set(plan.key,combine(plan));}
   catch(error){for(const geometry of created.values())geometry.dispose();ownLens.dispose();throw error;}
   for(const [key,geometry]of created)merged.set(key,geometry);sharedBytes+=growth;
   const originals=plans.map(plan=>({parent:plan.parent,nodes:plan.nodes})),batches:Three.Mesh[]=[];
   for(const plan of plans){const mesh=new three.Mesh(merged.get(plan.key)!,plan.nodes[0]!.material);mesh.userData.exhibitosLightFixture=true;plan.parent.remove(...plan.nodes);plan.parent.add(mesh);batches.push(mesh);}
+  const releaseEmission=light&&emissionMaterial?coupleFixtureEmission(lens,emissionMaterial,light):undefined;
   let released=false;
-  const dispose=()=>{if(released)return;released=true;model.removeFromParent();for(const mesh of batches)mesh.removeFromParent();for(const row of originals)row.parent.add(...row.nodes);lens.material=originalLens;ownLens.dispose();instances.delete(dispose);};
+  const dispose=()=>{if(released)return;released=true;releaseEmission?.();model.removeFromParent();for(const mesh of batches)mesh.removeFromParent();for(const row of originals)row.parent.add(...row.nodes);lens.material=originalLens;ownLens.dispose();instances.delete(dispose);};
   instances.add(dispose);
   return {model,triangles:template.triangles,resident:instanceBytes,dispose};
  };
