@@ -187,8 +187,14 @@ export function installCeilingFillMask(
       material.needsUpdate = true;
     }
   };
-  const dispose = () => {
-    for (const retire of materials.values()) retire();
+  const dispose = (releaseContact?: () => void) => {
+    // Contact wraps this shader hook and must restore it before this pass
+    // removes its own hook and disposal listener.
+    try {
+      releaseContact?.();
+    } finally {
+      for (const retire of materials.values()) retire();
+    }
   };
   return {prepare, dispose};
 }

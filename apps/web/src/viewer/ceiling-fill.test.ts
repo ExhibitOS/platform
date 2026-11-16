@@ -3,6 +3,7 @@ import {ensureRoomBaseLight} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
+import {retireArtworkResources} from './artwork-ownership';
 import {hasCeilingFillMaterialHook, installCeilingFillMask} from './ceiling-fill';
 import {hasSupportContactMaterialHook, installSupportContactShadows} from './shadows';
 
@@ -59,7 +60,7 @@ test('mask follows the visible area roster and releases a retired model material
   mesh.geometry.dispose();
 });
 
-test('support contact and ceiling fill share the material and retire in owner order', () => {
+test('ordinary scene retirement unwinds support contact before its ceiling-fill material hook', async () => {
   const {camera, mask, material, mesh, room} = fixture();
   const before = material.onBeforeCompile;
   mask.prepare(camera);
@@ -72,12 +73,11 @@ test('support contact and ceiling fill share the material and retire in owner or
   expect(composed).toContain('exhibitosRoomFill');
   expect(composed).toContain('contactStrength');
 
-  contacts.dispose();
+  await retireArtworkResources([{dispose: () => mask.dispose(contacts.dispose)}]);
+  expect(hasSupportContactMaterialHook(material)).toBe(false);
+  expect(hasCeilingFillMaterialHook(material)).toBe(false);
   expect(material.onBeforeCompile).toBe(before);
-  mask.prepare(camera);
-  expect(hasCeilingFillMaterialHook(material)).toBe(true);
-  mask.dispose();
-  expect(material.onBeforeCompile).toBe(before);
+  expect(material.customProgramCacheKey).toBe(three.Material.prototype.customProgramCacheKey);
   mesh.geometry.dispose();
   material.dispose();
 });

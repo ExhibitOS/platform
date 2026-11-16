@@ -879,7 +879,6 @@ export function GeometryPreview({
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
       const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights);
-      if(ceilingFill)owned.push(ceilingFill);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();
@@ -986,6 +985,14 @@ export function GeometryPreview({
         if(id!==currentExitId){currentExitId=id;setNearbyExitId(id);}
       };
       let contactShadows:ReturnType<typeof installSupportContactShadows>|undefined;
+      let releaseContactReservation=()=>{};
+      const releaseContact=()=>{
+        contactShadows?.dispose();
+        contactShadows=undefined;
+        releaseContactReservation();
+        releaseContactReservation=()=>{};
+      };
+      if(ceilingFill)owned.push({dispose:()=>ceilingFill.dispose(releaseContact)});
       let refreshContactReceivers=()=>{};
       let contactFurnishingsSettled=!hasWorkspaceFurnishings;
       const publishNavigationState=(state:NavigationState)=>{
@@ -2253,8 +2260,6 @@ export function GeometryPreview({
         let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
         let contactReceivers:ReturnType<typeof supportContacts>|undefined;
         const contactEligible=!document.scripts.length;
-        let releaseContactReservation=()=>{};
-        const releaseContact=()=>{contactShadows?.dispose();contactShadows=undefined;releaseContactReservation();releaseContactReservation=()=>{};};
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{
           diagnosticPeak=Math.max(diagnosticPeak,total);
         }:undefined);
@@ -2263,7 +2268,7 @@ export function GeometryPreview({
           residentBytes:resident()+Math.max(0,viewerBudget.maxCacheBytes-assetBudgetBytes),
           transitionBytes:peak.total()+Math.max(0,(viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes)-transitionBudgetBytes)});
         if(contactEligible){
-          owned.push({dispose:releaseContact});
+          if(!ceilingFill)owned.push({dispose:releaseContact});
           let ready=false;
           refreshContactReceivers=()=>{
             if(!ready||disposed||gpuLost)return;
