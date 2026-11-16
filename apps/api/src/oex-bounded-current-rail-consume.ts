@@ -21,7 +21,7 @@ export async function consumeBoundedCurrentWorkspaceRailOex(input:{
  reader:{count:number;readNext():Promise<{path:string;bytes:Buffer}>};
  verifyLive:()=>Promise<void>;
  qualify:(descriptor:Parameters<Service['validatePortableImport']>[2],bytes:Buffer)=>Promise<PortableReceipt>;
-}):Promise<PreparedOexImportAttachment & {workspaceRail:{id:string;key:string;receipt:PortableReceipt}}> {
+}):Promise<PreparedOexImportAttachment & {workspaceRail:NonNullable<PreparedOexImportAttachment['workspaceRail']>}> {
  const {manifest,exhibition}=input.documents;
  const {descriptor,resource}=bindCurrentWorkspaceRailResource(manifest,exhibition);
  const key=input.sourceKeys.get(resource.path);

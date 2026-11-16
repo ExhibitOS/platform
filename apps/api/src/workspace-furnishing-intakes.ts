@@ -65,12 +65,12 @@ export class WorkspaceFurnishingIntakes {
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  /** Portable archive descriptors earn a new registry entry only after the owner
   * worker validates their exact model, including any claimed fit receipt. */
- async validatePortableImport(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor,bytes:Buffer){
+ async validatePortableImport(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor,bytes:Buffer,onSpawn?:(child:ChildProcess)=>void){
   await this.checkOwner(c,s);
   const {id,version,fit,...fields}=descriptor,profile=fit?.geometry.profile;
   if(!this.writer||!this.supportsReusableFit()||version!==1||!this.admittedDeclaration({...fields,requestId:id,...(profile?{fitProfile:profile}:{})}))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
   if(!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
-  const hooks={writerFd:this.writer.writerFd};
+  const hooks={writerFd:this.writer.writerFd,...(onSpawn?{onSpawn}:{})};
   if(profile){
    const geometry=await validateWorkspaceFurnishingGlb(descriptor.model,bytes,hooks,profile);
    if(!isDeepStrictEqual(geometry,fit?.geometry))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');

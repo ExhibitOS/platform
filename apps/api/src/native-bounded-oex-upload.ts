@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
-import {isNativeOexFileFormat,type NativeOexFileFormat} from './oex-file-format.ts';
+import {CURRENT_WORKSPACE_RAIL_OEX_FORMAT,isNativeOexFileFormat,isSelectedWorkspaceOexFormat,type NativeSelectedOexFormat} from './oex-file-format.ts';
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import type {PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
 import {Auth,ApiError,config,uuid,type AuthConfig,type Session} from './auth.ts';
 import {createBoundedOexJob,putBoundedOexChunk,queueBoundedOexJob} from './oex-bounded-chunks.ts';
 import {workspaceAuthority,type WorkspaceAuthority} from './oex-bounded-lease.ts';
-import {assertIssuedWorkspaceImport} from './native-oex-provenance.ts';
+import {assertIssuedCurrentWorkspaceRailImport,assertIssuedWorkspaceImport} from './native-oex-provenance.ts';
 
 const CHUNK=16*1024*1024,MAX=512*1024*1024,hex=/^[a-f0-9]{64}$/;
 export interface SelectedNativeUpload {
  /** Exact server Auth session ID from authenticated native bootstrap, never
   * an HTTP field or another session of the same personal principal. */
  sessionId:string;tenantId:string;principalId:string;workspaceId:string;runtimeGeneration:string;
- requestId:string;bytes:number;sha256:string;archiveFormat?:NativeOexFileFormat|'1.0.0-draft.12';
+ requestId:string;bytes:number;sha256:string;archiveFormat?:NativeSelectedOexFormat;
 }
 /** Implemented ONLY by the future authenticated native bootstrap. It must
  * hold and revalidate the same actual Session, retained owner connection and
@@ -43,10 +43,10 @@ export function bindSelectedNativeUpload(owner:NativeUploadOwner,input:SelectedN
  if(!input||typeof input!=='object'||Reflect.ownKeys(input).length!==names.length||Reflect.ownKeys(input).some(key=>typeof key!=='string'||!names.includes(key as typeof names[number])))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const snapshot:Record<string,unknown>={};for(const name of names){const d=Object.getOwnPropertyDescriptor(input,name);if(!d||!('value'in d))throw Error('NATIVE_UPLOAD_CONFIGURATION');snapshot[name]=d.value;}
  for(const name of names.slice(0,6)){uuid(snapshot[name]);if(snapshot[name]!==String(snapshot[name]).toLowerCase())throw Error('NATIVE_UPLOAD_CONFIGURATION');}
- if(snapshot.archiveFormat==='1.0.0-draft.12'){if(!authority||authority.workspaceId!==snapshot.workspaceId||authority.context.tenantId!==snapshot.tenantId||authority.context.principalId!==snapshot.principalId)throw Error('NATIVE_UPLOAD_CONFIGURATION');assertIssuedWorkspaceImport(authority.context,authority.owner);}else if(authority||explicitFormat&&!isNativeOexFileFormat(snapshot.archiveFormat))throw Error('NATIVE_UPLOAD_CONFIGURATION');
+ if(isSelectedWorkspaceOexFormat(snapshot.archiveFormat)){if(!authority||authority.workspaceId!==snapshot.workspaceId||authority.context.tenantId!==snapshot.tenantId||authority.context.principalId!==snapshot.principalId)throw Error('NATIVE_UPLOAD_CONFIGURATION');if(snapshot.archiveFormat===CURRENT_WORKSPACE_RAIL_OEX_FORMAT&&authority.archiveFormat===snapshot.archiveFormat)assertIssuedCurrentWorkspaceRailImport(authority.context,authority.owner);else if(snapshot.archiveFormat==='1.0.0-draft.12'&&authority.archiveFormat===undefined)assertIssuedWorkspaceImport(authority.context,authority.owner);else throw Error('NATIVE_UPLOAD_CONFIGURATION');}else if(authority||explicitFormat&&!isNativeOexFileFormat(snapshot.archiveFormat))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  if(!Number.isSafeInteger(snapshot.bytes)||Number(snapshot.bytes)<1||Number(snapshot.bytes)>MAX||typeof snapshot.sha256!=='string'||!hex.test(snapshot.sha256)||!owner||typeof owner.assertLive!=='function'||typeof owner.assertDatabase!=='function'||typeof owner.runScoped!=='function')throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const capability=Object.freeze(Object.create(null)) as NativeBoundedUploadCapability;
- issued.set(capability,{selection:Object.freeze(snapshot) as unknown as Readonly<SelectedNativeUpload>,...(authority?{workspaceAuthority:Object.freeze({context:authority.context,workspaceId:authority.workspaceId,owner:Object.freeze(structuredClone(authority.owner))})}:{}),assertLive:owner.assertLive.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),runScoped:owner.runScoped.bind(owner),busy:false,closed:false,queued:false,active:new Set(),cancelIncoming:new Set()});
+ issued.set(capability,{selection:Object.freeze(snapshot) as unknown as Readonly<SelectedNativeUpload>,...(authority?{workspaceAuthority:Object.freeze({context:authority.context,workspaceId:authority.workspaceId,owner:Object.freeze(structuredClone(authority.owner)),...(authority.archiveFormat?{archiveFormat:authority.archiveFormat}:{})})}:{}),assertLive:owner.assertLive.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),runScoped:owner.runScoped.bind(owner),busy:false,closed:false,queued:false,active:new Set(),cancelIncoming:new Set()});
  return capability;
 }
 
@@ -169,7 +169,7 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
     const result=await invoke(token(req),state.selection.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,async(c,s)=>{
      if(s.id!==state.selection.sessionId||s.tenantId!==state.selection.tenantId||s.userId!==state.selection.principalId||!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');
      const active=async(lock=false)=>{const r=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL"+(lock?' FOR SHARE OF a,u,m,t':''),[s.id,s.tenantId,s.userId]);if(r.rowCount!==1||r.rows[0]?.role!==s.role)throw new ApiError(403,'FORBIDDEN');};
-     if(state.workspaceAuthority){await active(true);await workspaceAuthority(c,s,state.workspaceAuthority);}current();await state.assertDatabase(c);current();await state.assertLive();current();const value=await work(c,s);await state.assertLive();current();await state.assertDatabase(c);if(state.workspaceAuthority){await workspaceAuthority(c,s,state.workspaceAuthority);await active();}current();return value;
+     if(state.workspaceAuthority){await active(true);await workspaceAuthority(c,s,state.workspaceAuthority,state.selection.archiveFormat);}current();await state.assertDatabase(c);current();await state.assertLive();current();const value=await work(c,s);await state.assertLive();current();await state.assertDatabase(c);if(state.workspaceAuthority){await workspaceAuthority(c,s,state.workspaceAuthority,state.selection.archiveFormat);await active();}current();return value;
     });
     await state.assertLive();current();afterCommit?.(result);return result;
    })();entry.actual=actual;return actual;

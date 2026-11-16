@@ -91,10 +91,11 @@ export async function verifyCurrentImageThumbnailMigration(path){
 }
 export const CURRENT_WORKSPACE_RAIL_MIGRATION='053_oex_current_workspace_rail.sql';
 export const CURRENT_WORKSPACE_RAIL_SHA256='857547176c1149c25c04ad32003c2f148a907c6db7ed28ff1e7d7bb523086d16';
+export const CURRENT_WORKSPACE_RAIL_PARENT_SHA256='4745457a32f053697cfa3f91dba752a35526ff8e7a4c04890c6364e39c964a6d';
 export const CURRENT_WORKSPACE_RAIL_MARKER='native-oex-current-workspace-rail-capability-v1.json';
 export const CURRENT_WORKSPACE_RAIL_CAPABILITY=JSON.stringify({
  format:1,kind:'exhibitos-native-oex-current-workspace-rail',protocol:'normal-oex-current-workspace-rail-v1',
- ownerChannelVersion:3,archiveFormat:'1.0.0-draft.23',parentCatalogRows:47,catalogRows:48,
+ ownerChannelVersion:3,archiveFormat:'1.0.0-draft.23',parentCatalogRows:47,parentCatalogSHA256:CURRENT_WORKSPACE_RAIL_PARENT_SHA256,catalogRows:48,
  migration:CURRENT_WORKSPACE_RAIL_MIGRATION,migrationSHA256:CURRENT_WORKSPACE_RAIL_SHA256,
 })+'\n';
 export async function hasCurrentWorkspaceRailCapability(path){
@@ -283,7 +284,7 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
  if(currentImageThumbnailDirectory&&(!modelPreparationDirectory||gpuModelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory))throw Error('NATIVE_OEX_CATALOG');
  const ledger=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  if(currentWorkspaceRailDirectory){
-  await checkCurrentWorkspaceRailLedger(ledger);
+  checkCurrentWorkspaceRailLedger(ledger);
   await verifyCurrentWorkspaceRailMigration(currentWorkspaceRailDirectory);
  }
  const rows=currentWorkspaceRailDirectory?ledger.slice(0,47):ledger;
@@ -339,11 +340,15 @@ export async function assertExactCombinedThumbnailCatalog(client){
 }
 export async function assertExactCurrentWorkspaceRailCatalog(client){
  const {rows}=await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
- await checkCurrentWorkspaceRailLedger(rows);
+ checkCurrentWorkspaceRailLedger(rows);
 }
-async function checkCurrentWorkspaceRailLedger(rows){
+function checkCurrentWorkspaceRailLedger(rows){
  if(!Array.isArray(rows)||rows.length!==48||rows[47]?.name!==CURRENT_WORKSPACE_RAIL_MIGRATION||rows[47]?.sha256!==CURRENT_WORKSPACE_RAIL_SHA256)throw Error('NATIVE_OEX_CATALOG');
- await assertExactCombinedThumbnailCatalog({query:async()=>({rows:rows.slice(0,47)})});
+ checkCurrentWorkspaceRailParent(rows.slice(0,47));
+}
+export function checkCurrentWorkspaceRailParent(rows){
+ if(!Array.isArray(rows)||rows.length!==47||
+    sha(JSON.stringify(rows.map(({name,sha256})=>({name,sha256}))))!==CURRENT_WORKSPACE_RAIL_PARENT_SHA256)throw Error('NATIVE_OEX_CATALOG');
 }
 export const assertExactInfoStandPreparationCatalog=client=>assertExactModelSupplement(client,INFO_STAND_PREPARATION_MIGRATION,INFO_STAND_PREPARATION_SHA256);
 export const assertExactFreshImageCatalog=client=>assertExactModelSupplement(client,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256);

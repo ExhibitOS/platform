@@ -15,6 +15,7 @@ import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {WORKSPACE_MATERIAL_NAMESPACE,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './workspace-material-output.ts';
 import {workspaceFurnishingOutputBytes,workspaceFurnishingOutputInventory} from './workspace-furnishing-output.ts';
+import {CURRENT_WORKSPACE_RAIL_OEX_FORMAT} from './oex-current-workspace-rail.ts';
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -107,6 +108,7 @@ async function checkAssetBytes(artwork:Exhibition['artworks'][number],assetId:st
  else await decode(bytes,mime);
 }
 export interface OexInput {requestId:string;bytes:number;sha256:string}
+type RailService=import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes;
 export interface PreparedOexImportAttachment extends ReturnType<typeof remapOex> {
  keys:ReadonlyMap<string,string>;
  /** Keyed by remapped media ID, from the qualified PCM bytes before attachment. */
@@ -114,6 +116,7 @@ export interface PreparedOexImportAttachment extends ReturnType<typeof remapOex>
  floorResources:readonly FloorResourceEntry[];
  materialResources:readonly SurfaceMaterialResourceEntry[];
  footstepResources:readonly FootstepResource[];
+ workspaceRail?:{id:string;key:string;receipt:Awaited<ReturnType<RailService['validatePortableImport']>>};
 }
 export interface OexImportAttachmentJob {id:string;leaseId:string;payloadSha256:string}
 interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean;archive_profile?:string|null;oex_format?:string|null}
@@ -592,6 +595,17 @@ export class Oex {
   const {idMap,assetAliases,floorResources,materialResources,footstepResources}=structuredClone({idMap:prepared.idMap,assetAliases:prepared.assetAliases,floorResources:prepared.floorResources,materialResources:prepared.materialResources,footstepResources:prepared.footstepResources});
   const sourceStill=spaceStillFor(e),grants:unknown[]=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
   if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+  if(prepared.workspaceRail){
+   const {id:furnishingId,key,receipt}=prepared.workspaceRail,service=this.workspaceFurnishing;
+   const extension=e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+   const descriptor=extension?.version===11&&extension.furnishings.length===1?extension.furnishings[0]:undefined;
+   if(!selectedGrant||!service?.supportsCeilingRail()||descriptor?.kind!=='ceiling-rail'||descriptor.id!==furnishingId||
+      extension?.placements.length!==1||extension.ceilingAttachments?.length!==1)throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+   const locked=await c.query("SELECT id FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND lease_id=$4 AND payload_sha256=$5 AND state='processing' AND lease_until>clock_timestamp() AND archive_profile='bounded-file-v1' AND oex_format=$6 AND cleanup_keys=$7::jsonb AND NOT cleanup_pending FOR UPDATE",[s.tenantId,id,s.userId,lease,payloadSha256,CURRENT_WORKSPACE_RAIL_OEX_FORMAT,JSON.stringify([key])]);
+   if(locked.rowCount!==1||locked.rows[0]?.id!==id)throw new ApiError(409,'OEX_ATTACHMENT_CHANGED');
+   await service.registerPortableImport(c,s,receipt,furnishingId,key);
+   if(!equal(await service.readVersion(c,s,furnishingId,1),descriptor))throw new ApiError(409,'OEX_ATTACHMENT_CHANGED');
+  }
     for(const a of e.artworks){
      const m=importedArtworkMetadata(a);
      if(!validMetadata(m))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');

@@ -3,8 +3,8 @@ import {isDeepStrictEqual} from 'node:util';
 import {validateOexManifest,type Exhibition} from '@exhibitos/spec';
 import {WORKSPACE_FURNISHING_NAMESPACE,packageWorkspaceFurnishingManifest} from '@exhibitos/spec/workspace-furnishing';
 import {validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
-
-export const CURRENT_WORKSPACE_RAIL_OEX_FORMAT='1.0.0-draft.23' as const;
+import {CURRENT_WORKSPACE_RAIL_OEX_FORMAT} from './oex-file-format.ts';
+export {CURRENT_WORKSPACE_RAIL_OEX_FORMAT} from './oex-file-format.ts';
 
 /** Restrict the selected reader to the resource kinds it can actually preserve. */
 export function currentWorkspaceRailManifest(input:unknown):Record<string,unknown>|undefined {

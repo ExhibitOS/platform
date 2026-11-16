@@ -37,3 +37,11 @@ test('actual runtime thumbnail guard admits only the explicit combined mode with
  assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration({...base,mode:'workspace-furnishing-045-to-050-upgrade-v1',currentImageThumbnailCapability:false}));
  assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration({...base,mode:'workspace-furnishing-045-to-051-upgrade-v1',workspaceFurnishingThumbnailCapability:false}));
 });
+
+test('current rail selection requires its own pin and both parent thumbnail capabilities',()=>{
+ const selected={mode:'workspace-furnishing-053-selected-import-v1',furnishingMode:true,modelPreparationCapability:true,workspaceFurnishingThumbnailCapability:true,currentImageThumbnailCapability:true,currentWorkspaceRailCapability:true};
+ assert.doesNotThrow(()=>assertThumbnailRuntimeConfiguration(selected));
+ for(const key of ['currentWorkspaceRailCapability','workspaceFurnishingThumbnailCapability','currentImageThumbnailCapability']){
+  assert.throws(()=>assertThumbnailRuntimeConfiguration({...selected,[key]:false}),/NATIVE_OEX_CATALOG/);
+ }
+});

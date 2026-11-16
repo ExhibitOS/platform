@@ -14,6 +14,7 @@ import {confirmedHayesReleaseBindings} from '../packages/storage/dist/hayes-rele
 import {migrateInTransaction} from '../packages/storage/dist/index.js';
 import {assertIssuedFurnishingWriterLease,assertIssuedFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {verifyWorkspaceFurnishingWriterMigration,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,verifyWorkspaceFurnishingPublicationMigration,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
+import {assertExactCurrentWorkspaceRailCatalog,checkCurrentWorkspaceRailParent,CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256,verifyCurrentWorkspaceRailMigration} from './native-oex-normal-catalog.mjs';
 import {assertExactWorkspaceMaterialPublicationCatalog,assertExactWorkspaceMaterialMultimapCatalog,recognizeNormalOexCatalog,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,verifyWorkspaceImportMigrations,verifyWorkspaceWallImportMigration,verifyWorkspaceFurnishingMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 
 // Only the authenticated, generation-bound Manager lifecycle assertion may
@@ -48,6 +49,42 @@ async function assertCombinedThumbnailInterruptedIdle(c){
  SELECT 1 FROM public.workspace_frame_preparations WHERE state='staged'
 ) AS unsettled`);
  if(result.rows.length!==1||result.rows[0]?.unsettled!==false)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+}
+
+/** Called after the exclusive workspace and maintenance fences in openLocalWorkspace. */
+export async function prepareCurrentWorkspaceRailCatalog(c,{mode,writer,ordinaryAdmission,channel,isStopped,base,normal,options,currentWorkspaceRailDirectory}){
+ const selected=mode==='workspace-furnishing-053-selected-import-v1';
+ await assertCurrentWorkspaceRailLive({mode,writer,ordinaryAdmission,channel,isStopped});
+ const sql=await verifyCurrentWorkspaceRailMigration(currentWorkspaceRailDirectory);
+ await c.query('SELECT pg_advisory_xact_lock(82001)');
+ const {rows}=await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
+ if(selected){
+  checkCurrentWorkspaceRailParent(rows);
+  if(!await recognizeNormalOexCatalog(c,base,normal,options))throw Error('NATIVE_OEX_CATALOG');
+  await assertCombinedThumbnailInterruptedIdle(c);
+  await assertCurrentWorkspaceRailLive({mode,writer,ordinaryAdmission,channel,isStopped});
+  await c.query(sql);
+  await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256]);
+ }
+ if(!await recognizeNormalOexCatalog(c,base,normal,{...options,currentWorkspaceRailDirectory}))throw Error('NATIVE_OEX_CATALOG');
+ return {requireExisting:true};
+}
+
+export async function assertCurrentWorkspaceRailBeforeCommit(c,admission){
+ await assertExactCurrentWorkspaceRailCatalog(c);
+ await assertCombinedThumbnailInterruptedIdle(c);
+ await assertCurrentWorkspaceRailLive(admission);
+}
+
+async function assertCurrentWorkspaceRailLive({mode,writer,ordinaryAdmission,channel,isStopped}){
+ assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
+ assertIssuedFurnishingWriterLease(writer);
+ if(!['workspace-furnishing-053-selected-import-v1','workspace-furnishing-036-reopen-v1'].includes(mode)||
+    writer.identity.mode!==mode||ordinaryAdmission.writer!==writer||ordinaryAdmission.fields.admissionKind!=='clean-reopen'||
+    ordinaryAdmission.fields.restoreProof||ordinaryAdmission.fields.carriedRestoreProof||
+    typeof isStopped!=='function')throw Error('FURNISHING_ADMISSION_INVALID');
+ await writer.assertLive();
+ if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
 
 /** Recheck the ledger before the last asynchronous writer/payload fence. */
