@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
+import {articulatedTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-articulated-profile.js';
 import type {WallwasherFixtureAssetIdentity} from '../../../../packages/studio-contract/src/wallwasher-fixture-profile.js';
 import {geometryResidentBytes} from '../viewer/loading';
-import {applyWallwasherModelPose,type ResolvedWallwasher} from './wallwasher-model-pose';
+import {applyWallwasherModelPose,type ResolvedFixturePose} from './wallwasher-model-pose';
 import type {loadCatalogModel} from './catalog-furnishing-loader';
 import {retiredCatalogDecodeBytes} from './catalog-decode-ownership';
 
@@ -13,12 +14,12 @@ type Template=Awaited<ReturnType<typeof loadCatalogModel>>;
 type Plan={key:string;parent:Three.Group;nodes:Three.Mesh<Three.BufferGeometry,Three.Material>[];bytes:number};
 const fail=()=>{throw Error('CATALOG_BUDGET');};
 
-/** One scene-owned immutable museum source. Each light keeps independent fixed
- * and head poses and an independent original lens. Only equal-material opaque
+/** One scene-owned immutable museum source. Each light keeps independent fixed,
+ * optional yoke and head poses and an independent original lens. Equal-material opaque
  * parts WITHIN one frame are combined; all original nodes/buffers are retained.
  * No artist model, source file, material or named pose contract is modified. */
 export function createTrackSpotRenderSource(three:typeof Three,template:Template,asset:WallwasherFixtureAssetIdentity){
- const profile=museumTrackSpotProfile(asset),merged=new Map<string,Three.BufferGeometry>(),instances=new Set<()=>void>();
+ const articulated=asset.catalogId==='museum-track-spot-articulated',profile=articulated?articulatedTrackSpotProfile(asset):museumTrackSpotProfile(asset),merged=new Map<string,Three.BufferGeometry>(),instances=new Set<()=>void>(),frameCount=articulated?3:2;
  let nodes=0,sharedBytes=0,disposed=false;template.model.traverse(()=>nodes++);
  // The loader still admits the complete decode peak. Only a positive owned
  // non-alias receipt retires its transient input allowance after return.
@@ -73,10 +74,10 @@ export function createTrackSpotRenderSource(three:typeof Three,template:Template
    return geometry;
   }catch(error){geometry.dispose();throw error;}
  };
- const instantiate=(resolved:ResolvedWallwasher,availableBytes:number)=>{
-  if(disposed||availableBytes<(nodes+2)*NODE_BYTES)fail();
-  const model=template.model.clone(true),pose=applyWallwasherModelPose(three,model,asset,resolved),plans=plansFor([pose.fixed,pose.head]);
-  const instanceBytes=(nodes+2+plans.length+2)*NODE_BYTES; // mounting parent + own lens material
+ const instantiate=(resolved:ResolvedFixturePose,availableBytes:number)=>{
+  if(disposed||!Number.isFinite(availableBytes)||availableBytes<(nodes+frameCount)*NODE_BYTES)fail();
+  const model=template.model.clone(true),pose=applyWallwasherModelPose(three,model,asset,resolved),plans=plansFor(pose.yoke?[pose.fixed,pose.yoke,pose.head]:[pose.fixed,pose.head]);
+  const instanceBytes=(nodes+frameCount+plans.length+2)*NODE_BYTES; // mounting parent + own lens material
   const growth=plans.reduce((sum,plan)=>sum+(merged.has(plan.key)?0:plan.bytes),0);
   if(instanceBytes+growth>availableBytes)fail();
   const lens=pose.head.children.find(node=>node.userData.name==='Lens_opaque') as Three.Mesh<Three.BufferGeometry,Three.Material>|undefined;

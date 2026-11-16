@@ -5,6 +5,11 @@ import {MUSEUM_WALLWASHER_REAR_RELIEF_PROFILE as profile,MUSEUM_WALLWASHER_REAR_
 import {resolveWallwasherMountHead} from '../../../../packages/studio-contract/src/wallwasher-mount-head.js';
 import {applyWallwasherModelPose,type ResolvedWallwasher} from './wallwasher-model-pose';
 import {MUSEUM_TRACK_SPOT_PROFILE as spotProfile,MUSEUM_TRACK_SPOT_IDENTITY as spotAsset,MUSEUM_TRACK_SPOT_STATIC_PITCH} from '../../../../packages/studio-contract/src/track-spot-profile.js';
+import {readFile} from 'node:fs/promises';
+import {furnishingAsset,furnishingCatalogueEntry,resolveTrackSpotAiming} from '@exhibitos/studio-contract';
+import {articulatedTrackSpotCandidate,lightId} from '../../../../packages/studio-contract/test-fixtures/articulated-track-spot.js';
+import {ARTICULATED_TRACK_SPOT_PROFILE as articulatedProfile} from '../../../../packages/studio-contract/src/track-spot-articulated-profile.js';
+import {loadCatalogModel} from './catalog-furnishing-loader';
 
 // Synthetic boxes reproduce the trusted profile's bounds, not its actual meshes.
 // Real pinned GLB/loader correspondence is checked separately outside the repo.
@@ -99,4 +104,58 @@ it('refuses double application and leaves caller-owned resources intact when its
  applyWallwasherModelPose(three,model,asset,resolved);const groups=[...model.children],positions=nodes.map(n=>n.position.toArray());
  expect(()=>applyWallwasherModelPose(three,model,asset,resolved)).toThrow();expect(model.children).toEqual(groups);expect(nodes.map(n=>n.position.toArray())).toEqual(positions);
  const room=new three.Group();room.add(model);model.removeFromParent();expect(room.children).toHaveLength(0);expect(nodes.every(n=>n.parent?.parent===model)).toBe(true);
+});
+
+async function articulatedFixture(){
+ const {candidate,placementId}=articulatedTrackSpotCandidate(),resolved=resolveTrackSpotAiming(candidate,lightId);
+ if(!resolved.reachable)throw Error(resolved.reason);
+ const asset=furnishingAsset('10000000-0000-4000-8000-000000000001','museum-track-spot-articulated'),entry=furnishingCatalogueEntry(asset.catalogId),bytes=await readFile(entry.path);
+ const loaded=await loadCatalogModel(three,entry,{url:'/articulated',check:async()=>{},fetcher:async()=>new Response(bytes)},new AbortController().signal,()=>false,100000,4*1024*1024);
+ return {candidate,placementId,resolved,asset,loaded};
+}
+it('applies the actual REST0 articulated source in three absolute sibling frames and preserves every source resource',async()=>{
+ const {resolved,asset,loaded}=await articulatedFixture(),model=loaded.model,before=snapshot(model),nodes=[...model.children] as three.Mesh[],resources=nodes.map(n=>({geometry:n.geometry,material:n.material,positions:n.geometry.getAttribute('position').array.slice()}));
+ try{
+  const {fixed,yoke,head}=applyWallwasherModelPose(three,model,asset,resolved);model.updateMatrixWorld(true);
+  expect(model.children).toEqual([fixed,yoke,head]);expect(fixed.children).toHaveLength(3);expect(yoke!.children).toHaveLength(6);expect(head.children).toHaveLength(5);
+  for(const [group,pose]of [[fixed,resolved.fixedPose],[yoke!,resolved.yokePose],[head,resolved.headPose]] as const){expect(group.parent).toBe(model);expect(group.position.toArray()).toEqual(pose.position);expect(group.quaternion.toArray()).toEqual(pose.rotation);}
+  const aperture=new three.Vector3(...articulatedProfile.geometry.opticalA).applyMatrix4(head.matrixWorld),direction=new three.Vector3(0,0,-1).applyQuaternion(head.quaternion);
+  expect(aperture.distanceTo(new three.Vector3(...resolved.emitter))).toBeLessThan(1e-7);expect(direction.distanceTo(new three.Vector3(...resolved.direction))).toBeLessThan(1e-7);
+  for(const [i,node]of nodes.entries()){
+   const part=resolved.parts.find(p=>p.name===node.userData.name)!,actual=new three.Box3().setFromObject(node);
+   expect(actual.min.distanceTo(new three.Vector3(...part.bounds.min))).toBeLessThan(1e-6);expect(actual.max.distanceTo(new three.Vector3(...part.bounds.max))).toBeLessThan(1e-6);
+   expect(node.position.toArray()).toEqual(before.nodes[i]!.position);expect(node.geometry).toBe(resources[i]!.geometry);expect(node.material).toBe(resources[i]!.material);expect(node.geometry.getAttribute('position').array).toEqual(resources[i]!.positions);
+  }
+  const groups=[...model.children];expect(()=>applyWallwasherModelPose(three,model,asset,resolved)).toThrow();expect(model.children).toEqual(groups);
+ }finally{loaded.dispose();}
+});
+it('consumes a moved target from qualified Shared while the actual adapter stays fixed',async()=>{
+ const {candidate,placementId,resolved,asset,loaded}=await articulatedFixture();
+ try{
+  candidate.placements.find(p=>p.id===placementId)!.transform.position[0]+=.2;
+  const moved=resolveTrackSpotAiming(candidate,lightId);if(!moved.reachable)throw Error(moved.reason);
+  const a=loaded.model.clone(true),b=loaded.model.clone(true),first=applyWallwasherModelPose(three,a,asset,resolved),second=applyWallwasherModelPose(three,b,asset,moved);
+  expect(second.fixed.position.toArray()).toEqual(first.fixed.position.toArray());expect(second.fixed.quaternion.toArray()).toEqual(first.fixed.quaternion.toArray());
+  expect(second.yoke!.quaternion.toArray()).not.toEqual(first.yoke!.quaternion.toArray());expect(moved.resolvedTarget).not.toEqual(resolved.resolvedTarget);
+  expect(second.head.quaternion.toArray()).toEqual(moved.headPose.rotation);
+ }finally{loaded.dispose();}
+});
+it('rejects inconsistent articulated source, poses, optical outputs and part contracts before any mutation',async()=>{
+ const {resolved,asset,loaded}=await articulatedFixture();
+ try{
+  for(const kind of ['source','legacy','profile','yaw','pitch','adapter','yoke','head','quaternion','emitter','direction','frame','partPose','bounds','missing','unknown','translation'] as const){
+   const value=structuredClone(resolved),model=loaded.model.clone(true);let source:Parameters<typeof applyWallwasherModelPose>[2]=asset;
+   if(kind==='source')source={...asset,sha256:'0'.repeat(64)};
+   if(kind==='profile')Object.assign(value,{profile:'museum-track-spot-fixed-head-v1'});
+   if(kind==='yaw')value.yaw=4;if(kind==='pitch')value.pitch=.1;
+   if(kind==='adapter')value.adapterPose.position=[value.adapterPose.position[0]+.01,value.adapterPose.position[1],value.adapterPose.position[2]];
+   if(kind==='yoke')value.yokePose.position=[value.yokePose.position[0]+.01,value.yokePose.position[1],value.yokePose.position[2]];
+   if(kind==='head')value.headPose.position=[value.headPose.position[0]+.01,value.headPose.position[1],value.headPose.position[2]];
+   if(kind==='quaternion')value.yokePose.rotation=new three.Quaternion().fromArray(value.yokePose.rotation).multiply(new three.Quaternion().setFromAxisAngle(new three.Vector3(0,1,0),.0001)).toArray();
+   if(kind==='emitter')value.emitter=[0,0,0];if(kind==='direction')value.direction=[0,1,0];
+   if(kind==='frame')value.parts[0]!.frame='head';if(kind==='partPose')value.parts[0]!.pose.position[0]+=.01;if(kind==='bounds')value.parts[0]!.bounds.min[0]+=.01;
+   if(kind==='missing')model.remove(model.children[0]!);if(kind==='unknown')model.children[0]!.userData.name='Unknown';if(kind==='translation')model.children[0]!.position.x+=.001;
+   const before=snapshot(model);expect(()=>applyWallwasherModelPose(three,model,source,kind==='legacy'?trackSpotFixture().resolved:value)).toThrow();unchanged(model,before);
+  }
+ }finally{loaded.dispose();}
 });

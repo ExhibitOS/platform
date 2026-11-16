@@ -291,3 +291,8 @@ export {trackSpotStaticRailContext} from './wallwasher-coupled-fixture.js';
 export * from './viewer-budget-policy.js';
 
 export type {ViewerBudgetAssetReference,ViewerBudgetGeometryInput,ViewerBudgetGeometryResult,ViewerBudgetGeometryAnalyzer} from './viewer-budget-analysis-types.js';
+
+export * from './track-spot-aiming.js';
+export * from './track-spot-aim-binding.js';
+export * from './track-spot-articulated-profile.js';
+export * from './track-spot-aiming-resolver.js';

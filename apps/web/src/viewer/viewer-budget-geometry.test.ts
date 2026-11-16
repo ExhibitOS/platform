@@ -13,9 +13,26 @@ import {existingSceneCost} from '../workspace-furnishing/scene-cost';
 import {loadBudgetGeometry} from './viewer-budget-glb';
 import {DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from './loading';
 import {analyzeViewerBudgetGeometry} from './viewer-budget-geometry';
+import {articulatedTrackFixture} from '../private-editor/articulated-track.test-fixture';
 const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllGlobals());
 async function sculpture(){return new Uint8Array(await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')));}
+function syntheticRail(){
+ const positions=new Float32Array([-3,-.035,-.02,3,-.035,-.02,3,0,-.02,-3,0,-.02,-3,-.035,.02,3,-.035,.02,3,0,.02,-3,0,.02]);
+ const indices=new Uint16Array([0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,3,7,6,3,6,2,0,4,7,0,7,3,1,2,6,1,6,5]);
+ const bin=new Uint8Array(positions.byteLength+indices.byteLength);bin.set(new Uint8Array(positions.buffer));bin.set(new Uint8Array(indices.buffer),positions.byteLength);
+ const doc={asset:{version:'2.0'},buffers:[{byteLength:bin.length}],bufferViews:[{buffer:0,byteOffset:0,byteLength:positions.byteLength},{buffer:0,byteOffset:positions.byteLength,byteLength:indices.byteLength}],accessors:[{bufferView:0,componentType:5126,count:8,type:'VEC3',min:[-3,-.035,-.02],max:[3,0,.02]},{bufferView:1,componentType:5123,count:36,type:'SCALAR'}],materials:[{}],meshes:[{primitives:[{attributes:{POSITION:0},indices:1,material:0}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};
+ const json=new TextEncoder().encode(JSON.stringify(doc)),size=Math.ceil(json.length/4)*4,body=new Uint8Array(28+size+bin.length),view=new DataView(body.buffer);
+ view.setUint32(0,0x46546c67,true);view.setUint32(4,2,true);view.setUint32(8,body.length,true);view.setUint32(12,size,true);view.setUint32(16,0x4e4f534a,true);body.fill(32,20,20+size);body.set(json,20);view.setUint32(20+size,bin.length,true);view.setUint32(24+size,0x004e4942,true);body.set(bin,28+size);return body;
+}
+
+test('CPU inventory consumes the known articulated three-frame source and actual eight-draw accounting',async()=>{
+ const {document,descriptor,lightId}=articulatedTrackFixture(),rail=syntheticRail(),model=new Uint8Array(await readFile(furnishingCatalogueEntry('museum-track-spot-articulated').path));
+ descriptor.model.sha256=digest(rail);descriptor.model.bytes=rail.length;descriptor.fit!.sourceSha256=descriptor.model.sha256;descriptor.fit!.sourceBytes=rail.length;
+ const before=structuredClone(document),result=await analyzeViewerBudgetGeometry({candidate:document,profile:'standard',loadVerifiedAsset:async ref=>ref.sha256===descriptor.model.sha256?rail:model});
+ expect(result.wholeExhibition.contributors.find(row=>row.id==='catalogue:light:'+lightId)?.usage).toMatchObject({colorDraws:8,displayTriangles:5544});
+ expect(result.wholeExhibition.colorDraws).toBeGreaterThan(8);expect(result.wholeExhibition.residentBytes).toBeGreaterThan(0);expect(document).toEqual(before);
+});
 function materialVersion(bytes:Uint8Array,blend:boolean,embeddedTexture=false,primitiveCopies?:number){
  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),length=view.getUint32(12,true),doc=JSON.parse(new TextDecoder().decode(bytes.subarray(20,20+length)));let bin=bytes.subarray(28+length);
  if(embeddedTexture){

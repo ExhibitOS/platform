@@ -1,3 +1,4 @@
+import {materializeTrackSpotAiming} from '@exhibitos/studio-contract';
 import {assertGpuModelBytes} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor} from '@exhibitos/studio-contract';
 import {FURNISHING_WALKING_COLLISION_NAMESPACE,remapFurnishingWalkingCollision,validateFurnishingWalkingCollision,type FurnishingWalkingCollisionSettings} from '@exhibitos/studio-contract';
@@ -188,7 +189,7 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  if(installation)exhibition.extensions={...exhibition.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(spatial)exhibition.extensions={...exhibition.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,id=>ids.get(id.toLowerCase())??id) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(furniture)exhibition.extensions={...exhibition.extensions,[FURNISHING_NAMESPACE]:remapFurnishings(furniture,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
- if(!validateFurnishings(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(!portableFurnishings&&!validateFurnishings(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
  const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
  const scoped=new Map<string,Map<string,string>>();
@@ -229,6 +230,8 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
   if(!validateFurnishingWalkingCollision(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  }
  if(portableFurnishings)checkOexProfile(exhibition,false,undefined,false,true);
+ if(!validateFurnishings(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ exhibition.lights=materializeTrackSpotAiming(exhibition).lights;
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
 export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[];footstepResources:FootstepResource[]}>{

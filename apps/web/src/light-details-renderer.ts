@@ -2,7 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {coupleFixtureEmission} from './fixture-emission';
-import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
 
 /** Local defaults and contained fills do not select the exhibition-wide fallback. */
 export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
@@ -17,6 +17,16 @@ export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
  */
 export function installLightDetails(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,lights:ReadonlyMap<string,{light:Three.Light}>,editing:boolean){
   if(!validateStudioLightDetails(document).valid)throw Error('LIGHT_DETAILS_INVALID');
+  // Resolve every active known joint before touching any live light. Both the
+  // Viewer and CPU inventory use this same Shared solution in ROOM-local space.
+  const articulated=new Map<string,TrackSpotAimingSuccess>();
+  for(const entry of lightDetailsFor(document))if(entry.trackAim){
+    const result=resolveTrackSpotAiming(document,entry.lightId);
+    if(!result.reachable)throw Error('TRACK_SPOT_AIM_'+result.reason);
+    const item=document.lights.find(light=>light.id.toLowerCase()===entry.lightId.toLowerCase());
+    if(!item||!(lights.get(item.id)?.light instanceof three.SpotLight))throw Error('TRACK_SPOT_AIM_LIGHT_REQUIRED');
+    articulated.set(entry.lightId.toLowerCase(),result);
+  }
   const fixtures=new Map<string,Three.Object3D[]>(),entries=lightDetailsFor(document),groups:Three.Object3D[]=[],geometries=new Map<string,Three.BufferGeometry>(),materials=new Map<string,Three.Material>(),changes:(()=>void)[]=[];let disposed=false;
   const geometry=(key:string,make:()=>Three.BufferGeometry)=>{let g=geometries.get(key);if(!g){g=make();geometries.set(key,g);}return g;};
   const material=(key:string,make:()=>Three.Material)=>{let m=materials.get(key);if(!m){m=make();materials.set(key,m);}return m;};
@@ -24,11 +34,13 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
   try{for(const entry of entries){
     const item=document.lights.find(l=>l.id.toLowerCase()===entry.lightId.toLowerCase())!,parent=rooms.get(item.roomId.toLowerCase()),light=lights.get(item.id)?.light;
     if(!parent||!light)throw Error('LIGHT_DETAILS_REFERENCE');
-    const oldQuaternion=light.quaternion.clone(),oldTarget=light instanceof three.SpotLight||light instanceof three.DirectionalLight?light.target:undefined,oldPenumbra=light instanceof three.SpotLight?light.penumbra:0,oldRange=light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:0;
-    changes.push(()=>{light.quaternion.copy(oldQuaternion);if(light instanceof three.SpotLight){light.penumbra=oldPenumbra;light.distance=oldRange;}else if(light instanceof three.PointLight)light.distance=oldRange;if((light instanceof three.SpotLight||light instanceof three.DirectionalLight)&&oldTarget)light.target=oldTarget;});
+    const oldPosition=light.position.clone(),oldQuaternion=light.quaternion.clone(),oldTarget=light instanceof three.SpotLight||light instanceof three.DirectionalLight?light.target:undefined,oldPenumbra=light instanceof three.SpotLight?light.penumbra:0,oldRange=light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:0;
+    changes.push(()=>{light.position.copy(oldPosition);light.quaternion.copy(oldQuaternion);if(light instanceof three.SpotLight){light.penumbra=oldPenumbra;light.distance=oldRange;}else if(light instanceof three.PointLight)light.distance=oldRange;if((light instanceof three.SpotLight||light instanceof three.DirectionalLight)&&oldTarget)light.target=oldTarget;});
     if(light instanceof three.SpotLight&&entry.penumbra!==undefined)light.penumbra=entry.penumbra;
     if((light instanceof three.SpotLight||light instanceof three.PointLight)&&entry.range!==undefined)light.distance=entry.range;
-    const target=entry.aim?lightDetailsTarget(document,item,entry):undefined;
+    const resolved=articulated.get(item.id.toLowerCase());
+    if(resolved){light.position.fromArray(resolved.emitter);light.quaternion.fromArray(resolved.headPose.rotation);}
+    const target=resolved?(resolved.resolvedTarget??resolved.emitter.map((n,i)=>n+resolved.direction[i]!)):entry.aim?lightDetailsTarget(document,item,entry):undefined;
     if(target){
       if(light instanceof three.SpotLight||light instanceof three.DirectionalLight){const aim=new three.Object3D();aim.position.fromArray(target);parent.add(aim);groups.push(aim);light.target=aim;}
       else if(light instanceof three.RectAreaLight)light.quaternion.fromArray(lightDetailsOrientation(document,item,entry));
@@ -49,16 +61,16 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
     // The public visitor never gets authoring lines or beam handles.
     const aimed=target??(entry.fixture!=='none'?lightDetailsTarget(document,item,entry):undefined);
     if(editing&&aimed){
-      const from=new three.Vector3(...item.transform.position),to=new three.Vector3(...aimed),direction=to.clone().sub(from),distance=Math.min(direction.length(),entry.range??10,10),points:number[]=[];
+      const from=resolved?light.position.clone():new three.Vector3(...item.transform.position),to=new three.Vector3(...aimed),direction=to.clone().sub(from),distance=Math.min(direction.length(),entry.range??10,10),points:number[]=[];
       const forward=direction.normalize(),end=from.clone().addScaledVector(forward,distance);points.push(...from.toArray(),...end.toArray());
       if(item.type==='spot'){
-        const rotation=new three.Quaternion().fromArray(lightDetailsOrientation(document,item,entry)),radius=Math.min(10,distance*Math.tan(item.beamAngle!/2));
+        const rotation=new three.Quaternion().fromArray(resolved?.headPose.rotation??lightDetailsOrientation(document,item,entry)),radius=Math.min(10,distance*Math.tan(item.beamAngle!/2));
         for(let i=0;i<12;i++){const a=i*Math.PI/6,b=(i+1)*Math.PI/6,p=new three.Vector3(Math.cos(a)*radius,Math.sin(a)*radius,-distance).applyQuaternion(rotation).add(from),q=new three.Vector3(Math.cos(b)*radius,Math.sin(b)*radius,-distance).applyQuaternion(rotation).add(from);points.push(...p.toArray(),...q.toArray(),...from.toArray(),...p.toArray());}
       }
       const g=new three.BufferGeometry();geometries.set('guide:'+item.id,g);g.setAttribute('position',new three.Float32BufferAttribute(points,3));
       const line=new three.LineSegments(g,material('guide',()=>new three.LineBasicMaterial({color:'#b57826',transparent:true,opacity:.6})));line.userData.sceneSnapshotOverlay=true;parent.add(line);groups.push(line);guideCount=1;
     }
-    records.push({lightId:item.id,fixture:entry.fixture,fixtureMeshes,guideCount,target:aimed??null,penumbra:light instanceof three.SpotLight?light.penumbra:null,range:light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:null,color:light.color.toArray()});
+    records.push({lightId:item.id,fixture:entry.fixture,fixtureMeshes,guideCount,target:aimed?[...aimed]:null,penumbra:light instanceof three.SpotLight?light.penumbra:null,range:light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:null,color:light.color.toArray()});
   }}catch(error){for(const restore of changes)restore();for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();throw error;}
   return {records,fixtures,dispose(){if(disposed)return;disposed=true;for(const restore of changes)restore();changes.length=0;for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();groups.length=0;fixtures.clear();geometries.clear();materials.clear();}};
 }

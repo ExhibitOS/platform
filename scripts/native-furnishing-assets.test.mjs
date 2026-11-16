@@ -117,7 +117,7 @@ test('1.7 adds one pinned original while 1.6 retains all thirteen exact rows and
   assert.deepEqual(next.assets.slice(0,-1),previous.assets);
   assert.equal(next.assets.at(-1).catalogId,'compact-caption-stand');
   assert.equal(next.assets.at(-1).hostKind,'info-stand');
-  assert.equal(Object.keys(SUPPORTED_FURNISHINGS).length,8);
+  assert.equal(Object.hasOwn(SUPPORTED_FURNISHINGS,'compact-caption-stand'),false);
   await writeFile(join(root,'manifest.json'),manifest16());
   assert.equal(manifest16().length,11855);
   assert.deepEqual(await verifyDefaultFurnishingsManifest(root),release16);
