@@ -160,3 +160,22 @@ test('recognizes only the sealed Catalog 045 pre-ready preservation marker',asyn
   await assert.rejects(hasCatalog045PreReadyCapability(marker),/NATIVE_OEX_CATALOG/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('bench preparation admits only the exact combined-thumbnail successor',async()=>{
+ const catalog=await import('./native-oex-normal-catalog.mjs');
+ const root=await mkdtemp(join(tmpdir(),'native-bench-preparation-')),marker=join(root,'marker.json');
+ try{
+  const supplements=['HAYES_ORIGINAL','HAYES_DISPOSITION','HAYES_RELEASE','MODEL_PREPARATION','WORKSPACE_FURNISHING_THUMBNAIL','CURRENT_IMAGE_THUMBNAIL','BENCH_BASECOLOR'].map(key=>({name:catalog[key+'_MIGRATION'],sha256:catalog[key+'_SHA256']}));
+  const exact=[...Array.from({length:41},()=>({})),...supplements];
+  const check=rows=>catalog.assertExactBenchBaseColorCatalog({query:async()=>({rows})});
+  await check(exact);
+  await assert.rejects(check(exact.slice(0,47)),/NATIVE_OEX_CATALOG/);
+  await assert.rejects(check([...exact.slice(0,45),{name:catalog.INFO_STAND_PREPARATION_MIGRATION,sha256:catalog.INFO_STAND_PREPARATION_SHA256},...exact.slice(46)]),/NATIVE_OEX_CATALOG/);
+  await assert.rejects(check([...exact.slice(0,47),{...exact[47],sha256:'0'.repeat(64)}]),/NATIVE_OEX_CATALOG/);
+  assert.equal(await catalog.hasBenchBaseColorCapability(marker),false);
+  await writeFile(marker,catalog.BENCH_BASECOLOR_CAPABILITY);
+  assert.equal(await catalog.hasBenchBaseColorCapability(marker),true);
+  await writeFile(marker,catalog.BENCH_BASECOLOR_CAPABILITY+'\n');
+  await assert.rejects(catalog.hasBenchBaseColorCapability(marker),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
