@@ -32,7 +32,7 @@ it('commits auth locks before pending analysis while Save, settings and unrelate
  let release!:()=>void,entered!:()=>void;const started=new Promise<void>(resolve=>entered=resolve),paused=new Promise<void>(resolve=>release=resolve);
  control.cpu=async()=>{expect(writer).toBe(false);expect(readers).toBe(0);entered();await paused;return null;};
  const origin='http://127.0.0.1:13200',app=buildApp({pool,auth:{mode:'local',origin,bindHost:'127.0.0.1'}}),headers={host:'127.0.0.1:13200',origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf},url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${row.id}`,head=etag(2,draft);
- const analysis=app.inject({method:'POST',url:url+'/viewer-budget-analysis',headers:{...headers,'if-match':head},payload:{requestId:randomUUID(),expectedRevision:2,draft}}).then(response=>response);
+ const analysis=app.inject({method:'POST',url:url+'/viewer-budget-analysis',headers:{...headers,'if-match':head},payload:{requestId:randomUUID(),expectedRevision:2,draft,options:{profile:'standard'}}}).then(response=>response);
  try{
   await started;
   const ordinary=structuredClone(draft);ordinary.editVersion++;

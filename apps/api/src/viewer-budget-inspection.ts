@@ -2,10 +2,11 @@
 import {Worker} from 'node:worker_threads';
 import type {ViewerBudgetAssetReference,ViewerBudgetGeometryInput,ViewerBudgetGeometryResult} from '@exhibitos/studio-contract';
 import {ApiError} from './api-error.ts';
-import {analyzeViewerBudget} from './viewer-budget-analysis.ts';
-import {viewerBudgetProducerURL,readViewerBudgetSource,type ViewerBudgetAssetSource} from './viewer-budget-producer.ts';
-import type {Studio} from './studio.ts';
-type Prepared=Awaited<ReturnType<Studio['prepareViewerBudget']>>;
+import type {Exhibition} from '@exhibitos/spec';
+import {analyzeViewerBudget,type ViewerBudgetAnalysisBinding,type ViewerBudgetAnalysisOptions,type ViewerBudgetPublicationBinding} from './viewer-budget-analysis.ts';
+import {viewerBudgetProducerURL,viewerBudgetEstimateTarget,readViewerBudgetSource,type ViewerBudgetAssetSource} from './viewer-budget-producer.ts';
+type Binding=ViewerBudgetAnalysisBinding|ViewerBudgetPublicationBinding;
+type Prepared<B extends Binding>={candidate:Exhibition;binding:B;options:ViewerBudgetAnalysisOptions;initial:ReturnType<typeof analyzeViewerBudget<B>>};
 let active=0;
 /** CPU geometry uses a dedicated thread, while source metadata uses short auth
  * transactions and byte I/O runs after COMMIT. No DB client enters the worker. */
@@ -33,13 +34,21 @@ export async function runViewerBudgetCPU(input:ViewerBudgetGeometryInput):Promis
   });
  }finally{closing=true;if(timer)clearTimeout(timer);await worker?.terminate();await Promise.allSettled(reads);active--;}
 }
-export async function inspectViewerBudget(prepared:Prepared,acquire:(reference:ViewerBudgetAssetReference)=>Promise<ViewerBudgetAssetSource>,finish:(references:ViewerBudgetAssetReference[])=>Promise<void>,cpu=runViewerBudgetCPU){
+export async function inspectViewerBudget<B extends Binding>(prepared:Prepared<B>,acquire:(reference:ViewerBudgetAssetReference)=>Promise<ViewerBudgetAssetSource>,finish:(references:ViewerBudgetAssetReference[])=>Promise<void>,cpu=runViewerBudgetCPU){
  const references=new Map<string,ViewerBudgetAssetReference>(),cache=new Map<string,Promise<Uint8Array>>(),bodies=new Map<string,Promise<Uint8Array>>();
- const facts=await cpu({candidate:prepared.candidate,profile:prepared.initial.selection.effectiveProfile,resolvedPolicy:prepared.initial.resolvedPolicy,loadVerifiedAsset:reference=>{
+ const {candidate,binding,options,initial}=prepared;
+ // Native sends automaticProfile=standard even for its default target read.
+ const defaultViewer=options.context!=='native'&&options.profile===undefined&&options.automaticProfile!=='compact'&&
+  options.recommendedBaseline===undefined&&options.observations===undefined;
+ const target=defaultViewer?await viewerBudgetEstimateTarget(candidate):null;
+ const facts=defaultViewer&&!target?null:await cpu({
+  candidate,profile:target?.selection.effectiveProfile??initial.selection.effectiveProfile,
+  resolvedPolicy:target?.policy??initial.resolvedPolicy,...(target?{selectionBudget:target.selectionBudget}:{}),
+  loadVerifiedAsset:reference=>{
   const key=JSON.stringify(reference);let value=cache.get(key);
   if(!value){value=(async()=>{const source=await acquire(reference),digestKey=`${source.sha256}:${source.bytes}:${source.mime}`;let body=bodies.get(digestKey);if(!body){body=readViewerBudgetSource(source);bodies.set(digestKey,body);}const bytes=await body;references.set(key,reference);return bytes;})();cache.set(key,value);}
   return value;
  }});
  await finish([...references.values()]);
- return analyzeViewerBudget(prepared.candidate,prepared.binding,prepared.options,facts);
+ return analyzeViewerBudget(candidate,binding,options,facts,target);
 }

@@ -605,6 +605,15 @@ export class Publications {
     }
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
+    /** Check ordinary Studio authority before inspecting a prepared publication. */
+    async assertViewerBudgetPublication(c:PoolClient,s:Session,id:string,revisionSha256:string){
+        uuid(id);
+        const row=(await c.query("SELECT p.exhibition_id,p.revision_sha256,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2",[s.tenantId,id])).rows[0];
+        if(!row)throw new ApiError(403,'FORBIDDEN');
+        await this.studio.access(c,s,row.exhibition_id);
+        if(row.status!=='published')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+        if(row.revision_sha256!==revisionSha256)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
+    }
     /** Authenticated exact-request lookup; never adopts or retires a stage. */
     async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false){
         uuid(requestId);await this.studio.access(c,s,id);
