@@ -119,9 +119,7 @@ export function installCeilingFillMask(
 
   const fragment = three.ShaderChunk.lights_fragment_begin;
   if (!fragment.includes(directAreaCall)) throw Error('ROOM_CEILING_FILL_SHADER');
-  type Hook = {before: Three.Material['onBeforeCompile']; key: Three.Material['customProgramCacheKey'];
-    hook: Three.Material['onBeforeCompile']; ownedKey: Three.Material['customProgramCacheKey']};
-  const materials = new Map<Three.Material, Hook>();
+  const materials = new Map<Three.Material, () => void>();
   const indices = new Map([...byObject.keys()].map((light, i) => [light, i]));
   const definitions = [...byObject.values()].join('\n');
   let previousAssignments: string | undefined;
@@ -170,19 +168,27 @@ export function installCeilingFillMask(
       const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey;
       material.onBeforeCompile = hook;
       material.customProgramCacheKey = ownedKey;
-      materials.set(material, {before, key, hook, ownedKey});
+      const retire = () => {
+        if (material.onBeforeCompile === hook) material.onBeforeCompile = before;
+        if (material.customProgramCacheKey === ownedKey) material.customProgramCacheKey = key;
+        if (materialHooks.get(material) === hook) materialHooks.delete(material);
+        material.removeEventListener('dispose', onMaterialDispose);
+        materials.delete(material);
+        material.needsUpdate = true;
+      };
+      const onMaterialDispose = () => {
+        // A contact-shadow wrapper disposes its program after restoring this
+        // hook. Let that owner unwind first if its wrapper is still installed.
+        if (material.onBeforeCompile === hook) retire();
+      };
+      materials.set(material, retire);
+      material.addEventListener('dispose', onMaterialDispose);
       materialHooks.set(material, hook);
       material.needsUpdate = true;
     }
   };
   const dispose = () => {
-    for (const [material, {before, key, hook, ownedKey}] of materials) {
-      if (material.onBeforeCompile === hook) material.onBeforeCompile = before;
-      if (material.customProgramCacheKey === ownedKey) material.customProgramCacheKey = key;
-      if (materialHooks.get(material) === hook) materialHooks.delete(material);
-      material.needsUpdate = true;
-    }
-    materials.clear();
+    for (const retire of materials.values()) retire();
   };
   return {prepare, dispose};
 }
