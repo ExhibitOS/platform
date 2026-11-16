@@ -6,6 +6,7 @@ import {
   reflowRoomBaseLight, manualizeRoomBaseLight, preserveRoomCeilingFillAfterCeilingEdit, sameLightPose,
   reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
+  ensureOrdinaryRoomBaseLight, type ROOM_CEILING_FILL_PROFILE,
   roomBaseLight,
   resizeRoomEnvelope, completeRoomCeiling, setLightAttachment, LIGHT_ATTACHMENT_NAMESPACE, type LightAttachment,
   TEMPLATE_NAMESPACE,
@@ -47,8 +48,8 @@ export type GeometryCommand =
   | { type: "set-title"; title: string }
   | { type: "set-presentation"; presentation: StudioPresentation }
   | { type: "add-room"; room: Room }
-  | { type: "add-room-with-base-light"; room: Room }
-  | { type: "ensure-room-base-light"; roomId: string }
+  | { type: "add-room-with-base-light"; room: Room; ceilingFillProfile?: typeof ROOM_CEILING_FILL_PROFILE }
+  | { type: "ensure-room-base-light"; roomId: string; ceilingFillProfile?: typeof ROOM_CEILING_FILL_PROFILE }
   | { type: "set-room"; id: string; room: Omit<Room, "id"> }
   | { type: "white-cube"; roomId: string }
   | { type: "add-surface"; surface: Surface }
@@ -215,12 +216,15 @@ export function applyGeometryCommand(
     case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
     case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;
     case "add-room":
-    case "add-room-with-base-light":
       doc.rooms.push(clone(command.room));
       doc=ensureRoomBaseLight(doc,command.room.id);
       break;
+    case "add-room-with-base-light":
+      doc.rooms.push(clone(command.room));
+      doc=ensureOrdinaryRoomBaseLight(doc,command.room.id,undefined,command.ceilingFillProfile);
+      break;
     case "ensure-room-base-light": {
-      const next=ensureRoomBaseLight(doc,command.roomId);
+      const next=ensureOrdinaryRoomBaseLight(doc,command.roomId,undefined,command.ceilingFillProfile);
       if(next===doc)return state;
       doc=next;
       break;

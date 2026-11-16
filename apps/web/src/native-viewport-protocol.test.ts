@@ -3,11 +3,26 @@ import {describe,it,expect} from 'vitest';
 import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction,geometryProposal,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
 import {newDoor,applyGeometryCommand,createGeometryState,undoGeometry} from './geometry/model';
-import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor,lightDetailsFor,roomBaseLight,roomBaseLightRange,setLightDetails} from '@exhibitos/studio-contract';
+import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor,lightDetailsFor,roomBaseLight,roomBaseLightRange,ROOM_CEILING_FILL_PROFILE,setLightDetails} from '@exhibitos/studio-contract';
 import {readFile} from 'node:fs/promises';
 import {fixtureURL,readOex} from '@exhibitos/spec';
 const uuid=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:uuid(),sequence:1,tenantId:uuid(),principalId:uuid(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
+it('selects the exact paired ceiling profile for new rooms and keeps point fallback for an unsupported explicit ceiling',()=>{
+ const f=frame(),roomId=f.draft.candidate.rooms[0]!.id;
+ const next=nativeGeometryAction(f,{type:'add-room-with-base-light',name:'둘째 방',ceilingFillProfile:ROOM_CEILING_FILL_PROFILE});
+ expect(next.lights[0]).toMatchObject({type:'area',intensity:89.30480858594046});
+ expect(lightDetailsFor(next)[0]).toMatchObject({purpose:'room-base',basePlacement:'auto',ceilingFill:{version:1,brightness:.5}});
+ expect(()=>nativeGeometryAction(f,{type:'add-room-with-base-light',name:'둘째 방',ceilingFillProfile:'future'} as never)).toThrow('VIEWPORT_COMMAND_DENIED');
+ const cube=nativeGeometryAction(f,{type:'white-cube',roomId});
+ cube.surfaces.find(surface=>surface.type==='ceiling')!.dimensions.width=3;
+ if(f.draft.schemaVersion!=='1.0.0-draft.1'||cube.schemaVersion!=='1.0.0-draft.1')throw Error('expected v1 test draft');
+ const existing={...f,draft:{...f.draft,candidate:cube},selection:{kind:'room' as const,id:roomId}};
+ const fallback=nativeGeometryAction(existing,{type:'ensure-room-base-light',roomId,ceilingFillProfile:ROOM_CEILING_FILL_PROFILE});
+ expect(fallback.lights[0]).toMatchObject({type:'point',intensity:16});
+ expect(lightDetailsFor(fallback)[0]?.ceilingFill).toBeUndefined();
+ expect(fallback.surfaces).toEqual(cube.surfaces);
+});
 function selectedArchitecture() {
  const f=frame(),roomId=f.draft.candidate.rooms[0]!.id;
  f.draft.candidate=nativeGeometryAction(f,{type:'white-cube',roomId});
