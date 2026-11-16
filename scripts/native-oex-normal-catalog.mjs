@@ -102,6 +102,22 @@ export async function hasInfoStandPreparationCapability(path){
  try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(INFO_STAND_PREPARATION_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
  catch(error){if(error?.code==='ENOENT')return false;throw error;}
 }
+export const BENCH_BASECOLOR_MIGRATION='052_workspace_bench_basecolor_preparation.sql';
+export const BENCH_BASECOLOR_SHA256='2084c189fb896da4cc5c84fb698cda9d85b9e82029f0e2aecd79cce6abebc870';
+export const BENCH_BASECOLOR_BYTES=1962;
+export const BENCH_BASECOLOR_MARKER='native-workspace-bench-basecolor-preparation-capability-v1.json';
+export const BENCH_BASECOLOR_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-bench-basecolor-preparation',parentCatalog:52,migration:BENCH_BASECOLOR_MIGRATION,migrationSHA256:BENCH_BASECOLOR_SHA256,policy:'bench-basecolor-512-v1'})+'\n';
+export async function verifyBenchBaseColorMigration(path){
+ const before=await directory(path),names=(await readdir(path)).filter(name=>/^\d+.*\.sql$/.test(name));
+ if(names.length!==1||names[0]!==BENCH_BASECOLOR_MIGRATION)throw Error('NATIVE_OEX_CATALOG');
+ const bytes=await regular(join(path,names[0]));
+ if(bytes.length!==BENCH_BASECOLOR_BYTES||sha(bytes)!==BENCH_BASECOLOR_SHA256||!same(before,await directory(path)))throw Error('NATIVE_OEX_CATALOG');
+ return bytes.toString('utf8');
+}
+export async function hasBenchBaseColorCapability(path){
+ try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(BENCH_BASECOLOR_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
+ catch(error){if(error?.code==='ENOENT')return false;throw error;}
+}
 export const WORKSPACE_FRAME_PREPARATION_MIGRATION='041_workspace_frame_preparation.sql';
 export const WORKSPACE_FRAME_PREPARATION_SHA256='c5a030186557dc4774aa0d2a677be7f432c1010e2ee1c1a34345f69ac7e2723d';
 export const WORKSPACE_FRAME_PREPARATION_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-frame-preparation',catalog:41,parentCapabilitySHA256:'f823a2ebc598e81c8a0fc996e3b9108546a31338f21173be575ee7fb0dc0c0a2',migration:WORKSPACE_FRAME_PREPARATION_MIGRATION,migrationSHA256:WORKSPACE_FRAME_PREPARATION_SHA256,policy:'omit-unused-invalid-tangent-r1'});
@@ -258,11 +274,17 @@ export function assertWorkspaceImportOwnerMode(mode,wallApplied){
 
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
-export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory}={}){
+export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory}={}){
  if(gpuModelPreparationDirectory&&(!modelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory||workspaceFurnishingThumbnailDirectory))throw Error('NATIVE_OEX_CATALOG');
  if(workspaceFurnishingThumbnailDirectory&&(!modelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory||gpuModelPreparationDirectory))throw Error('NATIVE_OEX_CATALOG');
  if(currentImageThumbnailDirectory&&(!modelPreparationDirectory||gpuModelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory))throw Error('NATIVE_OEX_CATALOG');
- const rows=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ const ledger=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ if(benchBaseColorDirectory){
+  if(!workspaceFurnishingThumbnailDirectory||!currentImageThumbnailDirectory)throw Error('NATIVE_OEX_CATALOG');
+  await assertBenchBaseColorLedger(ledger);
+  await verifyBenchBaseColorMigration(benchBaseColorDirectory);
+ }
+ const rows=benchBaseColorDirectory?ledger.slice(0,-1):ledger;
  if(!Array.isArray(rows)||!rows.some(row=>row?.name===NORMAL_OEX_MIGRATION))return undefined;
  const base=await directory(migrationDirectory);const names=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
  const bothThumbnails=rows.length===47&&rows[45]?.name===WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION&&rows[46]?.name===CURRENT_IMAGE_THUMBNAIL_MIGRATION;
@@ -313,6 +335,15 @@ export async function assertExactCombinedThumbnailCatalog(client){
  if(!Array.isArray(rows)||rows.length!==47||rows[45]?.name!==WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION||rows[45]?.sha256!==WORKSPACE_FURNISHING_THUMBNAIL_SHA256||rows[46]?.name!==CURRENT_IMAGE_THUMBNAIL_MIGRATION||rows[46]?.sha256!==CURRENT_IMAGE_THUMBNAIL_SHA256)throw Error('NATIVE_OEX_CATALOG');
  await assertExactModelPreparationCatalog({query:async()=>({rows:rows.slice(0,45)})});
 }
+async function assertBenchBaseColorLedger(rows){
+ const last=rows?.[47];
+ if(!Array.isArray(rows)||rows.length!==48||last?.name!==BENCH_BASECOLOR_MIGRATION||last?.sha256!==BENCH_BASECOLOR_SHA256)throw Error('NATIVE_OEX_CATALOG');
+ await assertExactCombinedThumbnailCatalog({query:async()=>({rows:rows.slice(0,47)})});
+}
+export async function assertExactBenchBaseColorCatalog(client){
+ const {rows}=await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
+ await assertBenchBaseColorLedger(rows);
+}
 export const assertExactInfoStandPreparationCatalog=client=>assertExactModelSupplement(client,INFO_STAND_PREPARATION_MIGRATION,INFO_STAND_PREPARATION_SHA256);
 export const assertExactFreshImageCatalog=client=>assertExactModelSupplement(client,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256);
 export const assertExactLargeModelCatalog=client=>assertExactModelSupplement(client,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256);
@@ -331,7 +362,7 @@ export async function assertExactWorkspaceMaterialMultimapCatalog(client){
 
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
  * Caller holds migration 82001 in the surrounding transaction. */
-export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory}={}){
+export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory}={}){
  const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
  if(!relation)return undefined;
  const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
@@ -339,6 +370,6 @@ export async function preflightNormalOexCatalog(client,migrationDirectory,supple
  if(!allowWorkspaceMaterial&&rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION)||workspaceImportDirectory&&!allowWorkspaceMaterial)throw Error('NATIVE_OEX_CATALOG');
  const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
  if(!rows.some(row=>!names.has(row.name)))return undefined;
- const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory});
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory});
  if(!selected)throw Error('NATIVE_OEX_CATALOG');return selected;
 }

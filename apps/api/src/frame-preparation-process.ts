@@ -5,6 +5,7 @@ import {sha256} from '@exhibitos/storage';
 import {ApiError} from './auth.ts';
 import {framePreparationPair} from './frame-preparation.ts';
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
+import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.ts';
 type WorkerHooks={onSpawn?:(child:ChildProcess)=>void;writerFd?:number};
 
 /** Child holds the writer FD until close; timeout or unknown outcome is never
@@ -20,6 +21,14 @@ export async function prepareInfoStandInWorker(source:Buffer,hooks?:WorkerHooks)
  if(source.length<28||source.length>MAX_INFO_STAND_SOURCE_BYTES)throw new ApiError(422,'INFO_STAND_PREPARATION_UNSAFE');
  const result=await prepareInWorker(source,source.length,'INFO_STAND_PREPARATION_UNSAFE',['info-stand'],hooks);
  if(result.length<28||result.length>=source.length)throw new ApiError(422,'INFO_STAND_PREPARATION_UNSAFE');
+ return result;
+}
+
+export async function prepareBenchBaseColorInWorker(source:Buffer,hooks?:WorkerHooks):Promise<Buffer>{
+ const code='BENCH_BASECOLOR_PREPARATION_UNSAFE';
+ if(source.length<28||source.length>MAX_BENCH_PREPARATION_SOURCE_BYTES)throw new ApiError(422,code);
+ const result=await prepareInWorker(source,source.length,code,['bench-basecolor'],hooks);
+ if(result.length<28||result.length>=source.length)throw new ApiError(422,code);
  return result;
 }
 
