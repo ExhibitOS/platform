@@ -7,7 +7,7 @@ import {transaction} from '@exhibitos/storage';
 import {Auth,ApiError,config,uuid,type AuthConfig,type Session} from './auth.ts';
 import {Studio,requiredMatch,type StudioResponse,type StudioInput} from './studio.ts';
 import {workspaceAuthority,type WorkspaceAuthority} from './oex-bounded-lease.ts';
-import {assertIssuedWorkspaceImport} from './native-oex-provenance.ts';
+import {assertIssuedCurrentWorkspaceRailImport,assertIssuedWorkspaceImport} from './native-oex-provenance.ts';
 
 export interface SelectedStudioClaim {
  sessionId:string;tenantId:string;principalId:string;workspaceId:string;runtimeGeneration:string;
@@ -71,8 +71,8 @@ export async function armSelectedStudioPut(slot:SelectedStudioPutSlot,owner:Sele
  let actual:Promise<StudioResponse>|undefined;
  try{
   const claim=snapshot(input),binding=entry.binding;if(!binding||!owner||typeof owner.assertCommittedImport!=='function'||typeof owner.assertDatabase!=='function'||typeof owner.assertLive!=='function'||typeof owner.runScoped!=='function')throw Error('NATIVE_STUDIO_CONFIGURATION');
-  if(authority){if(authority.workspaceId!==claim.workspaceId||authority.context.tenantId!==claim.tenantId||authority.context.principalId!==claim.principalId||!selectedRole||!['admin','artist'].includes(selectedRole))throw Error('NATIVE_STUDIO_CONFIGURATION');assertIssuedWorkspaceImport(authority.context,authority.owner);}else if(selectedRole!==undefined)throw Error('NATIVE_STUDIO_CONFIGURATION');
-  const workspace=authority?Object.freeze({context:authority.context,workspaceId:authority.workspaceId,owner:Object.freeze(structuredClone(authority.owner))}):undefined;
+  if(authority){if(authority.workspaceId!==claim.workspaceId||authority.context.tenantId!==claim.tenantId||authority.context.principalId!==claim.principalId||!selectedRole||!['admin','artist'].includes(selectedRole))throw Error('NATIVE_STUDIO_CONFIGURATION');if(authority.archiveFormat)assertIssuedCurrentWorkspaceRailImport(authority.context,authority.owner);else assertIssuedWorkspaceImport(authority.context,authority.owner);}else if(selectedRole!==undefined)throw Error('NATIVE_STUDIO_CONFIGURATION');
+  const workspace=authority?Object.freeze({context:authority.context,workspaceId:authority.workspaceId,owner:Object.freeze(structuredClone(authority.owner)),...(authority.archiveFormat?{archiveFormat:authority.archiveFormat}:{})}):undefined;
   const retained:SelectedStudioOwner={assertCommittedImport:owner.assertCommittedImport.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),assertLive:owner.assertLive.bind(owner),runScoped:owner.runScoped.bind(owner)};
   await retained.runScoped(()=>{
    if(actual)throw Error('NATIVE_STUDIO_SCOPE');
@@ -90,11 +90,11 @@ export async function armSelectedStudioPut(slot:SelectedStudioPutSlot,owner:Sele
       // mutation still requires the client's normal Auth.request check.
       const s:Session={id:row.id,userId:row.user_id,tenantId:row.tenant_id,role:row.role,csrfToken:'',expiresAt:row.expires_at.toISOString()};exactSession(s,claim);if(!roles.includes(s.role))throw new ApiError(403,'FORBIDDEN');return s;
      };
-     const s=await read(workspace?[selectedRole!]:['admin','artist','curator'],true);if(workspace)await workspaceAuthority(c,s,workspace);current(entry);await retained.assertLive();
+     const s=await read(workspace?[selectedRole!]:['admin','artist','curator'],true);if(workspace)await workspaceAuthority(c,s,workspace,workspace.archiveFormat);current(entry);await retained.assertLive();
      const result=await binding.studio.get(c,s,claim.exhibitionId);await retained.assertLive();current(entry);
      // Fresh clock/authority check AFTER all row locks, immediately before
      // transaction() COMMIT. No token transport and no adopted precommit GET.
-     await retained.assertDatabase(c);if(workspace)await workspaceAuthority(c,s,workspace);current(entry);await read([s.role],false);return result;
+     await retained.assertDatabase(c);if(workspace)await workspaceAuthority(c,s,workspace,workspace.archiveFormat);current(entry);await read([s.role],false);return result;
     });
     await retained.assertCommittedImport(claim);await retained.assertLive();current(entry);return value;
    })();return actual;
@@ -178,7 +178,7 @@ export async function runSelectedStudioPut(slot:SelectedStudioPutSlot,req:Fastif
    const invoke=a.armed.workspaceAuthority?binding.auth.requestForNativeWorkspaceMutation.bind(binding.auth):(token:string|undefined,tenantId:string,csrf:string|undefined,work:(c:PoolClient,s:Session)=>Promise<StudioResponse>)=>binding.auth.request(token,tenantId,csrf,true,work);
    const result=await invoke(token,claim.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,async(c,s)=>{
     const active=async(lock=false)=>{const r=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL"+(lock?' FOR SHARE OF a,u,m,t':''),[s.id,s.tenantId,s.userId]);if(r.rowCount!==1||r.rows[0]?.role!==s.role)throw new ApiError(403,'FORBIDDEN');};
-    exactSession(s,claim);if(a.armed.workspaceAuthority){if(s.role!==a.armed.selectedRole)throw new ApiError(403,'FORBIDDEN');await active(true);await workspaceAuthority(c,s,a.armed.workspaceAuthority);}check();if(!isDeepStrictEqual(req.body,a.armed.body))throw new ApiError(409,'NATIVE_STUDIO_BODY_CONFLICT');traceNativeOexSelected('put-body-matched');await owner.assertDatabase(c);check();await owner.assertLive();check();const value=await work(c,s);await owner.assertLive();check();await owner.assertDatabase(c);if(a.armed.workspaceAuthority){await workspaceAuthority(c,s,a.armed.workspaceAuthority);await active();}check();return value;
+    exactSession(s,claim);if(a.armed.workspaceAuthority){if(s.role!==a.armed.selectedRole)throw new ApiError(403,'FORBIDDEN');await active(true);await workspaceAuthority(c,s,a.armed.workspaceAuthority,a.armed.workspaceAuthority.archiveFormat);}check();if(!isDeepStrictEqual(req.body,a.armed.body))throw new ApiError(409,'NATIVE_STUDIO_BODY_CONFLICT');traceNativeOexSelected('put-body-matched');await owner.assertDatabase(c);check();await owner.assertLive();check();const value=await work(c,s);await owner.assertLive();check();await owner.assertDatabase(c);if(a.armed.workspaceAuthority){await workspaceAuthority(c,s,a.armed.workspaceAuthority,a.armed.workspaceAuthority.archiveFormat);await active();}check();return value;
    });
    traceNativeOexSelected('put-commit-returned');await owner.assertLive();check();return result;
   })();return a.actual;
