@@ -1,8 +1,8 @@
 import {it,expect} from 'vitest';
 import {newDraft} from '../../../apps/web/src/drafts/example';
-import {whiteCubeSurfaces,newDoor} from '../../../apps/web/src/geometry/model';
+import {applyGeometryCommand,whiteCubeSurfaces,newDoor} from '../../../apps/web/src/geometry/model';
 import {newLight,newPlacement,syntheticArtwork,alignPlacement} from '../../../apps/web/src/placement/model';
-import {LIGHT_DETAILS_NAMESPACE} from './light-details';
+import {ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,roomBaseLight,validateStudioLightDetails} from './light-details';
 import {artifactPoint} from './artifact-affine';
 import {resizeRoomEnvelope,completeRoomCeiling,setLightAttachment,lightAttachmentPose,validateLightAttachments,lightAttachmentsFor,remapLightAttachments,LIGHT_ATTACHMENT_NAMESPACE} from './room-envelope';
 function roomDocument(){
@@ -29,6 +29,30 @@ it('uses the owning room transform once for a yawed translated room and rejects 
  const ceiling=doc.surfaces.find(s=>s.type==='ceiling')!;doc=setLightAttachment(doc,doc.lights[0]!.id,{surfaceId:ceiling.id,anchor:[1,1],gap:.2});
  const next=resizeRoomEnvelope(doc,room.id,{...room.dimensions,height:4}),point=artifactPoint(next.lights[0]!.transform.position,room.transform);
  expect(point[0]).toBeCloseTo(13);expect(point[1]).toBeCloseTo(3.8);expect(point[2]).toBeCloseTo(-6);
+});
+it('keeps an interior wall and Auto ceiling fill through an ordinary geometry edit and envelope resize',()=>{
+ const source=roomDocument(),room=source.rooms[0]!;
+ const auto=ensureRoomBaseLight(source,room.id,undefined,0);
+ const wall=auto.surfaces.find(surface=>surface.type==='wall')!;
+ const interior={...structuredClone(wall),id:crypto.randomUUID(),dimensions:{width:2,height:1.5},transform:{...wall.transform,position:[0,1,0] as [number,number,number]}};
+ const edited=applyGeometryCommand({present:auto,past:[],future:[]},{type:'add-surface',surface:interior}).present;
+ expect(lightDetailsFor(edited).find(binding=>binding.ceilingFill)?.basePlacement).toBe('auto');
+ const resized=resizeRoomEnvelope(edited,room.id,{width:10,height:4,depth:8});
+ expect(resized.surfaces.find(surface=>surface.id===interior.id)).toEqual(interior);
+ expect(roomBaseLight(resized,room.id)).toMatchObject({intensity:0,dimensions:{width:8,height:6.4},transform:{position:[0,3.98,0]}});
+ expect(validateStudioLightDetails(resized).valid).toBe(true);
+});
+it('preserves the exact emitter in Manual after an ordinary edit introduces a stepped ceiling',()=>{
+ const source=roomDocument(),room=source.rooms[0]!;
+ const auto=ensureRoomBaseLight(source,room.id,undefined,.5);
+ const ceiling=auto.surfaces.find(surface=>surface.type==='ceiling')!;
+ const stepped={...structuredClone(ceiling),id:crypto.randomUUID(),dimensions:{width:2,height:2},transform:{...ceiling.transform,position:[0,2.8,0] as [number,number,number]}};
+ const edited=applyGeometryCommand({present:auto,past:[],future:[]},{type:'add-surface',surface:stepped}).present;
+ const base=roomBaseLight(auto,room.id)!;
+ expect(roomBaseLight(edited,room.id)).toEqual(base);
+ expect(lightDetailsFor(edited).find(binding=>binding.lightId===base.id)).toMatchObject({basePlacement:'manual',ceilingFill:{version:1,brightness:.5}});
+ expect(validateStudioLightDetails(edited).valid).toBe(true);
+ expect(()=>applyGeometryCommand({present:edited,past:[],future:[]},{type:'set-room-base-light-placement',lightId:base.id,basePlacement:'auto'})).toThrow('ROOM_CEILING_FILL_GEOMETRY');
 });
 it('adds a real missing ceiling idempotently and rejects duplicate or noncanonical outer envelopes without replacing source',()=>{
  const doc=roomDocument(),room=doc.rooms[0]!;doc.surfaces=doc.surfaces.filter(s=>s.type!=='ceiling');const original=structuredClone(doc);

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {applyLightObjectCommand,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
-import {applyGeometryCommand} from '../../web/src/geometry/model.ts';
+import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {ordinaryRoomBaseLightDelta} from './room-base-light-delta.ts';
 const withBase=()=>{const d=newDraft();d.candidate=ensureRoomBaseLight(d.candidate,d.candidate.rooms[0]!.id);return d;};
 const binding=(d:ReturnType<typeof newDraft>)=>lightDetailsFor(d.candidate)[0]!;
@@ -52,6 +52,20 @@ it('admits a normalized ceiling fill brightness edit and rejects a forged lumen 
  const forged=structuredClone(after);forged.candidate.lights[0]!.intensity=1;
  expect(ordinaryRoomBaseLightDelta(before,forged)).toBe(false);
  const mixed=structuredClone(after);mixed.candidate.rooms[0]!.name='unrelated';
+ expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
+it('replays Auto ceiling fill with the actual six-surface resize and leaves non-envelope geometry alone',()=>{
+ const before=newDraft(),room=before.candidate.rooms[0]!;
+ before.candidate.surfaces=whiteCubeSurfaces(room);
+ const wall=before.candidate.surfaces.find(surface=>surface.type==='wall')!;
+ const interior={...structuredClone(wall),id:crypto.randomUUID(),dimensions:{width:1,height:1},transform:{...wall.transform,position:[0,1,0] as [number,number,number]}};
+ before.candidate.surfaces.push(interior);
+ before.candidate=ensureRoomBaseLight(before.candidate,room.id,undefined,0);
+ const after=change(before,d=>{d.candidate=resizeRoomEnvelope(d.candidate,room.id,{width:room.dimensions.width+1,height:room.dimensions.height+1,depth:room.dimensions.depth+1});});
+ expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
+ expect(after.candidate.surfaces.find(surface=>surface.id===interior.id)).toEqual(interior);
+ expect(after.candidate.lights[0]!.intensity).toBe(0);
+ const mixed=structuredClone(after);mixed.candidate.surfaces.find(surface=>surface.id===interior.id)!.dimensions.width=2;
  expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
 });
 it('explicit manual and restore-auto operations are reversible without losing source or caller state',()=>{

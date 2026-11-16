@@ -216,6 +216,13 @@ export function manualizeRoomBaseLight(document:Exhibition,lightId:string):Exhib
  const next=structuredClone(document);entry.basePlacement='manual';
  next.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string];return next;
 }
+/** Preserve the saved emitter when an explicit ceiling edit leaves the Auto recipe unsupported. */
+export function preserveRoomCeilingFillAfterCeilingEdit(document:Exhibition,roomId:string):Exhibition {
+ const light=roomBaseLight(document,roomId),binding=light&&lightDetailsFor(document).find(value=>same(value.lightId,light.id));
+ if(!light||binding?.basePlacement!=='auto'||!binding.ceilingFill)return document;
+ try{roomCeilingFillDimensions(document,roomId);return document;}
+ catch{return manualizeRoomBaseLight(document,light.id);}
+}
 /** Explicit opt-in; the caller clears an attachment atomically before restoring auto. */
 export function setRoomBaseLightPlacement(document:Exhibition,lightId:string,placement:'auto'|'manual'):Exhibition {
  const bindings=lightDetailsFor(document),entry=bindings.find(b=>same(b.lightId,lightId)),light=document.lights.find(l=>same(l.id,lightId));
