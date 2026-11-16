@@ -1,6 +1,6 @@
 import {inspectViewerBudget} from './viewer-budget-inspection.ts';
-import type {ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
-import type {ViewerBudgetPolicy} from '@exhibitos/studio-contract';
+import {analyzeViewerBudget,viewerBudgetSHA256,type ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
+import {ARTWORK_DETAIL_QUALITY_NAMESPACE,type ViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
 import {imagePreparationLineage} from './image-preparation-lineage.ts';
 import {GPU_MODEL_PREPARATION_PROFILE} from './gpu-model-preparation-contract.ts';
@@ -379,6 +379,47 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const furnishingOwner=nativeOexWorkspace?.workspaceFurnishingPublication&&workspaceFurnishing?.matchesBinding(nativeOexWorkspace,store)?nativeOexWorkspace:undefined;
  const publications=new Publications(pool,store,nativeOexWorkspace,workspaceFurnishing,furnishingOwner,workspaceMaterial);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
+ // The ordinary static exporter consumes this same immutable public projection.
+ if(!freshOexTest&&!publicationSource)app.get(`${prefix}/studio/publications/:id/viewer-budget`,{
+  schema:{querystring:object({revisionSha256:{...str,pattern:'^[a-f0-9]{64}$'}})},
+ },async(req,reply)=>{
+  guarded(req,false);reply.header('cache-control','no-store');
+  const {tenantId,id:publicationId}=req.params as {tenantId:string;id:string};uuid(tenantId);
+  const {revisionSha256}=req.query as {revisionSha256:string};
+  const authorize=()=>auth.request(token(req),tenantId,undefined,false,(c,s)=>
+   publications.assertViewerBudgetPublication(c,s,publicationId,revisionSha256));
+  const projection=async()=>{
+   await authorize();
+   const value=await publications.anonymous(publicationId);
+   if(!('exhibition' in value)||value.publication.revisionSha256!==revisionSha256)
+    throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
+   if(value.exhibition.artworks.some(artwork=>artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE]!==undefined))
+    throw new ApiError(422,'VIEWER_BUDGET_OUTPUT_UNSUPPORTED');
+   return value;
+  };
+  const {exhibition:candidate,assets}=await projection();
+  const membership=(items:typeof assets)=>viewerBudgetSHA256(
+   items.map(({assetId,mime,url})=>({assetId,mime,url})).sort((a,b)=>a.assetId.localeCompare(b.assetId)));
+  const byId=new Map(assets.map(asset=>[asset.assetId,asset.mime]));
+  const binding={source:'publication' as const,publicationId,revisionSha256,projectionAssetsSHA256:membership(assets)};
+  const options={};
+  const initial=analyzeViewerBudget(candidate,binding,options);
+  return inspectViewerBudget({candidate,binding,options,initial},async reference=>{
+   const assetId=reference.assetId??reference.furnishingId;
+   if(!assetId||byId.get(assetId)!==reference.mime)throw new ApiError(409,'ASSET_INTEGRITY');
+   await authorize();
+   return {sha256:reference.sha256,bytes:reference.bytes,mime:reference.mime,read:async()=>{
+    const result=await publications.anonymous(publicationId,assetId);
+    if(!('bytes' in result)||result.revisionSha256!==revisionSha256||result.mime!==reference.mime)
+     throw new ApiError(409,'ASSET_INTEGRITY');
+    return result.bytes;
+   }};
+  },async()=>{
+   const current=await projection();
+   if(membership(current.assets)!==binding.projectionAssetsSHA256)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
+   await authorize();
+  });
+ });
  app.get(`${prefix}/studio/publications/:id/editing-draft`,call(false,async(c,s,req,reply)=>{const result=await publications.editingDraft(c,s,(req.params as {id:string}).id);reply.header('etag',result.etag);return result;}));
  const readPublic=async(id:string,assetId?:string,profile?:string)=>{
   const value=await (publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId));

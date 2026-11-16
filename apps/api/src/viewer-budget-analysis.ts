@@ -2,11 +2,20 @@
 import {createHash} from 'node:crypto';
 import type {ViewerBudgetGeometryResult} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
-import {freezeCanonical,viewerBudgetPolicyFor,selectViewerBudgetProfile,resolveViewerBudgetPolicy,evaluateViewerBudgetUsage,VIEWER_BUDGET_METRICS,type ViewerBudgetProfile,type ViewerBudgetLimits,type ViewerBudgetUsage} from '@exhibitos/studio-contract';
+import {freezeCanonical,viewerBudgetPolicyFor,selectViewerBudgetProfile,resolveViewerBudgetPolicy,evaluateViewerBudgetUsage,VIEWER_BUDGET_METRICS,type ViewerBudgetProfile,type ViewerBudgetLimits,type ViewerBudgetUsage,type ResolvedViewerBudgetPolicy} from '@exhibitos/studio-contract';
 import {ApiError} from './api-error.ts';
 export type ViewerBudgetAnalysisOptions={profile?:ViewerBudgetProfile;context?:'viewer'|'native';automaticProfile?:'standard'|'compact';recommendedBaseline?:Partial<ViewerBudgetLimits>;observations?:ViewerBudgetObservation[]};
 export type ViewerBudgetObservation={inputSHA256:string;policySHA256:string;policyVersion:1;accountingVersion:1;profile:ViewerBudgetProfile;usage:ViewerBudgetUsage};
 export type ViewerBudgetAnalysisBinding={exhibitionId:string;savedRevision:number;etag:string;draftId:string;draftEditVersion:number;source:'saved'|'draft'};
+export type ViewerBudgetPublicationBinding={source:'publication';publicationId:string;revisionSha256:string;projectionAssetsSHA256:string};
+export type ViewerBudgetEstimateTarget={
+ scenario:'fine-pointer-no-memory-hint-auto-v1';
+ requestedMode:'auto';
+ hints:{coarsePointer:false;finePointer:true};
+ selection:ReturnType<typeof selectViewerBudgetProfile>;
+ policy:ResolvedViewerBudgetPolicy;
+ selectionBudget:{maxTriangles:number;maxTextureSize:number};
+};
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const only=(value:Record<string,unknown>,keys:readonly string[])=>Object.keys(value).every(k=>keys.includes(k));
 const numeric=(v:unknown)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
@@ -37,10 +46,19 @@ function checkedObservation(value:unknown):ViewerBudgetObservation {
 }
 /** Advisory observations never become server-verified asset facts or a new
  * output/permission grant. Export validity remains its existing independent check. */
-export function analyzeViewerBudget(candidate:Exhibition,binding:ViewerBudgetAnalysisBinding,options:ViewerBudgetAnalysisOptions={},producer?:ViewerBudgetGeometryResult|null) {
+export function analyzeViewerBudget<Binding extends ViewerBudgetAnalysisBinding|ViewerBudgetPublicationBinding>(
+ candidate:Exhibition,binding:Binding,options:ViewerBudgetAnalysisOptions={},producer?:ViewerBudgetGeometryResult|null,target?:ViewerBudgetEstimateTarget|null,
+) {
  if(!object(options)||!only(options,['profile','context','automaticProfile','recommendedBaseline','observations'])||options.context!==undefined&&!['viewer','native'].includes(options.context)||options.observations!==undefined&&!Array.isArray(options.observations))throw new ApiError(422,'VIEWER_BUDGET_ANALYSIS_INPUT_INVALID');
  let selection,policy,resolvedPolicy;
  try{policy=viewerBudgetPolicyFor(candidate);selection=selectViewerBudgetProfile(candidate,{nativeEditor:options.context==='native',automaticProfile:options.automaticProfile===undefined?'standard':options.automaticProfile,...(options.profile!==undefined?{requestedProfile:options.profile}:{})});resolvedPolicy=resolveViewerBudgetPolicy(candidate,selection.effectiveProfile,options.recommendedBaseline);}catch{throw new ApiError(422,'VIEWER_BUDGET_POLICY_INVALID');}
+ if(target){
+  selection=target.selection;
+  resolvedPolicy=target.policy;
+ }
+ const estimateTarget=target?{
+  scenario:target.scenario,requestedMode:target.requestedMode,hints:target.hints,selectionBudget:target.selectionBudget,
+ }:null;
  const inputSHA256=viewerBudgetSHA256(candidate),policySHA256=viewerBudgetSHA256(resolvedPolicy);
  const observations=(options.observations??[]).map(value=>{
   const observation=checkedObservation(value);
@@ -49,6 +67,6 @@ export function analyzeViewerBudget(candidate:Exhibition,binding:ViewerBudgetAna
  });
  if(producer&&(producer.accountingVersion!==1||producer.profile!==selection.effectiveProfile||producer.wholeExhibition.scope!=='wholeExhibition'||producer.analyzedSections.some(x=>x.scope!=='analyzedSection')))throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_INVALID');
  const whole:ViewerBudgetUsage=producer?.wholeExhibition??{scope:'wholeExhibition',complete:false,colorDraws:null,displayTriangles:null,shadowCasterTriangles:null,shadowDepthTriangles:null,residentBytes:null,transitionBytes:null,contributors:[],assumptions:['Whole-exhibition renderer/decoded-resource facts have not been supplied by a verified producer. Metadata bytes are not substituted for them.']};
- return {version:1 as const,policyVersion:1 as const,accountingVersion:1 as const,binding:{...binding,inputSHA256},selection,policy,resolvedPolicy,policySHA256,inventory:viewerBudgetDeclaredInventory(candidate),estimates:{wholeExhibition:{basis:producer?'verified-cpu-producer' as const:'uninspected-document' as const,usage:whole,evaluation:evaluateViewerBudgetUsage(resolvedPolicy,whole)},currentView:observations.find(x=>x.usage.scope==='currentView')??null,analyzedSections:[...(producer?.analyzedSections??[]).map(usage=>({basis:'verified-cpu-producer' as const,serverVerifiedAssetFacts:true,usage,evaluation:evaluateViewerBudgetUsage(resolvedPolicy,usage)})),...observations.filter(x=>x.usage.scope==='analyzedSection')],otherReportedScopes:observations.filter(x=>x.usage.scope==='wholeExhibition')},analysisComplete:whole.complete&&VIEWER_BUDGET_METRICS.every(key=>whole[key]!==null),producerAssumptions:producer?.assumptions??[],exportConfiguration:{targetProfile:policy.targetProfile??'auto',performanceAdvisoryOnly:true,hardwareCapabilities:'not-measured' as const},remedies:['Request producer-bound geometry/resource analysis for uninspected sections.','Inspect a current view or heavier section without treating it as the whole exhibition.','Adjust this exhibition’s explicit policy or reset to recommendations; browser/GPU capabilities remain separate.']};
+ return {version:1 as const,policyVersion:1 as const,accountingVersion:1 as const,binding:{...binding,sceneRevisionId:candidate.revisionId,sceneRevision:candidate.revision,inputSHA256},estimateTarget,selection,policy,resolvedPolicy,policySHA256,inventory:viewerBudgetDeclaredInventory(candidate),estimates:{wholeExhibition:{basis:producer?'verified-cpu-producer' as const:'uninspected-document' as const,usage:whole,evaluation:evaluateViewerBudgetUsage(resolvedPolicy,whole)},currentView:observations.find(x=>x.usage.scope==='currentView')??null,analyzedSections:[...(producer?.analyzedSections??[]).map(usage=>({basis:'verified-cpu-producer' as const,serverVerifiedAssetFacts:true,usage,evaluation:evaluateViewerBudgetUsage(resolvedPolicy,usage)})),...observations.filter(x=>x.usage.scope==='analyzedSection')],otherReportedScopes:observations.filter(x=>x.usage.scope==='wholeExhibition')},analysisComplete:whole.complete&&VIEWER_BUDGET_METRICS.every(key=>whole[key]!==null),producerAssumptions:producer?.assumptions??[],exportConfiguration:{targetProfile:policy.targetProfile??'auto',performanceAdvisoryOnly:true,hardwareCapabilities:'not-measured' as const},remedies:['Request producer-bound geometry/resource analysis for uninspected sections.','Inspect a current view or heavier section without treating it as the whole exhibition.','Adjust this exhibition’s explicit policy or reset to recommendations; browser/GPU capabilities remain separate.']};
 }
 export type ViewerBudgetAnalysis=ReturnType<typeof analyzeViewerBudget>;

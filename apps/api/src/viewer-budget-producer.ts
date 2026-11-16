@@ -10,6 +10,7 @@ import type {PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import {ApiError} from './api-error.ts';
 import type {Cms} from './cms.ts';
+import type {ViewerBudgetEstimateTarget} from './viewer-budget-analysis.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 /** Resolve only the fixed local, qualified renderer CPU artifact. */
 export async function viewerBudgetProducerURL():Promise<URL|null>{
@@ -18,6 +19,19 @@ export async function viewerBudgetProducerURL():Promise<URL|null>{
  if(!file)return null;
  if(!file.isFile()||file.isSymbolicLink())throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_UNAVAILABLE');
  return url;
+}
+/** Use the named target from the same installed CPU artifact as geometry. */
+export async function viewerBudgetEstimateTarget(candidate:Exhibition):Promise<ViewerBudgetEstimateTarget|null>{
+ const url=await viewerBudgetProducerURL();
+ if(!url)return null;
+ try{
+  const {selectViewerBudgetEstimateTarget}=await import(url.href) as {
+   selectViewerBudgetEstimateTarget?:(candidate:Exhibition)=>ViewerBudgetEstimateTarget;
+  };
+  return selectViewerBudgetEstimateTarget?.(candidate)??null;
+ }catch{
+  throw new ApiError(503,'VIEWER_BUDGET_PRODUCER_UNAVAILABLE');
+ }
 }
 export type ViewerBudgetAssetSource={sha256:string;bytes:number;mime:string;read:()=>Promise<Uint8Array>};
 /** Metadata/rights acquisition runs in a short authenticated transaction. The
