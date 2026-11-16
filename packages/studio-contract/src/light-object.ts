@@ -7,12 +7,13 @@ import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {freezeCanonical} from './freeze.js';
 import {benchesFor} from './benches.js';
 import {applyFurnishingCommand,furnishingAsset,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
-import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,manualizeRoomBaseLight,sameLightPose,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
+import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,setRoomCeilingFillBrightness,manualizeRoomBaseLight,sameLightPose,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
 
 export type LightObjectCommand=
  |{type:'set-light-object';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>|null}
  |{type:'set-room-base-light-placement';lightId:string;basePlacement:'auto'|'manual'}
+ |{type:'set-room-ceiling-fill-brightness';lightId:string;brightness:number}
  |{type:'set-light-fixture';lightId:string;visual:null|{catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose;trackAim?:TrackSpotAimBinding}}
  |{type:'duplicate-light-object';lightId:string}
  |{type:'remove-light-object';lightId:string};
@@ -107,6 +108,10 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
     if(next.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,bindings.filter(v=>!same(v.lightId,light.id)));
    }
    next=setRoomBaseLightPlacement(next,light.id,command.basePlacement);break;
+  }
+  case 'set-room-ceiling-fill-brightness':{
+   if(!closed(command,['type','lightId','brightness'])||!finite(command.brightness,0,1))fail();
+   next=setRoomCeilingFillBrightness(next,light.id,command.brightness);break;
   }
   case 'set-light-fixture':{
    if(!closed(command,['type','lightId','visual']))fail();

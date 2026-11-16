@@ -43,6 +43,17 @@ it('admits brightness only with omitted placement intent and rejects unrelated m
  expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);expect(binding(after).basePlacement).toBe('auto');
  const manual={...structuredClone(before.candidate.lights[0]!),id:crypto.randomUUID()};before.candidate.lights.push(manual);const mixed=structuredClone(after);mixed.candidate.lights.push({...manual,intensity:3});expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
 });
+it('admits a normalized ceiling fill brightness edit and rejects a forged lumen value or an incidental room edit',()=>{
+ const before=newDraft();
+ before.candidate=ensureRoomBaseLight(before.candidate,before.candidate.rooms[0]!.id,undefined,.5);
+ const lightId=before.candidate.lights[0]!.id;
+ const after=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-ceiling-fill-brightness',lightId,brightness:0}).candidate;});
+ expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
+ const forged=structuredClone(after);forged.candidate.lights[0]!.intensity=1;
+ expect(ordinaryRoomBaseLightDelta(before,forged)).toBe(false);
+ const mixed=structuredClone(after);mixed.candidate.rooms[0]!.name='unrelated';
+ expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
 it('explicit manual and restore-auto operations are reversible without losing source or caller state',()=>{
  const before=withBase(),snapshot=structuredClone(before),manual=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-base-light-placement',lightId:d.candidate.lights[0]!.id,basePlacement:'manual'},{verifiedBaseline:d.candidate}).candidate;});
  expect(ordinaryRoomBaseLightDelta(before,manual)).toBe(true);expect(ordinaryRoomBaseLightDelta(manual,before)).toBe(true);expect(before).toEqual(snapshot);

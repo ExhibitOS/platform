@@ -30,11 +30,13 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
   if(changedRooms.length===1){
    const room=changedRooms[0]!,nextRoom=target.rooms.find(r=>same(r.id,room.id));if(!nextRoom)return false;
    let candidate=structuredClone(source);candidate.rooms[candidate.rooms.findIndex(r=>same(r.id,room.id))]=structuredClone(nextRoom);
-   candidate=reflowRoomBaseLight(candidate,room.id);
-   if(matches(candidate)){
-    if(!isDeepStrictEqual(room.dimensions,nextRoom.dimensions))assertRoomEnvelopeContentsAgainstBaseline(candidate,source,room.id);
-    return true;
-   }
+   try{
+    candidate=reflowRoomBaseLight(candidate,room.id);
+    if(matches(candidate)){
+     if(!isDeepStrictEqual(room.dimensions,nextRoom.dimensions))assertRoomEnvelopeContentsAgainstBaseline(candidate,source,room.id);
+     return true;
+    }
+   }catch{/* Structural surfaces can require the complete envelope replay below. */}
    // The existing six-surface transaction is the sole envelope resize path.
    candidate=resizeRoomEnvelope(source,room.id,nextRoom.dimensions);
    candidate.rooms[candidate.rooms.findIndex(r=>same(r.id,room.id))]=structuredClone(nextRoom);
@@ -49,6 +51,7 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
    if(!same(next.id,old.id))continue;
    const settings=lightDetailsFor(target).find(v=>same(v.lightId,next.id))!;
    for(const placement of ['auto','manual'] as const)if(settings.basePlacement===placement&&matches(applyLightObjectCommand(source,{type:'set-room-base-light-placement',lightId:old.id,basePlacement:placement},{verifiedBaseline:source}).candidate))return true;
+   if(settings.ceilingFill&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:settings.ceilingFill.brightness},{verifiedBaseline:source}).candidate))return true;
    const {id:_,...light}=next,{lightId:__,...details}=settings;void _;void __;
    const previous=lightDetailsFor(source).find(v=>same(v.lightId,old.id));
    if(previous?.basePlacement!==undefined)details.basePlacement=previous.basePlacement;else delete details.basePlacement;

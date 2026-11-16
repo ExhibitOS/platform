@@ -6,6 +6,8 @@ import {freezeCanonical} from './freeze.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {artifactBounds,artifactCorners} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
+import {deriveRoomCeilingFill,type RoomCeilingFill} from './room-ceiling-fill.js';
+import {roomCeilingFillDimensions} from './room-envelope-faces.js';
 
 export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as const;
@@ -19,6 +21,7 @@ export interface LightDetails {
   purpose?:'room-base';
   /** Absent means unknown legacy intent; never inferred from coordinates. */
   basePlacement?:'auto'|'manual';
+  ceilingFill?:RoomCeilingFill;
   aim?:LightAim;
   /** One known articulated source; mount and aim override base optics. */
   trackAim?:TrackSpotAimBinding;
@@ -85,7 +88,7 @@ export function validateStudioLightDetails(candidate:unknown){
   const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>();
   value.lights.forEach((entry,i)=>{
     const path='/lights/'+i;
-    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','trackAim'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
+    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','ceilingFill','trackAim'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
     const light=lights.find(l=>typeof l.id==='string'&&same(l.id,entry.lightId as string)),room=light&&rooms.find(r=>typeof r.id==='string'&&typeof light.roomId==='string'&&same(r.id,light.roomId));
     if(seen.has(entry.lightId.toLowerCase())||!light||!room||!object(room.dimensions)){add('LIGHT_DETAILS_REFERENCE',path,'Expected unique existing light and room');return;}seen.add(entry.lightId.toLowerCase());
     if(Object.hasOwn(entry,'purpose')){
@@ -94,7 +97,21 @@ export function validateStudioLightDetails(candidate:unknown){
       baseRooms.add(roomId);
     }
     if(Object.hasOwn(entry,'basePlacement')&&(entry.purpose!=='room-base'||!['auto','manual'].includes(entry.basePlacement as string)))add('LIGHT_DETAILS_PLACEMENT',path+'/basePlacement','Placement intent requires an explicit room base light');
-    if(entry.basePlacement==='auto'){
+    if(Object.hasOwn(entry,'ceilingFill')){
+      const fill=entry.ceilingFill;
+      const attachments=(candidate.extensions as Record<string,unknown>)['org.exhibitos.studio/light-attachments'];
+      const attached=object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(b=>object(b)&&typeof b.lightId==='string'&&same(b.lightId,entry.lightId as string));
+      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||entry.purpose!=='room-base'||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||entry.trackAim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
+        add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Expected a non-shadow-casting room base area light with explicit placement and brightness');
+      }else if(entry.basePlacement==='auto'){
+        try{
+          const dimensions=roomCeilingFillDimensions(candidate as unknown as Exhibition,room.id as string);
+          const expected=deriveRoomCeilingFill(dimensions,fill.brightness);
+          const transform=light.transform as ExhibitionLight['transform'];
+          if(!sameLightPose(expected.transform,transform)||freezeCanonical(expected.dimensions)!==freezeCanonical(light.dimensions)||light.intensity!==expected.intensity)throw Error('noncanonical ceiling fill');
+        }catch{add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Automatic ceiling fill must match its room envelope and canonical emitter');}
+      }
+    }else if(entry.basePlacement==='auto'){
       const transform=light.transform,dimensions=room.dimensions;
       if(light.type!=='point'||light.targetPlacementId!==undefined||entry.aim!==undefined||!object(transform)||!Array.isArray(transform.position)||transform.position.length!==3||!transform.position.every(n=>typeof n==='number'&&Number.isFinite(n))||![dimensions.width,dimensions.height,dimensions.depth].every(n=>typeof n==='number'&&Number.isFinite(n)&&n>0)||freezeCanonical(transform.position)!==freezeCanonical([0,Number(dimensions.height)*.9,0])||entry.range!==Math.min(50,Math.max(.1,Math.hypot(Number(dimensions.width)/2,Number(dimensions.depth)/2,Number(dimensions.height)*.9))))add('LIGHT_DETAILS_PLACEMENT',path+'/basePlacement','Automatic placement requires the explicit local point recipe');
       const attachments=object(candidate.extensions)?candidate.extensions['org.exhibitos.studio/light-attachments']:undefined;
@@ -143,7 +160,7 @@ export function roomBaseLight(document:Exhibition,roomId:string):ExhibitionLight
   return document.lights.find(light=>same(light.roomId,roomId)&&ids.has(light.id.toLowerCase()));
 }
 /** Ensure an ordinary authored light. Reapplying keeps its current edits. */
-export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string):Exhibition {
+export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string,ceilingFillBrightness?:number):Exhibition {
   const room=document.rooms.find(r=>same(r.id,roomId));
   if(!room)throw Error('LIGHT_DETAILS_REFERENCE');
   if(roomBaseLight(document,room.id))return document;
@@ -155,6 +172,11 @@ export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId
     color:[1,1,1],intensity:16,unit:'candela',castsShadow:false,
   };
   const settings:LightDetails={lightId:light.id,fixture:'none',purpose:'room-base',basePlacement:'auto',range:roomBaseLightRange({width,depth,height})};
+  if(ceilingFillBrightness!==undefined){
+    Object.assign(light,deriveRoomCeilingFill(roomCeilingFillDimensions(document,room.id),ceilingFillBrightness),{type:'area',unit:'lumen'});
+    settings.ceilingFill={version:1,brightness:ceilingFillBrightness};
+    delete settings.range;
+  }
   const next=structuredClone(document);
   next.lights.push(light);
   const lights=[...lightDetailsFor(next),settings];
@@ -173,8 +195,14 @@ export function roomBaseLightRange(dimensions:Exhibition['rooms'][number]['dimen
 export function reflowRoomBaseLight(document:Exhibition,roomId:string):Exhibition {
  const light=roomBaseLight(document,roomId),details=light&&lightDetailsFor(document).find(b=>same(b.lightId,light.id));
  if(!light||details?.basePlacement!=='auto')return document;
- const room=document.rooms.find(r=>same(r.id,roomId));if(!room||light.type!=='point')throw Error('LIGHT_DETAILS_PLACEMENT');
+ const room=document.rooms.find(r=>same(r.id,roomId));if(!room)throw Error('LIGHT_DETAILS_PLACEMENT');
  const next=structuredClone(document),target=next.lights.find(l=>same(l.id,light.id))!;
+ if(details.ceilingFill){
+  Object.assign(target,deriveRoomCeilingFill(roomCeilingFillDimensions(document,room.id),details.ceilingFill.brightness));
+  if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
+  return next;
+ }
+ if(light.type!=='point')throw Error('LIGHT_DETAILS_PLACEMENT');
  target.transform.position=[0,room.dimensions.height*.9,0];
  delete target.targetPlacementId;
  const bindings=lightDetailsFor(next);const binding=bindings.find(b=>same(b.lightId,light.id))!;binding.range=roomBaseLightRange(room.dimensions);delete binding.aim;
@@ -195,6 +223,20 @@ export function setRoomBaseLightPlacement(document:Exhibition,lightId:string,pla
  const next=structuredClone(document);entry.basePlacement=placement;
  next.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string];
  return placement==='auto'?reflowRoomBaseLight(next,light.roomId):next;
+}
+/** An explicit brightness edit can change power even when the panel pose is manual. */
+export function setRoomCeilingFillBrightness(document:Exhibition,lightId:string,brightness:number):Exhibition {
+ const bindings=lightDetailsFor(document),entry=bindings.find(binding=>same(binding.lightId,lightId));
+ const light=document.lights.find(value=>same(value.id,lightId));
+ const room=light&&document.rooms.find(value=>same(value.id,light.roomId));
+ if(!entry?.ceilingFill||!light||!room)throw Error('LIGHT_DETAILS_CEILING_FILL');
+ if(entry.ceilingFill.brightness===brightness)return document;
+ const next=structuredClone(document);
+ next.lights.find(value=>same(value.id,lightId))!.intensity=deriveRoomCeilingFill(room.dimensions,brightness).intensity;
+ entry.ceilingFill.brightness=brightness;
+ next.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string];
+ if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
+ return next;
 }
 export function remapStudioLightDetails(value:StudioLightDetails,ids:ReadonlyMap<string,string>):StudioLightDetails {
   return {version:1,lights:value.lights.map(b=>{const lightId=ids.get(b.lightId.toLowerCase());if(!uuid(lightId))throw Error('LIGHT_DETAILS_REFERENCE');return {...structuredClone(b),lightId,...(b.trackAim?{trackAim:remapTrackSpotAimBinding(b.trackAim,ids)}:{})};})};
@@ -220,11 +262,13 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   const bindings=lightDetailsFor(next),at=bindings.findIndex(b=>same(b.lightId,lightId));
   const prior=bindings[at],purpose=prior?.purpose;
   if(settings.basePlacement!==undefined&&settings.basePlacement!==prior?.basePlacement)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
+  if(settings.ceilingFill!==undefined&&freezeCanonical(settings.ceilingFill)!==freezeCanonical(prior?.ceilingFill??null))throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
+  if(prior?.ceilingFill&&light.intensity!==original.intensity)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
   const spatial=(l:Omit<ExhibitionLight,'id'>)=>[l.type,l.dimensions??null,l.beamAngle??null,l.targetPlacementId??null];
   const changedPose=!sameLightPose(original.transform,light.transform)||freezeCanonical(spatial(original))!==freezeCanonical(spatial(light))||(settings.aim!==undefined&&freezeCanonical(prior?.aim??null)!==freezeCanonical(settings.aim))||(settings.range!==undefined&&prior?.range!==settings.range);
   const basePlacement=prior?.basePlacement==='auto'&&changedPose?'manual':prior?.basePlacement;
   if(settings.purpose!==undefined&&settings.purpose!==purpose)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
-  const entry={...structuredClone(settings),...(basePlacement==='auto'&&settings.range===undefined?{range:prior!.range}:{}),...(purpose?{purpose}:{}),...(basePlacement?{basePlacement}:{}),lightId:original.id};
+  const entry={...structuredClone(settings),...(basePlacement==='auto'&&settings.range===undefined&&prior?.range!==undefined?{range:prior.range}:{}),...(purpose?{purpose}:{}),...(basePlacement?{basePlacement}:{}),...(prior?.ceilingFill?{ceilingFill:prior.ceilingFill}:{}),lightId:original.id};
   if(at<0)bindings.push(entry);else bindings[at]=entry;
   next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string]};
   if(next.extensions?.[TEMPLATE_NAMESPACE]){const template=next.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};template.modified=true;}

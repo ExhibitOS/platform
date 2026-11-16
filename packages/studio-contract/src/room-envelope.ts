@@ -6,35 +6,31 @@ import {resolveInstallations} from './installation-resolver.js';
 import {validateStudioBenches} from './benches.js';
 import {surfacePanels} from './surface-panels.js';
 import {freezeCanonical} from './freeze.js';
+import {assertRoomEnvelopeFrame,close,direction,rigid,roomEnvelopeSide as side,tolerance,unit,type Side} from './room-envelope-faces.js';
 
 type Room=Exhibition['rooms'][number];
 type Surface=Exhibition['surfaces'][number];
 export const LIGHT_ATTACHMENT_NAMESPACE='org.exhibitos.studio/light-attachments';
 export interface LightAttachment {lightId:string;surfaceId:string;anchor:[number,number];gap:number}
 export interface StudioLightAttachments {version:1;lights:LightAttachment[]}
-const tolerance=1e-5;
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
-const close=(a:number,b:number)=>Math.abs(a-b)<=tolerance;
 const dot=(a:AffinePoint,b:AffinePoint)=>a.reduce((s,v,i)=>s+v*b[i]!,0);
 const sub=(a:AffinePoint,b:AffinePoint)=>a.map((v,i)=>v-b[i]!) as AffinePoint;
-const unit=(v:AffinePoint)=>{const n=Math.hypot(...v);if(n<tolerance)throw Error('singular');return v.map(x=>x/n) as AffinePoint;};
-const direction=(pose:ArtifactPose,axis:AffinePoint)=>sub(artifactPoint(axis,pose),pose.position);
 const inside=(point:AffinePoint,dimensions:Room['dimensions'])=>Math.abs(point[0])<=dimensions.width/2+tolerance&&point[1]>=-tolerance&&point[1]<=dimensions.height+tolerance&&Math.abs(point[2])<=dimensions.depth/2+tolerance;
 export class RoomEnvelopeError extends Error {
  constructor(public code:string,public subjectId:string,message:string){super(message);this.name='RoomEnvelopeError';}
 }
 function fail(code:string,id:string,message:string):never{throw new RoomEnvelopeError(code,id,message);}
-function rigid(pose:ArtifactPose){validateArtifactPose(pose);if(pose.scale.some(n=>!close(n,1)))throw Error('scaled structural surface');}
 function inverse(point:AffinePoint,pose:ArtifactPose):AffinePoint {
  rigid(pose);const [x,y,z,w]=pose.rotation;
  return artifactPoint(sub(point,pose.position),{position:[0,0,0],rotation:[-x,-y,-z,w],scale:[1,1,1]});
 }
 function roomFor(document:Exhibition,id:string){const room=document.rooms.find(r=>same(r.id,id));if(!room)fail('ROOM_ENVELOPE_REFERENCE',id,'방을 다시 선택해 주세요.');return room;}
 function assertRoom(room:Room){
- try{rigid(room.transform);if(Math.abs(room.transform.rotation[0])+Math.abs(room.transform.rotation[2])>tolerance)throw Error('tilted room');if(Object.values(room.dimensions).some(n=>!Number.isFinite(n)||n<=0||n>10000))throw Error('dimensions');}
+ try{assertRoomEnvelopeFrame(room);}
  catch{fail('ROOM_ENVELOPE_UNSUPPORTED',room.id,'수평 바닥과 직사각형 벽으로 구성한 방만 크기를 함께 바꿀 수 있어요.');}
 }
 /** Gap is metres along the explicitly selected surface's +Z side. Beam aim is separate. */
@@ -83,20 +79,6 @@ export function remapLightAttachments(value:StudioLightAttachments,ids:ReadonlyM
  return {version:1,lights:value.lights.map(b=>({...structuredClone(b),lightId:mapped(b.lightId),surfaceId:mapped(b.surfaceId)}))};
 }
 
-type Side='west'|'east'|'north'|'south'|'floor'|'ceiling';
-function side(surface:Surface,room:Room):Side|undefined {
- rigid(surface.transform);const b=artifactBounds(artifactCorners(surface.dimensions,[surface.transform])),d=room.dimensions,n=unit(direction(surface.transform,[0,0,1]));
- const axes=[[1,0,0],[0,1,0]].map(a=>unit(direction(surface.transform,a as AffinePoint)));if(axes.some(a=>Math.max(...a.map(Math.abs))<1-tolerance))return undefined;
- const span=(axis:0|1|2,a:number,c:number)=>close(b.min[axis],a)&&close(b.max[axis],c);
- if(surface.type==='floor'&&span(0,-d.width/2,d.width/2)&&span(1,0,0)&&span(2,-d.depth/2,d.depth/2)&&close(n[1],1))return 'floor';
- if(surface.type==='ceiling'&&span(0,-d.width/2,d.width/2)&&span(1,d.height,d.height)&&span(2,-d.depth/2,d.depth/2)&&close(n[1],-1))return 'ceiling';
- if(surface.type!=='wall'||!span(1,0,d.height)||!close(unit(direction(surface.transform,[0,1,0]))[1],1))return undefined;
- if(span(0,-d.width/2,-d.width/2)&&span(2,-d.depth/2,d.depth/2)&&close(n[0],1))return 'west';
- if(span(0,d.width/2,d.width/2)&&span(2,-d.depth/2,d.depth/2)&&close(n[0],-1))return 'east';
- if(span(2,-d.depth/2,-d.depth/2)&&span(0,-d.width/2,d.width/2)&&close(n[2],1))return 'north';
- if(span(2,d.depth/2,d.depth/2)&&span(0,-d.width/2,d.width/2)&&close(n[2],-1))return 'south';
- return undefined;
-}
 function movedSurface(surface:Surface,kind:Side,dimensions:Room['dimensions']):Surface {
  const result=structuredClone(surface),u=unit(direction(surface.transform,[1,0,0])),v=unit(direction(surface.transform,[0,1,0])),axisLength=(axis:AffinePoint)=>[dimensions.width,dimensions.height,dimensions.depth][axis.map(Math.abs).indexOf(Math.max(...axis.map(Math.abs)))]!;
  result.dimensions={width:axisLength(u),height:axisLength(v)};
