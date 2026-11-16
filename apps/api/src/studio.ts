@@ -433,7 +433,7 @@ export class Studio {
         result=nativeFrameImageFitProposal(draft.candidate,request,await service.frameImageFit(c,s,art));
       }
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
-      else if(operation.type==='set-room-base-light-placement'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
+      else if(operation.type==='set-room-base-light-placement'||operation.type==='set-room-ceiling-fill-brightness'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
         const command:LightObjectCommand=operation.type==='set-light-details'?{type:'set-light-object',lightId:operation.lightId,light:operation.light,settings:operation.settings}:operation;
         result=nativeLightObjectProposal(draft.candidate,command,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
         checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});

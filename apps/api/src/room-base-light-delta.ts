@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {isDeepStrictEqual} from 'node:util';
-import {applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureOrdinaryRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,ROOM_CEILING_FILL_PROFILE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 /** Narrow bounded-save replay. Complete candidate validation, saved-head CAS,
  * ownership and material/furnishing custody remain in Studio's existing path. */
@@ -10,6 +10,10 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
  // Only ordinary draft edit bookkeeping may accompany this one operation.
  for(const key of ['editVersion','updatedAt'])if(Object.hasOwn(b,key))(a as Record<string,unknown>)[key]=(b as Record<string,unknown>)[key];
  const source=before.candidate,target=after.candidate;
+ const replayCreation=(candidate:Exhibition,roomId:string,lightId:string)=>{
+  const fill=lightDetailsFor(target).find(binding=>same(binding.lightId,lightId))?.ceilingFill;
+  return ensureOrdinaryRoomBaseLight(candidate,roomId,lightId,fill?ROOM_CEILING_FILL_PROFILE:undefined);
+ };
  const matches=(candidate:Exhibition)=>{
   const template=candidate.extensions?.[TEMPLATE_NAMESPACE];if(template&&typeof template==='object'&&!Array.isArray(template))(template as unknown as {modified:boolean}).modified=true;
   return isDeepStrictEqual({...a,candidate},b);
@@ -18,7 +22,7 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
   const added=target.rooms.filter(r=>!source.rooms.some(v=>same(v.id,r.id))),removed=source.rooms.filter(r=>!target.rooms.some(v=>same(v.id,r.id)));
   if(added.length===1&&!removed.length){
    const room=added[0]!,base=roomBaseLight(target,room.id);if(!base)return false;
-   const candidate=structuredClone(source);candidate.rooms.push(structuredClone(room));return matches(ensureRoomBaseLight(candidate,room.id,base.id));
+   const candidate=structuredClone(source);candidate.rooms.push(structuredClone(room));return matches(replayCreation(candidate,room.id,base.id));
   }
   if(removed.length===1&&!added.length){
    let candidate=structuredClone(source);const base=roomBaseLight(source,removed[0]!.id);
@@ -30,11 +34,13 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
   if(changedRooms.length===1){
    const room=changedRooms[0]!,nextRoom=target.rooms.find(r=>same(r.id,room.id));if(!nextRoom)return false;
    let candidate=structuredClone(source);candidate.rooms[candidate.rooms.findIndex(r=>same(r.id,room.id))]=structuredClone(nextRoom);
-   candidate=reflowRoomBaseLight(candidate,room.id);
-   if(matches(candidate)){
-    if(!isDeepStrictEqual(room.dimensions,nextRoom.dimensions))assertRoomEnvelopeContentsAgainstBaseline(candidate,source,room.id);
-    return true;
-   }
+   try{
+    candidate=reflowRoomBaseLight(candidate,room.id);
+    if(matches(candidate)){
+     if(!isDeepStrictEqual(room.dimensions,nextRoom.dimensions))assertRoomEnvelopeContentsAgainstBaseline(candidate,source,room.id);
+     return true;
+    }
+   }catch{/* Structural surfaces can require the complete envelope replay below. */}
    // The existing six-surface transaction is the sole envelope resize path.
    candidate=resizeRoomEnvelope(source,room.id,nextRoom.dimensions);
    candidate.rooms[candidate.rooms.findIndex(r=>same(r.id,room.id))]=structuredClone(nextRoom);
@@ -43,12 +49,13 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
   if(changedRooms.length)return false;
   for(const room of source.rooms){
    const old=roomBaseLight(source,room.id),next=roomBaseLight(target,room.id);
-   if(!old&&next){if(matches(ensureRoomBaseLight(source,room.id,next.id)))return true;continue;}
+   if(!old&&next){if(matches(replayCreation(source,room.id,next.id)))return true;continue;}
    if(!old)continue;
    if(!next){if(matches(applyLightObjectCommand(source,{type:'remove-light-object',lightId:old.id},{verifiedBaseline:source}).candidate))return true;continue;}
    if(!same(next.id,old.id))continue;
    const settings=lightDetailsFor(target).find(v=>same(v.lightId,next.id))!;
    for(const placement of ['auto','manual'] as const)if(settings.basePlacement===placement&&matches(applyLightObjectCommand(source,{type:'set-room-base-light-placement',lightId:old.id,basePlacement:placement},{verifiedBaseline:source}).candidate))return true;
+   if(settings.ceilingFill&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:settings.ceilingFill.brightness},{verifiedBaseline:source}).candidate))return true;
    const {id:_,...light}=next,{lightId:__,...details}=settings;void _;void __;
    const previous=lightDetailsFor(source).find(v=>same(v.lightId,old.id));
    if(previous?.basePlacement!==undefined)details.basePlacement=previous.basePlacement;else delete details.basePlacement;

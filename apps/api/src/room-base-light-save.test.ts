@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
 import type {PoolClient} from 'pg';
-import {applyLightObjectCommand,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,type LightDetails} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,ROOM_CEILING_FILL_PROFILE,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {syntheticArtwork} from '../../web/src/placement/model.ts';
 import type {Session} from './auth.ts';
 import {Studio,etag} from './studio.ts';
+it('first ordinary Save validates the exact tagged default before inserting a new exhibition',async()=>{
+ const draft=newDraft(),room=draft.candidate.rooms[0]!;
+ draft.candidate=ensureOrdinaryRoomBaseLight(draft.candidate,room.id,undefined,ROOM_CEILING_FILL_PROFILE);
+ expect(draft.candidate.lights[0]).toMatchObject({type:'area',unit:'lumen',intensity:89.30480858594046,dimensions:{width:12*.8,height:8*.8},transform:{position:[0,3.98,0]}});
+ const studio=new Studio(),session={tenantId:crypto.randomUUID(),userId:crypto.randomUUID(),role:'admin'} as Session;
+ const query=vi.fn(async()=>({rowCount:0,rows:[]})),client={query} as unknown as PoolClient;
+ const stale=structuredClone(draft);stale.candidate.lights[0]!.intensity+=.01;
+ await expect(studio.create(client,session,{draft:stale,requestId:crypto.randomUUID()})).rejects.toMatchObject({code:'DRAFT_INVALID'});
+ expect(query).not.toHaveBeenCalled();
+ expect(await studio.create(client,session,{draft,requestId:crypto.randomUUID()})).toMatchObject({revision:1,draft});
+ expect(query.mock.calls.length).toBeGreaterThan(0);
+});
 it('bounded ordinary viewport/save accepts exact room reflow and historical unknown undo while retaining saved-head and unrelated-field fences',async()=>{
  const draft=newDraft(),image=syntheticArtwork('image');
  for(let i=0;i<10;i++){const a=structuredClone(image);a.id=crypto.randomUUID();a.revisionId=crypto.randomUUID();a.assets[0]!.id=crypto.randomUUID();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`bounded-${i}.png`;a.assets[0]!.bytes=32*1024*1024;(draft.candidate.artworks as typeof a[]).push(a);}

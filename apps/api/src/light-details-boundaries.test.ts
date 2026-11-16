@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE as N,lightDetailsFor,setLightDetails,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE as N,lightDetailsFor,resizeRoomEnvelope,setLightDetails,validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
+import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {newLight} from '../../web/src/placement/model.ts';
 import {validateDraft} from '../../web/src/drafts/validator.ts';
 import {checkOexProfile,remapOex} from './oex.ts';
@@ -23,6 +24,24 @@ test.each(['auto','manual','unknown','removed'])('room base %s intent and off st
   expect(validateStudioLightDetails(candidate).valid).toBe(true);if(mode==='removed'){expect(candidate.lights).toEqual([]);expect(lightDetailsFor(candidate)).toEqual([]);}else{expect(candidate.lights[0]!.intensity).toBe(0);expect(candidate.lights[0]!.transform).toEqual(source.lights[0]!.transform);expect(lightDetailsFor(candidate)[0]).toEqual({...entry,lightId:candidate.lights[0]!.id});}
  }
  expect(source).toEqual(before);
+});
+
+test.each(['auto','manual'])('tagged %s ceiling fill and interior geometry survive Save and OEX projection',mode=>{
+ const draft=newDraft(),room=draft.candidate.rooms[0]!;
+ draft.candidate.surfaces=whiteCubeSurfaces(room);
+ let source=ensureRoomBaseLight(draft.candidate,room.id,undefined,0);
+ const face=source.surfaces.find(surface=>surface.type===(mode==='auto'?'wall':'ceiling'))!;
+ const interior={...structuredClone(face),id:crypto.randomUUID(),dimensions:{width:1,height:1},transform:{...face.transform,position:[0,1,0] as [number,number,number]}};
+ source=applyGeometryCommand({present:source,past:[],future:[]},{type:'add-surface',surface:interior}).present;
+ if(mode==='auto')source=resizeRoomEnvelope(source,room.id,{width:room.dimensions.width+1,height:room.dimensions.height+1,depth:room.dimensions.depth+1});
+ expect(validateDraft({...draft,candidate:source}).valid).toBe(true);
+ expect(()=>checkOexProfile(source)).not.toThrow();
+ for(const projected of [remapOex(source).exhibition,projectPublication(source,[],'2026-11-16T00:00:00.000Z').snapshot]){
+  expect(validateStudioLightDetails(projected).valid).toBe(true);
+  expect(lightDetailsFor(projected)[0]).toMatchObject({basePlacement:mode,ceilingFill:{version:1,brightness:0}});
+  expect(projected.lights[0]!.intensity).toBe(0);
+  expect(projected.surfaces.some(surface=>surface.type===interior.type&&surface.transform.position[1]===1&&surface.dimensions.width===1)).toBe(true);
+ }
 });
 
 test.each([true,false])('authored shadow intent %s survives draft validation and typed OEX/public projections',castsShadow=>{
