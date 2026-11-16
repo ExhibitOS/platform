@@ -6,6 +6,8 @@ import {ApiError,uuid,type Session} from './auth.ts';
 import {publicationDiskOwner,samePublicationDiskOwner} from './publication-attempt.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {createHash,randomUUID} from 'node:crypto';
+import {assertExactCurrentWorkspaceRailCatalog} from '../../../scripts/native-oex-normal-catalog.mjs';
+import {CURRENT_WORKSPACE_RAIL_OEX_FORMAT} from './oex-current-workspace-rail.ts';
 
 /** Runtime-private context issued only after the native workspace and exact
  * supplemental catalog have been checked. HTTP fields cannot select it. */
@@ -18,6 +20,7 @@ export interface NativeOexWorkspaceContext {
  readonly workspaceMaterials?:boolean;
  /** Inactive until an exact v6 runtime catalog issues the context. */
  readonly workspaceImport?:true;
+ readonly workspaceCurrentRail?:true;
  readonly workspaceWallImport?:true;
  readonly workspaceFurnishing?:true;
  readonly workspaceFurnishingWriter?:true;
@@ -45,6 +48,7 @@ export interface NativeOexWorkspaceContext {
  assertRecord(client:PoolClient,record:Readonly<{workspaceId:string;tenantId:string;principalId:string;importJobId:string;requestId:string;attemptId:string;claimSha256:string;payloadManifestSha256:string;sourceDatabaseSystemId:string;sourceDatabaseOid:string;sourceSha256:string;exhibitionId:string}>):Promise<void>;
 }
 const issuedWorkspaceImports=new WeakSet<NativeOexWorkspaceContext>();
+const issuedCurrentWorkspaceRailImports=new WeakSet<NativeOexWorkspaceContext>();
 export function isIssuedNativeWorkspaceImport(context:NativeOexWorkspaceContext){return issuedWorkspaceImports.has(context);}
 /** Passed only from a freshly authenticated native owner admission. This is a
  * snapshot pin, not authority to change or recreate a historical import. */
@@ -83,11 +87,15 @@ export function assertIssuedWorkspaceImport(context:NativeOexWorkspaceContext,ow
  if(!issuedWorkspaceImports.has(context)||!context.assertOwner)throw new ApiError(403,'FORBIDDEN');
  context.assertOwner(owner);
 }
+export function assertIssuedCurrentWorkspaceRailImport(context:NativeOexWorkspaceContext,owner:import('./publication-disk-budget.ts').DiskOwner){
+ if(!issuedCurrentWorkspaceRailImports.has(context))throw new ApiError(403,'FORBIDDEN');
+ assertIssuedWorkspaceImport(context,owner);
+}
 
 /** Issued by native bootstrap after validating FD0 workspace, catalog and
  * local owner; not an HTTP option. The frozen DB/store snapshot is rechecked
  * on every use. Prior claims are evidence only, not revived live authority. */
-export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string;restoredProvenance?:NativeRestoredProvenance|NativeCarriedRestoredProvenance;workspaceImport?:true;workspaceWallImport?:true;workspaceFurnishing?:true;workspaceFurnishingWriter?:true;workspaceFurnishingPublication?:true;workspaceMaterialPublication?:true;workspaceMaterialMultimap?:true;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspaceBenchBaseColorPreparation?:true;workspacePortalFinish?:true}):Promise<NativeOexWorkspaceContext>{
+export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string;restoredProvenance?:NativeRestoredProvenance|NativeCarriedRestoredProvenance;workspaceImport?:true;workspaceCurrentRail?:true;workspaceWallImport?:true;workspaceFurnishing?:true;workspaceFurnishingWriter?:true;workspaceFurnishingPublication?:true;workspaceMaterialPublication?:true;workspaceMaterialMultimap?:true;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspaceBenchBaseColorPreparation?:true;workspacePortalFinish?:true}):Promise<NativeOexWorkspaceContext>{
  const wantsBenchBaseColor=input.workspaceBenchBaseColorPreparation===true;
  if(wantsBenchBaseColor&&(input.workspaceFurnishingWriter!==true||input.workspaceArtworkFramePreparation!==true||
     input.workspaceInfoStandPreparation===true))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
@@ -105,6 +113,9 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  const expectedImport=[{name:'033_workspace_material_import_provenance.sql',sha256:'f69d3dc12d7b89f1a342daef1d7bca08787667efacdfca3d214d3101b051d1dd'},{name:'034_workspace_material_terminal_proof.sql',sha256:'ebf2300ef875b635617d82369f4c7cad4cbe6d8fa43677bdbd2e5e21dd74da21'}];
  const assertImportCatalog=async(client:PoolClient)=>{await assertCatalog(client);const expected=wantsWall?[...expectedImport,{name:'035_workspace_material_wall_import.sql',sha256:'c347183b3e58805c46d1dde7ae6e2defc37762af52f585846357181b9635a544'}]:expectedImport;const rows=(await client.query('SELECT name,sha256 FROM schema_migrations WHERE name IN ($1,$2,$3) ORDER BY name',[...expectedImport.map(x=>x.name),'035_workspace_material_wall_import.sql'])).rows;if(!isDeepStrictEqual(rows,expected))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
  if(wantsWorkspaceImport&&!isDeepStrictEqual(initial,workspaceCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(wantsWorkspaceImport)await assertImportCatalog(c);
+ const wantsCurrentRail=input.workspaceCurrentRail===true;
+ if(input.workspaceCurrentRail!==undefined&&(!wantsCurrentRail||!wantsWorkspaceImport||!wantsWall||!wantsWriter||!wantsFrameModels||input.restoredProvenance))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
+ if(wantsCurrentRail)await assertExactCurrentWorkspaceRailCatalog(c);
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
  const restored=restoreRowAuthority(input.restoredProvenance);
  if(restored){
@@ -138,13 +149,13 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  if(wantsFurnishing)await assertFurnishingCatalog(c);
  await assertInfoStandCatalog(c);
  await assertBenchBaseColorCatalog(c);
- const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);if(wantsWorkspaceImport)await assertImportCatalog(client);else await assertCatalog(client);if(wantsFurnishing)await assertFurnishingCatalog(client);await assertInfoStandCatalog(client);await assertBenchBaseColorCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
+ const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);if(wantsWorkspaceImport)await assertImportCatalog(client);else await assertCatalog(client);if(wantsFurnishing)await assertFurnishingCatalog(client);await assertInfoStandCatalog(client);await assertBenchBaseColorCatalog(client);if(wantsCurrentRail)await assertExactCurrentWorkspaceRailCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
  // Canonical journal records have a null prototype; compare their exact own
  // fields while retaining the issued-context and physical-owner checks.
- const context=Object.freeze({workspaceId,tenantId,principalId,...(wantsBenchBaseColor?{workspaceBenchBaseColorPreparation:true as const}:{}),...(wantsInfoStand?{workspaceInfoStandPreparation:true as const}:{}),matchesBlobRoot:(root:string)=>root===owner.storeRoot,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsFurnishing?{workspaceFurnishing:true as const}:{}),...(wantsWriter?{workspaceFurnishingWriter:true as const}:{}),...(wantsPublication?{workspaceFurnishingPublication:true as const}:{}),...(wantsMaterialPublication?{workspaceMaterialPublication:true as const}:{}),...(wantsMultimap?{workspaceMaterialMultimap:true as const}:{}),...(wantsStool?{workspaceFurnishingStool:true as const}:{}),...(wantsRoomVisual?{workspaceFurnishingRoomVisual:true as const}:{}),...(wantsFrame?{workspaceFurnishingArtworkFrame:true as const}:{}),...(wantsFrameModels?{workspaceFurnishingArtworkFrameModels:true as const}:{}),...(wantsFramePreparation?{workspaceArtworkFramePreparation:true as const}:{}),...(wantsPortal?{workspacePortalFinish:true as const}:{}),...(wantsWorkspaceImport?{workspaceImport:true as const,...(wantsWall?{workspaceWallImport:true as const}:{}),assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{const proto=candidate&&typeof candidate==='object'?Object.getPrototypeOf(candidate):undefined;if((proto!==null&&proto!==Object.prototype)||!isDeepStrictEqual({...candidate},owner)||!samePublicationDiskOwner(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,...(restored?{assertRestoredInventory:async(client:PoolClient)=>{await assertDatabase(client);await verifyRestoredInventory(client);}}:{}),assertRecord:async(client:PoolClient,record:Parameters<NativeOexWorkspaceContext['assertRecord']>[1])=>{
+ const context=Object.freeze({workspaceId,tenantId,principalId,...(wantsBenchBaseColor?{workspaceBenchBaseColorPreparation:true as const}:{}),...(wantsCurrentRail?{workspaceCurrentRail:true as const}:{}),...(wantsInfoStand?{workspaceInfoStandPreparation:true as const}:{}),matchesBlobRoot:(root:string)=>root===owner.storeRoot,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsFurnishing?{workspaceFurnishing:true as const}:{}),...(wantsWriter?{workspaceFurnishingWriter:true as const}:{}),...(wantsPublication?{workspaceFurnishingPublication:true as const}:{}),...(wantsMaterialPublication?{workspaceMaterialPublication:true as const}:{}),...(wantsMultimap?{workspaceMaterialMultimap:true as const}:{}),...(wantsStool?{workspaceFurnishingStool:true as const}:{}),...(wantsRoomVisual?{workspaceFurnishingRoomVisual:true as const}:{}),...(wantsFrame?{workspaceFurnishingArtworkFrame:true as const}:{}),...(wantsFrameModels?{workspaceFurnishingArtworkFrameModels:true as const}:{}),...(wantsFramePreparation?{workspaceArtworkFramePreparation:true as const}:{}),...(wantsPortal?{workspacePortalFinish:true as const}:{}),...(wantsWorkspaceImport?{workspaceImport:true as const,...(wantsWall?{workspaceWallImport:true as const}:{}),assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{const proto=candidate&&typeof candidate==='object'?Object.getPrototypeOf(candidate):undefined;if((proto!==null&&proto!==Object.prototype)||!isDeepStrictEqual({...candidate},owner)||!samePublicationDiskOwner(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,...(restored?{assertRestoredInventory:async(client:PoolClient)=>{await assertDatabase(client);await verifyRestoredInventory(client);}}:{}),assertRecord:async(client:PoolClient,record:Parameters<NativeOexWorkspaceContext['assertRecord']>[1])=>{
   await assertDatabase(client);if(record.workspaceId!==workspaceId||record.tenantId!==tenantId||record.principalId!==principalId)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
   if(record.sourceDatabaseSystemId!==owner.databaseSystemId||record.sourceDatabaseOid!==owner.databaseOid)await verifyRestoredInventory(client,record);
- }} satisfies NativeOexWorkspaceContext);if(wantsWorkspaceImport)issuedWorkspaceImports.add(context);return context;
+ }} satisfies NativeOexWorkspaceContext);if(wantsWorkspaceImport)issuedWorkspaceImports.add(context);if(wantsCurrentRail)issuedCurrentWorkspaceRailImports.add(context);return context;
 }
 
 /** Private default-native workspace binding for local file export. It does not
@@ -182,7 +193,7 @@ export async function hasNativeBoundedProvenance(c:PoolClient,s:Session,exhibiti
  if(result.rowCount===0)return false;
  if(result.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  const row=result.rows[0];
- const formatAllowed=isNativeOexFileFormat(row.oex_format)?(context.archiveFormats??['1.0.0-draft.9']).includes(row.oex_format):row.oex_format==='1.0.0-draft.12'&&issuedWorkspaceImports.has(context);
+ const formatAllowed=isNativeOexFileFormat(row.oex_format)?(context.archiveFormats??['1.0.0-draft.9']).includes(row.oex_format):row.oex_format==='1.0.0-draft.12'&&issuedWorkspaceImports.has(context)||row.oex_format===CURRENT_WORKSPACE_RAIL_OEX_FORMAT&&issuedCurrentWorkspaceRailImports.has(context);
  if(row.workspace_id!==context.workspaceId||row.principal_id!==s.userId||row.workspace_tenant!==s.tenantId||row.workspace_principal!==s.userId||row.user_id!==s.userId||row.archive_profile!=='bounded-file-v1'||row.job_profile!=='bounded-file-v1'||!formatAllowed||row.state!=='complete'||row.source_sha256!==row.payload_sha256||row.result_exhibition!==exhibitionId)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  await context.assertRecord(c,Object.freeze({workspaceId:context.workspaceId,tenantId:s.tenantId,principalId:s.userId,importJobId:row.import_job_id,requestId:row.request_id,attemptId:row.attempt_id,claimSha256:row.claim_sha256,payloadManifestSha256:row.payload_manifest_sha256,sourceDatabaseSystemId:row.source_database_system_id,sourceDatabaseOid:row.source_database_oid,sourceSha256:row.source_sha256,exhibitionId}));
  await context.assertDatabase(c);return true;
@@ -200,14 +211,14 @@ const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof
 function draftDigest(draft:unknown){return createHash('sha256').update(canonical(draft)).digest('hex');}
 /** The private caller MUST already hold the selected owner claim and PG
  * operation fence; assertLive revalidates that actual issued claim. */
-export async function issueNativeSelectedDraftGrant(c:PoolClient,s:Session,draft:unknown,input:SelectedBinding,assertLive:()=>Promise<void>,workspace?:{context:NativeOexWorkspaceContext;owner:import('./publication-disk-budget.ts').DiskOwner}):Promise<NativeSelectedDraftGrant>{
+export async function issueNativeSelectedDraftGrant(c:PoolClient,s:Session,draft:unknown,input:SelectedBinding,assertLive:()=>Promise<void>,workspace?:{context:NativeOexWorkspaceContext;owner:import('./publication-disk-budget.ts').DiskOwner;archiveFormat?:typeof CURRENT_WORKSPACE_RAIL_OEX_FORMAT}):Promise<NativeSelectedDraftGrant>{
  const binding=structuredClone(input),hex=/^[a-f0-9]{64}$/;
  for(const v of [binding.workspaceId,binding.tenantId,binding.principalId,binding.jobId,binding.attemptId,binding.exhibitionId]){uuid(v);if(v!==v.toLowerCase())throw new ApiError(403,'FORBIDDEN');}
  if(!draft||typeof draft!=='object'||(draft as {exhibitionId?:unknown}).exhibitionId!==binding.exhibitionId||binding.tenantId!==s.tenantId||binding.principalId!==s.userId||typeof assertLive!=='function'||![binding.sourceSha256,binding.claimSha256,binding.payloadManifestSha256].every(v=>hex.test(v))||![binding.sourceDatabaseSystemId,binding.sourceDatabaseOid].every(v=>/^[0-9]{1,24}$/.test(v)))throw new ApiError(403,'FORBIDDEN');
  const draftHash=draftDigest(draft);
- const verifyWorkspace=async()=>{if(workspace){assertIssuedWorkspaceImport(workspace.context,workspace.owner);if(workspace.context.workspaceId!==binding.workspaceId||workspace.context.tenantId!==s.tenantId||workspace.context.principalId!==s.userId||workspace.owner.databaseSystemId!==binding.sourceDatabaseSystemId||workspace.owner.databaseOid!==binding.sourceDatabaseOid)throw new ApiError(403,'FORBIDDEN');await workspace.context.assertDatabase(c);}};
+ const verifyWorkspace=async()=>{if(workspace){if(workspace.archiveFormat===CURRENT_WORKSPACE_RAIL_OEX_FORMAT)assertIssuedCurrentWorkspaceRailImport(workspace.context,workspace.owner);else if(workspace.archiveFormat===undefined)assertIssuedWorkspaceImport(workspace.context,workspace.owner);else throw new ApiError(403,'FORBIDDEN');if(workspace.context.workspaceId!==binding.workspaceId||workspace.context.tenantId!==s.tenantId||workspace.context.principalId!==s.userId||workspace.owner.databaseSystemId!==binding.sourceDatabaseSystemId||workspace.owner.databaseOid!==binding.sourceDatabaseOid)throw new ApiError(403,'FORBIDDEN');await workspace.context.assertDatabase(c);}};
  await assertLive();await verifyWorkspace();
- const r=await c.query("SELECT 1 FROM local_workspaces w JOIN oex_import_jobs j ON (j.tenant_id,j.user_id)=(w.tenant_id,w.user_id) WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND j.id=$4 AND j.state='processing' AND j.archive_profile='bounded-file-v1' AND j.oex_format = ANY($6::text[]) AND j.payload_sha256=$5 FOR UPDATE OF j",[binding.workspaceId,s.tenantId,s.userId,binding.jobId,binding.sourceSha256,workspace?['1.0.0-draft.12']:['1.0.0-draft.9','1.0.0-draft.10']]);
+ const r=await c.query("SELECT 1 FROM local_workspaces w JOIN oex_import_jobs j ON (j.tenant_id,j.user_id)=(w.tenant_id,w.user_id) WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND j.id=$4 AND j.state='processing' AND j.archive_profile='bounded-file-v1' AND j.oex_format = ANY($6::text[]) AND j.payload_sha256=$5 FOR UPDATE OF j",[binding.workspaceId,s.tenantId,s.userId,binding.jobId,binding.sourceSha256,workspace?[workspace.archiveFormat??'1.0.0-draft.12']:['1.0.0-draft.9','1.0.0-draft.10']]);
  if(r.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');await verifyWorkspace();await assertLive();
  const grant=Object.freeze(Object.create(null)) as NativeSelectedDraftGrant;
  grants.set(grant,{client:c,sessionId:s.id,binding:Object.freeze(binding),draftHash,used:false,recorded:false,assertLive});return grant;

@@ -3,8 +3,9 @@ import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import {withOexFileHandle,type OexReadHandle} from '@exhibitos/spec';
 import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
-import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
+import {packedCurrentWorkspaceRailOexInventory,packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
 import type {NativeOexFileFormat} from './oex-file-format.ts';
+import {bindCurrentWorkspaceRailResource,CURRENT_WORKSPACE_RAIL_OEX_FORMAT} from './oex-current-workspace-rail.ts';
 
 const MAX=512*1024*1024;
 const hex=/^[a-f0-9]{64}$/;
@@ -26,7 +27,10 @@ export function preflightOexSize(file:OexReadHandle,expected:{bytes:number;sha25
 export function preflightWorkspaceOexSize(file:OexReadHandle,expected:{bytes:number;sha256:string}){
  return preflight(file,expected,true) as Promise<Readonly<Evidence<'1.0.0-draft.12'>>>;
 }
-async function preflight(file:OexReadHandle,expected:{bytes:number;sha256:string},workspace:boolean){
+export function preflightCurrentWorkspaceRailOexSize(file:OexReadHandle,expected:{bytes:number;sha256:string}){
+ return preflight(file,expected,'current-rail') as Promise<Readonly<Evidence<typeof CURRENT_WORKSPACE_RAIL_OEX_FORMAT>>>;
+}
+async function preflight(file:OexReadHandle,expected:{bytes:number;sha256:string},scope:boolean|'current-rail'){
  const bytes=expected?.bytes,sha256=expected?.sha256;
  if(!file||!Number.isSafeInteger(bytes)||bytes<1||bytes>MAX||typeof sha256!=='string'||!hex.test(sha256))throw Error('OEX_PREFLIGHT_INPUT');
  const initial=await file.stat({bigint:true});
@@ -39,18 +43,30 @@ async function preflight(file:OexReadHandle,expected:{bytes:number;sha256:string
   return h.digest('hex');
  };
  if(await hashInput()!==sha256)throw Error('OEX_PREFLIGHT_HASH');
- const value=await withOexFileHandle(file,async({manifest,files})=>{
+ const value=await withOexFileHandle(file,async({manifest,exhibition,files})=>{
   // The installed Spec runtime exposes these counters; its public type omits
   // them, so fail closed if a different runtime does not provide safe values.
   const indexed=files as typeof files & {archiveBytes?:unknown;expandedBytes?:unknown};
   if(typeof indexed.archiveBytes!=='number'||typeof indexed.expandedBytes!=='number'||!Number.isSafeInteger(indexed.archiveBytes)||!Number.isSafeInteger(indexed.expandedBytes)||indexed.expandedBytes<0)throw Error('OEX_PREFLIGHT_LIMIT');
   const manifestBytes=await files.get('manifest.json'),exhibitionBytes=await files.get('exhibition.json');
   if(!manifestBytes||!exhibitionBytes)throw Error('OEX_PREFLIGHT_DOCUMENT');
-  const manifestSha256=digest(manifestBytes),decoded=(workspace?decodePackedWorkspaceOexDocuments:decodePackedOexDocumentsV2)(manifestBytes,manifestSha256,exhibitionBytes,digest(exhibitionBytes));
-  const inventory=(workspace?packedWorkspaceOexInventory:packedOexInventory)(decoded.manifest);let packedBytes=0;
+  const manifestSha256=digest(manifestBytes);
+  const current=scope==='current-rail';
+  let inventory:ReturnType<typeof packedOexInventory>;
+  if(current){
+   const {resource}=bindCurrentWorkspaceRailResource(manifest,exhibition);
+   inventory=packedCurrentWorkspaceRailOexInventory(manifest);
+   const body=await files.get(resource.path);
+   if(!body||body.byteLength!==resource.bytes||digest(body)!==resource.sha256)throw Error('OEX_PREFLIGHT_DOCUMENT');
+  }else{
+   const decoded=(scope?decodePackedWorkspaceOexDocuments:decodePackedOexDocumentsV2)(manifestBytes,manifestSha256,exhibitionBytes,digest(exhibitionBytes));
+   inventory=(scope?packedWorkspaceOexInventory:packedOexInventory)(decoded.manifest);
+  }
+  let packedBytes=0;
   for(const item of inventory.values()){packedBytes+=item.bytes;if(!Number.isSafeInteger(packedBytes)||packedBytes>MAX)throw Error('OEX_PREFLIGHT_LIMIT');}
-  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||(workspace?(manifest.formatVersion!=='1.0.0-draft.12'||manifest.archiveProfile!=='bounded-file-v1'):!isNativeOexFileManifest(manifest)))throw Error('OEX_PREFLIGHT_LIMIT');
-  return {archiveFormat:manifest.formatVersion,archiveBytes:indexed.archiveBytes,expandedBytes:indexed.expandedBytes,packedBytes,manifestSha256,entryCount:files.size};
+  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||
+    (!current&&(scope?(manifest.formatVersion!=='1.0.0-draft.12'||manifest.archiveProfile!=='bounded-file-v1'):!isNativeOexFileManifest(manifest))))throw Error('OEX_PREFLIGHT_LIMIT');
+  return {archiveFormat:current?CURRENT_WORKSPACE_RAIL_OEX_FORMAT:manifest.formatVersion,archiveBytes:indexed.archiveBytes,expandedBytes:indexed.expandedBytes,packedBytes,manifestSha256,entryCount:files.size};
  });
  if(await hashInput()!==sha256)throw Error('OEX_PREFLIGHT_HASH');
  return Object.freeze({...value,archiveSha256:sha256,inputDevice:initial.dev.toString(),inputInode:initial.ino.toString()});

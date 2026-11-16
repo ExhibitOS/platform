@@ -89,6 +89,26 @@ export async function verifyCurrentImageThumbnailMigration(path){
  const bytes=await regular(join(path,names[0]));if(bytes.length!==CURRENT_IMAGE_THUMBNAIL_BYTES||sha(bytes)!==CURRENT_IMAGE_THUMBNAIL_SHA256||!same(before,await directory(path)))throw Error('NATIVE_OEX_CATALOG');
  return bytes.toString('utf8');
 }
+export const CURRENT_WORKSPACE_RAIL_MIGRATION='053_oex_current_workspace_rail.sql';
+export const CURRENT_WORKSPACE_RAIL_SHA256='857547176c1149c25c04ad32003c2f148a907c6db7ed28ff1e7d7bb523086d16';
+export const CURRENT_WORKSPACE_RAIL_PARENT_SHA256='4745457a32f053697cfa3f91dba752a35526ff8e7a4c04890c6364e39c964a6d';
+export const CURRENT_WORKSPACE_RAIL_MARKER='native-oex-current-workspace-rail-capability-v1.json';
+export const CURRENT_WORKSPACE_RAIL_CAPABILITY=JSON.stringify({
+ format:1,kind:'exhibitos-native-oex-current-workspace-rail',protocol:'normal-oex-current-workspace-rail-v1',
+ ownerChannelVersion:3,archiveFormat:'1.0.0-draft.23',parentCatalogRows:47,parentCatalogSHA256:CURRENT_WORKSPACE_RAIL_PARENT_SHA256,catalogRows:48,
+ migration:CURRENT_WORKSPACE_RAIL_MIGRATION,migrationSHA256:CURRENT_WORKSPACE_RAIL_SHA256,
+})+'\n';
+export async function hasCurrentWorkspaceRailCapability(path){
+ try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(CURRENT_WORKSPACE_RAIL_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
+ catch(error){if(error?.code==='ENOENT')return false;throw error;}
+}
+export async function verifyCurrentWorkspaceRailMigration(path){
+ const before=await directory(path),names=(await readdir(path)).filter(name=>/^\d+.*\.sql$/.test(name));
+ if(names.length!==1||names[0]!==CURRENT_WORKSPACE_RAIL_MIGRATION)throw Error('NATIVE_OEX_CATALOG');
+ const bytes=await regular(join(path,names[0]));
+ if(sha(bytes)!==CURRENT_WORKSPACE_RAIL_SHA256||!same(before,await directory(path)))throw Error('NATIVE_OEX_CATALOG');
+ return bytes.toString('utf8');
+}
 export const INFO_STAND_PREPARATION_MIGRATION='048_workspace_info_stand_preparation.sql';
 export const INFO_STAND_PREPARATION_SHA256='5f41eba8cff108ee545e7454ca5ef3757087335c7650c95660ef1022d6698ca6';
 export const INFO_STAND_PREPARATION_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-info-stand-preparation',parentCatalog:45,migration:INFO_STAND_PREPARATION_MIGRATION,migrationSHA256:INFO_STAND_PREPARATION_SHA256})+'\n';
@@ -274,7 +294,7 @@ export function assertWorkspaceImportOwnerMode(mode,wallApplied){
 
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
-export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory}={}){
+export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory,currentWorkspaceRailDirectory}={}){
  if(gpuModelPreparationDirectory&&(!modelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory||workspaceFurnishingThumbnailDirectory))throw Error('NATIVE_OEX_CATALOG');
  if(workspaceFurnishingThumbnailDirectory&&(!modelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory||gpuModelPreparationDirectory))throw Error('NATIVE_OEX_CATALOG');
  if(currentImageThumbnailDirectory&&(!modelPreparationDirectory||gpuModelPreparationDirectory||infoStandPreparationDirectory||largeModelDirectory||freshImageDirectory))throw Error('NATIVE_OEX_CATALOG');
@@ -284,7 +304,11 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
   await assertBenchBaseColorLedger(ledger);
   await verifyBenchBaseColorMigration(benchBaseColorDirectory);
  }
- const rows=benchBaseColorDirectory?ledger.slice(0,-1):ledger;
+ if(currentWorkspaceRailDirectory){
+  checkCurrentWorkspaceRailLedger(ledger);
+  await verifyCurrentWorkspaceRailMigration(currentWorkspaceRailDirectory);
+ }
+ const rows=benchBaseColorDirectory||currentWorkspaceRailDirectory?ledger.slice(0,47):ledger;
  if(!Array.isArray(rows)||!rows.some(row=>row?.name===NORMAL_OEX_MIGRATION))return undefined;
  const base=await directory(migrationDirectory);const names=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
  const bothThumbnails=rows.length===47&&rows[45]?.name===WORKSPACE_FURNISHING_THUMBNAIL_MIGRATION&&rows[46]?.name===CURRENT_IMAGE_THUMBNAIL_MIGRATION;
@@ -344,6 +368,19 @@ export async function assertExactBenchBaseColorCatalog(client){
  const {rows}=await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
  await assertBenchBaseColorLedger(rows);
 }
+
+export async function assertExactCurrentWorkspaceRailCatalog(client){
+ const {rows}=await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
+ checkCurrentWorkspaceRailLedger(rows);
+}
+function checkCurrentWorkspaceRailLedger(rows){
+ if(!Array.isArray(rows)||rows.length!==48||rows[47]?.name!==CURRENT_WORKSPACE_RAIL_MIGRATION||rows[47]?.sha256!==CURRENT_WORKSPACE_RAIL_SHA256)throw Error('NATIVE_OEX_CATALOG');
+ checkCurrentWorkspaceRailParent(rows.slice(0,47));
+}
+export function checkCurrentWorkspaceRailParent(rows){
+ if(!Array.isArray(rows)||rows.length!==47||
+    sha(JSON.stringify(rows.map(({name,sha256})=>({name,sha256}))))!==CURRENT_WORKSPACE_RAIL_PARENT_SHA256)throw Error('NATIVE_OEX_CATALOG');
+}
 export const assertExactInfoStandPreparationCatalog=client=>assertExactModelSupplement(client,INFO_STAND_PREPARATION_MIGRATION,INFO_STAND_PREPARATION_SHA256);
 export const assertExactFreshImageCatalog=client=>assertExactModelSupplement(client,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256);
 export const assertExactLargeModelCatalog=client=>assertExactModelSupplement(client,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256);
@@ -362,14 +399,14 @@ export async function assertExactWorkspaceMaterialMultimapCatalog(client){
 
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
  * Caller holds migration 82001 in the surrounding transaction. */
-export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory}={}){
+export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory,currentWorkspaceRailDirectory}={}){
  const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
- if(!relation)return undefined;
+ if(!relation){if(currentWorkspaceRailDirectory)throw Error('NATIVE_OEX_CATALOG');return undefined;}
  const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  // Runtime activation is not wired yet. Never write or start against the new ledger.
  if(!allowWorkspaceMaterial&&rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION)||workspaceImportDirectory&&!allowWorkspaceMaterial)throw Error('NATIVE_OEX_CATALOG');
  const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
- if(!rows.some(row=>!names.has(row.name)))return undefined;
- const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory});
+ if(!rows.some(row=>!names.has(row.name))){if(currentWorkspaceRailDirectory)throw Error('NATIVE_OEX_CATALOG');return undefined;}
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory,workspaceMaterialPublicationDirectory,workspaceMaterialMultimapDirectory,workspaceFramePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,largeModelDirectory,freshImageDirectory,infoStandPreparationDirectory,workspaceFurnishingThumbnailDirectory,currentImageThumbnailDirectory,gpuModelPreparationDirectory,benchBaseColorDirectory,currentWorkspaceRailDirectory});
  if(!selected)throw Error('NATIVE_OEX_CATALOG');return selected;
 }

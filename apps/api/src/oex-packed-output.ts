@@ -2,6 +2,7 @@
 import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import type {FileHandle} from 'node:fs/promises';
+import {currentWorkspaceRailManifest} from './oex-current-workspace-rail.ts';
 
 const MAX_TOTAL=512*1024*1024,MAX_ENTRY=32*1024*1024,MAX_ENTRIES=254;
 const hex=/^[a-f0-9]{64}$/;
@@ -18,6 +19,11 @@ export function packedOexInventory(trustedManifest:unknown){
 export function packedWorkspaceOexInventory(trustedManifest:unknown){
  return inventory(trustedManifest,true);
 }
+export function packedCurrentWorkspaceRailOexInventory(trustedManifest:unknown){
+ const manifest=currentWorkspaceRailManifest(trustedManifest);
+ if(!manifest)throw Error('OEX_PACKED_OUTPUT');
+ return resourceInventory(manifest.workspaceFurnishingResources as unknown[]);
+}
 function inventory(trustedManifest:unknown,workspace:boolean){
  if(!trustedManifest||typeof trustedManifest!=='object'||Array.isArray(trustedManifest))throw Error('OEX_PACKED_OUTPUT');
  const trusted=trustedManifest as Record<string,unknown>;
@@ -26,6 +32,9 @@ function inventory(trustedManifest:unknown,workspace:boolean){
  for(const key of ['assets','floorResources','furnishingNotices','materialResources','footstepResources',...(workspace?['workspaceMaterialResources']:[])]){
   const part=trusted[key];if(part!==undefined&&!Array.isArray(part))throw Error('OEX_PACKED_OUTPUT');if(Array.isArray(part)){if(part.length>MAX_ENTRIES-inventory.length)throw Error('OEX_PACKED_OUTPUT');for(const entry of part)inventory.push(entry);}
  }
+ return resourceInventory(inventory);
+}
+function resourceInventory(inventory:unknown[]){
  const expected=new Map<string,{bytes:number;sha256:string}>();
  for(const item of inventory){
   if(!item||typeof item!=='object'||Array.isArray(item))throw Error('OEX_PACKED_OUTPUT');
