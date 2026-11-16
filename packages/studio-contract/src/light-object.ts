@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {resolveTrackSpotAiming} from './track-spot-aiming-resolver.js';
+import {validateTrackSpotAimBinding,type TrackSpotAimBinding} from './track-spot-aim-binding.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint,validateArtifactPose} from './artifact-affine.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {freezeCanonical} from './freeze.js';
 import {benchesFor} from './benches.js';
-import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
-import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,manualizeRoomBaseLight,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
+import {applyFurnishingCommand,furnishingAsset,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
+import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,manualizeRoomBaseLight,sameLightPose,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
 
 export type LightObjectCommand=
  |{type:'set-light-object';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>|null}
  |{type:'set-room-base-light-placement';lightId:string;basePlacement:'auto'|'manual'}
- |{type:'set-light-fixture';lightId:string;visual:null|{catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose}}
+ |{type:'set-light-fixture';lightId:string;visual:null|{catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose;trackAim?:TrackSpotAimBinding}}
  |{type:'duplicate-light-object';lightId:string}
  |{type:'remove-light-object';lightId:string};
 export interface LightObjectOptions {newLightId?:string;newAssetId?:string;verifiedBaseline?:Exhibition}
@@ -83,6 +85,12 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
   case 'set-light-object':{
    if(!closed(command,['type','lightId','light','settings'],['attachment'])||!object(command.light)||!object(command.settings)||Object.hasOwn(command.light,'id')||Object.hasOwn(command.settings,'lightId'))fail();
    next=setLightDetails(next,light.id,command.light,command.settings);
+   if(command.settings.trackAim){const result=resolveTrackSpotAiming(next,light.id);
+    if(!result.reachable){
+      const code='TRACK_SPOT_AIM_'+result.reason;
+      throw new Error(code,{cause:{code,remedy:result.remedy}});
+    }
+    const pose={position:[...result.emitter] as [number,number,number],rotation:[...result.headPose.rotation] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};if(!sameLightPose(command.light.transform,light.transform)&&!sameLightPose(command.light.transform,pose))fail('TRACK_SPOT_AIM_MOUNT_EDIT_REQUIRED');next.lights.find(v=>same(v.id,light.id))!.transform=pose;}
    if(Object.hasOwn(command,'attachment')){
     if(command.attachment!==null)next=manualizeRoomBaseLight(next,light.id);
     if(command.attachment===undefined||command.attachment!==null&&(!closed(command.attachment,['surfaceId','anchor','gap'])||Object.hasOwn(command.attachment,'lightId')))return fail();
@@ -102,6 +110,34 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
   }
   case 'set-light-fixture':{
    if(!closed(command,['type','lightId','visual']))fail();
+   if(command.visual?.catalogId==='museum-track-spot-articulated'){
+    const visual=command.visual;
+    if(!closed(visual,['catalogId','catalogVersion','pose','trackAim'])||visual.catalogVersion!==1||!validateTrackSpotAimBinding(visual.trackAim)||light.type!=='spot')fail('TRACK_SPOT_AIM_INVALID_BINDING');
+    // One known-source mode change on a detached candidate. Build the visual,
+    // mount intent and optics together before the unchanged complete admission;
+    // no intermediate candidate is written or granted a validation bypass.
+    const value=furnishingsFor(next)??{version:1 as const,assets:[],bindings:[]};
+    let asset=value.assets.find(a=>a.catalogId==='museum-track-spot-articulated');
+    if(!asset){const id=options.newAssetId??crypto.randomUUID();assertFreshId(next,id);asset=furnishingAsset(id,'museum-track-spot-articulated');value.assets.push(asset);}
+    const row={hostKind:'light' as const,hostId:light.id,assetId:asset.id,pose:structuredClone(visual.pose)},at=value.bindings.findIndex(b=>b.hostKind==='light'&&same(b.hostId,light.id));
+    if(at<0)value.bindings.push(row);else value.bindings[at]=row;
+    value.assets=value.assets.filter(a=>value.bindings.some(b=>same(b.assetId,a.id)));
+    next.extensions={...next.extensions,[FURNISHING_NAMESPACE]:value as unknown as NonNullable<Exhibition['extensions']>[string]};
+    const details=lightDetailsFor(next),index=details.findIndex(b=>same(b.lightId,light.id)),prior=settingsFor(next,light.id);
+    if(prior.purpose!==undefined||prior.basePlacement!==undefined)fail('TRACK_SPOT_AIM_INVALID_BINDING');
+    const {aim:oldAim,trackAim:oldTrack,...retained}=prior;void oldAim;void oldTrack;
+    const entry:LightDetails={...retained,lightId:light.id,fixture:'none',trackAim:structuredClone(visual.trackAim)};
+    if(index<0)details.push(entry);else details[index]=entry;writeBindings(next,LIGHT_DETAILS_NAMESPACE,details);
+    if(next.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,lightAttachmentsFor(next).filter(b=>!same(b.lightId,light.id)));
+    const result=resolveTrackSpotAiming(next,light.id);
+    if(!result.reachable){
+      const code='TRACK_SPOT_AIM_'+result.reason;
+      throw new Error(code,{cause:{code,remedy:result.remedy}});
+    }
+    next.lights.find(v=>same(v.id,light.id))!.transform={position:[...result.emitter],rotation:[...result.headPose.rotation],scale:[1,1,1]};
+    break;
+   }
+   if(settingsFor(next,light.id).trackAim)fail('TRACK_SPOT_AIM_EXPLICIT_MODE_CHANGE_REQUIRED');
    if(command.visual===null){
     next=applyFurnishingCommand(next,{type:'remove-furnishing-visual',hostKind:'light',hostId:light.id});
     next=setLightDetails(next,light.id,lightFields(light),{...settingsFor(next,light.id),fixture:'none'});
@@ -125,7 +161,10 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
   }
   case 'remove-light-object':{
    if(!closed(command,['type','lightId']))fail();assertNoForeignReference(next,light.id);
-   next=applyFurnishingCommand(next,{type:'remove-furnishing-visual',hostKind:'light',hostId:light.id});
+   if(settingsFor(next,light.id).trackAim){
+    const value=furnishingsFor(next)!;value.bindings=value.bindings.filter(b=>b.hostKind!=='light'||!same(b.hostId,light.id));value.assets=value.assets.filter(a=>value.bindings.some(b=>same(b.assetId,a.id)));
+    if(value.bindings.length)next.extensions![FURNISHING_NAMESPACE]=value as unknown as NonNullable<Exhibition['extensions']>[string];else delete next.extensions![FURNISHING_NAMESPACE];
+   }else next=applyFurnishingCommand(next,{type:'remove-furnishing-visual',hostKind:'light',hostId:light.id});
    next.lights=next.lights.filter(v=>!same(v.id,light.id));
    for(const [namespace,bindings]of[[LIGHT_DETAILS_NAMESPACE,lightDetailsFor(next)],[LIGHT_ATTACHMENT_NAMESPACE,lightAttachmentsFor(next)]] as const)if(next.extensions?.[namespace]!==undefined)writeBindings(next,namespace,bindings.filter(v=>!same(v.lightId,light.id)));
    break;

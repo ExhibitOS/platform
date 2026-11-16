@@ -15,7 +15,8 @@ type Functional = Evidence & (
       readonly seats: readonly { readonly point: Point; readonly designation: 'authored-virtual-seat';
         readonly directSurfaceContactVerified: boolean; readonly measuredVerticalContactY?: number }[] }
   | { readonly kind: 'light'; readonly apertureCentre: Point; readonly apertureDesignation: 'authored-reference';
-      readonly aim: Point; readonly pivot?: Point; readonly pivotAxis?: Point; readonly opaqueLensContact: Point }
+      readonly aim: Point; readonly pivot?: Point; readonly pivotAxis?: Point; readonly opaqueLensContact: Point;
+      readonly articulation?: {readonly version:1;readonly profile:'track-spot-aim-v1';readonly swivel:{readonly pivot:Point;readonly axis:Point;readonly intervals:readonly (readonly [number,number])[]};readonly pitch:{readonly pivot:Point;readonly axis:Point;readonly intervals:readonly (readonly [number,number])[]};readonly frames:{readonly fixed:readonly string[];readonly yoke:readonly string[];readonly head:readonly string[]}} }
   | { readonly kind: 'portal'; readonly front: Point;
       readonly clearOpening: { readonly width: number; readonly height: number; readonly depth: number };
       readonly interiorTriangleIntersections: 0; readonly parts: readonly { readonly name: string; readonly bounds: Bounds }[];

@@ -3,7 +3,9 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import * as three from 'three';
 import {describe,expect,it,vi} from 'vitest';
-import {furnishingAsset,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {furnishingAsset,furnishingCatalogueEntry,resolveTrackSpotAiming} from '@exhibitos/studio-contract';
+import {articulatedTrackSpotCandidate,lightId as articulatedLightId} from '../../../../packages/studio-contract/test-fixtures/articulated-track-spot.js';
+import {ARTICULATED_TRACK_SPOT_PROFILE as articulatedProfile} from '../../../../packages/studio-contract/src/track-spot-articulated-profile.js';
 import {museumTrackSpotProfile} from '../../../../packages/studio-contract/src/track-spot-profile.js';
 import {resolveWallwasherMountHead} from '../../../../packages/studio-contract/src/wallwasher-mount-head.js';
 import {sceneResourceAssetCost} from '../viewer/scene-resource-asset-cost';
@@ -14,6 +16,7 @@ import {createTrackSpotRenderSource} from './track-spot-render-source';
 import {loadCatalogModel} from './catalog-furnishing-loader';
 import {FURNISHING_RESERVE_BYTES,installCatalogOtherVisuals} from './catalog-bench-renderer';
 import {recordCatalogDecodeRetirement,retiredCatalogDecodeBytes} from './catalog-decode-ownership';
+import {geometryResidentBytes} from '../viewer/loading';
 
 const identity={position:[0,0,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]};
 describe.each(['museum-track-spot','museum-track-spot-fixed-64p1'] as const)('%s',catalogId=>{
@@ -69,6 +72,7 @@ it('keeps actual source triangles, normals, materials, aperture, collision and r
   expect(lens.material).not.toBe(sourceLens.material);expect(lens.geometry).toBe(sourceLens.geometry);
  }finally{visual.dispose();owner.dispose();}
 });
+
 it('shares only immutable source/merged buffers across14 independently posed fixtures within the unchanged4MiB hold',async()=>{
  const {source}=await input(),original=await loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES),release=vi.spyOn(original,'dispose'),owner=createTrackSpotRenderSource(three,original,asset),scene=new three.Scene();
  let used=owner.baseResident;const visuals:ReturnType<typeof owner.instantiate>[]=[],lenses:three.Mesh[]=[];
@@ -142,4 +146,77 @@ it('admits nine corrected fixtures and five preserved originals together within 
   for(const {source}of sources){expect(source.fetcher).toHaveBeenCalledOnce();expect(source.check).toHaveBeenCalled();}
  }finally{runtime.dispose();loading.mockRestore();}
  expect(room.children).toHaveLength(0);
+});
+
+describe('museum-track-spot-articulated real source',()=>{
+ const asset=furnishingAsset('10000000-0000-4000-8000-000000000001','museum-track-spot-articulated'),entry=furnishingCatalogueEntry(asset.catalogId);
+ function resolved(i=0){
+  const {candidate,trackAim}=articulatedTrackSpotCandidate();
+  trackAim.aim={kind:'manual',yaw:(i%7-3)*.3,pitch:-.2-i*.07};
+  // The command stores a detached intent; edit the actual saved detail.
+  const details=candidate.extensions!['org.exhibitos.studio/light-details'] as unknown as {lights:{trackAim:typeof trackAim}[]};details.lights[0]!.trackAim.aim=trackAim.aim;
+  const pose=resolveTrackSpotAiming(candidate,articulatedLightId);if(!pose.reachable)throw Error(pose.reason);return pose;
+ }
+ async function input(){
+  const bytes=await readFile(entry.path),source={url:'/qualified-articulated',check:vi.fn(async()=>{}),fetcher:vi.fn(async()=>new Response(bytes))};
+  expect(bytes.length).toBe(225328);expect(createHash('sha256').update(bytes).digest('hex')).toBe(articulatedProfile.modelSha256);
+  const original=await loadCatalogModel(three,entry,source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES);
+  return {bytes,source,original};
+ }
+ function triangles(root:three.Object3D){
+  root.updateWorldMatrix(true,true);const rows:{material:string;values:number[]}[]=[];
+  root.traverse(node=>{if(!(node instanceof three.Mesh))return;const m=node.material as three.MeshStandardMaterial,g=node.geometry,p=g.getAttribute('position'),n=g.getAttribute('normal'),index=g.index,count=index?.count??p.count,normals=new three.Matrix3().getNormalMatrix(node.matrixWorld);
+   const material=JSON.stringify([m.name,m.color.toArray(),m.emissive.toArray(),m.roughness,m.metalness,m.side,m.opacity]);
+   for(let i=0;i<count;i+=3){const values:number[]=[];for(let j=0;j<3;j++){const k=index?.getX(i+j)??i+j;values.push(...new three.Vector3().fromBufferAttribute(p,k).applyMatrix4(node.matrixWorld).toArray(),...new three.Vector3().fromBufferAttribute(n,k).applyNormalMatrix(normals).toArray());}rows.push({material,values});}
+  });
+  return rows.sort((a,b)=>{const material=a.material.localeCompare(b.material);if(material)return material;for(let i=0;i<a.values.length;i++){const d=a.values[i]!-b.values[i]!;if(Math.abs(d)>1e-6)return d;}return 0;});
+ }
+ it('batches the actual fourteen parts per frame into eight draws without changing triangles, normals, rays or buffers',async()=>{
+  const {original}=await input(),sourceNodes=[...original.model.children] as three.Mesh[],backings=sourceNodes.map(n=>Object.values(n.geometry.attributes).map(a=>a.array.slice())),owner=createTrackSpotRenderSource(three,original,asset),pose=resolved(3),reference=original.model.clone(true);
+  applyWallwasherModelPose(three,reference,asset,pose);const visual=owner.instantiate(pose,FURNISHING_RESERVE_BYTES-owner.baseResident);
+  try{
+   expect(existingSceneCost(three,reference)).toEqual({draws:14,triangles:5544});expect(existingSceneCost(three,visual.model)).toEqual({draws:8,triangles:5544});
+   const a=triangles(reference),b=triangles(visual.model);expect(b).toHaveLength(a.length);
+   for(let i=0;i<a.length;i++){expect(b[i]!.material).toBe(a[i]!.material);for(let j=0;j<a[i]!.values.length;j++)expect(Math.abs(a[i]!.values[j]!-b[i]!.values[j]!)).toBeLessThan(1e-6);}
+   const [fixed,yoke,head]=visual.model.children;expect(fixed!.position.toArray()).toEqual(pose.fixedPose.position);expect(yoke!.quaternion.toArray()).toEqual(pose.yokePose.rotation);expect(head!.quaternion.toArray()).toEqual(pose.headPose.rotation);
+   const aperture=new three.Vector3(...articulatedProfile.geometry.opticalA).applyMatrix4(head!.matrixWorld);expect(aperture.distanceTo(new three.Vector3(...pose.emitter))).toBeLessThan(1e-7);
+   const lens=head!.children.find(n=>n.userData.name==='Lens_opaque') as three.Mesh,centre=new three.Box3().setFromObject(lens).getCenter(new three.Vector3()),normal=new three.Vector3().fromBufferAttribute(lens.geometry.getAttribute('normal'),0).applyNormalMatrix(new three.Matrix3().getNormalMatrix(lens.matrixWorld)),ray=new three.Raycaster(centre.clone().addScaledVector(normal,.3),normal.clone().negate());
+   const oldHits=ray.intersectObject(reference,true),newHits=ray.intersectObject(visual.model,true);expect(oldHits.length).toBeGreaterThan(0);expect(newHits.length).toBe(oldHits.length);expect(newHits[0]!.distance).toBeCloseTo(oldHits[0]!.distance,6);
+   const before=furnishingCollisionMesh(three,reference)!,after=furnishingCollisionMesh(three,visual.model)!;expect(after.indices.length).toBe(before.indices.length);expect(after.vertices.length).toBe(before.vertices.length);
+   expect(original.model.children).toEqual(sourceNodes);expect(original.model.parent).toBeNull();
+   for(const [i,node]of sourceNodes.entries())for(const [j,a]of Object.values(node.geometry.attributes).entries())expect(a.array).toEqual(backings[i]![j]);
+   expect(lens.geometry).toBe(sourceNodes.find(n=>n.userData.name==='Lens_opaque')!.geometry);expect(lens.material).not.toBe(sourceNodes.find(n=>n.userData.name==='Lens_opaque')!.material);
+  }finally{visual.dispose();owner.dispose();}
+ });
+ it('accounts for three frame nodes, exact merged buffers and one independent lens per instance, retaining source ownership until disposal',async()=>{
+  const {original}=await input(),release=vi.spyOn(original,'dispose'),owner=createTrackSpotRenderSource(three,original,asset),scene=new three.Scene(),visuals:ReturnType<typeof owner.instantiate>[]=[],lenses:three.Mesh[]=[];
+  try{
+   expect(owner.baseResident).toBe(original.resident-retiredCatalogDecodeBytes(three,original.model,asset.bytes)+15*4096);
+   let used=owner.baseResident,firstGrowth=0;
+   for(let i=0;i<14;i++){
+    const shared=owner.sharedResident(),visual=owner.instantiate(resolved(i),FURNISHING_RESERVE_BYTES-used),growth=owner.sharedResident()-shared;used+=growth+visual.resident;visuals.push(visual);scene.add(visual.model);
+    expect(visual.resident).toBe((15+3+4+2)*4096);
+    if(i===0){firstGrowth=growth;let mergedBytes=0;visual.model.traverse(n=>{if(n instanceof three.Mesh&&!n.userData.name)mergedBytes+=geometryResidentBytes([...Object.values(n.geometry.attributes),n.geometry.index!]);});expect(growth).toBe(mergedBytes);expect(growth).toBeGreaterThan(0);}else expect(growth).toBe(0);
+    visual.model.traverse(n=>{if(n instanceof three.Mesh&&n.userData.name==='Lens_opaque')lenses.push(n);});
+   }
+   expect(owner.sharedResident()).toBe(firstGrowth);expect(existingSceneCost(three,scene)).toEqual({draws:112,triangles:77616});expect(used).toBeLessThan(FURNISHING_RESERVE_BYTES);
+   expect(new Set(lenses.map(n=>n.material)).size).toBe(14);const first=lenses[0]!.material as three.MeshStandardMaterial,second=lenses[1]!.material as three.MeshStandardMaterial;first.emissive.setRGB(1,0,0);expect(second.emissive.r).toBe(0);
+   const lensDisposal=lenses.map(n=>vi.spyOn(n.material as three.Material,'dispose'));
+   const geometries=new Set<three.BufferGeometry>();scene.traverse(n=>{if(n instanceof three.Mesh)geometries.add(n.geometry);});expect(geometries.size).toBe(8);const disposed=[...geometries].map(g=>vi.spyOn(g,'dispose'));
+   visuals[0]!.dispose();visuals[0]!.dispose();expect(release).not.toHaveBeenCalled();expect(scene.children).toHaveLength(13);expect(lensDisposal[0]).toHaveBeenCalledOnce();expect(lensDisposal[1]).not.toHaveBeenCalled();
+   owner.dispose();owner.dispose();expect(scene.children).toHaveLength(0);expect(release).toHaveBeenCalledOnce();for(const spy of [...disposed,...lensDisposal])expect(spy).toHaveBeenCalledOnce();
+  }finally{owner.dispose();}
+ });
+ it('rolls back capacity and invalid-solution failures without source mutations or merged growth and keeps unproved decode allowances',async()=>{
+  const {original}=await input(),nodes=[...original.model.children],owner=createTrackSpotRenderSource(three,original,asset),noProof=createTrackSpotRenderSource(three,{...original,model:original.model.clone(true),dispose:()=>{}},asset);
+  try{
+   expect(noProof.baseResident).toBe(original.resident+15*4096);
+   expect(()=>owner.instantiate(resolved(),0)).toThrow('CATALOG_BUDGET');expect(()=>owner.instantiate(resolved(),(15+3+4+2)*4096)).toThrow('CATALOG_BUDGET');
+   const wrong=structuredClone(resolved());wrong.emitter=[0,0,0];expect(()=>owner.instantiate(wrong,FURNISHING_RESERVE_BYTES)).toThrow('WALLWASHER_MODEL_PROFILE_INVALID');
+   expect(owner.sharedResident()).toBe(0);expect(original.model.children).toEqual(nodes);
+   expect(()=>createTrackSpotRenderSource(three,original,{...asset,sha256:'0'.repeat(64)})).toThrow('TRACK_SPOT_AIM_SOURCE_MISMATCH');
+   const visual=owner.instantiate(resolved(),FURNISHING_RESERVE_BYTES-owner.baseResident);expect(existingSceneCost(three,visual.model)).toEqual({draws:8,triangles:5544});
+   const retained=owner.sharedResident();expect(()=>owner.instantiate(resolved(1),visual.resident-1)).toThrow('CATALOG_BUDGET');expect(owner.sharedResident()).toBe(retained);expect(existingSceneCost(three,visual.model)).toEqual({draws:8,triangles:5544});visual.dispose();
+  }finally{noProof.dispose();owner.dispose();}
+ });
 });

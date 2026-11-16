@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {resolveTrackSpotAiming} from './track-spot-aiming-resolver.js';
 import {REFINED_BENCH} from './refined-bench.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {PREPARED_SHARED_FIXTURES} from './prepared-shared-fixture.js';
@@ -20,6 +21,7 @@ export const SUPPORTED_FURNISHINGS=Object.freeze({
  'sculpture-bench-refined':'bench',
  'museum-track-spot':'light',
  'museum-track-spot-fixed-64p1':'light',
+ 'museum-track-spot-articulated':'light',
  'recessed-downlight':'light',
  'museum-wallwasher':'light',
  'museum-wallwasher-rear-relief':'light',
@@ -67,6 +69,7 @@ function pedestal(e:UserAssetCatalogueEntry,p:FurnishingPose){return {kind:'box'
  * light origin is its luminous aperture, independently of the opaque lens. */
 export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:FurnishingAsset){
  const source=furnishingCatalogueEntry(asset.catalogId),pose=furnishingPoseTransform(b.pose);let roomId:string,parent=identity();
+ if(asset.catalogId==='museum-track-spot-articulated'){const articulated=resolveTrackSpotAiming(e,b.hostId);if(!articulated.reachable)throw Error('TRACK_SPOT_AIM_'+articulated.reason);return {source,roomId:articulated.roomId,parent:identity(),pose:identity(),mountProfile:articulated.profile,articulated};}
  if(asset.catalogId==='museum-wallwasher-rear-relief'||asset.catalogId==='museum-track-spot-fixed-64p1'||isMuseumTrackSpotCatalogId(asset.catalogId)&&trackSpotStaticRailContext(e,b.hostId))return resolveCoupledWallwasher(e,b,asset,source);
  if(b.hostKind==='bench'){
   const bench=benchesFor(e).find(v=>same(v.id,b.hostId));if(!bench||bench.workspaceVisual)throw Error('FURNISHING_REFERENCE');roomId=bench.roomId;
