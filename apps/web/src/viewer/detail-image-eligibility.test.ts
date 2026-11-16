@@ -22,6 +22,10 @@ it('binds the R285 original to the measured Chrome 157 runtime and exact project
  expect(matchesMeasuredWheatImage(r285,{...attestation,indexSha256:a},gallery)).toBe(false);
  expect(matchesMeasuredWheatImage(r285,attestation,{...gallery,devicePixelRatio:2})).toBe(false);
  expect(matchesMeasuredWheatImage({...r285,maxSceneBytes:r285.maxSceneBytes+1},attestation,gallery)).toBe(false);
+ const mismatchedProjection={...attestation,indexSha256:a,publicationSha256:b};
+ const legacyBounds={...r285,staticIndexSha256:a,publicationSha256:b,candidateId:'other',maxSceneBytes:104857600,transitionCapBytes:536870912};
+ expect(matchesMeasuredWheatImage(legacyBounds,mismatchedProjection,gallery)).toBe(false);
+ expect(matchesMeasuredWheatImage({...legacyBounds,runtime:wingedR12Wheat.runtime},mismatchedProjection,gallery)).toBe(false);
  expect(qualifiedDetailImageProfile(revision,wingedR12Wheat.artworkRevisionId)).toBeUndefined();
  expect(qualifiedDetailImageProfile(wingedR12Wheat.revisionSha256,artworkRevisionId)).toBeUndefined();
  const earlierAttestation:DetailProjectionBinding={
