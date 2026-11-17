@@ -5,7 +5,8 @@ import {isAbsolute} from 'node:path';
 import {exportNativeDetailStage} from './export-static-publication.mjs';
 
 /** Owner-bound protocol orchestration; the server remains source authority. */
-export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportNativeDetailStage,overallSignal=AbortSignal.timeout(720000)}){
+export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportNativeDetailStage,overallSignal=AbortSignal.timeout(720000),onPhase=()=>{}}){
+ onPhase('startup');
  if(output!=='.'||typeof runtimeRoot!=='string'||!isAbsolute(runtimeRoot))throw Error('NATIVE_DETAIL_STAGE');
  const pipe=nativeDetailPipe(input,{origin,publicationId}),outputAbort=new AbortController(),phaseAbort=new AbortController(),signal=AbortSignal.any([pipe.signal,outputAbort.signal,phaseAbort.signal,overallSignal]);let startup,control,finished=false;
  // Finite copy allowance, then one nonrenewable handoff allowance. The pipe's
@@ -19,17 +20,20 @@ export async function runNativeDetailExport({origin,publicationId,runtimeRoot,ou
   await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);if(error)reject(error);else resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}stdout.write(frame,error=>{if(error)outputAbort.abort();finish(error);});});signal.throwIfAborted();
  };
  try{
-  startup=await pipe.takeStartup();signal.throwIfAborted();control=controlFactory(startup,signal);const descriptors=await control.prepare();if(!Array.isArray(descriptors))throw Error('NATIVE_DETAIL_UNAVAILABLE');signal.throwIfAborted();
+  startup=await pipe.takeStartup();signal.throwIfAborted();onPhase('prepare');control=controlFactory(startup,signal);const descriptors=await control.prepare();if(!Array.isArray(descriptors))throw Error('NATIVE_DETAIL_UNAVAILABLE');signal.throwIfAborted();
+  onPhase('export');
   const receipt=await exporter({origin,publicationId,runtimeRoot,output,privateEditor,signal,detail:{descriptors,readCandidate:entry=>control.readCandidate(entry)}});signal.throwIfAborted();
   if(receipt.publicationId!==publicationId||receipt.revisionSha256!==startup.revisionSha256||!/^[a-f0-9]{64}$/.test(receipt.manifestSha256))throw Error('NATIVE_DETAIL_RECEIPT');
   if(descriptors.length&&(!Array.isArray(receipt.detailPlan?.entries)||receipt.detailPlan.entries.length!==descriptors.length||descriptors.some(item=>!receipt.detailPlan.entries.some(entry=>entry.assetId===item.assetId&&entry.mime===item.mime))))throw Error('NATIVE_DETAIL_RECEIPT');
   // The exporter has awaited all writes and closes before returning. Manager
   // verifies and fsyncs through its pinned descriptors after this boundary.
+  onPhase('ack');
   const ack=pipe.expectAck(startup.jobId,receipt.manifestSha256);
   await send({version:1,kind:'staged',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});
   clearTimeout(phaseTimer);phaseTimer=setTimeout(()=>phaseAbort.abort(Error('NATIVE_DETAIL_HANDOFF_TIMEOUT')),120000);phaseTimer.unref();
   await new Promise((resolve,reject)=>{const abort=()=>{signal.removeEventListener('abort',abort);reject(Error('NATIVE_DETAIL_CANCELLED'));};signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}ack.then(()=>{signal.removeEventListener('abort',abort);resolve();},error=>{signal.removeEventListener('abort',abort);reject(error);});});signal.throwIfAborted();
-  await control.finalCheck(receipt.detailPlan);await control.settled();signal.throwIfAborted();
+  onPhase('final-check');await control.finalCheck(receipt.detailPlan);onPhase('settle');await control.settled();signal.throwIfAborted();
+  onPhase('ready');
   await send({version:1,kind:'ready',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});signal.throwIfAborted();pipe.finish();finished=true;
  }finally{
   clearTimeout(phaseTimer);
