@@ -438,7 +438,7 @@ export class Studio {
         result=nativeLightObjectProposal(draft.candidate,command,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
         checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});
       }
-      else if(request.type==='set-pedestal'||request.type==='add-light')result=nativeSceneProposal(draft.candidate,request);
+      else if(request.type==='set-pedestal'||request.type==='add-light'||request.type==='add-room-supplemental-ceiling-fill')result=nativeSceneProposal(draft.candidate,request);
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){

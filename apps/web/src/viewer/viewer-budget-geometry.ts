@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import * as three from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
-import {surfacePanels,wallFinishesFor,floorFor,furnishingsFor,resolveFurnishing,WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,frameAttachmentMetricFit,artworkFrameModel,artworkFrameFit,portalFinishModel,benchesFor,lightDetailsFor,spaceLightingFor,resolveViewerBudgetPolicy,freezeCanonical,daylightFor,daylightDirection,type ViewerBudgetGeometryInput,type ViewerBudgetGeometryResult,type ViewerBudgetAssetReference,type ViewerBudgetUsage,type WorkspaceFurnishings,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import {surfacePanels,wallFinishesFor,floorFor,furnishingsFor,resolveFurnishing,WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,frameAttachmentMetricFit,artworkFrameModel,artworkFrameFit,portalFinishModel,benchesFor,spaceLightingFor,resolveViewerBudgetPolicy,freezeCanonical,daylightFor,daylightDirection,type ViewerBudgetGeometryInput,type ViewerBudgetGeometryResult,type ViewerBudgetAssetReference,type ViewerBudgetUsage,type WorkspaceFurnishings,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {workspaceFitGeometry,qualifiedRectangularPortalTarget,qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models';
 import {isMuseumTrackSpotCatalogId} from '@exhibitos/studio-contract';
 import {recordCatalogDecodeRetirement} from '../private-editor/catalog-decode-ownership';
 import {installDecor} from '../installation-renderer';
 import {installBenches} from '../bench-renderer';
 import {installArchitecturalFinishes} from '../architectural-finishes-renderer';
-import {installLightDetails} from '../light-details-renderer';
+import {hasAuthoredGalleryLighting,installLightDetails} from '../light-details-renderer';
 import {installPlaques,plaqueTextureReserve} from '../plaque-renderer';
 import {environmentEstimate} from './render-quality';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from '../workspace-furnishing/frame-pose';
@@ -174,7 +174,7 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
   let shadow:ShadowReport|undefined;
   if(spatialComplete){
    const candidates:ShadowCandidate[]=[];for(const item of candidate.lights){const light=lights.get(item.id)!.light,room=rooms.get(item.roomId.toLowerCase());if(room&&(light instanceof three.SpotLight||light instanceof three.DirectionalLight))candidates.push({light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId});}
-   const roomBase=new Set(lightDetailsFor(candidate).filter(row=>row.purpose==='room-base').map(row=>row.lightId.toLowerCase())),hasAuthored=candidate.lights.some(light=>!roomBase.has(light.id.toLowerCase()));
+   const hasAuthored=hasAuthoredGalleryLighting(candidate);
    const sun=new three.DirectionalLight(0xffffff,spaceLightingFor(candidate)||hasAuthored?0:3),daylight=daylightFor(candidate);if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100));sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20,30,25);scene.add(sun);for(const room of rooms.values())candidates.push({light:sun,room});
    const world=new three.Box3();for(const group of surfaces.values())world.expandByObject(group);const fixed=!world.isEmpty()&&Math.max(...world.getSize(new three.Vector3()).toArray())<=32?world:undefined;
    const renderer={shadowMap:{enabled:false,autoUpdate:true,type:three.PCFShadowMap}} as unknown as three.WebGLRenderer;

@@ -4,6 +4,14 @@ import type {Exhibition} from '@exhibitos/spec';
 import {coupleFixtureEmission} from './fixture-emission';
 import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
 
+/** Local defaults and contained fills do not select the exhibition-wide fallback. */
+export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
+  const localLights = new Set(lightDetailsFor(document)
+    .filter(details => details.purpose === 'room-base' || details.ceilingFill)
+    .map(details => details.lightId.toLowerCase()));
+  return document.lights.some(light => !localLights.has(light.id.toLowerCase()));
+}
+
 /** Opt-in bodies are simple non-shadow-casting visual geometry, not an optical model.
  * Stored RGB remains authoritative. No K conversion, new light or shadow is created here.
  */
