@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {ensureRoomBaseLight, lightDetailsFor, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
@@ -26,13 +26,14 @@ function fixture(supplemental = false) {
     const pointDocument = ensureRoomBaseLight(draft, roomId);
     const base = pointDocument.lights[0]!;
     const point = new three.PointLight(0xffffff, base.intensity, 10);
-    const details = lightDetailsFor(document)[0]!;
+    const area = document.lights[0]!;
     document.lights.unshift(base);
     document.extensions = {...document.extensions, [LIGHT_DETAILS_NAMESPACE]: {
       version: 1,
       lights: [
         {lightId: base.id, fixture: 'none', purpose: 'room-base', range: 10},
-        {...details, purpose: 'room-supplemental-fill'},
+        {lightId: area.id, fixture: 'none', purpose: 'room-supplemental-fill',
+          basePlacement: 'auto', ceilingFill: {version: 1, brightness: .5}},
       ],
     }};
     lights.set(base.id, {light: point});
