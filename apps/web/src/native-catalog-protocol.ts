@@ -1,7 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {NativeViewportFrame} from './native-viewport-protocol';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-export const NATIVE_CATALOG_CAPABILITIES=['artwork-thumbnail-v1','find-selection-v1'] as const;
+export const NATIVE_CATALOG_CAPABILITIES=['artwork-thumbnail-v1','find-selection-v1','artwork-thumbnail-outcome-v1'] as const;
+export type ArtworkThumbnailPhase = 'request'|'queue'|'authorization'|'preview'|'decode'|'render'|'encode'|'verification';
+type ArtworkThumbnailOutcome = 'timeout'|'cancelled'|'busy'|'rejected'|'failed';
+export interface ArtworkThumbnailFailure {
+ thumbnailFailure:{version:1;phase:ArtworkThumbnailPhase;outcome:ArtworkThumbnailOutcome};
+}
+const thumbnailRejections=new Set([
+ 'CATALOG_REQUEST_INVALID','CATALOG_REQUEST_STALE','CATALOG_REQUEST_REPLAY',
+ 'SCENE_SNAPSHOT_ACTIVE','ENTRANCE_PREVIEW_ACTIVE','VIEWING_PLAN_INTENT_ACTIVE','FURNISHING_INTENT_ACTIVE',
+ 'VIEWPORT_SESSION_REQUIRED','VIEWPORT_SCOPE_CHANGED','THUMBNAIL_REVISION',
+ 'THUMBNAIL_TYPE','THUMBNAIL_SIZE','THUMBNAIL_IMAGE_LIMIT','THUMBNAIL_ATTRIBUTE_UNSUPPORTED',
+ 'THUMBNAIL_TEXTURE_LIMIT','THUMBNAIL_MODEL_LIMIT','THUMBNAIL_RESULT_LIMIT',
+]);
+
+/** Return only the failure category, while the request still owns its cancellation state. */
+export function artworkThumbnailFailure(
+ phase:ArtworkThumbnailPhase,error:unknown,signal?:AbortSignal,deadline?:AbortSignal,
+):ArtworkThumbnailFailure {
+ let outcome:ArtworkThumbnailOutcome='failed';
+ if(signal?.aborted&&error===signal.reason)outcome=deadline?.aborted&&signal.reason===deadline.reason?'timeout':'cancelled';
+ else if(error instanceof Error){
+  if(phase==='queue'&&error.message==='THUMBNAIL_BUSY')outcome='busy';
+  else if(thumbnailRejections.has(error.message))outcome='rejected';
+ }
+ return {thumbnailFailure:{version:1,phase,outcome}};
+}
 export const RENDERED_ARTWORK_THUMBNAIL_PROFILE='rendered-display-preview-v1';
 export const ARTWORK_THUMBNAIL_RECIPE='artwork-glb-card-256-v1';
 export const ARTWORK_THUMBNAIL_TOOL='exhibitos-three-0.186.1-thumbnail-v1';

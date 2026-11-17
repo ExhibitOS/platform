@@ -24,7 +24,7 @@ import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedBoundedEditing,checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction,type NativeBoundedEditingCapability} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
-import {checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
+import {artworkThumbnailFailure,checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type ArtworkThumbnailFailure,type ArtworkThumbnailPhase,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail,produceFurnishingThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
@@ -41,6 +41,7 @@ import {NATIVE_CAMERA_INTERACTION_CAPABILITY,NativeCameraInteractionGate,type Ca
 import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
 const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,ROOM_BASE_LIGHT_PROFILE,ROOM_CEILING_FILL_PROFILE,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY,NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY,GPU_CANDIDATE_PREVIEW_CAPABILITY] as const;
+type ArtworkThumbnailReply = CatalogBinding & {artworkId:string;revision:number} & Awaited<ReturnType<typeof produceArtworkThumbnail>>;
 declare global {interface Window {exhibitosViewport?:{
  viewerResourceUsage:(v:unknown)=>Promise<Awaited<ReturnType<typeof readNativeResourceUsage>>>;
  gpuCandidatePreview:(v:unknown)=>ReturnType<NativeGpuCandidatePreview['request']>;
@@ -60,7 +61,8 @@ declare global {interface Window {exhibitosViewport?:{
  placement:(v:PlacementRequest)=>ReturnType<NativePlacement['request']>;
  catalogDropTarget:(v:unknown)=>CatalogDropReply;
  sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
- thumbnail:(v:ThumbnailRequest)=>Promise<ReturnType<typeof catalogBinding>&{artworkId:string;revision:number;pngBase64:string;width:number;height:number}>;
+ thumbnail:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply>;
+ thumbnailOutcomeV1:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
  furnishingThumbnailV1:(v:unknown)=>Promise<FurnishingThumbnailRequest&Awaited<ReturnType<typeof produceFurnishingThumbnail>>>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
@@ -100,7 +102,8 @@ async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
 function beginCatalogRequest(request:CatalogBinding){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
  seenCatalogRequests.add(request.requestId);if(seenCatalogRequests.size>128)seenCatalogRequests.delete(seenCatalogRequests.values().next().value!);
- const abort=new AbortController();catalogRequests.add(abort);return {abort,signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])};
+ const abort=new AbortController(),deadline=AbortSignal.timeout(10000);
+ catalogRequests.add(abort);return {abort,deadline,signal:AbortSignal.any([abort.signal,deadline])};
 }
 function post(frame:NativeViewportFrame,type:string,body:unknown){if(frame===current&&type==='candidate'){pendingEditorCommit={epoch:frame.epoch,sequence:frame.sequence,candidate:freezeCanonical(body)};activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_EDIT_CHANGED'));}if(frame===current&&type==='selection')activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_SELECTION_CHANGED'));window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
 let viewportChanged:(()=>void)|undefined;
@@ -129,6 +132,38 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
  },
 });
 const requireEntranceIdle=()=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
+function requestArtworkThumbnail(value:unknown,reportFailure:false):Promise<ArtworkThumbnailReply>;
+function requestArtworkThumbnail(value:unknown,reportFailure:true):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
+async function requestArtworkThumbnail(value:unknown,reportFailure:boolean){
+ let phase:ArtworkThumbnailPhase='request';
+ let scope:ReturnType<typeof beginCatalogRequest>|undefined;
+ try{
+  requireEntranceIdle();
+  const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');
+  scope=beginCatalogRequest(request);
+  const {signal}=scope;
+  phase='queue';
+  const mark=(value:ArtworkThumbnailPhase)=>{if(!signal.aborted)phase=value;};
+  const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>{
+   reject(reportFailure?signal.reason:Error('CATALOG_REQUEST_CANCELLED'));
+  },{once:true}));
+  return await Promise.race([thumbnailQueue.run(async()=>{
+   mark('authorization');
+   await catalogSession(frame!,signal);
+   const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;
+   const image=await produceArtworkThumbnail(request,signal,reportFailure?mark:undefined);
+   mark('verification');
+   await catalogSession(frame!,signal);
+   if('sourceAssetId' in image&&(currentReadOnly||!renderedReady))throw Error('THUMBNAIL_UNAVAILABLE');
+   return {...catalogBinding(request),artworkId:request.artworkId,revision:request.expectedRevision,...image};
+  }),cancelled]);
+ }catch(error){
+  if(!reportFailure)throw error;
+  return artworkThumbnailFailure(phase,error,scope?.signal,scope?.deadline);
+ }finally{
+  if(scope){catalogRequests.delete(scope.abort);scope.abort.abort();}
+ }
+}
 const requireEditable=()=>{requireEntranceIdle();if(acceptPending||currentReadOnly||currentBoundedEditable)throw Error('VIEWPORT_BOUNDED_READ_ONLY');};
 const placement=new NativePlacement({frame:()=>current,notify:()=>{catalogDropRenderer?.preview.clearHighlight();viewportChanged?.();},
  suspended:()=>acceptPending||currentReadOnly,
@@ -354,16 +389,8 @@ window.exhibitosViewport={
    return {...sceneSnapshotBinding(request),saved,candidateSha256,...image};
   }finally{snapshotBusy=false;if(activeSnapshotAbort===abort)activeSnapshotAbort=undefined;catalogRequests.delete(abort);abort.abort();}
  },
- thumbnail:async value=>{
-  requireEntranceIdle();
-  const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');const {abort,signal}=beginCatalogRequest(request);
-  const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>reject(Error('CATALOG_REQUEST_CANCELLED')),{once:true}));
-  try{return await Promise.race([thumbnailQueue.run(async()=>{
-   await catalogSession(frame!,signal);const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;const image=await produceArtworkThumbnail(request,signal);await catalogSession(frame!,signal);
-   if('sourceAssetId' in image&&(currentReadOnly||!renderedReady))throw Error('THUMBNAIL_UNAVAILABLE');
-   return {...catalogBinding(request),artworkId:request.artworkId,revision:request.expectedRevision,...image};
-  }),cancelled]);}finally{catalogRequests.delete(abort);abort.abort();}
- },
+ thumbnail:value=>requestArtworkThumbnail(value,false),
+ thumbnailOutcomeV1:value=>requestArtworkThumbnail(value,true),
  furnishingThumbnailV1:async value=>{
   requireEditable();
   const frame=current;
