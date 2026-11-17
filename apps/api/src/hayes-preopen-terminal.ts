@@ -145,7 +145,8 @@ export async function recordHayesTerminal(client: PoolClient, owner: NativeOexWo
  );
  if (result.rowCount !== 1) throw unconfirmed();
  const row = result.rows[0];
- if (!isDeepStrictEqual(row.rights,row.metadata?.rights) || !allowedRights(row.rights,'display') || !allowedRights(row.rights,'export') ||
+ const rightsCurrent=()=>allowedRights(row.rights,'display') && allowedRights(row.rights,'export');
+ if (!isDeepStrictEqual(row.rights,row.metadata?.rights) || !rightsCurrent() ||
    row.metadata?.displayReference?.status !== 'provisional-uncalibrated' || row.metadata?.provenance?.sourceUnits !== 'unknown' ||
    row.metadata?.provenance?.scaleApplied !== false || !blobs.getBounded) throw unconfirmed();
  const original = Buffer.from(await blobs.getBounded(row.object_key,source.bytes));
@@ -156,6 +157,7 @@ export async function recordHayesTerminal(client: PoolClient, owner: NativeOexWo
  }
  await owner.assertDatabase(client);
  await live();
+ if (!rightsCurrent()) throw unconfirmed();
  // The insertion trigger rechecks the expired claim, physical DB and all
  // three absent-output joins while the exact job remains locked.
  await client.query(`INSERT INTO public.hayes_preopen_terminals

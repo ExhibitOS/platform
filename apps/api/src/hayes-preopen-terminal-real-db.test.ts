@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes,randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { expect,it } from 'vitest';
+import { expect,it,vi } from 'vitest';
 import { collectServiceInventory,FileBlobStore,migrate,sha256,transaction } from '@exhibitos/storage';
 import { Auth,digest,type Session } from './auth.ts';
 import { buildApp } from './app.ts';
@@ -23,7 +23,8 @@ it.skipIf(!process.env.HAYES_TERMINAL_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIG
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),artworkId=randomUUID();
   const token=randomBytes(32).toString('base64url'),csrf='synthetic-csrf';
   const hash='c'.repeat(64);
-  const rights={holder:'Synthetic test rights',ownership:'owner',licenseId:'CC0-1.0',
+  const rightsExpiry=Date.now()+60000;
+  const rights={holder:'Synthetic test rights',ownership:'owner',licenseId:'CC0-1.0',expiresAt:new Date(rightsExpiry).toISOString(),
    permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Fixture'};
   const metadata={rights,displayReference:{status:'provisional-uncalibrated',assetSha256:hash},
    provenance:{sourceUnits:'unknown',scaleApplied:false}};
@@ -65,24 +66,37 @@ it.skipIf(!process.env.HAYES_TERMINAL_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIG
    };
    const retained=await create();
    await pool.query('SELECT pg_sleep(1)');
-   const scoped=async(value:typeof retained.observation,mode:'reject'|'lost-ack'|'replay',check:(app:ReturnType<typeof buildApp>,path:string,proofSha256:string)=>Promise<void>)=>{
-    let open=true,challenge:Record<string,unknown>|undefined;
+   const scoped=async(value:typeof retained.observation,mode:'reject'|'lost-ack'|'replay'|'late-liveness'|'expired-rights',
+    check:(app:ReturnType<typeof buildApp>,path:string,proofSha256:string,caller:ReturnType<typeof createNativeHayesCaller>)=>Promise<void>)=>{
+    let open=true,challenge:Record<string,unknown>|undefined,ackSent=false,liveChecks=0;
+    let restoreClock:(()=>void)|undefined;
     const channel={isOpen:()=>open,close:async()=>{open=false;},
      send:async(bytes:Uint8Array)=>{
       const frame=JSON.parse(Buffer.from(bytes).toString());
       if(frame.kind==='hayes-preopen-terminal-challenge')challenge=frame;
-      else if(mode==='lost-ack')throw Error('simulated ACK loss');
+      else {
+       ackSent=true;
+       if(mode==='lost-ack')throw Error('simulated ACK loss');
+      }
      },
      receive:async()=>Buffer.from(JSON.stringify({...challenge,kind:'hayes-preopen-terminal-proof',observation:value})),
     };
     const caller=createNativeHayesCaller({owner,auth:new Auth(pool),blobs:blobStore,channel,runtimeGeneration:randomUUID(),
-     nativeOwnerId:randomUUID(),runtimeManifestSha256:hash,signal:new AbortController().signal,assertLive:async()=>{}});
+     nativeOwnerId:randomUUID(),runtimeManifestSha256:hash,signal:new AbortController().signal,assertLive:async()=>{
+      liveChecks++;
+      if(mode==='late-liveness'&&liveChecks===4)await new Promise<void>(()=>{});
+      if(mode==='expired-rights'&&liveChecks===2){
+       const mocked=vi.spyOn(Date,'now').mockReturnValue(rightsExpiry);
+       restoreClock=()=>{mocked.mockRestore();};
+      }
+     }});
     const app=buildApp({pool,blobs:blobStore,nativeOexWorkspace:owner,nativeHayesCaller:caller,runtimeAvailable:()=>true,
      auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'}});
     try{
-     await check(app,`/api/v1/tenants/${tenantId}/imports/native-hayes-original/${value.jobId}/preopen-terminal`,sha256(Buffer.from(JSON.stringify(value))));
+     await check(app,`/api/v1/tenants/${tenantId}/imports/native-hayes-original/${value.jobId}/preopen-terminal`,sha256(Buffer.from(JSON.stringify(value))),caller);
      if(mode==='replay')expect(challenge).toBeUndefined();
-    }finally{await app.close();await caller.close();}
+     if(mode==='late-liveness'){expect(liveChecks).toBe(4);expect(ackSent).toBe(false);}
+    }finally{restoreClock?.();await app.close();await caller.close();}
    };
    const headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200',cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
    const expectedReceipt={jobId:retained.job.id,attemptId:retained.binding.attemptId,outcome:'preopen-cancelled'};
@@ -129,5 +143,20 @@ it.skipIf(!process.env.HAYES_TERMINAL_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIG
    expect(unresolved).toContain(`import_jobs:${tenantId}:${staged.job.id}`);
    expect(unresolved).not.toContain(`import_jobs:${tenantId}:${retained.job.id}`);
    expect(inventory.references).toContainEqual(expect.objectContaining({key:retainedJob.object_key,required:true}));
+
+   const late=await create();
+   await pool.query('SELECT pg_sleep(1)');
+   await scoped(late.observation,'expired-rights',async(_app,_url,proofSha256,caller)=>{
+    await expect(caller.terminalizePreopen({token,csrf},{jobId:late.job.id,proofSha256},rightsExpiry+10000))
+     .rejects.toThrow('HAYES_PREOPEN_CLAIM_UNCONFIRMED');
+    expect((await pool.query('SELECT state FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,late.job.id])).rows[0].state).toBe('processing');
+   });
+   await scoped(late.observation,'late-liveness',async(app,url,proofSha256,caller)=>{
+    await expect(caller.terminalizePreopen({token,csrf},{jobId:late.job.id,proofSha256},Date.now()+1200))
+     .rejects.toThrow('HAYES_OWNER_UNAVAILABLE');
+    const receipt=await app.inject({method:'GET',url:`${url}?proofSha256=${proofSha256}`,headers});
+    expect(receipt.statusCode).toBe(200);
+    expect(receipt.json()).toEqual({jobId:late.job.id,attemptId:late.binding.attemptId,proofSha256,outcome:'preopen-cancelled'});
+   });
   }finally{source.fill(0);await pool.end();await rm(root,{recursive:true,force:true});}
  },30000);
