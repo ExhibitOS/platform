@@ -2,7 +2,7 @@
 import {expect,it} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint} from './artifact-affine.js';
-import {ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,roomBaseLight,roomBaseLightRange,remapStudioLightDetails,setLightDetails,validateStudioLightDetails,type LightDetails} from './light-details.js';
+import {addRoomSupplementalCeilingFill,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,roomBaseLight,roomBaseLightRange,remapStudioLightDetails,setLightDetails,validateStudioLightDetails,type LightDetails} from './light-details.js';
 import {applyLightObjectCommand} from './light-object.js';
 const roomId='aaaaaaaa-0000-4000-8000-000000000001';
 function fixture(){return {id:crypto.randomUUID(),revisionId:crypto.randomUUID(),rooms:[{id:roomId,name:'room',dimensions:{width:10,height:4,depth:8},transform:{position:[8,2,3],rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2],scale:[1,1,1]}}],lights:[],surfaces:[],openings:[],placements:[],artworks:[],extensions:{'org.example/intent':{value:'untouched'}}} as unknown as Exhibition;}
@@ -91,4 +91,39 @@ it('rejects ambiguous ceiling geometry and refuses brightness commands on legacy
  expect(()=>ensureRoomBaseLight(source,roomId,undefined,1)).toThrow('ROOM_CEILING_FILL_GEOMETRY');
  const legacy=ensureRoomBaseLight(source,roomId);
  expect(()=>applyLightObjectCommand(legacy,{type:'set-room-ceiling-fill-brightness',lightId:legacy.lights[0]!.id,brightness:0})).toThrow('LIGHT_DETAILS_CEILING_FILL');
+});
+
+it('adds and refits one canonical supplemental fill while preserving the unmarked base point',()=>{
+ const auto=ensureRoomBaseLight(fixture(),roomId),legacy=structuredClone(auto);
+ const base=legacy.lights[0]!;
+ const binding=(legacy.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:LightDetails[]}).lights[0]!;
+ delete binding.basePlacement;
+ binding.range=10;
+ const untouched=structuredClone(legacy),lightId=crypto.randomUUID();
+ const filled=addRoomSupplementalCeilingFill(legacy,roomId,base.id,lightId);
+ expect(legacy).toEqual(untouched);
+ expect(filled.lights[0]).toEqual(base);
+ expect(lightDetailsFor(filled)).toEqual([binding,{lightId,fixture:'none',purpose:'room-supplemental-fill',basePlacement:'auto',ceilingFill:{version:1,brightness:0.5}}]);
+ expect(filled.lights[1]).toMatchObject({id:lightId,type:'area',unit:'lumen',castsShadow:false});
+ expect(roomBaseLight(filled,roomId)).toEqual(base);
+ expect(()=>addRoomSupplementalCeilingFill(auto,roomId,base.id,lightId)).toThrow('LIGHT_DETAILS_CEILING_FILL');
+ expect(()=>addRoomSupplementalCeilingFill(legacy,roomId,crypto.randomUUID(),lightId)).toThrow('LIGHT_DETAILS_CEILING_FILL');
+ expect(()=>addRoomSupplementalCeilingFill(legacy,roomId,base.id,base.id)).toThrow('LIGHT_DETAILS_CEILING_FILL');
+ expect(()=>addRoomSupplementalCeilingFill(filled,roomId,base.id,crypto.randomUUID())).toThrow('LIGHT_DETAILS_CEILING_FILL');
+ const invalid=structuredClone(filled),details=(invalid.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:LightDetails[]}).lights;
+ details.shift();
+ expect(validateStudioLightDetails(invalid).valid).toBe(false);
+ const malformed=structuredClone(filled);
+ malformed.lights[1]!.intensity+=1;
+ expect(validateStudioLightDetails(malformed).valid).toBe(false);
+ const duplicate=structuredClone(filled),duplicateId=crypto.randomUUID();
+ duplicate.lights.push({...duplicate.lights[1]!,id:duplicateId});
+ (duplicate.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:LightDetails[]}).lights.push({...lightDetailsFor(filled)[1]!,lightId:duplicateId});
+ expect(validateStudioLightDetails(duplicate).valid).toBe(false);
+ filled.rooms[0]!.dimensions.height=5;
+ const resized=reflowRoomBaseLight(filled,roomId);
+ expect(resized.lights[0]).toEqual(base);
+ expect(lightDetailsFor(resized)[0]).toEqual(binding);
+ expect(resized.lights[1]!.transform.position[1]).toBe(4.98);
+ expect(validateStudioLightDetails(resized).valid).toBe(true);
 });

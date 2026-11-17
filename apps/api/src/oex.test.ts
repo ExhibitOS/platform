@@ -3,7 +3,7 @@ import {SPATIAL_NAMESPACE,spatialProgramFor,validateSpatialProfile} from '@exhib
 import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
-import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,exitDestinationUrl,experienceFor,validateViewerExperience,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE,lightDetailsFor,validateStudioLightDetails,type LightDetails,CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,exitDestinationUrl,experienceFor,validateViewerExperience,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail,pinnedAuthoritySnapshot,portableOexSnapshot,withoutImportedPreviews,writeOexWithinBudget} from './oex.ts';
 import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -55,6 +55,23 @@ describe('OEX service boundaries',()=>{
   visual.position=[...wall.transform.position];
   wall.type='floor';
   expect(validateViewerExperience(e).valid).toBe(false);
+ });
+ it('remaps the preserved point and supplemental fill into the same room without adding placement intent',async()=>{
+  let e=await fixture();
+  const room=e.rooms[0]!,baseId=crypto.randomUUID(),fillId=crypto.randomUUID();
+  e=ensureRoomBaseLight(e,room.id,baseId);
+  const detail=(e.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:LightDetails[]}).lights.find(item=>item.lightId===baseId)!;
+  delete detail.basePlacement;
+  detail.range=10;
+  e=addRoomSupplementalCeilingFill(e,room.id,baseId,fillId);
+  const {exhibition,idMap}=remapOex(e);
+  const base=exhibition.lights.find(light=>light.id===idMap[baseId])!;
+  const fill=exhibition.lights.find(light=>light.id===idMap[fillId])!;
+  expect(base).toEqual({...e.lights.find(light=>light.id===baseId),id:idMap[baseId],roomId:idMap[room.id]});
+  expect(fill).toEqual({...e.lights.find(light=>light.id===fillId),id:idMap[fillId],roomId:idMap[room.id]});
+  expect(lightDetailsFor(exhibition).find(binding=>binding.lightId===base.id)).toEqual({...detail,lightId:base.id});
+  expect(lightDetailsFor(exhibition).find(binding=>binding.lightId===fill.id)).toMatchObject({purpose:'room-supplemental-fill',ceilingFill:{version:1,brightness:.5}});
+  expect(validateStudioLightDetails(exhibition).valid).toBe(true);
  });
  it('preserves bounded poster settings and remaps the cover with its approved PNG inventory', async () => {
   const e = await fixture(), image = e.artworks.find(a => a.artworkType === 'image')!;

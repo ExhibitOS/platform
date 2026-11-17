@@ -11,6 +11,7 @@ export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as const;
 export const ROOM_CEILING_FILL_PROFILE='room-ceiling-fill-v1' as const;
 export const ROOM_CEILING_FILL_INITIAL_BRIGHTNESS=0.5;
+export const ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE='room-supplemental-ceiling-fill-v1' as const;
 export const LIGHT_DETAILS_NAMESPACE='org.exhibitos.studio/light-details';
 export const LIGHT_DETAILS_LIMITS=Object.freeze({bindings:32,bytes:16384,fixtureTriangles:1920,fixtureMeshes:64});
 export type ExhibitionLight=Exhibition['lights'][number];
@@ -18,7 +19,7 @@ export type LightAim={kind:'rotation'}|{kind:'placement-center'}|{kind:'point';p
 export interface LightDetails {
   lightId:string;
   fixture:'none'|'spot-can'|'disc'|'panel';
-  purpose?:'room-base';
+  purpose?:'room-base'|'room-supplemental-fill';
   /** Absent means unknown legacy intent; never inferred from coordinates. */
   basePlacement?:'auto'|'manual';
   ceilingFill?:RoomCeilingFill;
@@ -81,24 +82,31 @@ export function validateStudioLightDetails(candidate:unknown){
   if(!object(value)||!closed(value,['version','lights'])||value.version!==1||!Array.isArray(value.lights)){add('LIGHT_DETAILS_SCHEMA','','Expected closed light details version1');return {valid:false,errors};}
   if(value.lights.length>32){add('LIGHT_DETAILS_LIMIT','/lights','Maximum32 details bindings');return {valid:false,errors};}
   try{if(new TextEncoder().encode(JSON.stringify(value)).length>16384){add('LIGHT_DETAILS_LIMIT','','Maximum16KiB light details');return {valid:false,errors};}}catch{add('LIGHT_DETAILS_SCHEMA','','Expected finite JSON');return {valid:false,errors};}
-  const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>();
+  const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>(),legacyBaseRooms=new Set<string>(),supplementalRooms=new Map<string,string>();
   value.lights.forEach((entry,i)=>{
     const path='/lights/'+i;
     if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','ceilingFill'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
     const light=lights.find(l=>typeof l.id==='string'&&same(l.id,entry.lightId as string)),room=light&&rooms.find(r=>typeof r.id==='string'&&typeof light.roomId==='string'&&same(r.id,light.roomId));
     if(seen.has(entry.lightId.toLowerCase())||!light||!room||!object(room.dimensions)){add('LIGHT_DETAILS_REFERENCE',path,'Expected unique existing light and room');return;}seen.add(entry.lightId.toLowerCase());
-    if(Object.hasOwn(entry,'purpose')){
-      const roomId=(room.id as string).toLowerCase();
+    const roomId=(room.id as string).toLowerCase(),supplemental=entry.purpose==='room-supplemental-fill';
+    if(supplemental){
+      if(supplementalRooms.has(roomId)||entry.basePlacement!=='auto'||!object(entry.ceilingFill)||
+        entry.ceilingFill.brightness!==ROOM_CEILING_FILL_INITIAL_BRIGHTNESS)
+        add('LIGHT_DETAILS_CEILING_FILL',path,'Expected at most one canonical supplemental ceiling fill per room');
+      supplementalRooms.set(roomId,path);
+    }else if(Object.hasOwn(entry,'purpose')){
       if(entry.purpose!=='room-base'||baseRooms.has(roomId))add('LIGHT_DETAILS_PURPOSE',path+'/purpose','Expected at most one room base light per room');
       baseRooms.add(roomId);
+      if(entry.purpose==='room-base'&&light.type==='point'&&!Object.hasOwn(entry,'basePlacement')&&!Object.hasOwn(entry,'ceilingFill'))
+        legacyBaseRooms.add(roomId);
     }
-    if(Object.hasOwn(entry,'basePlacement')&&(entry.purpose!=='room-base'||!['auto','manual'].includes(entry.basePlacement as string)))add('LIGHT_DETAILS_PLACEMENT',path+'/basePlacement','Placement intent requires an explicit room base light');
+    if(Object.hasOwn(entry,'basePlacement')&&((entry.purpose!=='room-base'&&!supplemental)||!['auto','manual'].includes(entry.basePlacement as string)))add('LIGHT_DETAILS_PLACEMENT',path+'/basePlacement','Placement intent requires an explicit room light');
     if(Object.hasOwn(entry,'ceilingFill')){
       const fill=entry.ceilingFill;
       const attachments=(candidate.extensions as Record<string,unknown>)['org.exhibitos.studio/light-attachments'];
       const attached=object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(b=>object(b)&&typeof b.lightId==='string'&&same(b.lightId,entry.lightId as string));
-      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||entry.purpose!=='room-base'||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
-        add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Expected a non-shadow-casting room base area light with explicit placement and brightness');
+      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||(entry.purpose!=='room-base'&&!supplemental)||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
+        add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Expected a non-shadow-casting room area light with explicit placement and brightness');
       }else if(entry.basePlacement==='auto'){
         try{
           const dimensions=roomCeilingFillDimensions(candidate as unknown as Exhibition,room.id as string);
@@ -138,6 +146,9 @@ export function validateStudioLightDetails(candidate:unknown){
       if(dimensions){const pose={...l.transform,rotation},corners=artifactCorners(dimensions,[pose],true),d=room.dimensions;if(corners.some(p=>Math.abs(p[0])>Number(d.width)/2||p[1]<0||p[1]>Number(d.height)||Math.abs(p[2])>Number(d.depth)/2))throw Error('outside-room');artifactCorners(dimensions,[pose,room.transform as unknown as ArtifactPose],true);}
     }catch{add('LIGHT_DETAILS_GEOMETRY',path,'Aim and generated fixture must satisfy finite room/world/Float32 bounds');}
   });
+  for(const [roomId,path] of supplementalRooms){
+    if(!legacyBaseRooms.has(roomId))add('LIGHT_DETAILS_CEILING_FILL',path,'Supplemental ceiling fill requires a preserved room base point');
+  }
   return {valid:errors.length===0,errors};
 }
 /** Call after full admission. Legacy absence is never rewritten. */
@@ -146,6 +157,29 @@ export function roomBaseLight(document:Exhibition,roomId:string):ExhibitionLight
   const ids=new Set(lightDetailsFor(document).filter(b=>b.purpose==='room-base').map(b=>b.lightId.toLowerCase()));
   return document.lights.find(light=>same(light.roomId,roomId)&&ids.has(light.id.toLowerCase()));
 }
+export function roomSupplementalCeilingFill(document:Exhibition,roomId:string):ExhibitionLight|undefined {
+ const bindingIds=new Set(lightDetailsFor(document).filter(binding=>binding.purpose==='room-supplemental-fill').map(binding=>binding.lightId.toLowerCase()));
+ return document.lights.find(light=>same(light.roomId,roomId)&&bindingIds.has(light.id.toLowerCase()));
+}
+
+/** Keep the existing base point and its unknown placement verbatim. */
+export function addRoomSupplementalCeilingFill(document:Exhibition,roomId:string,baseLightId:string,lightId:string):Exhibition {
+ const room=document.rooms.find(item=>same(item.id,roomId)),base=roomBaseLight(document,roomId),bindings=lightDetailsFor(document);
+ const preserved=base&&bindings.find(binding=>same(binding.lightId,base.id));
+ if(!room||!base||!same(base.id,baseLightId)||base.type!=='point'||!preserved||
+   Object.hasOwn(preserved,'basePlacement')||Object.hasOwn(preserved,'ceilingFill')||roomSupplementalCeilingFill(document,roomId)||
+   !uuid(lightId)||JSON.stringify(document).toLowerCase().includes(lightId.toLowerCase()))throw Error('LIGHT_DETAILS_CEILING_FILL');
+ const brightness=ROOM_CEILING_FILL_INITIAL_BRIGHTNESS;
+ const light:ExhibitionLight={id:lightId,roomId:room.id,type:'area',unit:'lumen',color:[1,1,1],castsShadow:false,
+  ...deriveRoomCeilingFill(roomCeilingFillDimensions(document,room.id),brightness)};
+ const next=structuredClone(document);
+ next.lights.push(light);
+ const lights:LightDetails[]=[...bindings,{lightId,fixture:'none',purpose:'room-supplemental-fill',basePlacement:'auto',ceilingFill:{version:1,brightness}}];
+ next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights} as unknown as NonNullable<Exhibition['extensions']>[string]};
+ if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
+ return next;
+}
+
 /** Ensure an ordinary authored light. Reapplying keeps its current edits. */
 export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string,ceilingFillBrightness?:number):Exhibition {
   const room=document.rooms.find(r=>same(r.id,roomId));
@@ -187,7 +221,8 @@ export function roomBaseLightRange(dimensions:Exhibition['rooms'][number]['dimen
 }
 /** Reflow ONLY saved auto intent. Missing/removed/unknown/manual lights stay exact. */
 export function reflowRoomBaseLight(document:Exhibition,roomId:string):Exhibition {
- const light=roomBaseLight(document,roomId),details=light&&lightDetailsFor(document).find(b=>same(b.lightId,light.id));
+ const light=roomSupplementalCeilingFill(document,roomId)??roomBaseLight(document,roomId);
+ const details=light&&lightDetailsFor(document).find(b=>same(b.lightId,light.id));
  if(!light||details?.basePlacement!=='auto')return document;
  const room=document.rooms.find(r=>same(r.id,roomId));if(!room)throw Error('LIGHT_DETAILS_PLACEMENT');
  const next=structuredClone(document),target=next.lights.find(l=>same(l.id,light.id))!;
