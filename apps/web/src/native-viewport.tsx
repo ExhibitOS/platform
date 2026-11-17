@@ -26,6 +26,7 @@ import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
 import {artworkThumbnailFailure,artworkThumbnailFailureV2,checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type ArtworkThumbnailFailure,type ArtworkThumbnailFailureV2,type ArtworkThumbnailPhase,type ArtworkThumbnailPreviewStep,type ArtworkThumbnailProgress,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail,produceFurnishingThumbnail} from './native-artwork-thumbnail';
+import {ARTWORK_THUMBNAIL_PREVIEW_TRACE_CAPABILITY,isThumbnailPreviewTracePage,observeThumbnailPreview,type ThumbnailPreviewObservation,type ThumbnailPreviewTrace} from './native-thumbnail-preview-trace';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
 import {installNativePlacementPreview} from './native-placement-renderer';
@@ -42,6 +43,7 @@ import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
 const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,ROOM_BASE_LIGHT_PROFILE,ROOM_CEILING_FILL_PROFILE,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY,NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY,GPU_CANDIDATE_PREVIEW_CAPABILITY] as const;
 type ArtworkThumbnailReply = CatalogBinding & {artworkId:string;revision:number} & Awaited<ReturnType<typeof produceArtworkThumbnail>>;
+type ArtworkThumbnailV2Result=ArtworkThumbnailReply|ArtworkThumbnailFailureV2;
 declare global {interface Window {exhibitosViewport?:{
  viewerResourceUsage:(v:unknown)=>Promise<Awaited<ReturnType<typeof readNativeResourceUsage>>>;
  gpuCandidatePreview:(v:unknown)=>ReturnType<NativeGpuCandidatePreview['request']>;
@@ -63,7 +65,8 @@ declare global {interface Window {exhibitosViewport?:{
  sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply>;
  thumbnailOutcomeV1:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
- thumbnailOutcomeV2:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply|ArtworkThumbnailFailureV2>;
+ thumbnailOutcomeV2:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailV2Result>;
+ thumbnailPreviewTraceV1:(v:ThumbnailRequest)=>Promise<{result:ArtworkThumbnailV2Result;trace:ThumbnailPreviewTrace|null}>;
  furnishingThumbnailV1:(v:unknown)=>Promise<FurnishingThumbnailRequest&Awaited<ReturnType<typeof produceFurnishingThumbnail>>>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
@@ -100,10 +103,11 @@ async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
  if(!currentSession||session.csrfToken!==currentSession.csrfToken||session.expiresAt!==currentSession.expiresAt||session.role!==currentSession.role||session.nativeRenderedArtworkThumbnailProfile!==currentSession.nativeRenderedArtworkThumbnailProfile)throw Error('VIEWPORT_SCOPE_CHANGED');
  signal.throwIfAborted();
 }
+const catalogDeadlineMs=10_000;
 function beginCatalogRequest(request:CatalogBinding){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
  seenCatalogRequests.add(request.requestId);if(seenCatalogRequests.size>128)seenCatalogRequests.delete(seenCatalogRequests.values().next().value!);
- const abort=new AbortController(),deadline=AbortSignal.timeout(10000);
+ const abort=new AbortController(),deadline=AbortSignal.timeout(catalogDeadlineMs);
  catalogRequests.add(abort);return {abort,deadline,signal:AbortSignal.any([abort.signal,deadline])};
 }
 function post(frame:NativeViewportFrame,type:string,body:unknown){if(frame===current&&type==='candidate'){pendingEditorCommit={epoch:frame.epoch,sequence:frame.sequence,candidate:freezeCanonical(body)};activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_EDIT_CHANGED'));}if(frame===current&&type==='selection')activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_SELECTION_CHANGED'));window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
@@ -135,16 +139,17 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
 const requireEntranceIdle=()=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
 function requestArtworkThumbnail(value:unknown,outcomeVersion:0):Promise<ArtworkThumbnailReply>;
 function requestArtworkThumbnail(value:unknown,outcomeVersion:1):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
-function requestArtworkThumbnail(value:unknown,outcomeVersion:2):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailureV2>;
-async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2){
+function requestArtworkThumbnail(value:unknown,outcomeVersion:2,trace?:{observation?:ThumbnailPreviewObservation}):Promise<ArtworkThumbnailV2Result>;
+async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2,trace?:{observation?:ThumbnailPreviewObservation}){
  let phase:ArtworkThumbnailPhase='request';
  let previewStep:ArtworkThumbnailPreviewStep='metadata';
  let scope:ReturnType<typeof beginCatalogRequest>|undefined;
  try{
   requireEntranceIdle();
   const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');
+  const clock=trace?{monotonicMs:performance.now(),unixMs:Date.now()}:undefined;
   scope=beginCatalogRequest(request);
-  const {signal}=scope;
+  const {signal,deadline}=scope;
   phase='queue';
   const mark:ArtworkThumbnailProgress=(...step)=>{
    if(signal.aborted)return;
@@ -158,7 +163,10 @@ async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2){
    mark('authorization');
    await catalogSession(frame!,signal);
    const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;
-   const image=await produceArtworkThumbnail(request,signal,outcomeVersion?mark:undefined);
+   const observation=trace&&clock&&renderedReady&&!currentReadOnly&&frame?.presentation!=='plan'
+    ? observeThumbnailPreview(request.requestId,deadline,catalogDeadlineMs,clock):undefined;
+   if(trace&&observation)trace.observation=observation;
+   const image=await produceArtworkThumbnail(request,signal,outcomeVersion?mark:undefined,observation);
    mark('verification');
    await catalogSession(frame!,signal);
    if('sourceAssetId' in image&&(currentReadOnly||!renderedReady))throw Error('THUMBNAIL_UNAVAILABLE');
@@ -256,7 +264,10 @@ window.exhibitosViewport={
   const capabilities:string[]=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
    frame.disabled||frame.presentation==='plan'?[...NATIVE_CAPABILITIES]:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
   capabilities.push(NATIVE_RESOURCE_USAGE_CAPABILITY);
-  if(!frame.disabled&&frame.presentation!=='plan'&&!currentReadOnly&&session.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE)capabilities.push(RENDERED_ARTWORK_THUMBNAIL_PROFILE);
+  if(!frame.disabled&&frame.presentation!=='plan'&&!currentReadOnly&&session.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE){
+   capabilities.push(RENDERED_ARTWORK_THUMBNAIL_PROFILE);
+   if(isThumbnailPreviewTracePage(window.location))capabilities.push(ARTWORK_THUMBNAIL_PREVIEW_TRACE_CAPABILITY);
+  }
   const canRenderFurnishing=!needsAuthority&&!frame.disabled&&session.workspaceFurnishingProfile==='workspace-furnishing-intake-v1';
   return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:canRenderFurnishing?[...capabilities,FURNISHING_THUMBNAIL_CAPABILITY]:capabilities,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
@@ -400,6 +411,11 @@ window.exhibitosViewport={
  thumbnail:value=>requestArtworkThumbnail(value,0),
  thumbnailOutcomeV1:value=>requestArtworkThumbnail(value,1),
  thumbnailOutcomeV2:value=>requestArtworkThumbnail(value,2),
+ thumbnailPreviewTraceV1:async value=>{
+  const capture:{observation?:ThumbnailPreviewObservation}={};
+  const result=await requestArtworkThumbnail(value,2,isThumbnailPreviewTracePage(window.location)?capture:undefined);
+  return {result,trace:capture.observation?.result()??null};
+ },
  furnishingThumbnailV1:async value=>{
   requireEditable();
   const frame=current;
