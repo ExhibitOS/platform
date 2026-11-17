@@ -2,7 +2,7 @@
 import {basisLoader} from './basis-loader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
-import type {ArtworkThumbnailPhase,FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
+import type {ArtworkThumbnailProgress,FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
 import {artworkThumbnailSource,ARTWORK_THUMBNAIL_RECIPE,ARTWORK_THUMBNAIL_TOOL} from './native-catalog-protocol';
 import {approvedDisplayCopyResponse} from './approved-display-response';
 import type * as Three from 'three';
@@ -39,18 +39,21 @@ async function bounded(response:Response,signal:AbortSignal,limit=maxBytes){
  const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
 }
 /** One static frame, using existing guarded GLB decoding and metric fit; no scene per card. */
-export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:AbortSignal,phase?:(value:ArtworkThumbnailPhase)=>void){
- phase?.('preview');
+export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:AbortSignal,phase?:ArtworkThumbnailProgress){
+ phase?.('preview','metadata');
  const path=`/api/v1/tenants/${request.tenantId}/cms/artworks/${request.artworkId}`;
  const options={credentials:'same-origin' as const,redirect:'error' as const,cache:'no-store' as const,signal};
  const metadataResponse=await fetch(path,options);if(!metadataResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
  const artwork=await metadataResponse.json() as {id:string;revision:number;approvedRevision:number|null;approvedAssetId:string|null;archived:boolean};
  if(artwork.id!==request.artworkId||artwork.archived||artwork.revision!==request.expectedRevision||artwork.approvedRevision!==request.expectedRevision||!artwork.approvedAssetId)throw Error('THUMBNAIL_REVISION');
+ phase?.('preview','headers');
  const response=await fetch(`${path}/preview?expectedRevision=${request.expectedRevision}`,options);
  if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||!approvedDisplayCopyResponse(response.headers))throw Error('THUMBNAIL_REVISION');
  const mime=response.headers.get('content-type')?.split(';')[0];if(mime!=='image/png'&&mime!=='model/gltf-binary')throw Error('THUMBNAIL_TYPE');
  const source=mime==='model/gltf-binary'?artworkThumbnailSource(artwork,request.artworkId,request.expectedRevision):undefined;
+ phase?.('preview','body');
  const bytes=await bounded(response,signal);signal.throwIfAborted();
+ if(source)phase?.('preview','digest');
  const displaySha256=source?await sha256(bytes):undefined;
  const canvas=await renderThumbnail(bytes,mime,signal,artworkThumbnailModelBudget,phase);
  phase?.('verification');
@@ -69,7 +72,7 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
   recipeId:ARTWORK_THUMBNAIL_RECIPE,toolId:ARTWORK_THUMBNAIL_TOOL,modelBytes:bytes.length};
 }
 
-async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal,modelBudget=furnishingModelBudget,phase?:(value:ArtworkThumbnailPhase)=>void){
+async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal,modelBudget=furnishingModelBudget,phase?:ArtworkThumbnailProgress){
  phase?.('decode');
  const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
  if(mime==='image/png'){
