@@ -6,11 +6,14 @@ import {FileBlobStore} from '@exhibitos/storage';
 import {buildApp} from './app.ts';
 import type {ModelPreparationExecution} from './model-preparation-import.ts';
 
-const services=vi.hoisted(()=>({resolve:vi.fn(),approve:vi.fn(),read:vi.fn()}));
+const services=vi.hoisted(()=>({resolve:vi.fn(),approve:vi.fn(),read:vi.fn(),detail:vi.fn(),realReadiness:false}));
 vi.mock('./required-model-original.ts',async original=>({...await original<typeof import('./required-model-original.ts')>(),resolveRequiredModelCandidate:services.resolve,approveRequiredModelOriginal:services.approve,readRequiredModelOriginalApproval:services.read}));
-// Route tests retain real HTTP/auth/schema behavior; no issued execution or
-// profile is fabricated, and the domain service is tested separately.
-vi.mock('./imports.ts',async original=>{const actual=await original<typeof import('./imports.ts')>();return {...actual,Imports:class extends actual.Imports {constructor(...args:ConstructorParameters<typeof actual.Imports>){super(args[0],args[1],args[2]);} async requiredModelReady(){}}};});
+// Route tests isolate bootstrap branding, retain HTTP/auth/schema behavior,
+// and exercise real Imports readiness for the detail dependency regression.
+vi.mock('./model-preparation-import.ts',async original=>({...await original<typeof import('./model-preparation-import.ts')>(),assertModelPreparationExecution:()=>{}}));
+vi.mock('./native-detail-context.ts',async original=>({...await original<typeof import('./native-detail-context.ts')>(),isIssuedNativeDetailContext:()=>true}));
+vi.mock('./native-detail-http.ts',async original=>({...await original<typeof import('./native-detail-http.ts')>(),registerNativeDetailHttp:services.detail}));
+vi.mock('./imports.ts',async original=>{const actual=await original<typeof import('./imports.ts')>();return {...actual,Imports:class extends actual.Imports {constructor(...args:ConstructorParameters<typeof actual.Imports>){super(...args);} async requiredModelReady(...args:Parameters<InstanceType<typeof actual.Imports>['requiredModelReady']>){if(services.realReadiness)await super.requiredModelReady(...args);}}};});
 
 it('advertises ordinary original custody only with the live bound native producer',async()=>{
  const tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43),auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
@@ -53,4 +56,23 @@ it('uses closed native approval/readback requests with CSRF, current If-Match an
   const read=await app.inject({method:'GET',url:getUrl+'?'+query,headers});expect(read.statusCode).toBe(200);expect(read.json()).toEqual(result);expect(read.headers.etag).toBe(result.etag);expect(read.headers['cache-control']).toBe('no-store');expect(services.read.mock.calls[0]?.[3]).toEqual(payload);
   live=false;expect((await app.inject({method:'POST',url:postUrl,headers,payload})).statusCode).toBe(503);expect((await app.inject({method:'GET',url:getUrl+'?'+query,headers})).statusCode).toBe(503);expect(services.approve).toHaveBeenCalledOnce();expect(services.read).toHaveBeenCalledOnce();
  }finally{await app.close();await ordinary.close();vi.clearAllMocks();}
+});
+
+it('gives private prepare/bytes/final reconstruction the same live model producer and owner as ordinary approval',async()=>{
+ const tenantId=randomUUID(),userId=randomUUID(),owner={tenantId,principalId:userId,workspaceId:randomUUID(),matchesBlobRoot:()=>true,assertDatabase:async()=>{}};
+ const pool={} as Pool,blobs=new FileBlobStore('/synthetic-unused'),auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
+ const assertReady=vi.fn(async()=>{}),execution={assertReady} as unknown as ModelPreparationExecution;
+ const context={owner,runtimeGeneration:randomUUID(),signal:new AbortController().signal,live:()=>true};
+ services.realReadiness=true;
+ const options={pool,auth,blobs,nativeOexWorkspace:owner as never,nativeExportWorkspace:owner as never,nativeDetailContext:context as never,nativeBoundedEditing:true};
+ const app=buildApp({...options,modelPreparationExecution:execution}),withoutProducer=buildApp(options);
+ try{
+  const deps=services.detail.mock.calls.at(-2)?.[1],missing=services.detail.mock.calls.at(-1)?.[1];
+  expect(deps.original.imports.nativeWorkspace).toBe(owner);
+  const client={} as never,session={tenantId,userId};
+  await deps.original.imports.requiredModelReady(client,session);
+  expect(assertReady).toHaveBeenCalledExactlyOnceWith(client,session);
+  expect(deps.original.imports.modelExecution).toBe(execution);
+  await expect(missing.original.imports.requiredModelReady(client,session)).rejects.toMatchObject({code:'MODEL_PREPARATION_UNAVAILABLE'});
+ }finally{await app.close();await withoutProducer.close();services.realReadiness=false;vi.clearAllMocks();}
 });
