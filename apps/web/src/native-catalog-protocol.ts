@@ -1,11 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {NativeViewportFrame} from './native-viewport-protocol';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-export const NATIVE_CATALOG_CAPABILITIES=['artwork-thumbnail-v1','find-selection-v1','artwork-thumbnail-outcome-v1'] as const;
+export const NATIVE_CATALOG_CAPABILITIES=[
+ 'artwork-thumbnail-v1','find-selection-v1','artwork-thumbnail-outcome-v1','artwork-thumbnail-outcome-v2',
+] as const;
 export type ArtworkThumbnailPhase = 'request'|'queue'|'authorization'|'preview'|'decode'|'render'|'encode'|'verification';
+export type ArtworkThumbnailPreviewStep = 'metadata'|'headers'|'body'|'digest';
+export type ArtworkThumbnailProgress = (
+ ...step: [phase:'preview', previewStep:ArtworkThumbnailPreviewStep] | [phase:Exclude<ArtworkThumbnailPhase,'preview'>]
+) => void;
 type ArtworkThumbnailOutcome = 'timeout'|'cancelled'|'busy'|'rejected'|'failed';
 export interface ArtworkThumbnailFailure {
  thumbnailFailure:{version:1;phase:ArtworkThumbnailPhase;outcome:ArtworkThumbnailOutcome};
+}
+export interface ArtworkThumbnailFailureV2 {
+ thumbnailFailure: {version:2;outcome:ArtworkThumbnailOutcome} & (
+  {phase:'preview';previewStep:ArtworkThumbnailPreviewStep} | {phase:Exclude<ArtworkThumbnailPhase,'preview'>}
+ );
+}
+
+export function artworkThumbnailFailureV2(
+ {thumbnailFailure:{phase,outcome}}:ArtworkThumbnailFailure, previewStep:ArtworkThumbnailPreviewStep,
+):ArtworkThumbnailFailureV2 {
+ return phase==='preview'
+  ? {thumbnailFailure:{version:2,phase,outcome,previewStep}}
+  : {thumbnailFailure:{version:2,phase,outcome}};
 }
 const thumbnailRejections=new Set([
  'CATALOG_REQUEST_INVALID','CATALOG_REQUEST_STALE','CATALOG_REQUEST_REPLAY',

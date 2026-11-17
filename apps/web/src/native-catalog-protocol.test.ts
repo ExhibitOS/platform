@@ -2,7 +2,7 @@
 import {expect,it} from 'vitest';
 import {newDraft} from './drafts/example';
 import type {NativeViewportFrame} from './native-viewport-protocol';
-import {artworkThumbnailFailure,checkedCatalogRequest,SerialThumbnailQueue} from './native-catalog-protocol';
+import {artworkThumbnailFailure,artworkThumbnailFailureV2,checkedCatalogRequest,SerialThumbnailQueue} from './native-catalog-protocol';
 const id=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:id(),sequence:3,tenantId:id(),principalId:id(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
 const binding=(f:NativeViewportFrame)=>({version:1 as const,epoch:f.epoch,sequence:f.sequence,tenantId:f.tenantId,principalId:f.principalId,requestId:id()});
@@ -40,4 +40,7 @@ it('reports only a bounded outcome and distinguishes the winning deadline from o
  });
  expect(artworkThumbnailFailure('verification',Error('THUMBNAIL_REVISION')).thumbnailFailure.outcome).toBe('rejected');
  expect(artworkThumbnailFailure('queue',Error('THUMBNAIL_BUSY')).thumbnailFailure.outcome).toBe('busy');
+ expect(artworkThumbnailFailureV2(artworkThumbnailFailure('queue',Error('THUMBNAIL_BUSY')),'metadata')).toEqual({
+  thumbnailFailure:{version:2,phase:'queue',outcome:'busy'},
+ });
 });
