@@ -5,7 +5,7 @@ import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {freezeCanonical} from './freeze.js';
 import {benchesFor} from './benches.js';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE,SUPPORTED_FURNISHINGS,type FurnishingCatalogId,type FurnishingPose} from './furnishings.js';
-import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,setRoomCeilingFillBrightness,manualizeRoomBaseLight,sameLightPose,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
+import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,setRoomCeilingFillBrightness,manualizeRoomBaseLight,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
 
 export type LightObjectCommand=
