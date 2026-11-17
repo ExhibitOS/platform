@@ -22,7 +22,7 @@ export async function prepareIntentImageCoarse(intent:ImageCoarseIntent,original
 }
 async function generate(primaryBytes:Buffer,expected?:{sha256:string;bytes:number;width:number;height:number}){
  const generated=await viewerVariants(primaryBytes,'image/png');const coarse=generated.bytes;
- if(!coarse||!generated.coarse||generated.full.textureSize!==2048||generated.coarse.textureSize!==512||coarse.length>=primaryBytes.length||coarse.length<33||coarse.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new ApiError(422,'COARSE_POLICY_MISMATCH');
+ if(!coarse||!generated.coarse||generated.full.textureSize!==2048||generated.coarse.textureSize!==512||(!expected&&coarse.length>=primaryBytes.length)||coarse.length<33||coarse.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new ApiError(422,'COARSE_POLICY_MISMATCH');
  const digest=sha256(coarse),width=coarse.readUInt32BE(16),height=coarse.readUInt32BE(20);
  if(expected&&(coarse.length!==expected.bytes||digest!==expected.sha256||width!==expected.width||height!==expected.height))throw new ApiError(422,'COARSE_POLICY_MISMATCH');
  await decode(coarse,'image/png');
