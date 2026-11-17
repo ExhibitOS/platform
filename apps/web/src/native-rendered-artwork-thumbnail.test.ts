@@ -104,6 +104,10 @@ it('adds only the approved preview GET header and preserves the artwork result',
   version:1,requestId:f.request.requestId,anchorUnixMs:1234,dispatchElapsedMs:expect.any(Number),
   remainingBudgetEstimateMs:expect.any(Number),terminal:{kind:'headers',elapsedMs:expect.any(Number),status:200},
  });
+ const headers=traced.result();
+ deadline.abort(new DOMException('late deadline','TimeoutError'));
+ traced.settleAbort();
+ expect(traced.result()).toBe(headers);
  expect(state.draw).toHaveBeenCalledTimes(2);
 });
 
@@ -130,11 +134,65 @@ it('binds a headers wait timeout to the one request without exposing the excepti
  expect(f.fetcher).toHaveBeenCalledTimes(2);
 });
 
+it('returns the dispatched trace before a delayed observer listener and unresolved fetch finish',async()=>{
+ const requestId=id(6),deadline=new AbortController();
+ const callbacks:(()=>void)[]=[];
+ const signal={
+  get aborted(){return deadline.signal.aborted;},
+  get reason(){return deadline.signal.reason;},
+  addEventListener(...args:[type:string,listener:()=>void]){callbacks.push(args[1]);},
+  removeEventListener(){},
+ } as unknown as AbortSignal;
+ const observation=observeThumbnailPreview(requestId,deadline.signal,10_000,{
+  monotonicMs:performance.now()-250,unixMs:1234,
+ })!;
+ let rejectFetch!:(reason:unknown)=>void;
+ const fetcher=vi.fn(()=>new Promise<Response>((_,reject)=>{rejectFetch=reject;}));
+ vi.stubGlobal('fetch',fetcher);
+ const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>{
+  observation.settleAbort();
+  reject(signal.reason);
+ },{once:true}));
+ const body=observation.fetch('/preview?expectedRevision=2',{signal});
+ const result=Promise.race([body,cancelled]).then(
+  ()=>{throw Error('Expected cancellation while the preview fetch was pending');},
+  error=>({
+   result:artworkThumbnailFailureV2(artworkThumbnailFailure('preview',error,signal,deadline.signal),'headers'),
+   trace:observation.result(),
+  }),
+ );
+ const reason=new DOMException('test deadline','TimeoutError');
+ expect(observation.result()).toBeNull();
+ expect(callbacks).toHaveLength(2);
+ deadline.abort(reason);
+ // Deliver the outer callback now and defer the observer's listener until
+ // after the wrapper has returned. The fetch remains pending in between.
+ callbacks[0]!();
+ const wrapped=await result;
+ expect(wrapped.result).toEqual({
+  thumbnailFailure:{version:2,phase:'preview',previewStep:'headers',outcome:'timeout'},
+ });
+ expect(wrapped.trace).toEqual({
+  version:1,requestId,anchorUnixMs:1234,dispatchElapsedMs:expect.any(Number),
+  remainingBudgetEstimateMs:expect.any(Number),terminal:{kind:'cancelled',elapsedMs:expect.any(Number),reason:'timeout'},
+ });
+ expect(wrapped.trace!.dispatchElapsedMs).toBeGreaterThanOrEqual(250);
+ expect(wrapped.trace!.remainingBudgetEstimateMs).toBe(10_000-wrapped.trace!.dispatchElapsedMs);
+ callbacks[1]!();
+ rejectFetch(reason);
+ await expect(body).rejects.toBe(reason);
+ expect(observation.result()).toBe(wrapped.trace);
+ expect(fetcher).toHaveBeenCalledExactlyOnceWith('/preview?expectedRevision=2',{
+  signal,headers:{[ARTWORK_THUMBNAIL_PREVIEW_TRACE_HEADER]:requestId},
+ });
+});
+
 it('keeps the trace inert before an eligible dispatch and on non-native origins',async()=>{
  const f=fixture(),deadline=new AbortController();
  const traced=observeThumbnailPreview(f.request.requestId,deadline.signal,10_000,{monotonicMs:0,unixMs:1234})!;
  f.fetcher.mockRejectedValueOnce(Error('private metadata failure'));
  await expect(produceArtworkThumbnail(f.request,deadline.signal,undefined,traced)).rejects.toThrow();
+ traced.settleAbort();
  expect(traced.result()).toBeNull();
  expect(f.fetcher.mock.calls[0]?.[1]?.headers).toBeUndefined();
  const native=new URL('http://127.0.0.1:17000/native-viewport.html');

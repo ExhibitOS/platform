@@ -157,6 +157,7 @@ async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2,trace?
    if(step[0]==='preview')previewStep=step[1];
   };
   const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>{
+   trace?.observation?.settleAbort();
    reject(outcomeVersion?signal.reason:Error('CATALOG_REQUEST_CANCELLED'));
   },{once:true}));
   return await Promise.race([thumbnailQueue.run(async()=>{
