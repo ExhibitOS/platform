@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
 import {produceArtworkThumbnail} from './native-artwork-thumbnail';
-import {artworkThumbnailSource} from './native-catalog-protocol';
-const state=vi.hoisted(()=>({dispose:vi.fn(),lose:vi.fn(),draw:vi.fn()}));
+import {artworkThumbnailSource,type ArtworkThumbnailPhase} from './native-catalog-protocol';
+const state=vi.hoisted(()=>({dispose:vi.fn(),lose:vi.fn(),draw:vi.fn(),decode:vi.fn()}));
 vi.mock('./basis-loader.js',()=>({basisLoader:async()=>({dispose:()=>{}})}));
 vi.mock('./embedded-glb.js',()=>({embeddedPNGManager:(_manager:unknown,bytes:ArrayBuffer)=>({bytes,assertLoaded:()=>{},dispose:()=>{}})}));
 vi.mock('./viewer/metric-model.js',()=>({centerMetricModel:()=>({object:{},extent:{}}),metricCameraFit:()=>({near:.01,far:100,distance:2})}));
-vi.mock('three/addons/loaders/GLTFLoader.js',()=>({GLTFLoader:class {async parseAsync(){return {scene:{traverse:()=>{}}};}}}));
+vi.mock('three/addons/loaders/GLTFLoader.js',()=>({GLTFLoader:class {async parseAsync(){state.decode();return {scene:{traverse:()=>{}}};}}}));
 vi.mock('three',()=>({Mesh:class {},WebGLRenderer:class {domElement={};setPixelRatio(){}setSize(){}render(){state.draw();}dispose(){state.dispose();}forceContextLoss(){state.lose();}},LoadingManager:class {},Scene:class {add(){}},Color:class {},HemisphereLight:class {},DirectionalLight:class {position={set:()=>{}};},PerspectiveCamera:class {position={set:()=>({normalize:()=>({multiplyScalar:()=>{}})})};lookAt(){}},SRGBColorSpace:'srgb'}));
 afterEach(()=>{vi.unstubAllGlobals();vi.clearAllMocks();});
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -37,4 +37,18 @@ it('rechecks approved source after asynchronous PNG encoding and refuses source 
 it('rejects missing, duplicate, unapproved or invalid primary source metadata',()=>{
  const f=fixture();expect(artworkThumbnailSource(f.artwork,id(1),2)).toMatchObject({sourceAssetId:id(2)});
  for(const value of [{...f.artwork,approvedAssetId:id(99)},{...f.artwork,archived:true},{...f.artwork,assets:[...f.artwork.assets,f.artwork.assets[0]]},{...f.artwork,assets:[{...f.artwork.assets[0],state:'quarantined'}]},{...f.artwork,approvedRevision:1}])expect(()=>artworkThumbnailSource(value,id(1),2)).toThrow('THUMBNAIL_REVISION');
+});
+
+it.each(['decode','render','encode','verification'] as const)('keeps a %s failure distinct and drains the renderer',async stage=>{
+ const f=fixture(),signal=new AbortController().signal;
+ let phase:ArtworkThumbnailPhase='preview';
+ const fail=()=>{throw Error('private test error');};
+ if(stage==='decode')state.decode.mockImplementationOnce(fail);
+ if(stage==='render')state.draw.mockImplementationOnce(fail);
+ if(stage==='encode')f.mutate(fail);
+ if(stage==='verification')f.mutate(()=>{f.artwork.assets[0]!.sha256='c'.repeat(64);});
+ await expect(produceArtworkThumbnail(f.request,signal,value=>{phase=value;})).rejects.toThrow();
+ expect(phase).toBe(stage);
+ expect(state.dispose).toHaveBeenCalledOnce();
+ expect(state.lose).toHaveBeenCalledOnce();
 });
