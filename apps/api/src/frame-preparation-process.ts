@@ -24,10 +24,10 @@ export async function prepareInfoStandInWorker(source:Buffer,hooks?:WorkerHooks)
  return result;
 }
 
-export async function prepareBenchBaseColorInWorker(source:Buffer,hooks?:WorkerHooks):Promise<Buffer>{
+export async function prepareBenchBaseColorInWorker(source:Buffer,hooks?:WorkerHooks,legacySource=false):Promise<Buffer>{
  const code='BENCH_BASECOLOR_PREPARATION_UNSAFE';
  if(source.length<28||source.length>MAX_BENCH_PREPARATION_SOURCE_BYTES)throw new ApiError(422,code);
- const result=await prepareInWorker(source,source.length,code,['bench-basecolor'],hooks);
+ const result=await prepareInWorker(source,source.length,code,[legacySource?'bench-legacy-basecolor':'bench-basecolor'],hooks);
  if(result.length<28||result.length>=source.length)throw new ApiError(422,code);
  return result;
 }

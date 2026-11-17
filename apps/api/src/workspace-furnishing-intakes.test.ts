@@ -5,8 +5,8 @@ import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
-import {INFO_STAND_PREPARATION_POLICY} from '@exhibitos/studio-contract';
-import {prepareInfoStandInWorker} from './frame-preparation-process.ts';
+import {BENCH_BASECOLOR_PREPARATION_POLICY,INFO_STAND_PREPARATION_POLICY} from '@exhibitos/studio-contract';
+import {prepareBenchBaseColorInWorker,prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrameById,readInstalledFrameThumbnail,installedFrameThumbnail} from './installed-artwork-frame.ts';
@@ -15,7 +15,7 @@ vi.mock('./installed-artwork-frame.ts',async importOriginal=>({
  readInstalledFrameById:vi.fn(),
  readInstalledFrameThumbnail:vi.fn(),
 }));
-vi.mock('./frame-preparation-process.ts',async original=>({...await original<typeof import('./frame-preparation-process.ts')>(),prepareInfoStandInWorker:vi.fn()}));
+vi.mock('./frame-preparation-process.ts',async original=>({...await original<typeof import('./frame-preparation-process.ts')>(),prepareInfoStandInWorker:vi.fn(),prepareBenchBaseColorInWorker:vi.fn()}));
 vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.fn(async()=>{})}));
 vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -322,6 +322,41 @@ it.each([true,false])('recovers the staged sign only under the same producing ma
   expect(f.getStage()).toMatchObject({state:'staged',producing_manifest_sha256:manifest});
   expect(f.files.has(String(stage.renderable_key))).toBe(false);
  }
+});
+
+it.each(['legacy','ordinary','unavailable','invalid-output'] as const)('settles the bench 512 preparation through the strict validator (%s)',async scenario=>{
+ const source=Buffer.alloc(64,1),renderable=Buffer.alloc(48,2),f=fixture(true,source),manifest='a'.repeat(64);
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceBenchBaseColorPreparation:true},
+  {...f.writer,identity:{...f.writer.identity,payloadManifestSHA256:manifest}});
+ const declaration={...f.declaration,kind:'bench',preparationPolicy:BENCH_BASECOLOR_PREPARATION_POLICY};
+ const first=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,first.intakeId,source);
+ await service.complete(f.client,f.session,first.intakeId);
+ const prepare=vi.mocked(prepareBenchBaseColorInWorker);prepare.mockReset().mockResolvedValue(renderable);
+ const validate=vi.mocked(validateWorkspaceFurnishingGlb);validate.mockClear();
+ if(scenario==='legacy'||scenario==='invalid-output')validate.mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ if(scenario==='invalid-output')validate.mockRejectedValueOnce(new ApiError(422,'FORMAT_REJECTED'));
+ if(scenario==='unavailable')validate.mockRejectedValueOnce(new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE'));
+ await service.work(f.pool);
+ const settled=await service.read(f.client,f.session,first.intakeId);
+ if(scenario==='unavailable'){
+  expect(prepare).not.toHaveBeenCalled();expect(f.getStage()).toBeUndefined();
+  expect(settled).toMatchObject({phase:'failed',retryable:true,error:{code:'FURNISHING_VALIDATION_UNAVAILABLE'}});
+  return;
+ }
+ expect(prepare).toHaveBeenCalledExactlyOnceWith(source,expect.objectContaining({writerFd:12}),scenario!=='ordinary');
+ expect(validate.mock.calls.map(([,bytes])=>bytes)).toEqual([source,renderable]);
+ if(scenario==='invalid-output'){
+  expect(f.getStage()).toBeUndefined();
+  expect(settled).toMatchObject({phase:'failed',retryable:false,error:{code:'BENCH_BASECOLOR_PREPARATION_UNSAFE'}});
+  return;
+ }
+ const model={mime:'model/gltf-binary',bytes:renderable.length,sha256:sha256(renderable)};
+ expect(settled).toMatchObject({phase:'registered',preparation:{recipe:BENCH_BASECOLOR_PREPARATION_POLICY,
+  sourceModel:declaration.model,renderableModel:model,runtimeManifestSHA256:manifest},
+  furnishing:{version:1,model,rights}});
+ expect(f.files.get(String(f.getStage()!.source_key))).toEqual(source);
+ expect(f.files.get(String(f.getStage()!.renderable_key))).toEqual(renderable);
 });
 
 it('keeps a compatible info-stand byte-identical with no preparation receipt',async()=>{
