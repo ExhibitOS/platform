@@ -20,6 +20,7 @@ export interface ThumbnailPreviewTrace {
 type PreviewOptions = RequestInit & {signal:AbortSignal};
 export interface ThumbnailPreviewObservation {
  fetch(path:string,options:PreviewOptions):Promise<Response>;
+ settleAbort():void;
  result():ThumbnailPreviewTrace|null;
 }
 
@@ -36,6 +37,7 @@ export function observeThumbnailPreview(
  const id=requestId.toLowerCase();
  let dispatched=false;
  let trace:ThumbnailPreviewTrace|null=null;
+ let settlePendingAbort:(()=>void)|undefined;
  const elapsed=()=>Math.round(Math.max(0,Math.min(60_000,performance.now()-clock.monotonicMs)));
  return {
   async fetch(path,options){
@@ -48,10 +50,16 @@ export function observeThumbnailPreview(
     remainingBudgetEstimateMs:Math.max(0,budgetMs-dispatchElapsedMs),
    };
    const record=(terminal:PreviewTerminal)=>{trace??={...prefix,terminal};};
-   const cancelled=()=>record({
-    kind:'cancelled',elapsedMs:elapsed(),
-    reason:deadline.aborted&&signal.reason===deadline.reason?'timeout':'cancelled',
-   });
+   const cancelled=()=>{
+    if(!signal.aborted)return;
+    record({
+     kind:'cancelled',elapsedMs:elapsed(),
+     reason:deadline.aborted&&signal.reason===deadline.reason?'timeout':'cancelled',
+    });
+   };
+   // Preserve dispatch data before issuing the GET. The outer deadline can
+   // return its failure while this fetch and its listener are still pending.
+   settlePendingAbort=cancelled;
    signal.addEventListener('abort',cancelled,{once:true});
    try{
     const response=await fetch(path,{...options,headers:{[ARTWORK_THUMBNAIL_PREVIEW_TRACE_HEADER]:id}});
@@ -63,9 +71,11 @@ export function observeThumbnailPreview(
     record({kind:'failed',elapsedMs:elapsed()});
     throw error;
    }finally{
+    settlePendingAbort=undefined;
     signal.removeEventListener('abort',cancelled);
    }
   },
+  settleAbort:()=>settlePendingAbort?.(),
   result:()=>trace,
  };
 }
