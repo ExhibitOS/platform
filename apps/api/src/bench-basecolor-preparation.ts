@@ -24,6 +24,18 @@ type BenchGlb = {
 
 function unsafe(): never { throw Error('BENCH_BASECOLOR_PREPARATION_UNSAFE'); }
 
+/** Recognize the closed TIFF layout with two resolution rationals and no
+ * other entries or linked directory. Orientation and other tags must fail. */
+function resolutionOnlyExif(tiff: Buffer): boolean {
+  return tiff.length === 54 && tiff.readUInt32BE(0) === 0x4d4d002a && tiff.readUInt32BE(4) === 24 &&
+    tiff.readUInt32BE(8) > 0 && tiff.readUInt32BE(12) > 0 &&
+    tiff.readUInt32BE(16) > 0 && tiff.readUInt32BE(20) > 0 &&
+    tiff.readUInt16BE(24) === 2 &&
+    tiff.readUInt32BE(26) === 0x011a0005 && tiff.readUInt32BE(30) === 1 && tiff.readUInt32BE(34) === 8 &&
+    tiff.readUInt32BE(38) === 0x011b0005 && tiff.readUInt32BE(42) === 1 && tiff.readUInt32BE(46) === 16 &&
+    tiff.readUInt32BE(50) === 0;
+}
+
 function opaqueSrgbPng(png: Buffer, mode?: 'generated' | 'legacy-source') {
   if (!png.subarray(0, 8).equals(PNG_SIGNATURE)) return unsafe();
   const chunks: Buffer[] = [PNG_SIGNATURE];
@@ -48,7 +60,7 @@ function opaqueSrgbPng(png: Buffer, mode?: 'generated' | 'legacy-source') {
       if (tag === 'gAMA' && size === 4 && png.readUInt32BE(offset + 8) === 45455 ||
           tag === 'cHRM' && size === 32 &&
           [31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000].every((value, index) => png.readUInt32BE(offset + 8 + index * 4) === value) ||
-          tag === 'eXIf' && size >= 8 && size <= 1024 ||
+          tag === 'eXIf' && resolutionOnlyExif(png.subarray(offset + 8, next - 4)) ||
           (tag === 'oFFs' || tag === 'pHYs') && size === 9 && png[offset + 16]! <= 1) legacyMetadata.add(tag);
       else return unsafe();
     } else return unsafe();
