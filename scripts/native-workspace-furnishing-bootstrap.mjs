@@ -15,6 +15,7 @@ import {confirmedHayesReleaseBindings} from '../packages/storage/dist/hayes-rele
 import {migrateInTransaction} from '../packages/storage/dist/index.js';
 import {assertIssuedFurnishingWriterLease,assertIssuedFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {verifyWorkspaceFurnishingWriterMigration,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,verifyWorkspaceFurnishingPublicationMigration,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
+import {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION,checkCombinedThumbnailParent,checkHayesPreopenTerminalLedger,verifyHayesPreopenTerminalMigration} from './native-oex-normal-catalog.mjs';
 import {assertExactCurrentWorkspaceRailCatalog,checkCurrentWorkspaceRailParent,CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256,verifyCurrentWorkspaceRailMigration} from './native-oex-normal-catalog.mjs';
 import {assertExactWorkspaceMaterialPublicationCatalog,assertExactWorkspaceMaterialMultimapCatalog,recognizeNormalOexCatalog,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,verifyWorkspaceImportMigrations,verifyWorkspaceWallImportMigration,verifyWorkspaceFurnishingMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 
@@ -86,6 +87,41 @@ async function assertCurrentWorkspaceRailLive({mode,writer,ordinaryAdmission,cha
     typeof isStopped!=='function')throw Error('FURNISHING_ADMISSION_INVALID');
  await writer.assertLive();
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+}
+
+async function assertHayesPreopenTerminalLive({mode,writer,ordinaryAdmission,channel,hayesChannel,selection,isStopped}){
+ assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
+ assertIssuedFurnishingWriterLease(writer);
+ if(selection!==HAYES_PREOPEN_TERMINAL_SELECTION||mode!=='workspace-furnishing-036-reopen-v1'||
+    writer.identity.mode!==mode||ordinaryAdmission.writer!==writer||ordinaryAdmission.fields.admissionKind!=='clean-reopen'||
+    ordinaryAdmission.fields.restoreProof||ordinaryAdmission.fields.carriedRestoreProof||
+    typeof isStopped!=='function')throw Error('FURNISHING_ADMISSION_INVALID');
+ await writer.assertLive();
+ if(isStopped()||!channel?.isOpen()||!hayesChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+}
+
+/** Requested under the existing exclusive workspace and maintenance fences.
+ * The retained Hayes row may stay processing; this path only changes the catalog. */
+export async function prepareHayesPreopenTerminalCatalog(c,{base,normal,options,hayesPreopenTerminalDirectory,...admission}){
+ await assertHayesPreopenTerminalLive(admission);
+ const sql=await verifyHayesPreopenTerminalMigration(hayesPreopenTerminalDirectory);
+ await c.query('SELECT pg_advisory_xact_lock(82001)');
+ const {rows}=await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
+ if(rows.length===47){
+  checkCombinedThumbnailParent(rows);
+  if(!await recognizeNormalOexCatalog(c,base,normal,options))throw Error('NATIVE_OEX_CATALOG');
+  await assertHayesPreopenTerminalLive(admission);
+  await c.query(sql);
+  await c.query('INSERT INTO public.schema_migrations(name,sha256) VALUES($1,$2)',[HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256]);
+ }
+ if(!await recognizeNormalOexCatalog(c,base,normal,{...options,hayesPreopenTerminalDirectory}))throw Error('NATIVE_OEX_CATALOG');
+ return {requireExisting:true};
+}
+
+export async function assertHayesPreopenTerminalBeforeCommit(c,admission){
+ const {rows}=await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
+ checkHayesPreopenTerminalLedger(rows);
+ await assertHayesPreopenTerminalLive(admission);
 }
 
 /** Recheck the ledger before the last asynchronous writer/payload fence. */
