@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {readFile} from 'node:fs/promises';
+import type {Exhibition} from '@exhibitos/spec';
 import {randomUUID} from 'node:crypto';
 import {expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,FileBlobStore} from '@exhibitos/storage';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
-import {WORKSPACE_FURNISHING_NAMESPACE as W,type FrameImageFit,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE as W,validateWorkspaceFurnishings,type FrameImageFit,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {syntheticArtwork,newPlacement} from '../../web/src/placement/model.ts';
 import {nativeFrameImageFitProposal} from './native-frame-image-fit.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {buildApp} from './app.ts';
-import {etag} from './studio.ts';
+import {Studio,etag} from './studio.ts';
 import type {Session} from './auth.ts';
 function fixture(){
  const draft=newDraft(),art=syntheticArtwork('image');art.dimensions={width:.934,height:.732};art.assets[0]!.sha256='b'.repeat(64);
@@ -20,11 +22,23 @@ function fixture(){
  const row={placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:source.id,furnishingVersion:1 as const,modelSha256:model.sha256};
  const value:WorkspaceFurnishings={version:9,furnishings:[source],placements:[],frameAttachments:[row],openingAttachments:[]};draft.candidate.extensions={...draft.candidate.extensions,[W]:value as never};
  const imageFit:FrameImageFit={version:1,profile:'contain-contact-v1',sourceSha256:'b'.repeat(64),pixelWidth:2048,pixelHeight:1630},command={type:'reconcile-frame-image-fit' as const,placementId:placement.id};
- const service={hasWriterLease:()=>true,supportsReusableFit:()=>true,authorize:vi.fn(async()=>{}),readVersion:vi.fn(async()=>structuredClone(source)),checkDisplay:vi.fn(async()=>structuredClone(source)),checkArtwork:vi.fn(async()=>{}),frameImageFit:vi.fn(async()=>structuredClone(imageFit))};
+ const service={supportsArtworkFrame:()=>true,supportsCeilingRail:()=>true,hasWriterLease:()=>true,supportsReusableFit:()=>true,authorize:vi.fn(async()=>{}),readVersion:vi.fn(async(c:unknown,s:unknown,id:string):Promise<WorkspaceFurnishings['furnishings'][number]>=>{void c;void s;void id;return structuredClone(source);}),checkDisplay:vi.fn(async()=>structuredClone(source)),checkArtwork:vi.fn(async()=>{}),frameImageFit:vi.fn(async()=>structuredClone(imageFit))};
  return {draft,art,placement,source,row,value,imageFit,command,service};
 }
-it('reconciles exactly one row, preserves descriptor/Z/photo/template and makes repeat proposal a semantic no-op',async()=>{
- const f=fixture(),before=structuredClone(f.draft),out=nativeFrameImageFitProposal(f.draft.candidate,f.command,f.imageFit),expected=structuredClone(f.draft.candidate),w=expected.extensions![W] as unknown as WorkspaceFurnishings;w.version=10;w.frameAttachments![0]!.imageFit=f.imageFit;
+async function railFixture(){
+ const f=fixture();
+ const candidate=JSON.parse(await readFile(new URL('./fixtures/rail-v11/exhibition.json',import.meta.resolve('@exhibitos/spec')),'utf8')) as Exhibition;
+ f.draft.candidate=candidate;f.draft.exhibitionId=candidate.id;
+ f.placement.roomId=candidate.rooms[0]!.id;
+ candidate.artworks.push(f.art);candidate.placements.push(f.placement);
+ candidate.accessibility.artworkDescriptions.push({placementId:f.placement.id,text:'Synthetic image'});
+ const value=candidate.extensions![W] as unknown as WorkspaceFurnishings;
+ value.furnishings.push(f.source);value.frameAttachments=[f.row];
+ f.service.readVersion.mockImplementation(async(_c,_s,id)=>structuredClone(value.furnishings.find(item=>item.id===id)!));
+ return {...f,value};
+}
+it.each([9,11])('reconciles exactly one v%s row, preserves descriptor/Z/photo/template and makes repeat proposal a semantic no-op',async version=>{
+ const f=version===11?await railFixture():fixture(),before=structuredClone(f.draft),out=nativeFrameImageFitProposal(f.draft.candidate,f.command,f.imageFit),expected=structuredClone(f.draft.candidate),w=expected.extensions![W] as unknown as WorkspaceFurnishings;w.version=version===11?11:10;w.frameAttachments![0]!.imageFit=f.imageFit;
  const after=structuredClone(before);after.candidate=out.candidate;
  expect(out).toEqual({candidate:expected,placementId:f.placement.id});expect(f.draft).toEqual(before);expect(ordinaryFrameDelta(before,after,W)).toBe(true);
  expect(nativeFrameImageFitProposal(out.candidate,f.command,f.imageFit).candidate).toEqual(out.candidate);
@@ -33,8 +47,8 @@ it('reconciles exactly one row, preserves descriptor/Z/photo/template and makes 
  f.service.frameImageFit.mockResolvedValueOnce({...f.imageFit,pixelWidth:2047});await expect(assertWorkspaceFurnishingSnapshot({} as PoolClient,{} as Session,out.candidate,f.service as never)).rejects.toMatchObject({status:409,code:'FRAME_IMAGE_FIT_STALE'});
  const stripped=structuredClone(after);delete (stripped.candidate.extensions![W] as unknown as WorkspaceFurnishings).frameAttachments![0]!.imageFit;expect(ordinaryFrameDelta(after,stripped,W)).toBe(false);
 });
-it('serves the closed ordinary proposal with owner/head fencing and never persists it',async()=>{
- const f=fixture(),tenantId=randomUUID(),userId=randomUUID(),csrf='synthetic-csrf',revision=3,match=etag(revision,f.draft),queries:string[]=[];
+it.each([9,11])('serves the closed ordinary v%s proposal with owner/head fencing and never persists it',async version=>{
+ const f=version===11?await railFixture():fixture(),tenantId=randomUUID(),userId=randomUUID(),csrf='synthetic-csrf',revision=3,match=etag(revision,f.draft),queries:string[]=[];
  const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
  const client={query:async(sql:string)=>{queries.push(sql);if(sql.includes('SELECT s.*,m.role'))return {rows:[session],rowCount:1};if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))return {rows:[{id:f.draft.exhibitionId,revision,metadata:f.draft,studio_owner_user_id:userId}],rowCount:1};return {rows:[],rowCount:0};},release:()=>{}};
  const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}};
@@ -63,4 +77,28 @@ it('reconciles supported metric placement scale through the existing proposal an
   expect((out.candidate.extensions![W] as unknown as WorkspaceFurnishings).frameAttachments![0]!.imageFit).toEqual(f.imageFit);
   await expect(assertWorkspaceFurnishingSnapshot({} as PoolClient,{} as Session,out.candidate,f.service as never)).resolves.toBeUndefined();
  }
+});
+
+it('preflights, saves and reads back a v11 contact fit while preserving the rail and every unrelated field',async()=>{
+ const f=await railFixture(),before=structuredClone(f.draft);
+ const out=nativeFrameImageFitProposal(f.draft.candidate,f.command,f.imageFit),next=structuredClone(f.draft);next.candidate=out.candidate;next.editVersion++;
+ expect(validateWorkspaceFurnishings(out.candidate).valid).toBe(true);
+ const workspace=out.candidate.extensions![W] as unknown as WorkspaceFurnishings;
+ expect(workspace.version).toBe(11);expect(workspace.ceilingAttachments).toEqual(f.value.ceilingAttachments);
+ const expected=structuredClone(before);expected.editVersion=next.editVersion;
+ (expected.candidate.extensions![W] as unknown as WorkspaceFurnishings).frameAttachments![0]!.imageFit=f.imageFit;
+ expect(next).toEqual(expected);expect(f.draft).toEqual(before);expect(ordinaryFrameDelta(before,next,W)).toBe(true);
+ const client={query:vi.fn(async()=>({rows:[],rowCount:0}))} as unknown as PoolClient;
+ const session={tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session;
+ const studio=new Studio({workspaceId:randomUUID()} as never,true,undefined,f.service as never);
+ const row={id:f.draft.exhibitionId,revision:2,metadata:f.draft,nativeBounded:false};
+ vi.spyOn(studio,'access').mockResolvedValue(row as never);
+ const input={draft:next,requestId:randomUUID()},match=etag(row.revision,row.metadata);
+ await expect(studio.validateNativeViewport(client,session,f.draft.exhibitionId,input,match)).resolves.toEqual({valid:true});
+ const saved=await studio.put(client,session,f.draft.exhibitionId,input,match);
+ expect(saved.draft).toEqual(next);expect(saved.revision).toBe(3);expect(saved.etag).toBe(etag(3,next));
+ const broken=structuredClone(next);(broken.candidate.extensions![W] as unknown as WorkspaceFurnishings).ceilingAttachments![0]!.gap+=.01;
+ expect(ordinaryFrameDelta(before,broken,W)).toBe(false);
+ const downgraded=structuredClone(next);(downgraded.candidate.extensions![W] as unknown as WorkspaceFurnishings).version=10;
+ expect(validateWorkspaceFurnishings(downgraded.candidate).valid).toBe(false);expect(ordinaryFrameDelta(before,downgraded,W)).toBe(false);
 });
