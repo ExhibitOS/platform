@@ -9,7 +9,7 @@ import {allowedRights,validRights} from './rights.ts';
 import {freshImageIntent} from './fresh-image-intent.ts';
 import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
 import {prepareFreshImageInWorker,prepareProductImageInWorker} from './product-image-preparation-process.ts';
-import {canonicalImageHash,productImageIntent,storedPreparedImage,preparedImageReceipt,type FreshImageState,type ProductImageState,type ProductImageReceipt} from './product-image-intent.ts';
+import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,productImageIntent,storedPreparedImage,preparedImageReceipt,type FreshImageState,type ProductImageState,type ProductImageReceipt} from './product-image-intent.ts';
 export async function createProductImageImport(imports:Imports,c:PoolClient,s:Session,input:ImportInput){
  if(!imports.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
  const fresh=input.imagePreparation!==undefined;
@@ -36,7 +36,7 @@ async function assertImagePreparationArtwork(c:PoolClient,s:Pick<Session,'tenant
     !isDeepStrictEqual(artwork.metadata?.rights,rights)||!allowedRights(rights,'display')||!allowedRights(rights,'export')){
   throw new ApiError(409,'IMAGE_PREPARATION_CONTEXT_CHANGED');
  }
- if(state.kind==='fresh-product-image'){
+ if(state.kind==='fresh-product-image'||state.request.purpose===INITIAL_PRODUCT_IMAGE_PURPOSE){
   const prior=await c.query('SELECT 1 FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 LIMIT 1',[s.tenantId,artworkId]);
   if(artwork.approved_revision!=null||artwork.approved_asset_id!=null||prior.rowCount)throw new ApiError(409,'IMAGE_PREPARATION_CONTEXT_CHANGED');
   return;
