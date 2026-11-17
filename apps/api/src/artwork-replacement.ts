@@ -11,7 +11,7 @@ import {modelPreparationDrained,modelPreparationReceipt,storedModelPreparation} 
 import {COMPACT_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {allowedRights} from './rights.ts';
 import {artworkReplacementSnapshot,productImageReplacementSnapshot} from './artwork-replacement-snapshot.ts';
-import {storedProductImage,productImageReceipt,productImageDrained} from './product-image-intent.ts';
+import {INITIAL_PRODUCT_IMAGE_PURPOSE,storedProductImage,productImageReceipt,productImageDrained} from './product-image-intent.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
 import {Studio,etag,insertStudioReceipt,type Draft,type StudioResponse} from './studio.ts';
 
@@ -46,6 +46,7 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  const job=await imports.access(c,s,input.importJobId);
  const product=storedProductImage(job);
  if(product){
+  if(!repair&&product.request.purpose===INITIAL_PRODUCT_IMAGE_PURPOSE)throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
   if(job.user_id!==s.userId||job.artwork_id!==input.artworkId||(!repair&&product.request.artworkRevision!==input.artworkRevision)||job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
   const receipt=productImageReceipt(job);
   assertImageReplacementCurrent(artwork,input,job.rights);

@@ -142,6 +142,8 @@ export class Auth {
  async asset(client:PoolClient,s:Session,id:string,permission: false|'export'|'download'=false) {
   const role=await membership(client,{tenantId:s.tenantId,userId:s.userId});
   if (!['admin','artist'].includes(role)) throw new AccessDenied();
+  const initialImageJob=`(j.derived->>'kind'='fresh-product-image' OR
+    (j.derived->>'kind'='product-image-pair' AND j.derived#>>'{request,purpose}'='initial-approval'))`;
   const result=await client.query(`SELECT a.id,a.artwork_id,a.sha256,a.bytes,a.mime,a.state,a.object_key,r.metadata AS rights,
     EXISTS (
       SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
@@ -150,12 +152,12 @@ export class Auth {
     ) AS product_image_output,
     EXISTS (
       SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
-      AND j.derived->>'kind'='fresh-product-image' AND j.original_asset_id=a.id
+      AND ${initialImageJob} AND j.original_asset_id=a.id
     ) AS fresh_image_original,
     EXISTS (
       SELECT 1 FROM import_jobs j JOIN artworks w ON (w.tenant_id,w.id)=(j.tenant_id,j.artwork_id)
       JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(w.tenant_id,w.id,w.revision)
-      WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id AND j.derived->>'kind'='fresh-product-image'
+      WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id AND ${initialImageJob}
       AND j.state='approved' AND j.lease_id IS NULL AND cardinality(j.png_worker_tokens)=0
       AND w.approved_revision=w.revision AND w.approved_asset_id=j.asset_id AND ap.asset_id=j.asset_id
       AND j.derived#>>'{result,coarse,assetId}'=a.id::text AND a.state='approved'

@@ -3,8 +3,9 @@ import type {ModelPreparationWriter} from './model-preparation-import.ts';
 import {ApiError} from './api-error.ts';
 import {freshImageIntent,type FreshImageIntent} from './fresh-image-intent.ts';
 import {FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_LIMITS,imageHash,validProductFullDimensions,type ProductImageProducerReceipt,type ImageMetric} from './product-image-preparation.ts';
-export interface ProductImageIntent {version:1;profile:typeof PRODUCT_IMAGE_PROFILE;artworkRevision:number}
-export const PRODUCT_IMAGE_INTENT_SCHEMA={type:'object',additionalProperties:false,required:['version','profile','artworkRevision'],properties:{version:{const:1},profile:{const:PRODUCT_IMAGE_PROFILE},artworkRevision:{type:'integer',minimum:1,maximum:2147483646}}};
+export const INITIAL_PRODUCT_IMAGE_PURPOSE='initial-approval' as const;
+export interface ProductImageIntent {version:1;profile:typeof PRODUCT_IMAGE_PROFILE;artworkRevision:number;purpose?:typeof INITIAL_PRODUCT_IMAGE_PURPOSE}
+export const PRODUCT_IMAGE_INTENT_SCHEMA={type:'object',additionalProperties:false,required:['version','profile','artworkRevision'],properties:{version:{const:1},profile:{const:PRODUCT_IMAGE_PROFILE},artworkRevision:{type:'integer',minimum:1,maximum:2147483646},purpose:{const:INITIAL_PRODUCT_IMAGE_PURPOSE}}};
 export const canonicalImageHash=(value:unknown):string=>{const sort=(v:unknown):unknown=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,x])=>[k,sort(x)])):v;return imageHash(sort(value) as object);};
 export interface ProductImageReceipt<Mime extends 'image/jpeg'|'image/png'='image/jpeg'> {version:1;jobId:string;artworkId:string;artworkRevision:number;workspaceId:string;principalId:string;rightsSHA256:string;original:{assetId:string;sha256:string;bytes:number;mime:Mime};full:ImageMetric&{assetId:string;mime:'image/png'};coarse?:ImageMetric&{assetId:string;mime:'image/png'};producer:ProductImageProducerReceipt<Mime>;sha256:string}
 export interface ProductImageState {kind:'product-image-pair';request:ProductImageIntent;workspaceId:string;principalId:string;result?:ProductImageReceipt}
@@ -18,7 +19,14 @@ export interface FreshImageState {
 }
 export const isProductImageIntent=(v:unknown)=>!!v&&typeof v==='object'&&(v as {profile?:unknown}).profile===PRODUCT_IMAGE_PROFILE;
 export function productImageIntent(value:unknown):ProductImageIntent{
- const v=value as ProductImageIntent;if(!v||Object.keys(v).sort().join(',')!=='artworkRevision,profile,version'||v.version!==1||v.profile!==PRODUCT_IMAGE_PROFILE||!Number.isSafeInteger(v.artworkRevision)||v.artworkRevision<1||v.artworkRevision>=2147483647)throw new ApiError(400,'IMAGE_PREPARATION_INTENT_INVALID');return {...v};
+ const v=value as ProductImageIntent;
+ if(!v||typeof v!=='object'||v.version!==1||v.profile!==PRODUCT_IMAGE_PROFILE||
+    !Number.isSafeInteger(v.artworkRevision)||v.artworkRevision<1||v.artworkRevision>=2147483647)
+  throw new ApiError(400,'IMAGE_PREPARATION_INTENT_INVALID');
+ const keys=Object.hasOwn(v,'purpose')&&v.purpose===INITIAL_PRODUCT_IMAGE_PURPOSE
+  ?'artworkRevision,profile,purpose,version':'artworkRevision,profile,version';
+ if(Object.keys(v).sort().join(',')!==keys)throw new ApiError(400,'IMAGE_PREPARATION_INTENT_INVALID');
+ return {...v};
 }
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 export function storedPreparedImage(row:Record<string,unknown>):ProductImageState|FreshImageState|undefined{
