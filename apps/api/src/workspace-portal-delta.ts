@@ -12,12 +12,13 @@ export function portalStateChanged(before:Draft,after:Draft,namespace:string):bo
 }
 
 /** One opening visual attachment changes; all other draft data stays fixed. */
-export function ordinaryPortalDelta(before:Draft,after:Draft,namespace:string):boolean{
+export function ordinaryPortalDelta(before:Draft,after:Draft,namespace:string,{allowVersion11=false}:{allowVersion11?:boolean}={}):boolean{
  const leftDraft=structuredClone(before),rightDraft=structuredClone(after);
  const extract=(draft:Draft)=>{
   const extensions=draft.candidate.extensions??{},raw=extensions[namespace] as unknown as {version:number;furnishings:{id:string;kind:string}[];placements:unknown[];frameAttachments?:unknown[];openingAttachments?:{openingId:string}[];ceilingAttachments?:unknown[]}|undefined;
   if(raw&&(![5,6,7,9,10,11].includes(raw.version)||!Array.isArray(raw.furnishings)||!Array.isArray(raw.placements)||!Array.isArray(raw.frameAttachments)||
-    raw.version>=6&&!Array.isArray(raw.openingAttachments)||raw.version===11&&!Array.isArray(raw.ceilingAttachments)))throw Error('PORTAL_INVALID');
+    raw.version>=6&&!Array.isArray(raw.openingAttachments)||
+    raw.version===11&&(!allowVersion11||!Array.isArray(raw.ceilingAttachments))))throw Error('PORTAL_INVALID');
   const result={
    version:raw?.version,
    rows:raw?.openingAttachments??[],

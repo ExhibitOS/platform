@@ -27,8 +27,10 @@ function ceilingPortalDrafts(){
 
 it('admits a v11 portal attach and detach with the same ceiling attachments',()=>{
  const {before,after}=ceilingPortalDrafts();
- expect(ordinaryPortalDelta(before,after,ns)).toBe(true);
- expect(ordinaryPortalDelta(after,before,ns)).toBe(true);
+ expect(ordinaryPortalDelta(before,after,ns,{allowVersion11:true})).toBe(true);
+ expect(ordinaryPortalDelta(after,before,ns,{allowVersion11:true})).toBe(true);
+ expect(ordinaryPortalDelta(before,after,ns)).toBe(false);
+ expect(ordinaryPortalDelta(after,before,ns,{allowVersion11:false})).toBe(false);
 });
 
 it.each([
@@ -39,6 +41,6 @@ it.each([
 ])('refuses a portal change with altered ceiling data or namespace downgrade (%j)',(changes)=>{
  const {before,after,attached}=ceilingPortalDrafts();
  Object.assign(attached,changes);
- expect(ordinaryPortalDelta(before,after,ns)).toBe(false);
- expect(ordinaryPortalDelta(after,before,ns)).toBe(false);
+ expect(ordinaryPortalDelta(before,after,ns,{allowVersion11:true})).toBe(false);
+ expect(ordinaryPortalDelta(after,before,ns,{allowVersion11:true})).toBe(false);
 });
