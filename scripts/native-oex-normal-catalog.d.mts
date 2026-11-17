@@ -12,3 +12,7 @@ export const CURRENT_WORKSPACE_RAIL_PARENT_SHA256:string;
 export const HAYES_PREOPEN_TERMINAL_MIGRATION:string;
 export const HAYES_PREOPEN_TERMINAL_SHA256:string;
 export function assertExactCurrentWorkspaceRailCatalog(client:Pick<PoolClient,'query'>):Promise<void>;
+
+export const BENCH_AFTER_TERMINAL_MIGRATION:string;
+export const BENCH_AFTER_TERMINAL_SHA256:string;
+export function assertExactBenchAfterTerminalCatalog(client:Pick<PoolClient,'query'>):Promise<void>;

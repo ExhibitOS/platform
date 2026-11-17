@@ -136,6 +136,31 @@ it('includes only the explicitly selected exact049 migration in the current read
  await writeFile(join(migrations,name),'changed');expect((await readiness(pool,selected)).ready).toBe(false);await rm(join(migrations,name));await symlink(new URL('../../../database/native-gpu-model-preparation/'+name,import.meta.url),join(migrations,name));expect((await readiness(pool,selected)).ready).toBe(false);
 });
 
+it('requires exact 054 and 055 files and matching selected ledger rows for bench readiness', async () => {
+  const {config, pool, rows} = await fixture();
+  const parent = join(config.migrationDirectory, '..', 'terminal');
+  const bench = join(config.migrationDirectory, '..', 'bench');
+  await Promise.all([mkdir(parent), mkdir(bench)]);
+  for (const [folder, directoryName, filename] of [
+    [parent, 'native-hayes-preopen-terminal', '054_hayes_preopen_terminal.sql'],
+    [bench, 'native-workspace-bench-after-terminal', '055_workspace_bench_after_terminal.sql'],
+  ]) {
+    const sql = await readFile(new URL(`../../../database/${directoryName}/${filename}`, import.meta.url));
+    await writeFile(join(folder!, filename!), sql);
+    rows.push({name: filename!, sha256: createHash('sha256').update(sql).digest('hex')});
+  }
+  const selected = {...config, hayesPreopenTerminalMigrationDirectory: parent, benchAfterTerminalMigrationDirectory: bench};
+  expect((await readiness(pool, {...selected, hayesPreopenTerminalMigrationDirectory: undefined})).ready).toBe(false);
+  expect((await readiness(pool, {...selected, benchAfterTerminalMigrationDirectory: undefined})).ready).toBe(false);
+  expect((await readiness(pool, selected)).ready).toBe(true);
+  await writeFile(join(bench, 'untracked.txt'), '');
+  expect((await readiness(pool, selected)).ready).toBe(false);
+  await rm(join(bench, 'untracked.txt'));
+  await writeFile(join(bench, '055_workspace_bench_after_terminal.sql'), 'SELECT 1;');
+  rows[2]!.sha256 = createHash('sha256').update('SELECT 1;').digest('hex');
+  expect((await readiness(pool, selected)).ready).toBe(false);
+});
+
 it('requires the selected exact 052 bench migration and matching ledger', async () => {
   const {config, pool, rows} = await fixture();
   const name = '052_workspace_bench_basecolor_preparation.sql';
