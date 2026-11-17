@@ -7,7 +7,7 @@ import {ARTWORK_DETAIL_QUALITY_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,freezeCa
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {ApiError,type Session} from './auth.ts';
 import {isIssuedNativeDetailContext,type NativeDetailContext} from './native-detail-context.ts';
-import {hasQualifiedOriginalImageModel,qualifiedOriginalImageModel} from './native-original-image-model.ts';
+import {hasQualifiedOriginalImageModel,ownerLocalOriginalImageModel,qualifiedOriginalImageModel} from './native-original-image-model.ts';
 import {matchesPrivateWheatBinding} from './private-wheat-candidate-pin.ts';
 import {readBoundOriginalDetail} from './original-detail-binding.ts';
 import type {Studio} from './studio.ts';
@@ -37,7 +37,8 @@ export async function reconstructNativeOriginalExport(c:PoolClient,s:Session,pub
  if(row.snapshot.extensions?.[WORKSPACE_FURNISHING_NAMESPACE]!==undefined)normal.push(...(await c.query('SELECT public_id AS id FROM publication_workspace_furnishings WHERE tenant_id=$1 AND publication_id=$2',[s.tenantId,publicationId])).rows);
  const occupied=new Set([...normal.map(r=>String(r.id).toLowerCase()),...(furnishingsFor(row.snapshot)?.assets??[]).map(a=>a.id.toLowerCase())]),candidateIds=new Set<string>(),candidates:Array<{artworkId:string;artworkRevisionId:string;artworkType:'image'|'sculpture';candidate:DetailCandidate}>=[];let total=0,imageCount=0;
  for(const artwork of row.snapshot.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')return unavailable();const parsed=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!parsed||parsed.candidates.length!==1)return unavailable();const candidate=parsed.candidates[0]!;if(candidate.tier!=='acquired-original'||candidate.featureReport.inspector!==(artwork.artworkType==='image'?'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579':ADOPTED_MODEL_DETAIL_INSPECTOR)||occupied.has(candidate.assetId)||candidateIds.has(candidate.candidateId)||candidate.bytes>25*1024*1024)unavailable();occupied.add(candidate.assetId);candidateIds.add(candidate.candidateId);total+=candidate.bytes;if(candidates.length>=16||!Number.isSafeInteger(total)||total>100*1024*1024)unavailable();if(artwork.artworkType==='image')imageCount++;candidates.push({artworkId:artwork.id,artworkRevisionId:artwork.revisionId,artworkType:artwork.artworkType,candidate});}
- if(imageCount&&(imageCount!==1||!hasQualifiedOriginalImageModel(context,s,row.exhibition_id)))unavailable();if(selected&&(!candidates.some(x=>x.candidate.assetId===selected.assetId&&x.candidate.sourceBindingSha256===selected.sourceBindingSha256)))unavailable();
+ const legacyImage=hasQualifiedOriginalImageModel(context,s,row.exhibition_id);
+ if(imageCount>1)unavailable();if(selected&&(!candidates.some(x=>x.candidate.assetId===selected.assetId&&x.candidate.sourceBindingSha256===selected.sourceBindingSha256)))unavailable();
  const tuples:Tuple[]=candidates.map(({candidate})=>({assetId:candidate.assetId,sourceBindingSha256:candidate.sourceBindingSha256,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,featureReportSha256:candidate.featureReportSha256})).sort((a,b)=>a.assetId<b.assetId?-1:a.assetId>b.assetId?1:0);
  let retained:Buffer|undefined,handed=false;try{
   for(const item of candidates){if(selected&&item.candidate.assetId!==selected.assetId)continue;signal.throwIfAborted();
@@ -46,9 +47,9 @@ export async function reconstructNativeOriginalExport(c:PoolClient,s:Session,pub
     if(selected)retained=bytes;else bytes.fill(0);
     continue;
    }
-   const rows=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind'='native-original-detail-binding' AND metadata->>'publicationId'=$2 AND metadata->'candidate'->>'assetId'=$3 LIMIT 2",[s.tenantId,publicationId,item.candidate.assetId])).rows;if(rows.length!==1||!matchesPrivateWheatBinding(rows[0].metadata))unavailable();const record=rows[0].metadata as {artworkId:string;artworkRevision:number;importJobId:string};
+   const rows=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind'='native-original-detail-binding' AND metadata->>'publicationId'=$2 AND metadata->'candidate'->>'assetId'=$3 LIMIT 2",[s.tenantId,publicationId,item.candidate.assetId])).rows;if(rows.length!==1||!rows[0].metadata||legacyImage&&!matchesPrivateWheatBinding(rows[0].metadata))unavailable();const record=rows[0].metadata as {artworkId:string;artworkRevision:number;importJobId:string};
    const source=await readBoundOriginalDetail(c,s,{workspaceId:owner.workspaceId,publicationId,revisionSha256:revision,exhibitionId:row.exhibition_id,artworkId:record.artworkId,artworkRevision:record.artworkRevision,publicArtworkId:item.artworkId,publicArtworkRevisionId:item.artworkRevisionId,importJobId:record.importJobId,candidate:item.candidate},studio,cms,imports,blobs,signal);
-   try{const cost=qualifiedOriginalImageModel(source.modelInput);if(!cost||freezeCanonical(cost)!==freezeCanonical(item.candidate.featureReport.cost))unavailable();if(selected){retained=source.bytes;continue;}}finally{if(source.bytes!==retained)source.bytes.fill(0);}
+   try{const cost=(legacyImage?qualifiedOriginalImageModel:ownerLocalOriginalImageModel)(source.modelInput);if(!legacyImage&&source.grant.rightsEvidenceEncoding!=='freeze-canonical-utf8'||!cost||freezeCanonical(cost)!==freezeCanonical(item.candidate.featureReport.cost))unavailable();if(selected){retained=source.bytes;continue;}}finally{if(source.bytes!==retained)source.bytes.fill(0);}
   }
   await live();if(selected&&!retained)unavailable();const detailSetSha256=createHash('sha256').update(freezeCanonical(tuples),'utf8').digest('hex'),descriptors=tuples.map(tuple=>({assetId:tuple.assetId,url:`/api/v1/publications/${publicationId}/detail-assets/${tuple.assetId}`,mime:tuple.mime}));handed=true;return {tuples,detailSetSha256,descriptors,...(retained?{bytes:retained}:{})};
  }finally{if(!handed)retained?.fill(0);}

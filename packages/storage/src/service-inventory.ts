@@ -132,10 +132,20 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   }
   if(obj(prepared)&&Object.hasOwn(prepared,'viewerCoarse')){
    const coarse=prepared.viewerCoarse;
-   if(!obj(coarse)||!obj(coarse.intent)||Object.keys(coarse.intent).length!==4||coarse.intent.version!==1||coarse.intent.profile!=='viewer-png-box-512-v1'||typeof coarse.intent.approvalId!=='string'||!Number.isSafeInteger(coarse.intent.artworkRevision)||Number(coarse.intent.artworkRevision)<1||typeof coarse.workspaceId!=='string'||typeof coarse.principalId!=='string'||coarse.principalId!==row.user_id||!hex(coarse.sha256)||!bytes(coarse.bytes)||typeof row.id!=='string'||coarse.stageKey!==`${tenant}/quarantine/import-${row.id}/coarse-${coarse.sha256}`||row.mime!=='image/jpeg'||row.png_drain_version!==1||(row.state==='approved'&&typeof coarse.assetId!=='string'))issues.push({code:'INVALID_IMAGE_COARSE_IMPORT',binding});
+   const intent=obj(coarse)&&obj(coarse.intent)?coarse.intent:undefined;
+   const legacy=typeof intent?.approvalId==='string',approved=row.state==='approved';
+   const measured=obj(coarse)&&hex(coarse.sha256)&&bytes(coarse.bytes)!==undefined;
+   const base=`${tenant}/quarantine/import-${row.id}`;
+   const stage=legacy&&obj(coarse)?`${base}/coarse-${coarse.sha256}`:`${base}/coarse`;
+   if(!obj(coarse)||!intent||Object.keys(intent).length!==(legacy?4:3)||Object.hasOwn(intent,'approvalId')!==legacy||
+     intent.version!==1||intent.profile!=='viewer-png-box-512-v1'||!Number.isSafeInteger(intent.artworkRevision)||Number(intent.artworkRevision)<1||
+     typeof coarse.workspaceId!=='string'||typeof coarse.principalId!=='string'||coarse.principalId!==row.user_id||
+     coarse.stageKey!==stage||typeof row.id!=='string'||row.mime!=='image/jpeg'||row.png_drain_version!==1||
+     (approved&&typeof coarse.assetId!=='string')||((legacy||approved)?!measured:Object.hasOwn(coarse,'bytes')||Object.hasOwn(coarse,'sha256')||Object.hasOwn(coarse,'assetId')))
+    issues.push({code:'INVALID_IMAGE_COARSE_IMPORT',binding});
    else{
     if(!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'IMAGE_COARSE_WORKER_DRAIN_UNCONFIRMED',binding});
-    add(coarse.stageKey,row.state==='approved',coarse.bytes,coarse.sha256,':viewer-coarse');
+    add(coarse.stageKey,approved,coarse.bytes,coarse.sha256,':viewer-coarse');
    }
   }
   if(prepared!==undefined&&prepared!==null){

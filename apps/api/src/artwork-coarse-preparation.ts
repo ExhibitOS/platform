@@ -17,12 +17,14 @@ export async function prepareReviewedImageCoarse(artwork:Artwork,primaryBytes:Bu
 /** For an import worker only: source hash and full bytes must already have
  * been independently checked against the owned job; caller rechecks rights. */
 export async function prepareIntentImageCoarse(intent:ImageCoarseIntent,originalSha256:string,primaryBytes:Buffer){
- const policy=imageCoarsePolicy(intent,originalSha256,sha256(primaryBytes),primaryBytes.length);
- return generate(primaryBytes,policy.coarse);
+ const expected=intent.approvalId?imageCoarsePolicy(intent,originalSha256,sha256(primaryBytes),primaryBytes.length).coarse:undefined;
+ return generate(primaryBytes,expected);
 }
-async function generate(primaryBytes:Buffer,expected:{sha256:string;bytes:number;width:number;height:number}){
+async function generate(primaryBytes:Buffer,expected?:{sha256:string;bytes:number;width:number;height:number}){
  const generated=await viewerVariants(primaryBytes,'image/png');const coarse=generated.bytes;
- if(!coarse||!generated.coarse||generated.full.textureSize!==2048||generated.coarse.textureSize!==512||coarse.length!==expected.bytes||sha256(coarse)!==expected.sha256||coarse.length<33||coarse.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||coarse.readUInt32BE(16)!==expected.width||coarse.readUInt32BE(20)!==expected.height)throw new ApiError(422,'COARSE_POLICY_MISMATCH');
+ if(!coarse||!generated.coarse||generated.full.textureSize!==2048||generated.coarse.textureSize!==512||(!expected&&coarse.length>=primaryBytes.length)||coarse.length<33||coarse.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new ApiError(422,'COARSE_POLICY_MISMATCH');
+ const digest=sha256(coarse),width=coarse.readUInt32BE(16),height=coarse.readUInt32BE(20);
+ if(expected&&(coarse.length!==expected.bytes||digest!==expected.sha256||width!==expected.width||height!==expected.height))throw new ApiError(422,'COARSE_POLICY_MISMATCH');
  await decode(coarse,'image/png');
- return {bytes:coarse,sha256:expected.sha256,width:expected.width,height:expected.height,profile:'viewer-png-box-512-v1' as const};
+ return {bytes:coarse,sha256:digest,width,height,profile:'viewer-png-box-512-v1' as const};
 }

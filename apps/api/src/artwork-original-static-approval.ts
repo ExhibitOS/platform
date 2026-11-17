@@ -7,14 +7,15 @@ import {ApiError,uuid,type Session} from './auth.ts';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {storedImageCoarse} from './image-coarse-intent.ts';
-import {Studio} from './studio.ts';
+import {lodVariantsFor} from '@exhibitos/studio-contract';
+import {etag,requiredMatch,Studio} from './studio.ts';
 import {originalStaticGrant} from './original-static-grant.ts';
 import {NativeDetailDrainUncertain} from './native-detail-drain.ts';
 
 export interface OriginalStaticApprovalInput {artworkId:string;artworkRevision:number;importJobId:string}
 
 /** Common owner/custody revalidation. The returned bytes stay private. */
-async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal?:AbortSignal){
+async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal?:AbortSignal,approval?:{match:unknown;supported:boolean}){
  signal?.throwIfAborted();
  if(!input||Object.keys(input).sort().join(',')!=='artworkId,artworkRevision,importJobId'||!Number.isSafeInteger(input.artworkRevision)||input.artworkRevision<1)throw new ApiError(400,'INVALID_INPUT');
  for(const id of [exhibitionId,input.artworkId,input.importJobId])uuid(id);
@@ -26,26 +27,54 @@ async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:Or
  if(artwork.revision!==input.artworkRevision||artwork.approved_revision!==input.artworkRevision||approved.artwork.revision!==input.artworkRevision||!candidate.artworks.some((item:unknown)=>isDeepStrictEqual(item,approved.artwork)))throw new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED');
  const job=await imports.access(c,s,input.importJobId),coarse=storedImageCoarse(job);
  if(!coarse||job.user_id!==s.userId||job.artwork_id!==input.artworkId||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||typeof job.original_asset_id!=='string'||typeof job.asset_id!=='string'||approved.artwork.primaryAssetId!==job.asset_id||!isDeepStrictEqual(approved.artwork.rights,job.rights))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
- const rows=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,input.artworkId,[job.original_asset_id,job.asset_id]])).rows;
+ const ownerLocal=!coarse.intent.approvalId;
+ if(ownerLocal&&approval){
+  if(!approval.supported)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+  if(requiredMatch(approval.match)!==etag(exhibition.revision,exhibition.metadata))throw new ApiError(412,'REMOTE_CONFLICT');
+ }
+ if(ownerLocal&&(!coarse.assetId||coarse.intent.artworkRevision!==input.artworkRevision))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
+ const assetIds=[job.original_asset_id,job.asset_id,...(ownerLocal?[coarse.assetId]:[])];
+ const rows=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,input.artworkId,assetIds])).rows;
  const original=rows.find(x=>x.id===job.original_asset_id),primary=rows.find(x=>x.id===job.asset_id),derived=job.derived as {sha256:string;bytes:number;recipe:unknown};
- if(rows.length!==2||!original||!primary||!derived||original.state!=='quarantine'||primary.state!=='approved'||original.sha256!==job.expected_hash||Number(original.bytes)!==Number(job.expected_bytes)||original.object_key!==job.object_key||original.mime!==job.mime||primary.sha256!==derived.sha256||Number(primary.bytes)!==derived.bytes||primary.object_key!==job.approved_key||primary.mime!=='image/png'||rows.some(x=>!isDeepStrictEqual(x.rights,job.rights)))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
+ if(rows.length!==assetIds.length||!original||!primary||!derived||original.state!=='quarantine'||primary.state!=='approved'||original.sha256!==job.expected_hash||Number(original.bytes)!==Number(job.expected_bytes)||original.object_key!==job.object_key||original.mime!==job.mime||primary.sha256!==derived.sha256||Number(primary.bytes)!==derived.bytes||primary.object_key!==job.approved_key||primary.mime!=='image/png'||rows.some(x=>!isDeepStrictEqual(x.rights,job.rights)))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
  const lineage=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='image-preparation'",[s.tenantId,job.original_asset_id])).rows;
  if(lineage.length!==1||!isDeepStrictEqual(lineage[0].metadata,{version:1,kind:'image-preparation',originalAssetId:job.original_asset_id,derivedAssetId:job.asset_id,original:{mime:job.mime,sha256:job.expected_hash,bytes:Number(job.expected_bytes)},derived:{mime:'image/png',sha256:derived.sha256,bytes:derived.bytes},recipe:derived.recipe,provenance:'client-declared'}))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
+ let ownerLineage:Parameters<typeof originalStaticGrant>[2];
+ if(ownerLocal){
+  const lod=lodVariantsFor(approved.artwork);
+  const low=rows.find(row=>row.id===coarse.assetId);
+  const expected=approved.artwork.assets.find(asset=>asset.id===coarse.assetId);
+  if(!low||!expected||low.state!=='approved'||low.mime!=='image/png'||low.object_key!==coarse.stageKey||
+    low.sha256!==coarse.sha256||Number(low.bytes)!==coarse.bytes||expected.sha256!==coarse.sha256||expected.bytes!==coarse.bytes||
+    !lod.some(v=>v.detail==='full'&&v.assetId===job.asset_id&&v.textureSize===2048)||
+    !lod.some(v=>v.detail==='coarse'&&v.assetId===coarse.assetId&&v.textureSize===512))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
+  const coarseLineage=(await c.query(
+   "SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='viewer-image-coarse' AND metadata->>'sourceJobId'=$3 FOR SHARE",
+   [s.tenantId,job.asset_id,job.id])).rows;
+  const record=coarseLineage[0]?.metadata;
+  if(coarseLineage.length!==1||!Number.isSafeInteger(record.width)||!Number.isSafeInteger(record.height)||
+    Math.min(record.width,record.height)<1||Math.max(record.width,record.height)!==512||
+    !isDeepStrictEqual(record,{version:1,kind:'viewer-image-coarse',sourceJobId:job.id,primaryAssetId:job.asset_id,
+      primarySha256:derived.sha256,coarseAssetId:coarse.assetId,objectKey:coarse.stageKey,sha256:coarse.sha256,bytes:coarse.bytes,
+      width:record.width,height:record.height,profile:coarse.intent.profile,provenance:'server-generated'}))
+    throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');
+  ownerLineage={preparation:lineage[0].metadata,coarse:record};
+ }
  const grantInput={approvalId:coarse.intent.approvalId,workspaceId:owner.workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:input.artworkId,artworkRevision:input.artworkRevision,artworkRevisionId:approved.artwork.revisionId,jobId:job.id,originalAssetId:job.original_asset_id,primaryAssetId:job.asset_id,sha256:original.sha256,bytes:Number(original.bytes),mime:original.mime,rights:original.rights};
- if(!originalStaticGrant(grantInput))throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');
+ if(!originalStaticGrant(grantInput,undefined,ownerLineage))throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');
  if(!blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
  let bytes:Buffer|undefined,returned=false;
  try{
   signal?.throwIfAborted();try{const loaded=await blobs.getBounded(original.object_key,Number(original.bytes),signal);bytes=Buffer.isBuffer(loaded)?loaded:Buffer.from(loaded);}
   catch(error){if(error instanceof Error&&'code' in error&&error.code==='BLOB_CLEANUP_UNCERTAIN')throw new NativeDetailDrainUncertain();signal?.throwIfAborted();if(error instanceof Error&&(error.message==='object size mismatch'||'code' in error&&error.code==='ENOENT'))throw new ApiError(409,'ASSET_INTEGRITY');throw new ApiError(503,'STORAGE_UNAVAILABLE');}
   signal?.throwIfAborted();if(bytes.length!==Number(original.bytes)||sha256(bytes)!==original.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
-  const grant=originalStaticGrant(grantInput);if(!grant)throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');signal?.throwIfAborted();returned=true;return {grant,bytes,job,approved};
+  const grant=originalStaticGrant(grantInput,undefined,ownerLineage);if(!grant)throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');signal?.throwIfAborted();returned=true;return {grant,bytes,job,approved};
  }finally{if(!returned)bytes?.fill(0);}
 }
 /** A new private record for an existing current revision; never rewrites an
  * approval, changes an artwork, exposes quarantine or qualifies a decoder. */
-export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore){
- const {grant,job,approved,bytes}=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs);try{
+export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,match?:unknown,ownerOriginalSupported=false){
+ const {grant,job,approved,bytes}=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs,undefined,{match,supported:ownerOriginalSupported});try{
  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`original-static:${s.tenantId}:${input.artworkId}:${input.artworkRevision}:${job.id}`]);
  const prior=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='exact-original-static-grant' AND metadata->>'artworkRevisionId'=$3",[s.tenantId,job.original_asset_id,approved.artwork.revisionId])).rows;
  if(prior.length>1||prior.length===1&&!isDeepStrictEqual(prior[0].metadata,grant))throw new ApiError(409,'ORIGINAL_STATIC_APPROVAL_CONFLICT');

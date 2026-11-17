@@ -85,7 +85,7 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  }
  if(repair)throw new ApiError(409,'IMAGE_PREPARATION_JOB_NOT_READY');
  const coarse=storedImageCoarse(job);
- if(!coarse||job.user_id!==s.userId||job.artwork_id!==input.artworkId||coarse.intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||!coarse.assetId||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string')throw new ApiError(409,'COARSE_JOB_NOT_READY');
+ if(!coarse?.intent.approvalId||job.user_id!==s.userId||job.artwork_id!==input.artworkId||coarse.intent.artworkRevision!==input.artworkRevision||job.state!=='approved'||job.lease_id!=null||job.png_drain_version!==1||!Array.isArray(job.png_worker_tokens)||job.png_worker_tokens.length!==0||!coarse.assetId||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string')throw new ApiError(409,'COARSE_JOB_NOT_READY');
  assertImageReplacementCurrent(artwork,input,job.rights);
  const {artwork:prior}=await cms.studioArtwork(c,s,input.artworkId);
  const rows=(await c.query("SELECT a.*,r.metadata AS rights,r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,input.artworkId,[job.original_asset_id,job.asset_id,coarse.assetId]])).rows;

@@ -170,3 +170,18 @@ it('protects a reserved Hayes output even before the bytes are written',()=>{
  expect(rowObjectReferences('hayes_output_stages',{...stage,object_key:'other/foreign'}).issues).toContainEqual(expect.objectContaining({code:'INVALID_HAYES_OUTPUT_STAGE'}));
  expect(rowObjectReferences('hayes_output_stages',{...stage,output_bytes:16777217}).issues).toContainEqual(expect.objectContaining({code:'INVALID_HAYES_OUTPUT_STAGE'}));
 });
+
+it('inventories pending and measured owner-local coarse outputs at the same reserved key',()=>{
+ const pending={intent:{version:1,profile:'viewer-png-box-512-v1',artworkRevision:1},workspaceId:'owner-workspace',
+  principalId:'owner',stageKey:`${tenant}/quarantine/import-${row.id}/coarse`};
+ const source={...row,mime:'image/jpeg',approved_key:row.target_key,expected_bytes:123,expected_hash:sha,png_drain_version:1,
+  png_worker_tokens:[],user_id:'owner',derived_object_key:tenant+'/quarantine/prepared'};
+ const inventory=(state:string,viewerCoarse:unknown)=>rowObjectReferences('import_jobs',{...source,state,derived:{mime:'image/png',bytes:100,sha256:sha,viewerCoarse}});
+ const reservation=inventory('failed',pending);
+ expect(reservation.issues).toEqual([]);
+ expect(reservation.references.find(ref=>ref.key===pending.stageKey)).toMatchObject({required:false});
+ const ready=inventory('approved',{...pending,assetId:'asset',sha256:sha,bytes:26});
+ expect(ready.issues).toEqual([]);
+ expect(ready.references.find(ref=>ref.key===pending.stageKey)).toMatchObject({required:true,expectedBytes:26,expectedSha256:sha});
+ expect(inventory('approved',pending).issues).toContainEqual(expect.objectContaining({code:'INVALID_IMAGE_COARSE_IMPORT'}));
+});

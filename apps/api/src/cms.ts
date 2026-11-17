@@ -1,13 +1,15 @@
+import {storedImageCoarse} from './image-coarse-intent.ts';
+import {preparedImageHeader} from './prepared-image.ts';
 import {applyGpuModelApproval,assertGpuModelBytes} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import type {Imports} from './imports.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
-import {preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
+import {canonicalImageHash,preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
 import {compactVariantReceipt,modelPreparationDrained,storedModelPreparation} from './model-preparation-intent.ts';
-import {qualifyApprovedCompactGeometryPair,qualifyApprovedNearGeometryPair,qualifyApprovedTextureDerivativePair} from './approved-lod-pair.ts';
+import {qualifyApprovedCompactGeometryPair,qualifyApprovedImagePair,qualifyApprovedNearGeometryPair,qualifyApprovedTextureDerivativePair} from './approved-lod-pair.ts';
 import {assertRequiredModelApproval,requiredModelApprovalReplay} from './model-preparation-approval.ts';
 import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pair.ts';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
@@ -371,17 +373,50 @@ export class Cms {
       ).rows,
     };
   }
-  async approveFreshImage(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string},imports:Imports){
+  async approveFreshImage(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string},imports:Imports,ownerOriginalSupported=false){
     if(!exact(b,['revision','jobId']))throw new ApiError(400,'INVALID_INPUT');
     uuid(b.jobId);
     const artwork=await this.ownArtwork(c,s,id);
     if(artwork.revision!==b.revision)throw new ApiError(409,'REVISION_CONFLICT');
-    const job=await imports.access(c,s,b.jobId),state=storedPreparedImage(job);
-    if(state?.kind!=='fresh-product-image'||job.artwork_id!==id||state.request.artworkRevision!==b.revision||
-       job.state!=='approved'||!productImageDrained(job))throw new ApiError(409,'IMAGE_PREPARATION_NOT_READY');
-    const receipt=preparedImageReceipt(job),metadata=artwork.metadata;
+    const job=await imports.access(c,s,b.jobId),state=storedPreparedImage(job),ownerPair=storedImageCoarse(job);
+    const ownerOriginal=ownerOriginalSupported&&ownerPair?.assetId&&!ownerPair.intent.approvalId?ownerPair:undefined;
+    if(job.artwork_id!==id||job.state!=='approved'||!productImageDrained(job)||
+       (ownerOriginal?ownerOriginal.intent.artworkRevision!==b.revision:state?.kind!=='fresh-product-image'||state.request.artworkRevision!==b.revision))
+      throw new ApiError(409,'IMAGE_PREPARATION_NOT_READY');
+    const metadata=artwork.metadata;
     if(!validMetadata(metadata)||metadata.displayReference||json(metadata.rights)!==json(job.rights)||
        !allowedRights(metadata.rights,'display')||!allowedRights(metadata.rights,'export'))throw new ApiError(409,'APPROVAL_INVALID');
+    const verify=async(key:unknown,asset:{bytes:number;sha256:string})=>{
+      if(typeof key!=='string')throw new ApiError(409,'ASSET_INTEGRITY');
+      let bytes:Buffer;
+      try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+      if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+      return bytes;
+    };
+    const original={bytes:Number(job.expected_bytes),sha256:job.expected_hash};
+    let receipt:{full:{assetId:string;mime:'image/png';bytes:number;sha256:string;width:number;height:number};coarse?:{assetId:string;mime:'image/png';bytes:number;sha256:string;width:number;height:number};sha256:string};
+    let full:Buffer|undefined;
+    if(ownerOriginal){
+      const derived=imports.prepared(job);
+      if(!derived||typeof job.asset_id!=='string'||typeof job.original_asset_id!=='string'||job.asset_id===ownerOriginal.assetId)
+        throw new ApiError(409,'IMAGE_PREPARATION_NOT_READY');
+      full=await verify(job.approved_key,derived);
+      const low=await verify(ownerOriginal.stageKey,ownerOriginal);
+      preparedImageHeader(full);
+      try{qualifyApprovedImagePair(full,low,2048,512);}catch{throw new ApiError(409,'APPROVAL_INVALID');}
+      const png=(assetId:string,body:Buffer,digest:string)=>({assetId,mime:'image/png' as const,bytes:body.length,sha256:digest,width:body.readUInt32BE(16),height:body.readUInt32BE(20)});
+      const fullAsset=png(job.asset_id,full,derived.sha256),coarseAsset=png(ownerOriginal.assetId,low,ownerOriginal.sha256);
+      const entries=(await c.query(
+        `SELECT a.id,a.object_key,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a
+          JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
+          WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved'
+          AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r`,[s.tenantId,id,[fullAsset.assetId,coarseAsset.assetId]])).rows;
+      for(const [file,key] of [[fullAsset,job.approved_key],[coarseAsset,ownerOriginal.stageKey]] as const){
+        const row=entries.find(entry=>entry.id===file.assetId);
+        if(!row||row.object_key!==key||row.sha256!==file.sha256||Number(row.bytes)!==file.bytes||row.mime!==file.mime||json(row.rights)!==json(job.rights))throw new ApiError(409,'ASSET_INTEGRITY');
+      }
+      receipt={full:fullAsset,coarse:coarseAsset,sha256:canonicalImageHash({jobId:b.jobId,artworkRevision:b.revision,full:fullAsset,coarse:coarseAsset})};
+    }else receipt=preparedImageReceipt(job);
     const prior=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',
       [s.tenantId,id,b.revision])).rows[0];
     if(prior){
@@ -393,16 +428,9 @@ export class Cms {
        (await c.query('SELECT 1 FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 LIMIT 1',[s.tenantId,id])).rowCount)
       throw new ApiError(409,'APPROVAL_CONFLICT');
     const assets=[receipt.full,...(receipt.coarse?[receipt.coarse]:[])];
-    const verify=async(key:unknown,asset:{bytes:number;sha256:string})=>{
-      if(typeof key!=='string')throw new ApiError(409,'ASSET_INTEGRITY');
-      let bytes:Buffer;
-      try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
-      if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
-      return bytes;
-    };
-    await verify(job.object_key,receipt.original);
-    const full=await verify(job.approved_key,receipt.full);
-    if(receipt.coarse)await verify(`${s.tenantId}/quarantine/import-${b.jobId}/product-coarse`,receipt.coarse);
+    await verify(job.object_key,original);
+    full??=await verify(job.approved_key,receipt.full);
+    if(!ownerOriginal&&receipt.coarse)await verify(`${s.tenantId}/quarantine/import-${b.jobId}/product-coarse`,receipt.coarse);
     const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,artwork.artist_id])).rows[0];
     const primary=(await c.query('SELECT r.revision,a.rights_id FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2',
       [s.tenantId,receipt.full.assetId])).rows[0];
@@ -423,7 +451,7 @@ export class Cms {
       assets:[...assets.map(asset=>({id:asset.assetId,path:`assets/${asset.assetId}/image.png`,role:'image',mime:'image/png',bytes:asset.bytes,sha256:asset.sha256})),
         {...thumbnail,path:`assets/${thumbnail.id}/thumbnail.png`,role:'preview',mime:'image/png'}],
       rights:structuredClone(metadata.rights) as Artwork['rights'],
-      provenance:{authorship:metadata.provenance.source,events:[{id:revisionId,type:'edited',at:createdAt,description:'CMS reviewed server-prepared display images.'}]},
+      provenance:{authorship:metadata.provenance.source,events:[{id:revisionId,type:'edited',at:createdAt,description:ownerOriginal?'CMS reviewed the client-prepared Full image and server-generated Coarse image.':'CMS reviewed server-prepared display images.'}]},
       extensions:{
         'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision},
         ...(metadata.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:metadata.creationYear}}),
@@ -470,8 +498,10 @@ export class Cms {
       `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision,
         EXISTS (
           SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
-          AND j.derived->>'kind' IN ('product-image-pair','fresh-product-image')
-          AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
+          AND ((j.derived->>'kind' IN ('product-image-pair','fresh-product-image')
+            AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text))
+            OR (j.derived ? 'viewerCoarse' AND j.derived#>>'{viewerCoarse,intent,approvalId}' IS NULL
+            AND (j.asset_id=a.id OR j.derived#>>'{viewerCoarse,assetId}'=a.id::text)))
         ) AS product_image_output
         FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
         WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL`,

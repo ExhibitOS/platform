@@ -18,3 +18,14 @@ describe('exact original static grant',()=>{
   for(const permission of ['display','export','download'] as const)expect(originalStaticGrant({...input,rights:{...rights,permissions:{...rights.permissions,[permission]:false}}})).toBeUndefined();
  });
 });
+
+it('constructs a source-specific grant from verified owner lineage and current rights',()=>{
+ const source={...input,approvalId:undefined,sha256:'a'.repeat(64),bytes:420};
+ const lineage={preparation:{jobId:source.jobId,sha256:source.sha256},coarse:{sha256:'b'.repeat(64)}};
+ const grant=originalStaticGrant(source,undefined,lineage)!;
+ expect(grant).toMatchObject({approvalId:source.jobId,source:{sha256:source.sha256,bytes:420},rightsEvidenceEncoding:'freeze-canonical-utf8'});
+ expect(originalStaticGrant(source)).toBeUndefined();
+ expect(originalStaticGrant({...source,approvalId:input.approvalId},undefined,lineage)).toBeUndefined();
+ expect(originalStaticGrant({...source,rights:{...rights,permissions:{...rights.permissions,download:false}}},undefined,lineage)).toBeUndefined();
+ expect(originalStaticGrant(source,undefined,{...lineage,coarse:{sha256:'c'.repeat(64)}})?.provenanceSha256).not.toBe(grant.provenanceSha256);
+});
