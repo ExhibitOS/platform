@@ -298,3 +298,4 @@ export * from "./service-backup.js";
 export * from "./encrypted-streams.js";
 
 export { PostgresBlobStore } from "./postgres-blobs.js";
+export { confirmedHayesReleaseBindings } from "./hayes-release-inventory.js";
