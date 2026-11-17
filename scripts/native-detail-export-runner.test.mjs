@@ -10,10 +10,10 @@ const frame=value=>{const data=Buffer.from(JSON.stringify(value)),buffer=Buffer.
 test('detail stage requires a literal dot and an absolute runtime root',async()=>{const owner=startup();for(const options of [{output:'/stage',runtimeRoot:'/runtime'},{output:'.',runtimeRoot:'runtime'}])await assert.rejects(runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,...options}),/NATIVE_DETAIL_STAGE/);});
 
 test('stages before ACK, final fence, settlement and ready',async()=>{
- const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];let buffered=Buffer.alloc(0);
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[],phases=[];let buffered=Buffer.alloc(0);
  stdout.on('data',chunk=>{buffered=Buffer.concat([buffered,chunk]);while(buffered.length>=4&&buffered.length>=4+buffered.readUInt32BE(0)){const size=buffered.readUInt32BE(0),value=JSON.parse(buffered.subarray(4,4+size));buffered=buffered.subarray(4+size);events.push(value.kind);if(value.kind==='staged')input.write(frame({version:1,kind:'verified-staging',jobId:owner.jobId,manifestSha256:manifest}));}});
  const controlFactory=()=>({prepare:async()=>{events.push('prepare');return [];},finalCheck:async()=>events.push('final'),settled:async()=>events.push('settled'),close:async()=>events.push('close')});
- const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'.',input,stdout,controlFactory,exporter:async()=>{events.push('export');return {publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest};}});input.write(frame(owner));await pending;assert.deepEqual(events,['prepare','export','staged','final','settled','ready']);
+ const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'.',input,stdout,controlFactory,onPhase:phase=>phases.push(phase),exporter:async()=>{events.push('export');return {publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest};}});input.write(frame(owner));await pending;assert.deepEqual(events,['prepare','export','staged','final','settled','ready']);assert.deepEqual(phases,['startup','prepare','export','ack','final-check','settle','ready']);
 });
 test('mismatched revision closes the owned operation and never emits ready',async()=>{
  const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];stdout.on('data',()=>events.push('frame'));
@@ -60,4 +60,14 @@ test('ACK and final-check progress do not renew the same120s handoff budget',asy
 });
 test('caller overall cancellation remains hard during the enlarged copy allowance',async t=>{
  const r=clockedRun(t);await flush();const rejected=assert.rejects(r.pending,/caller cancelled/);r.external.abort(Error('caller cancelled'));await rejected;assert.deepEqual(r.events,['close']);
+});
+
+for(const failed of ['prepare','export','final-check','settle'])test(`failure observes ${failed} before existing cleanup without changing wire`,async()=>{
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),phases=[],frames=[],events=[];
+ stdout.on('data',chunk=>{const value=JSON.parse(chunk.subarray(4));frames.push(value.kind);if(value.kind==='staged')input.write(frame({version:1,kind:'verified-staging',jobId:owner.jobId,manifestSha256:manifest}));});
+ const fail=()=>{throw Error('synthetic-private-error');};
+ const controlFactory=()=>({prepare:async()=>failed==='prepare'?fail():[],finalCheck:async()=>{if(failed==='final-check')fail();},settled:async()=>{if(failed==='settle')fail();},close:async()=>events.push('close')});
+ const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'.',input,stdout,controlFactory,onPhase:phase=>phases.push(phase),exporter:async()=>{if(failed==='export')fail();return {publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest};}});
+ input.write(frame(owner));await assert.rejects(pending,/synthetic-private-error/);
+ assert.equal(phases.at(-1),failed);assert.deepEqual(events,['close']);assert.deepEqual(frames,['prepare','export'].includes(failed)?[]:['staged']);
 });
