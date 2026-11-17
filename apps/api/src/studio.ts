@@ -209,7 +209,8 @@ export class Studio {
     const frameDelta=!!input?.draft?.candidate&&ordinaryFrameDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE);
     const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
     const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;
-    const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
+    const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE,{allowVersion11:!row.nativeBounded});
+    const portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
     const railDelta=!!input?.draft?.candidate&&ordinaryCeilingRailReplacementDelta(row.metadata,input.draft);
     const railNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray((ext as {ceilingAttachments?:unknown[]}|undefined)?.ceilingAttachments)&&(ext as {ceilingAttachments:unknown[]}).ceilingAttachments.length>0;
     const benchSeatDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft);
