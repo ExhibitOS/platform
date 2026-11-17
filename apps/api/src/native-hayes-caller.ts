@@ -17,6 +17,7 @@ import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
 import {decodeHayesDispositionChallenge,encodeHayesDispositionNotice} from './hayes-disposition-notice-frame.ts';
 import {recordHayesReleaseCompletion} from './hayes-release-completion.ts';
 import {encodeHayesReleaseRecorded} from './hayes-release-completion-frame.ts';
+import {decodeHayesTerminalProof,readHayesTerminal,recordHayesTerminal,requireHayesTerminalContext,type HayesTerminalSelector} from './hayes-preopen-terminal.ts';
 
 type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
@@ -142,6 +143,33 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
    const selected=exchange as typeof exchange&{stageOutput:()=>Promise<unknown>;commit:()=>Promise<{receiptId:string;receiptSha256:string}>;receiveRelease:()=>Promise<{completionFrameSha256:string}>};
    await selected.stageOutput();const receipt=await selected.commit(),release=await selected.receiveRelease();
    return {jobId:selection.jobId,receiptId:receipt.receiptId,receiptSha256:receipt.receiptSha256,completionFrameSha256:release.completionFrameSha256};
+  },
+  async terminalizePreopen(credentials:Credentials,selection:HayesTerminalSelector,deadlineMs:number){
+   if(!isHayesReleaseContext(owner)|| !uuid.test(selection.jobId)|| !hex.test(selection.proofSha256))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+   const fence={signal:fenceSignal,deadlineMs};
+   const existing=await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,fence,async(c,s)=>{
+    await requireHayesTerminalContext(c,s,owner);
+    return readHayesTerminal(c,owner,selection);
+   });
+   if(existing)return existing;
+   if(used||busy)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+   used=true;busy=true;
+   try{
+    await live();
+    const challenge={...selection,challenge:randomUUID(),nativeOwnerId,runtimeGeneration,runtimeManifestSha256};
+    await channel.send(Buffer.from(JSON.stringify({version:1,kind:'hayes-preopen-terminal-challenge',...challenge})));
+    const proof=decodeHayesTerminalProof(await waitHayesReadyFrame(channel,fenceSignal,deadlineMs),challenge);
+    const receipt=await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,fence,async(c,s)=>{
+     await requireHayesTerminalContext(c,s,owner);
+     return recordHayesTerminal(c,owner,blobs,selection,proof,live);
+    });
+    await live();
+    await channel.send(Buffer.from(JSON.stringify({version:1,kind:'hayes-preopen-terminal-recorded',challenge:challenge.challenge,...receipt})));
+    return receipt;
+   }catch(error){
+    await close();
+    throw error;
+   }finally{busy=false;}
   },
   close,
  });
