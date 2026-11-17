@@ -76,7 +76,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import {NativeTrackSpotAimProposalError} from './api-error.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations,selectedWorkspaceRail?:WorkspaceFurnishingIntakes) {
+export interface NativeThumbnailPreviewTrace {
+ apiIngress(request:import('node:http').IncomingMessage):void;
+ apiAuthorized(request:import('node:http').IncomingMessage,session:Session):void;
+ apiHeadersReady(request:import('node:http').IncomingMessage,status:number):void;
+}
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations,selectedWorkspaceRail?:WorkspaceFurnishingIntakes,thumbnailPreviewTrace?:NativeThumbnailPreviewTrace) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
  if(nativeDetailContext&&(!isIssuedNativeDetailContext(nativeDetailContext)||nativeDetailContext.owner!==nativeExportWorkspace||!(store instanceof FileBlobStore)||!nativeDetailContext.owner.matchesBlobRoot?.(store.root)||input.mode!=='local'||freshOexTest))throw Error('NATIVE_DETAIL_CONFIGURATION');
  if(nativeHayesCaller&&(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.matchesBlobRoot?.(store.root)||typeof runtimeAvailable!=='function'||!isIssuedNativeHayesCaller(nativeHayesCaller,nativeOexWorkspace,store)))throw Error('HAYES_OWNER_CONFIGURATION');
@@ -577,7 +582,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
    const selected=await cms.displaySelectedVariant(c,s,cmsId(req),q.assetId,Number(q.expectedRevision));
    await sceneAuthoringReady(c,s);
    reply.header('x-exhibitos-artwork-asset-id',selected.assetId);result=selected;
-  }else result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as typeof result;
+  }else{
+   thumbnailPreviewTrace?.apiAuthorized(req.raw,s);
+   result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as typeof result;
+  }
   reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;
  }));
  const thumbnailReceipts=()=>{if(!store)throw new ApiError(503,'STORAGE_UNAVAILABLE');return new ArtworkThumbnailReceipts(store);};

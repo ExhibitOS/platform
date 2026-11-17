@@ -1,7 +1,7 @@
 import {GpuModelPreparations} from './gpu-model-preparations.ts';
 import Fastify from 'fastify';
 import type { Pool } from 'pg';
-import { registerAuth } from './routes.ts';
+import {registerAuth,type NativeThumbnailPreviewTrace} from './routes.ts';
 import type { AuthConfig } from './auth.ts';
 import { readiness, type LifecycleConfig } from './lifecycle.ts';
 import {isIssuedNativeDetailContext} from './native-detail-context.ts';
@@ -9,7 +9,7 @@ import {FileBlobStore} from '@exhibitos/storage';
 import {isIssuedNativeHayesCaller,type NativeHayesCaller} from './native-hayes-caller.ts';
 
 // A fresh instance per caller keeps tests isolated and avoids listening on import.
-export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@exhibitos/storage').BlobStore;oexWorker?:boolean;freeze?:import('./freeze.ts').FreezeConfig;lifecycle?:LifecycleConfig;federation?:import('./federation.ts').FederationConfig;publicationSource?:import('./publication.ts').PublicationSource;freshOexTest?:true;uploadSlot?:import('./native-bounded-oex-upload.ts').NativeBoundedUploadSlot;saveSlot?:import('./native-selected-studio-put.ts').SelectedStudioPutSlot;nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext;nativeBoundedEditing?:boolean;nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext;nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext;nativeHayesCaller?:NativeHayesCaller;workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes;selectedWorkspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes;selectedWorkspaceRail?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes;workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes;runtimeAvailable?:()=>boolean;modelPreparationExecution?:import('./model-preparation-import.ts').ModelPreparationExecution;gpuModelPreparations?:GpuModelPreparations;deferredStartup?:Array<()=>Promise<void>>}) {
+export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@exhibitos/storage').BlobStore;oexWorker?:boolean;freeze?:import('./freeze.ts').FreezeConfig;lifecycle?:LifecycleConfig;federation?:import('./federation.ts').FederationConfig;publicationSource?:import('./publication.ts').PublicationSource;freshOexTest?:true;uploadSlot?:import('./native-bounded-oex-upload.ts').NativeBoundedUploadSlot;saveSlot?:import('./native-selected-studio-put.ts').SelectedStudioPutSlot;nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext;nativeBoundedEditing?:boolean;nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext;nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext;nativeHayesCaller?:NativeHayesCaller;workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes;selectedWorkspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes;selectedWorkspaceRail?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes;workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes;runtimeAvailable?:()=>boolean;modelPreparationExecution?:import('./model-preparation-import.ts').ModelPreparationExecution;gpuModelPreparations?:GpuModelPreparations;deferredStartup?:Array<()=>Promise<void>>;thumbnailPreviewTrace?:NativeThumbnailPreviewTrace}) {
   if(options?.nativeOexWorkspace&&options.auth.mode!=='local'||options?.nativeBoundedEditing&&(!options.nativeOexWorkspace||options.freshOexTest))throw Error('NATIVE_OEX_CONFIGURATION');
   if(options?.nativeExportWorkspace&&(options.auth.mode!=='local'||options.freshOexTest))throw Error('NATIVE_OEX_CONFIGURATION');
   if(options?.nativeDetailContext&&(!isIssuedNativeDetailContext(options.nativeDetailContext)||options.nativeDetailContext.owner!==options.nativeExportWorkspace||!(options.blobs instanceof FileBlobStore)||!options.nativeDetailContext.owner.matchesBlobRoot?.(options.blobs.root)||options.auth.mode!=='local'||options.freshOexTest))throw Error('NATIVE_DETAIL_CONFIGURATION');
@@ -17,6 +17,16 @@ export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@ex
   if(options?.freshOexTest&&options.oexWorker)throw Error('OEX_TEST_WORKER_UNAVAILABLE');
   if(options?.gpuModelPreparations&&(!(options.gpuModelPreparations instanceof GpuModelPreparations)||!options.blobs||!options.gpuModelPreparations.matches(options.pool,options.blobs,options.nativeOexWorkspace)))throw Error('GPU_MODEL_PREPARATION_CONFIGURATION');
   const app = Fastify({ bodyLimit: 1024 * 1024, trustProxy: false, ajv: {customOptions:{removeAdditional:false,coerceTypes:false}} });
+  const previewTrace=options?.thumbnailPreviewTrace;
+  if(previewTrace){
+    if(options.auth.mode!=='local'||!options.nativeOexWorkspace||!options.nativeBoundedEditing||!options.runtimeAvailable)
+      throw Error('NATIVE_THUMBNAIL_TRACE_CONFIGURATION');
+    app.addHook('onRequest',async request=>{previewTrace.apiIngress(request.raw);});
+    app.addHook('onSend',async(request,reply,payload)=>{
+      previewTrace.apiHeadersReady(request.raw,reply.statusCode);
+      return payload;
+    });
+  }
   app.get('/api/v1/health', {
     schema: { response: { 200: {
       type: 'object', additionalProperties: false,
@@ -41,7 +51,7 @@ export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@ex
       }
     });
   }
-  if (options) registerAuth(app,options.pool,options.auth,options.blobs,options.oexWorker,options.freeze,options.federation,options.publicationSource,options.freshOexTest,options.uploadSlot,options.saveSlot,options.nativeOexWorkspace,options.nativeBoundedEditing,options.nativeExportWorkspace,options.workspaceMaterial,options.selectedWorkspaceMaterial,options.workspaceFurnishing,options.runtimeAvailable,options.deferredStartup,options.nativeDetailContext,options.nativeHayesCaller,options.modelPreparationExecution,options.gpuModelPreparations,options.selectedWorkspaceRail);
+  if (options) registerAuth(app,options.pool,options.auth,options.blobs,options.oexWorker,options.freeze,options.federation,options.publicationSource,options.freshOexTest,options.uploadSlot,options.saveSlot,options.nativeOexWorkspace,options.nativeBoundedEditing,options.nativeExportWorkspace,options.workspaceMaterial,options.selectedWorkspaceMaterial,options.workspaceFurnishing,options.runtimeAvailable,options.deferredStartup,options.nativeDetailContext,options.nativeHayesCaller,options.modelPreparationExecution,options.gpuModelPreparations,options.selectedWorkspaceRail,previewTrace);
   if (options?.lifecycle) app.get('/api/v1/readiness', async (_request, reply) => {
     reply.header('cache-control', 'no-store');
     const result = await readiness(options.pool, options.lifecycle!);
