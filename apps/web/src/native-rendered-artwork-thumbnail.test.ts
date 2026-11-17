@@ -12,6 +12,11 @@ vi.mock('three',()=>({Mesh:class {},WebGLRenderer:class {domElement={};setPixelR
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.clearAllMocks();});
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hash=async(bytes:Uint8Array<ArrayBuffer>)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+function deferred<T>(){
+ let resolve!:(value:T)=>void,reject!:(reason:unknown)=>void;
+ const promise=new Promise<T>((done,fail)=>{resolve=done;reject=fail;});
+ return {promise,resolve,reject};
+}
 function fixture(){
  const artwork={id:id(1),revision:2,approvedRevision:2,approvedAssetId:id(2),archived:false,assets:[{id:id(2),mime:'model/gltf-binary',state:'approved',sha256:'a'.repeat(64),bytes:28},{id:id(3),mime:'model/gltf-binary',state:'approved',sha256:'b'.repeat(64),bytes:40}]};
  const display=new Uint8Array(32).fill(2),png=new Uint8Array(24).fill(3);
@@ -35,6 +40,65 @@ it('rechecks approved source after asynchronous PNG encoding and refuses source 
  await expect(produceArtworkThumbnail(f.request,new AbortController().signal)).rejects.toThrow('THUMBNAIL_REVISION');
  expect(state.dispose).toHaveBeenCalledOnce();expect(state.lose).toHaveBeenCalledOnce();
 });
+
+it('dispatches one preview with useful budget while metadata is pending and waits before reading it',async()=>{
+ const f=fixture(),deadline=new AbortController();
+ let now=200;
+ vi.spyOn(performance,'now').mockImplementation(()=>now);
+ const traced=observeThumbnailPreview(f.request.requestId,deadline.signal,10_000,{monotonicMs:0,unixMs:1234})!;
+ const metadata=deferred<Response>();
+ const previewHeaders=deferred<void>();
+ const fetcher=f.fetcher.getMockImplementation()!;
+ const pull=vi.fn((controller:ReadableStreamDefaultController<Uint8Array>)=>{
+  controller.enqueue(f.display);controller.close();
+ });
+ f.fetcher.mockImplementationOnce(()=>metadata.promise).mockImplementationOnce(async(path,options)=>{
+  const {headers}=await fetcher(path,options);
+  previewHeaders.resolve();
+  return new Response(new ReadableStream({pull},{highWaterMark:0}),{headers});
+ });
+
+ const reply=produceArtworkThumbnail(f.request,deadline.signal,undefined,traced);
+ expect(f.fetcher).toHaveBeenCalledTimes(2);
+ expect(f.fetcher.mock.calls[1]?.[0]).toMatch(/\/preview\?expectedRevision=2$/);
+ await previewHeaders.promise;
+ expect(pull).not.toHaveBeenCalled();
+ expect(state.decode).not.toHaveBeenCalled();
+ now=3_200;
+ metadata.resolve(Response.json(f.artwork));
+ expect(await reply).toMatchObject({sourceAssetId:id(2),displaySha256:await hash(f.display),pngSha256:await hash(f.png)});
+ expect(pull).toHaveBeenCalledOnce();
+ expect(f.fetcher.mock.calls.filter(([path])=>path.includes('/preview?'))).toHaveLength(1);
+ expect(traced.result()).toMatchObject({dispatchElapsedMs:200,remainingBudgetEstimateMs:9_800});
+});
+
+it('discards an unread preview when the concurrent metadata denies the revision',async()=>{
+ const f=fixture(),metadata=deferred<Response>();
+ const preview=deferred<Response>();
+ const cancel=vi.fn();
+ const fetcher=f.fetcher.getMockImplementation()!;
+ f.fetcher.mockReturnValueOnce(metadata.promise).mockReturnValueOnce(preview.promise);
+ const reply=produceArtworkThumbnail(f.request,new AbortController().signal);
+ metadata.resolve(Response.json({...f.artwork,approvedRevision:1}));
+ await expect(reply).rejects.toThrow('THUMBNAIL_REVISION');
+ const {headers}=await fetcher('/preview?expectedRevision=2');
+ preview.resolve(new Response(new ReadableStream({cancel}),{headers}));
+ await vi.waitFor(()=>expect(cancel).toHaveBeenCalledOnce());
+ expect(state.decode).not.toHaveBeenCalled();
+ expect(f.fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('keeps metadata failure authoritative when preview rejects first',async()=>{
+ const f=fixture(),metadata=deferred<Response>();
+ f.fetcher.mockImplementationOnce(()=>metadata.promise).mockRejectedValueOnce(Error('early preview failure'));
+ const reply=produceArtworkThumbnail(f.request,new AbortController().signal);
+ await Promise.resolve();
+ metadata.resolve(Response.json({...f.artwork,archived:true}));
+ await expect(reply).rejects.toThrow('THUMBNAIL_REVISION');
+ expect(state.decode).not.toHaveBeenCalled();
+ expect(f.fetcher).toHaveBeenCalledTimes(2);
+});
+
 it('rejects missing, duplicate, unapproved or invalid primary source metadata',()=>{
  const f=fixture();expect(artworkThumbnailSource(f.artwork,id(1),2)).toMatchObject({sourceAssetId:id(2)});
  for(const value of [{...f.artwork,approvedAssetId:id(99)},{...f.artwork,archived:true},{...f.artwork,assets:[...f.artwork.assets,f.artwork.assets[0]]},{...f.artwork,assets:[{...f.artwork.assets[0],state:'quarantined'}]},{...f.artwork,approvedRevision:1}])expect(()=>artworkThumbnailSource(value,id(1),2)).toThrow('THUMBNAIL_REVISION');
@@ -60,10 +124,11 @@ it.each(['metadata','headers','body','digest'] as const)('separates a preview %s
  const reason=new DOMException('private timeout details','TimeoutError');
  const expire=()=>{deadline.abort(reason);throw reason;};
  const fetcher=f.fetcher.getMockImplementation()!;
+ const headersWait=deferred<Response>();
  if(expected==='metadata')f.fetcher.mockImplementationOnce(async()=>expire());
  if(expected==='headers'||expected==='body'){
   f.fetcher.mockImplementationOnce(fetcher).mockImplementationOnce(async path=>{
-   if(expected==='headers')return expire();
+   if(expected==='headers')return headersWait.promise;
    const response=await fetcher(path);
    return new Response(new ReadableStream({pull:expire},{highWaterMark:0}),{headers:response.headers});
   });
@@ -72,7 +137,11 @@ it.each(['metadata','headers','body','digest'] as const)('separates a preview %s
 
  let previewStep:ArtworkThumbnailPreviewStep|undefined;
  await expect(produceArtworkThumbnail(f.request,signal,(...step)=>{
-  if(step[0]==='preview')previewStep=step[1];
+  if(step[0]!=='preview')return;
+  previewStep=step[1];
+  if(expected==='headers'&&previewStep==='headers'){
+   deadline.abort(reason);headersWait.reject(reason);
+  }
  })).rejects.toBe(reason);
  expect(previewStep).toBe(expected);
  const v1=artworkThumbnailFailure('preview',reason,signal,deadline.signal);
@@ -190,11 +259,12 @@ it('returns the dispatched trace before a delayed observer listener and unresolv
 it('keeps the trace inert before an eligible dispatch and on non-native origins',async()=>{
  const f=fixture(),deadline=new AbortController();
  const traced=observeThumbnailPreview(f.request.requestId,deadline.signal,10_000,{monotonicMs:0,unixMs:1234})!;
- f.fetcher.mockRejectedValueOnce(Error('private metadata failure'));
- await expect(produceArtworkThumbnail(f.request,deadline.signal,undefined,traced)).rejects.toThrow();
+ const reason=new DOMException('private pre-dispatch cancellation','AbortError');
+ deadline.abort(reason);
+ await expect(produceArtworkThumbnail(f.request,deadline.signal,undefined,traced)).rejects.toBe(reason);
  traced.settleAbort();
  expect(traced.result()).toBeNull();
- expect(f.fetcher.mock.calls[0]?.[1]?.headers).toBeUndefined();
+ expect(f.fetcher).not.toHaveBeenCalled();
  const native=new URL('http://127.0.0.1:17000/native-viewport.html');
  expect(isThumbnailPreviewTracePage(native)).toBe(true);
  for(const url of ['http://localhost:17000/native-viewport.html','https://127.0.0.1:17000/native-viewport.html',
