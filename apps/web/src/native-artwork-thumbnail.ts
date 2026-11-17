@@ -2,7 +2,7 @@
 import {basisLoader} from './basis-loader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
-import type {FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
+import type {ArtworkThumbnailPhase,FurnishingThumbnailRequest,ThumbnailRequest} from './native-catalog-protocol';
 import {artworkThumbnailSource,ARTWORK_THUMBNAIL_RECIPE,ARTWORK_THUMBNAIL_TOOL} from './native-catalog-protocol';
 import {approvedDisplayCopyResponse} from './approved-display-response';
 import type * as Three from 'three';
@@ -39,7 +39,8 @@ async function bounded(response:Response,signal:AbortSignal,limit=maxBytes){
  const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
 }
 /** One static frame, using existing guarded GLB decoding and metric fit; no scene per card. */
-export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:AbortSignal){
+export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:AbortSignal,phase?:(value:ArtworkThumbnailPhase)=>void){
+ phase?.('preview');
  const path=`/api/v1/tenants/${request.tenantId}/cms/artworks/${request.artworkId}`;
  const options={credentials:'same-origin' as const,redirect:'error' as const,cache:'no-store' as const,signal};
  const metadataResponse=await fetch(path,options);if(!metadataResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
@@ -51,12 +52,15 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  const source=mime==='model/gltf-binary'?artworkThumbnailSource(artwork,request.artworkId,request.expectedRevision):undefined;
  const bytes=await bounded(response,signal);signal.throwIfAborted();
  const displaySha256=source?await sha256(bytes):undefined;
- const canvas=await renderThumbnail(bytes,mime,signal,artworkThumbnailModelBudget);
+ const canvas=await renderThumbnail(bytes,mime,signal,artworkThumbnailModelBudget,phase);
+ phase?.('verification');
  const currentResponse=await fetch(`${path}/display`,options);if(!currentResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');const current=await currentResponse.json() as {id:string;revision:number};if(current.id!==request.artworkId||current.revision!==request.expectedRevision)throw Error('THUMBNAIL_REVISION');
+ phase?.('encode');
  const {image,bytes:png}=await encodeThumbnail(canvas,signal);
  if(!source)return image;
  const pngSha256=await sha256(png);
  // Encoding is asynchronous too: recheck the exact source after it completes.
+ phase?.('verification');
  const finalResponse=await fetch(path,options);if(!finalResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
  const final=artworkThumbnailSource(await finalResponse.json(),request.artworkId,request.expectedRevision);
  if(final.sourceAssetId!==source.sourceAssetId||final.sourceSha256!==source.sourceSha256||final.sourceBytes!==source.sourceBytes)throw Error('THUMBNAIL_REVISION');
@@ -65,22 +69,26 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
   recipeId:ARTWORK_THUMBNAIL_RECIPE,toolId:ARTWORK_THUMBNAIL_TOOL,modelBytes:bytes.length};
 }
 
-async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal,modelBudget=furnishingModelBudget){
+async function renderThumbnail(bytes:Uint8Array<ArrayBuffer>,mime:string,signal:AbortSignal,modelBudget=furnishingModelBudget,phase?:(value:ArtworkThumbnailPhase)=>void){
+ phase?.('decode');
  const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
  if(mime==='image/png'){
   const view=new DataView(bytes.buffer);if(bytes.length<33||[137,80,78,71,13,10,26,10].some((n,i)=>bytes[i]!==n)||view.getUint32(16)>4096||view.getUint32(20)>4096)throw Error('THUMBNAIL_IMAGE_LIMIT');
   const bitmap=await createImageBitmap(new Blob([bytes],{type:mime}));
-  try{signal.throwIfAborted();if(!bitmap.width||!bitmap.height)throw Error('THUMBNAIL_IMAGE_LIMIT');const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');const fit=Math.min(1,256/bitmap.width,256/bitmap.height);context.fillStyle='#f8fbfc';context.fillRect(0,0,256,256);context.drawImage(bitmap,(256-bitmap.width*fit)/2,(256-bitmap.height*fit)/2,bitmap.width*fit,bitmap.height*fit);}finally{bitmap.close();}
+  try{signal.throwIfAborted();if(!bitmap.width||!bitmap.height)throw Error('THUMBNAIL_IMAGE_LIMIT');phase?.('render');const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');const fit=Math.min(1,256/bitmap.width,256/bitmap.height);context.fillStyle='#f8fbfc';context.fillRect(0,0,256,256);context.drawImage(bitmap,(256-bitmap.width*fit)/2,(256-bitmap.height*fit)/2,bitmap.width*fit,bitmap.height*fit);}finally{bitmap.close();}
  }else{
   const three=await import('three'),{GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');signal.throwIfAborted();
+  phase?.('render');
   const renderer=new three.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true});
   let object:import('three').Object3D|undefined,basis:Awaited<ReturnType<typeof basisLoader>>|undefined=undefined,protectedBytes:ReturnType<typeof embeddedPNGManager>|undefined;
   try{
    renderer.setPixelRatio(1);renderer.setSize(256,256,false);renderer.outputColorSpace=three.SRGBColorSpace;
+   phase?.('decode');
    basis=await basisLoader(renderer,bytes.buffer);signal.throwIfAborted();const manager=new three.LoadingManager();protectedBytes=embeddedPNGManager(manager,bytes.buffer,basis);
    const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);
    object=(await loader.parseAsync(protectedBytes.bytes,'')).scene;protectedBytes.assertLoaded();signal.throwIfAborted();
    assertThumbnailModelBudget(three,object,modelBudget);
+   phase?.('render');
    const centered=centerMetricModel(three,object),scene=new three.Scene();scene.background=new three.Color('#f8fbfc');scene.add(centered.object);scene.add(new three.HemisphereLight(0xffffff,0x48503d,2));const light=new three.DirectionalLight(0xffffff,3);light.position.set(3,4,5);scene.add(light);
    const fit=metricCameraFit(centered.extent,1),camera=new three.PerspectiveCamera(40,1,fit.near,fit.far);camera.position.set(1,.45,1.3).normalize().multiplyScalar(fit.distance);camera.lookAt(0,0,0);renderer.render(scene,camera);
    const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');context.drawImage(renderer.domElement,0,0);

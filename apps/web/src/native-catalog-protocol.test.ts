@@ -2,7 +2,7 @@
 import {expect,it} from 'vitest';
 import {newDraft} from './drafts/example';
 import type {NativeViewportFrame} from './native-viewport-protocol';
-import {checkedCatalogRequest,SerialThumbnailQueue} from './native-catalog-protocol';
+import {artworkThumbnailFailure,checkedCatalogRequest,SerialThumbnailQueue} from './native-catalog-protocol';
 const id=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:id(),sequence:3,tenantId:id(),principalId:id(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
 const binding=(f:NativeViewportFrame)=>({version:1 as const,epoch:f.epoch,sequence:f.sequence,tenantId:f.tenantId,principalId:f.principalId,requestId:id()});
@@ -22,4 +22,22 @@ it('serializes thumbnail resource ownership and rejects excess work without star
  const queue=new SerialThumbnailQueue();let release!:()=>void,running=0,max=0;const order:number[]=[];const gate=new Promise<void>(r=>release=r);
  const tasks=[0,1,2,3].map(n=>queue.run(async()=>{running++;max=Math.max(max,running);order.push(n);if(n===0)await gate;running--;return n;}));
  await expect(queue.run(async()=>99)).rejects.toThrow('THUMBNAIL_BUSY');release();expect(await Promise.all(tasks)).toEqual([0,1,2,3]);expect(order).toEqual([0,1,2,3]);expect(max).toBe(1);
+});
+
+it('reports only a bounded outcome and distinguishes the winning deadline from owner cancellation',()=>{
+ const owner=new AbortController(),deadline=new AbortController();
+ const signal=AbortSignal.any([owner.signal,deadline.signal]);
+ owner.abort(Error('private owner information'));deadline.abort(new DOMException('private deadline information','TimeoutError'));
+ expect(artworkThumbnailFailure('decode',signal.reason,signal,deadline.signal)).toEqual({
+  thumbnailFailure:{version:1,phase:'decode',outcome:'cancelled'},
+ });
+ const timed=AbortSignal.any([new AbortController().signal,deadline.signal]);
+ expect(artworkThumbnailFailure('render',timed.reason,timed,deadline.signal)).toEqual({
+  thumbnailFailure:{version:1,phase:'render',outcome:'timeout'},
+ });
+ expect(artworkThumbnailFailure('encode',Error('private unclassified failure'),timed,deadline.signal)).toEqual({
+  thumbnailFailure:{version:1,phase:'encode',outcome:'failed'},
+ });
+ expect(artworkThumbnailFailure('verification',Error('THUMBNAIL_REVISION')).thumbnailFailure.outcome).toBe('rejected');
+ expect(artworkThumbnailFailure('queue',Error('THUMBNAIL_BUSY')).thumbnailFailure.outcome).toBe('busy');
 });
