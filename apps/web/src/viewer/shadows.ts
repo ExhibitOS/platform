@@ -2,6 +2,7 @@
 import type * as THREE from 'three';
 import {selectShadowDependencies,shadowReceiverRegions} from './shadow-interest';
 import type {AssetPeakBudget} from './loading';
+import {hasCeilingFillMaterialHook} from './ceiling-fill';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
@@ -100,7 +101,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const installPlanarDepth=(mesh:THREE.Mesh)=>{
     const material=mesh.material;
     if(Array.isArray(material)||material.shadowSide!==null||material instanceof three.ShaderMaterial||
-      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)||
+      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)&&!hasCeilingFillMaterialHook(material)||
       mesh instanceof three.SkinnedMesh||mesh instanceof three.InstancedMesh||('isBatchedMesh'in mesh&&mesh.isBatchedMesh)||('isInstancedBufferGeometry'in mesh.geometry&&mesh.geometry.isInstancedBufferGeometry)||
       mesh.customDepthMaterial||mesh.customDistanceMaterial||
       mesh.onBeforeShadow!==three.Object3D.prototype.onBeforeShadow||mesh.onAfterShadow!==three.Object3D.prototype.onAfterShadow||
@@ -385,9 +386,10 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
   const install=(material:THREE.Material)=>{
     const prior=hooks.get(material);if(prior)return prior;
     if(hooks.size>=CONTACT_MATERIAL_LIMIT||!(material instanceof three.MeshStandardMaterial)||
-      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
-      material.customProgramCacheKey!==three.Material.prototype.customProgramCacheKey)return;
-    const uniforms=makeUniforms(),before=material.onBeforeCompile,key=material.customProgramCacheKey,baseKey=key.call(material);
+      !hasCeilingFillMaterialHook(material)&&(material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
+      material.customProgramCacheKey!==three.Material.prototype.customProgramCacheKey))return;
+    const uniforms=makeUniforms(),before=material.onBeforeCompile,key=material.customProgramCacheKey;
+    const baseKey=key.call(material),ceilingFill=hasCeilingFillMaterialHook(material);
     const owned:THREE.Material['onBeforeCompile']=(shader,renderer)=>{
       before.call(material,shader,renderer);Object.assign(shader.uniforms,uniforms);
       shader.vertexShader='varying vec3 vExhibitosContactWorld;\n'+shader.vertexShader.replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
@@ -428,7 +430,7 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
         outgoingLight*=1.0-contactStrength*exhibitosContactOpacity;
         #include <opaque_fragment>`);
     };
-    const ownedKey=()=>baseKey+'|exhibitos-support-contact-v3';
+    const ownedKey=()=>(ceilingFill?key.call(material):baseKey)+'|exhibitos-support-contact-v3';
     const hook={before,key,owned,ownedKey,uniforms,hadMarker:Object.hasOwn(material.userData,'exhibitosSupportContact'),marker:material.userData.exhibitosSupportContact};
     hooks.set(material,hook);material.onBeforeCompile=owned;material.customProgramCacheKey=ownedKey;
     material.userData.exhibitosSupportContact=uniforms;supportMaterialHooks.set(material,owned);material.needsUpdate=true;

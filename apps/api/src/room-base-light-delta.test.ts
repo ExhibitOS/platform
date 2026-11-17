@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {applyLightObjectCommand,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_PROFILE,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
-import {applyGeometryCommand} from '../../web/src/geometry/model.ts';
+import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {ordinaryRoomBaseLightDelta} from './room-base-light-delta.ts';
 const withBase=()=>{const d=newDraft();d.candidate=ensureRoomBaseLight(d.candidate,d.candidate.rooms[0]!.id);return d;};
 const binding=(d:ReturnType<typeof newDraft>)=>lightDetailsFor(d.candidate)[0]!;
@@ -13,6 +13,17 @@ it('admits one atomic new room and its canonical auto base; rejects a missing ba
  expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
  const missing=change(before,d=>d.candidate.rooms.push(room));expect(ordinaryRoomBaseLightDelta(before,missing)).toBe(false);
  const mixed=structuredClone(after);mixed.candidate.title='unrelated';expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
+it('replays the negotiated area default on add and explicit ensure and rejects a different initial brightness',()=>{
+ const before=withBase(),room={...structuredClone(before.candidate.rooms[0]!),id:crypto.randomUUID()};
+ const added=change(before,d=>{d.candidate.rooms.push(room);d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,room.id,undefined,ROOM_CEILING_FILL_PROFILE);});
+ expect(ordinaryRoomBaseLightDelta(before,added)).toBe(true);
+ expect(added.candidate.lights[0]).toEqual(before.candidate.lights[0]);
+ const missing=newDraft(),roomId=missing.candidate.rooms[0]!.id;
+ const ensured=change(missing,d=>{d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,roomId,undefined,ROOM_CEILING_FILL_PROFILE);});
+ expect(ordinaryRoomBaseLightDelta(missing,ensured)).toBe(true);
+ const different=change(missing,d=>{d.candidate=ensureRoomBaseLight(d.candidate,roomId,undefined,.25);});
+ expect(ordinaryRoomBaseLightDelta(missing,different)).toBe(false);
 });
 it('replays resize and world move without resetting off or RGB; reverse replay preserves atomic undo',()=>{
  const before=withBase();before.candidate.lights[0]!.intensity=0;before.candidate.lights[0]!.color=[.1,.3,.7];
@@ -42,6 +53,31 @@ it('admits brightness only with omitted placement intent and rejects unrelated m
  const before=withBase(),after=change(before,d=>{const {id,...light}=d.candidate.lights[0]!,{lightId,basePlacement,...settings}=binding(d);void lightId;void basePlacement;d.candidate=setLightDetails(d.candidate,id,{...light,intensity:0,color:[.2,.4,.6]},settings);});
  expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);expect(binding(after).basePlacement).toBe('auto');
  const manual={...structuredClone(before.candidate.lights[0]!),id:crypto.randomUUID()};before.candidate.lights.push(manual);const mixed=structuredClone(after);mixed.candidate.lights.push({...manual,intensity:3});expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
+it('admits a normalized ceiling fill brightness edit and rejects a forged lumen value or an incidental room edit',()=>{
+ const before=newDraft();
+ before.candidate=ensureRoomBaseLight(before.candidate,before.candidate.rooms[0]!.id,undefined,.5);
+ const lightId=before.candidate.lights[0]!.id;
+ const after=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-ceiling-fill-brightness',lightId,brightness:0}).candidate;});
+ expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
+ const forged=structuredClone(after);forged.candidate.lights[0]!.intensity=1;
+ expect(ordinaryRoomBaseLightDelta(before,forged)).toBe(false);
+ const mixed=structuredClone(after);mixed.candidate.rooms[0]!.name='unrelated';
+ expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
+});
+it('replays Auto ceiling fill with the actual six-surface resize and leaves non-envelope geometry alone',()=>{
+ const before=newDraft(),room=before.candidate.rooms[0]!;
+ before.candidate.surfaces=whiteCubeSurfaces(room);
+ const wall=before.candidate.surfaces.find(surface=>surface.type==='wall')!;
+ const interior={...structuredClone(wall),id:crypto.randomUUID(),dimensions:{width:1,height:1},transform:{...wall.transform,position:[0,1,0] as [number,number,number]}};
+ before.candidate.surfaces.push(interior);
+ before.candidate=ensureRoomBaseLight(before.candidate,room.id,undefined,0);
+ const after=change(before,d=>{d.candidate=resizeRoomEnvelope(d.candidate,room.id,{width:room.dimensions.width+1,height:room.dimensions.height+1,depth:room.dimensions.depth+1});});
+ expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
+ expect(after.candidate.surfaces.find(surface=>surface.id===interior.id)).toEqual(interior);
+ expect(after.candidate.lights[0]!.intensity).toBe(0);
+ const mixed=structuredClone(after);mixed.candidate.surfaces.find(surface=>surface.id===interior.id)!.dimensions.width=2;
+ expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
 });
 it('explicit manual and restore-auto operations are reversible without losing source or caller state',()=>{
  const before=withBase(),snapshot=structuredClone(before),manual=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-base-light-placement',lightId:d.candidate.lights[0]!.id,basePlacement:'manual'},{verifiedBaseline:d.candidate}).candidate;});
