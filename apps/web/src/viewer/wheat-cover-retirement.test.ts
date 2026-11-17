@@ -26,3 +26,17 @@ it('never admits on unfinished decode, failed cleanup, unknown assets or a retry
 it('does not treat detached but never-displayed image decoding as settled for a fresh session',async()=>{
  const {vi}=await import('vitest');vi.resetModules();const {createWheatCoverRetirement:create}=await import('./wheat-cover-retirement');const old=create(()=>[]),pending=old.begin(primary);pending.decoded('blob:preloaded',{width:2048,height:1630});pending.retire(true);const current=create(()=>[]),fresh=current.begin(variant);fresh.decoded('blob:next',{width:512,height:408});fresh.displayed('blob:next');fresh.retire(true);expect(current.canAdmit()).toBe(false);
 });
+
+it('admits an explicitly image-free cover without fabricating a decode or retirement',async()=>{
+ const {vi}=await import('vitest');vi.resetModules();const {createWheatCoverRetirement:create}=await import('./wheat-cover-retirement');
+ const empty=create(()=>[]);expect(empty.canAdmit()).toBe(false);empty.confirmNoImage();expect(empty.canAdmit()).toBe(true);empty.confirmNoImage();expect(empty.canAdmit()).toBe(true);
+ const changed=create(()=>[]);changed.confirmNoImage();const work=changed.begin(primary);work.decoded('blob:changed',{width:2048,height:1630});work.displayed('blob:changed');work.retire(true);expect(changed.canAdmit()).toBe(false);
+});
+it('never uses an absent-image receipt to forget outstanding or uncertain image work',async()=>{
+ const {vi}=await import('vitest');vi.resetModules();const {createWheatCoverRetirement:create}=await import('./wheat-cover-retirement');
+ let connected=true;const prior=create(()=>[{src:'blob:prior',isConnected:connected}]),work=prior.begin(primary);
+ const empty=create(()=>[]);empty.confirmNoImage();expect(empty.canAdmit()).toBe(false);
+ work.decoded('blob:prior',{width:2048,height:1630});work.displayed('blob:prior');work.retire(true);expect(empty.canAdmit()).toBe(false);connected=false;expect(empty.canAdmit()).toBe(true);
+ const failed=create(()=>[]),pending=failed.begin(primary);failed.confirmNoImage();pending.fail();pending.retire(false);expect(failed.canAdmit()).toBe(false);
+ const later=create(()=>[]);later.confirmNoImage();expect(later.canAdmit()).toBe(false);
+});

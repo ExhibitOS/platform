@@ -88,7 +88,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     let objectURL = '';let retirement:ReturnType<ReturnType<typeof createWheatCoverRetirement>['begin']>|undefined;
     setImage(null); setLoaded(false); setFailed(false);
     if (!showImage) return;
-    if (!hasUsableImage || !settings.imageAssetId) { entranceReadiness?.setCover(null); return; }
+    if (!hasUsableImage || !settings.imageAssetId) { coverRetirement?.confirmNoImage(); entranceReadiness?.setCover(null); return; }
     if(trusted&&!measured)return;
     const id=settings.imageAssetId.toLowerCase(),selectedId=selected?.id??id,deadline=AbortSignal.timeout(15000);
     const load=async(target:string)=>{

@@ -20,10 +20,13 @@ type CoverWork={url:string;retired:boolean;images:()=>Iterable<{src:string;isCon
 const outstanding=new Set<CoverWork>();
 function pruneRetired(){for(const work of outstanding){if(!work.retired||!work.url)continue;try{if(![...work.images()].some(image=>image.isConnected&&image.src===work.url))outstanding.delete(work);}catch{/* A missing DOM receipt remains outstanding. */}}}
 export function createWheatCoverRetirement(images:()=>Iterable<{src:string;isConnected:boolean}>){
- let starts=0,failed=false,ready=false,url='',retired=false;
+ let starts=0,failed=false,ready=false,url='',retired=false,noImage=false;
  return {
+  // Only the cover consumer can confirm that this presentation has no image
+  // work. It cannot erase a started, failed or uncertain prior operation.
+  confirmNoImage(){if(starts!==0)failed=true;else noImage=true;},
   begin(identity:CoverIdentity){
-   starts++;if(starts!==1)failed=true;const token:CoverWork={url:'',retired:false,images};outstanding.add(token);let decoded=false,displayed=false,ended=false;
+   starts++;if(starts!==1||noImage)failed=true;const token:CoverWork={url:'',retired:false,images};outstanding.add(token);let decoded=false,displayed=false,ended=false;
    return {
     decoded(candidateUrl:string,size:ImageSize){
      if(ended||decoded){failed=true;return;}if(candidateUrl.startsWith('blob:')){token.url=candidateUrl;decoded=true;}const expected=[primary,variant].find(v=>v.sha256===identity.sha256&&v.bytes===identity.bytes&&identity.mime==='image/png');
@@ -35,7 +38,9 @@ export function createWheatCoverRetirement(images:()=>Iterable<{src:string;isCon
    };
   },
   canAdmit(){
-   pruneRetired();if(failed||starts!==1||!ready||!retired||outstanding.size)return false;
+   pruneRetired();if(failed||outstanding.size)return false;
+   if(noImage&&starts===0)return true;
+   if(starts!==1||!ready||!retired)return false;
    try{for(const image of images())if(image.isConnected&&image.src===url)return false;return true;}catch{return false;}
   },
  };
