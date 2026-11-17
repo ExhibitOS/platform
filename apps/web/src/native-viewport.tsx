@@ -104,10 +104,11 @@ async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
  signal.throwIfAborted();
 }
 const catalogDeadlineMs=10_000;
-function beginCatalogRequest(request:CatalogBinding){
+const artworkThumbnailDeadlineMs=30_000;
+function beginCatalogRequest(request:CatalogBinding,deadlineMs=catalogDeadlineMs){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
  seenCatalogRequests.add(request.requestId);if(seenCatalogRequests.size>128)seenCatalogRequests.delete(seenCatalogRequests.values().next().value!);
- const abort=new AbortController(),deadline=AbortSignal.timeout(catalogDeadlineMs);
+ const abort=new AbortController(),deadline=AbortSignal.timeout(deadlineMs);
  catalogRequests.add(abort);return {abort,deadline,signal:AbortSignal.any([abort.signal,deadline])};
 }
 function post(frame:NativeViewportFrame,type:string,body:unknown){if(frame===current&&type==='candidate'){pendingEditorCommit={epoch:frame.epoch,sequence:frame.sequence,candidate:freezeCanonical(body)};activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_EDIT_CHANGED'));}if(frame===current&&type==='selection')activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_SELECTION_CHANGED'));window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
@@ -148,7 +149,7 @@ async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2,trace?
   requireEntranceIdle();
   const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');
   const clock=trace?{monotonicMs:performance.now(),unixMs:Date.now()}:undefined;
-  scope=beginCatalogRequest(request);
+  scope=beginCatalogRequest(request,artworkThumbnailDeadlineMs);
   const {signal,deadline}=scope;
   phase='queue';
   const mark:ArtworkThumbnailProgress=(...step)=>{
@@ -165,7 +166,7 @@ async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2,trace?
    await catalogSession(frame!,signal);
    const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;
    const observation=trace&&clock&&renderedReady&&!currentReadOnly&&frame?.presentation!=='plan'
-    ? observeThumbnailPreview(request.requestId,deadline,catalogDeadlineMs,clock):undefined;
+    ? observeThumbnailPreview(request.requestId,deadline,artworkThumbnailDeadlineMs,clock):undefined;
    if(trace&&observation)trace.observation=observation;
    const image=await produceArtworkThumbnail(request,signal,outcomeVersion?mark:undefined,observation);
    mark('verification');
