@@ -315,6 +315,11 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
  // remain valid across logical restore; all object checks still run below.
  if(tables.some(t=>t.name==='hayes_native_releases')){
   const released=await confirmedHayesReleaseBindings(c,options.tenantId);
+  if(tables.some(t=>t.name==='hayes_preopen_terminals')){
+   const terminals=await c.query(`SELECT tenant_id,job_id FROM public.hayes_preopen_terminal_bindings
+    WHERE ($1::uuid IS NULL OR tenant_id=$1::uuid)`,[options.tenantId??null]);
+   for(const row of terminals.rows)released.add(`import_jobs:${row.tenant_id}:${row.job_id}`);
+  }
   report.issues=report.issues.filter(issue=>issue.code!=='HAYES_WORKER_DRAIN_UNCONFIRMED'||!issue.binding||!released.has(issue.binding));
  }
  // The two individually valid objects also need one complete registered

@@ -70,6 +70,7 @@ import {registerNativeDetailHttp} from './native-detail-http.ts';
 import {isIssuedNativeDetailContext} from './native-detail-context.ts';
 import {isIssuedNativeHayesCaller} from './native-hayes-caller.ts';
 import {isHayesReleaseContext} from './hayes-original-attempt.ts';
+import {readHayesTerminal,requireHayesTerminalContext} from './hayes-preopen-terminal.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
@@ -567,6 +568,30 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   guarded(req,true);reply.header('cache-control','no-store');const p=req.params as {tenantId:string;id:string};uuid(p.tenantId);uuid(p.id);if(p.tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');if(runtimeAvailable&&!runtimeAvailable())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
   const body=req.body as {artworkId:string;artworkRevision:number};return nativeHayesCaller.execute({token:token(req),csrf:typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined},{jobId:p.id,artworkId:body.artworkId,artworkRevision:body.artworkRevision},Date.now()+180000);
  });
+ if(nativeHayesCaller&&nativeOexWorkspace&&isHayesReleaseContext(nativeOexWorkspace)){
+  const terminal=`${prefix}/imports/native-hayes-original/:id/preopen-terminal`;
+  const selector=object({proofSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}});
+  app.post(terminal,{bodyLimit:1024,schema:{body:selector}},async(req,reply)=>{
+   guarded(req,true);
+   reply.header('cache-control','no-store');
+   const p=req.params as {tenantId:string;id:string};
+   uuid(p.tenantId);uuid(p.id);
+   if(p.tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');
+   if(!runtimeAvailable?.())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
+   const {proofSha256}=req.body as {proofSha256:string};
+   return nativeHayesCaller.terminalizePreopen({token:token(req),csrf:typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined},{jobId:p.id,proofSha256},Date.now()+30000);
+  });
+  app.get(terminal,{schema:{querystring:selector}},nativeOriginalRead(async(c,s,req)=>{
+   if(!runtimeAvailable?.())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
+   const {id:jobId}=req.params as {id:string};
+   uuid(jobId);
+   const {proofSha256}=req.query as {proofSha256:string};
+   await requireHayesTerminalContext(c,s,nativeOexWorkspace);
+   const receipt=await readHayesTerminal(c,nativeOexWorkspace,{jobId,proofSha256});
+   if(!receipt)throw new ApiError(404,'NOT_FOUND');
+   return receipt;
+  }));
+ }
  const importMutation=nativeOexWorkspace&&!freshOexTest?nativeMutation:(work:Parameters<typeof nativeMutation>[0])=>call(true,work);
  if(nativeOexWorkspace&&nativeBoundedEditing&&store&&modelPreparationExecution)app.get(`${prefix}/studio/artworks/:id/native-model-candidate`,{schema:{querystring:object({artworkRevision:{type:'string',pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>{const revision=Number((req.query as {artworkRevision:string}).artworkRevision);if(!Number.isSafeInteger(revision)||revision>2147483647)throw new ApiError(400,'INVALID_INPUT');return resolveRequiredModelCandidate(c,s,cmsId(req),revision,cms,importer());}));
  if(nativeOexWorkspace&&nativeBoundedEditing){
