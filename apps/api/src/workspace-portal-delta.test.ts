@@ -13,3 +13,32 @@ it('retains a source-bound v9 frame while changing one portal and rejects reserv
  const after=add(before),right=after.candidate.extensions![ns] as unknown as {version:number;frameAttachments:unknown[]};right.version=9;
  expect(ordinaryPortalDelta(before,after,ns)).toBe(true);expect(ordinaryPortalDelta(after,before,ns)).toBe(true);right.version=8;expect(ordinaryPortalDelta(before,after,ns)).toBe(false);right.version=9;right.frameAttachments=[];expect(ordinaryPortalDelta(before,after,ns)).toBe(false);
 });
+
+function ceilingPortalDrafts(){
+ const before=base();
+ const ceilingAttachments=[{surfaceId:'ceiling',furnishingId:'rail'}];
+ const extension=before.candidate.extensions![ns] as unknown as Record<string,unknown>;
+ Object.assign(extension,{version:11,openingAttachments:[],ceilingAttachments});
+ const after=add(before);
+ const attached=after.candidate.extensions![ns] as unknown as Record<string,unknown>;
+ attached.version=11;
+ return {before,after,attached};
+}
+
+it('admits a v11 portal attach and detach with the same ceiling attachments',()=>{
+ const {before,after}=ceilingPortalDrafts();
+ expect(ordinaryPortalDelta(before,after,ns)).toBe(true);
+ expect(ordinaryPortalDelta(after,before,ns)).toBe(true);
+});
+
+it.each([
+ {version:11,ceilingAttachments:[{surfaceId:'ceiling',furnishingId:'other'}]},
+ {version:11,ceilingAttachments:[]},
+ {version:11,ceilingAttachments:undefined},
+ {version:10,ceilingAttachments:undefined},
+])('refuses a portal change with altered ceiling data or namespace downgrade (%j)',(changes)=>{
+ const {before,after,attached}=ceilingPortalDrafts();
+ Object.assign(attached,changes);
+ expect(ordinaryPortalDelta(before,after,ns)).toBe(false);
+ expect(ordinaryPortalDelta(after,before,ns)).toBe(false);
+});
