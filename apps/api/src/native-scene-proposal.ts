@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {TEMPLATE_NAMESPACE,INSTALLATION_NAMESPACE,LIGHT_DETAILS_NAMESPACE,installationFor,lightDetailsFor,roomBaseLightRange,setLightDetails,type InstallationPedestal,type StudioInstallation,
+import {addRoomSupplementalCeilingFill,TEMPLATE_NAMESPACE,INSTALLATION_NAMESPACE,LIGHT_DETAILS_NAMESPACE,installationFor,lightDetailsFor,roomBaseLightRange,setLightDetails,type InstallationPedestal,type StudioInstallation,
  type ExhibitionLight,type LightDetails} from '@exhibitos/studio-contract';
 
 /** The existing installation and light-details representations, applied to one
@@ -8,10 +8,17 @@ import {TEMPLATE_NAMESPACE,INSTALLATION_NAMESPACE,LIGHT_DETAILS_NAMESPACE,instal
  * base and result. No draft, asset, rights or save operation is accepted here. */
 export type NativeSceneCommand=
  |{type:'set-pedestal';placementId:string;pedestal:InstallationPedestal}
+ |{type:'add-room-supplemental-ceiling-fill';roomId:string;baseLightId:string;lightId:string}
  |{type:'add-light';light:ExhibitionLight;settings?:Omit<LightDetails,'lightId'>}
  |{type:'set-light-details';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>};
 
 export function nativeSceneProposal(candidate:Exhibition,command:NativeSceneCommand){
+ if(command.type==='add-room-supplemental-ceiling-fill'){
+  const next=addRoomSupplementalCeilingFill(candidate,command.roomId,command.baseLightId,command.lightId);
+  const template=next.extensions?.[TEMPLATE_NAMESPACE] as {modified?:boolean}|undefined;
+  if(template)template.modified=true;
+  return {lightId:command.lightId,candidate:next};
+ }
  if(command.type==='set-light-details')return {lightId:command.lightId,candidate:setLightDetails(candidate,command.lightId,command.light,command.settings)};
  const next=structuredClone(candidate);
  if(command.type==='add-light'){
