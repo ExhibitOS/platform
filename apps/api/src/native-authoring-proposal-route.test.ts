@@ -94,9 +94,9 @@ it('proposes only a checked change to the current saved draft through the instal
   expect((await post({...fillPayload,request:{...fillPayload.request,light:{...fillLight,intensity:fillLight.intensity+1}}})).statusCode).toBe(422);
   const basePoint=ensureRoomBaseLight(before.candidate,roomId);
   const basePointLight=basePoint.lights.at(-1)!;
-  const {basePlacement,...legacyBinding}=lightDetailsFor(basePoint).at(-1)!;
-  expect(basePlacement).toBe('auto');
-  draft.candidate={...basePoint,extensions:{...basePoint.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[{...legacyBinding,range:10}]}}};
+  expect(lightDetailsFor(basePoint).at(-1)?.basePlacement).toBe('auto');
+  const legacyBinding={lightId:basePointLight.id,fixture:'none',purpose:'room-base',range:10};
+  draft.candidate={...basePoint,extensions:{...basePoint.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[legacyBinding]}}};
   const legacyHead=etag(revision,draft),supplementalId=randomUUID();
   const supplemental={...payload,request:{...binding,type:'add-room-supplemental-ceiling-fill',roomId,baseLightId:basePointLight.id,lightId:supplementalId}};
   const supplementalReply=await post(supplemental,{'if-match':legacyHead});
