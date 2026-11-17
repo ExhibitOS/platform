@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_PROFILE,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_PROFILE,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {ordinaryRoomBaseLightDelta} from './room-base-light-delta.ts';
@@ -113,4 +113,17 @@ it('a real light rotation remains a manual spatial edit, not quaternion represen
  const before=withBase(),{id,...light}=structuredClone(before.candidate.lights[0]!);light.transform.rotation=[0,Math.sin(.1),0,Math.cos(.1)];
  const after=change(before,d=>{d.candidate=setLightDetails(d.candidate,id,light,{fixture:'none'});});
  expect(binding(after).basePlacement).toBe('manual');expect(ordinaryRoomBaseLightDelta(before,after)).toBe(true);
+});
+
+it('replays only an exact supplemental add or removal and rejects a changed legacy point',()=>{
+ const before=withBase(),base=before.candidate.lights[0]!;
+ const details=(before.candidate.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:LightDetails[]}).lights[0]!;
+ delete details.basePlacement;
+ details.range=10;
+ const added=change(before,d=>{d.candidate=addRoomSupplementalCeilingFill(d.candidate,base.roomId,base.id,crypto.randomUUID());});
+ expect(ordinaryRoomBaseLightDelta(before,added)).toBe(true);
+ expect(ordinaryRoomBaseLightDelta(added,before)).toBe(true);
+ const changed=structuredClone(added);
+ changed.candidate.lights[0]!.intensity++;
+ expect(ordinaryRoomBaseLightDelta(before,changed)).toBe(false);
 });

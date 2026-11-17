@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {isDeepStrictEqual} from 'node:util';
-import {applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureOrdinaryRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,ROOM_CEILING_FILL_PROFILE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureOrdinaryRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,roomSupplementalCeilingFill,ROOM_CEILING_FILL_PROFILE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 /** Narrow bounded-save replay. Complete candidate validation, saved-head CAS,
  * ownership and material/furnishing custody remain in Studio's existing path. */
@@ -49,6 +49,9 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
   if(changedRooms.length)return false;
   for(const room of source.rooms){
    const old=roomBaseLight(source,room.id),next=roomBaseLight(target,room.id);
+   const oldFill=roomSupplementalCeilingFill(source,room.id),nextFill=roomSupplementalCeilingFill(target,room.id);
+   if(old&&next&&same(old.id,next.id)&&!oldFill&&nextFill&&matches(addRoomSupplementalCeilingFill(source,room.id,old.id,nextFill.id)))return true;
+   if(oldFill&&!nextFill&&matches(applyLightObjectCommand(source,{type:'remove-light-object',lightId:oldFill.id},{verifiedBaseline:source}).candidate))return true;
    if(!old&&next){if(matches(replayCreation(source,room.id,next.id)))return true;continue;}
    if(!old)continue;
    if(!next){if(matches(applyLightObjectCommand(source,{type:'remove-light-object',lightId:old.id},{verifiedBaseline:source}).candidate))return true;continue;}
