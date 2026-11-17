@@ -6,6 +6,7 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import type {Artwork} from '@exhibitos/spec';
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,freezeCanonical,verifiedParsedDetailQuality,type DetailCandidate} from '@exhibitos/studio-contract';
 import {ApiError,type Session} from './auth.ts';
+import {FINISHED_HAYES_ORIGINAL_PROFILE,finishedHayesOriginalGrantKind,readApprovedFinishedHayesOriginal,type FinishedHayesOriginalApproval} from './finished-hayes-original.ts';
 import {requiredModelOriginalGrantKind,readApprovedRequiredModelOriginal,type RequiredModelOriginalApproval} from './required-model-original.ts';
 import type {Cms} from './cms.ts';
 import {readBoundAdoptedModelOriginal} from './adopted-model-original-binding.ts';
@@ -14,23 +15,28 @@ import type {Imports} from './imports.ts';
 import type {OriginalArtworkIdentity} from './native-original-publication.ts';
 import type {Studio} from './studio.ts';
 
-/** Ordinary required-model custody is a separate authority from adoption. The
- * shared GLB report describes the bytes; this persisted binding supplies scope. */
+/** Prepared and finished-Hayes sources have explicit independent grant readers.
+ * The shared GLB report describes bytes; persisted bindings supply source scope. */
 const kind='native-required-model-detail-binding';
+const finishedHayesKind='native-finished-hayes-detail-binding';
+type SourceApproval=RequiredModelOriginalApproval|FinishedHayesOriginalApproval;
+const bindingKind=(input:SourceApproval)=>input.kind===FINISHED_HAYES_ORIGINAL_PROFILE?finishedHayesKind:kind;
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
 type Dependencies={studio:Studio;cms:Cms;imports:Imports;blobs:BlobStore};
 type Scope={workspaceId:string;exhibitionId:string;publicationId:string};
-type RequiredSource=Awaited<ReturnType<typeof readApprovedRequiredModelOriginal>>;
-type ModelItem={input:RequiredModelOriginalApproval;publicArtworkId:string;publicArtworkRevisionId:string;candidate:DetailCandidate;nonce:string;grant:RequiredSource['grant']};
+type RequiredSource=Awaited<ReturnType<typeof readSource>>;
+type ModelItem={input:SourceApproval;publicArtworkId:string;publicArtworkRevisionId:string;candidate:DetailCandidate;nonce:string;grant:RequiredSource['grant']};
 
 export async function hasRequiredModelOriginalApproval(c:PoolClient,s:Session,workspaceId:string,exhibitionId:string){
- return (await c.query(`SELECT 1 FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind'=$2
+ return (await c.query(`SELECT 1 FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind' IN ($2,$6)
    AND metadata->>'workspaceId'=$3 AND metadata->>'principalId'=$4 AND metadata->>'exhibitionId'=$5 LIMIT 1`,
-  [s.tenantId,requiredModelOriginalGrantKind,workspaceId,s.userId,exhibitionId])).rowCount===1;
+  [s.tenantId,requiredModelOriginalGrantKind,workspaceId,s.userId,exhibitionId,finishedHayesOriginalGrantKind])).rowCount===1;
 }
 
-const readSource=async(c:PoolClient,s:Session,scope:Scope,input:RequiredModelOriginalApproval,deps:Dependencies,signal:AbortSignal)=>{
- const source=await readApprovedRequiredModelOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal);
+const readSource=async(c:PoolClient,s:Session,scope:Scope,input:SourceApproval,deps:Dependencies,signal:AbortSignal)=>{
+ const source=input.kind===FINISHED_HAYES_ORIGINAL_PROFILE
+  ?await readApprovedFinishedHayesOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal)
+  :await readApprovedRequiredModelOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal);
  if(source.grant.workspaceId!==scope.workspaceId||source.grant.tenantId!==s.tenantId||source.grant.principalId!==s.userId||
     source.grant.exhibitionId!==scope.exhibitionId){source.bytes.fill(0);return unavailable();}
  return source;
@@ -44,14 +50,14 @@ function bindingDigest(artworkRevisionId:string,candidate:DetailCandidate,grant:
 
 export async function prepareRequiredModelOriginals(c:PoolClient,s:Session,scope:Scope,artworks:Artwork[],identities:OriginalArtworkIdentity[],reserved:Set<string>,deps:Dependencies,signal:AbortSignal){
  const models=identities.filter(identity=>artworks.some(artwork=>artwork.artworkType==='sculpture'&&artwork.revisionId===identity.publicArtworkRevisionId));
- const grants=(await c.query(`SELECT asset_id,metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind'=$2
+ const grants=(await c.query(`SELECT asset_id,metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind' IN ($2,$7)
    AND metadata->>'workspaceId'=$3 AND metadata->>'principalId'=$4 AND metadata->>'exhibitionId'=$5
    AND metadata->>'artworkRevisionId'=ANY($6::text[]) ORDER BY id LIMIT 17`,
-  [s.tenantId,requiredModelOriginalGrantKind,scope.workspaceId,s.userId,scope.exhibitionId,models.map(model=>model.artworkRevisionId)])).rows;
+  [s.tenantId,requiredModelOriginalGrantKind,scope.workspaceId,s.userId,scope.exhibitionId,models.map(model=>model.artworkRevisionId),finishedHayesOriginalGrantKind])).rows;
  const items:ModelItem[]=[];
  const seen=new Set<string>();
  for(const row of grants){
-  const input=row.metadata?.input as RequiredModelOriginalApproval;
+  const input=row.metadata?.input as SourceApproval;
   const identity=models.find(model=>model.artworkId===input?.artworkId&&model.artworkRevision===input?.artworkRevision&&model.artworkRevisionId===row.metadata?.artworkRevisionId);
   const artwork=identity&&artworks.find(item=>item.id===identity.publicArtworkId&&item.revisionId===identity.publicArtworkRevisionId);
   if(!identity||!artwork||artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE]!==undefined||seen.has(artwork.revisionId)||grants.length>16)return unavailable();
@@ -81,7 +87,7 @@ export async function persistRequiredModelOriginal(c:PoolClient,s:Session,scope:
  const {grant,bytes}=await readSource(c,s,scope,item.input,deps,signal);
  try{
   if(!isDeepStrictEqual(grant,item.grant))return unavailable();
-  const metadata={version:1,kind,...scope,revisionSha256,...item};
+  const metadata={version:1,kind:bindingKind(item.input),...scope,revisionSha256,...item};
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',
    [s.tenantId,randomUUID(),grant.originalAssetId,metadata]);
  }finally{bytes.fill(0);}
@@ -90,10 +96,10 @@ export async function persistRequiredModelOriginal(c:PoolClient,s:Session,scope:
 export async function readBoundRequiredModelOriginal(c:PoolClient,s:Session,scope:Scope,revisionSha256:string,publicArtworkId:string,
  publicArtworkRevisionId:string,candidate:DetailCandidate,deps:Dependencies,signal:AbortSignal){
  const rows=(await c.query(`SELECT asset_id,metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL
-  AND metadata->>'kind'=$2 AND metadata->>'publicationId'=$3 AND metadata->'candidate'->>'assetId'=$4 LIMIT 2 FOR SHARE`,
- [s.tenantId,kind,scope.publicationId,candidate.assetId])).rows;
+  AND metadata->>'kind' IN ($2,$5) AND metadata->>'publicationId'=$3 AND metadata->'candidate'->>'assetId'=$4 LIMIT 2 FOR SHARE`,
+ [s.tenantId,kind,scope.publicationId,candidate.assetId,finishedHayesKind])).rows;
  const item=rows[0]?.metadata as ModelItem&Scope&{version:number;kind:string;revisionSha256:string};
- if(rows.length!==1||!item||item.version!==1||item.kind!==kind||item.workspaceId!==scope.workspaceId||
+ if(rows.length!==1||!item||item.version!==1||!item.input||item.kind!==bindingKind(item.input)||item.workspaceId!==scope.workspaceId||
   item.exhibitionId!==scope.exhibitionId||item.publicationId!==scope.publicationId||item.revisionSha256!==revisionSha256||
   item.publicArtworkId!==publicArtworkId||item.publicArtworkRevisionId!==publicArtworkRevisionId||
   !isDeepStrictEqual(item.candidate,candidate)||rows[0].asset_id!==item.grant?.originalAssetId)return unavailable();
@@ -113,10 +119,10 @@ export async function readBoundModelOriginal(c:PoolClient,s:Session,scope:Scope,
  publicArtworkRevisionId:string,candidate:DetailCandidate,deps:Dependencies,signal:AbortSignal){
  signal.throwIfAborted();
  const rows=(await c.query(`SELECT metadata->>'kind' AS kind FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL
-  AND metadata->>'kind' IN ($2,$3) AND metadata->>'publicationId'=$4 AND metadata->'candidate'->>'assetId'=$5 LIMIT 2 FOR SHARE`,
- [s.tenantId,kind,'native-adopted-model-detail-binding',scope.publicationId,candidate.assetId])).rows;
+  AND metadata->>'kind' IN ($2,$3,$6) AND metadata->>'publicationId'=$4 AND metadata->'candidate'->>'assetId'=$5 LIMIT 2 FOR SHARE`,
+ [s.tenantId,kind,'native-adopted-model-detail-binding',scope.publicationId,candidate.assetId,finishedHayesKind])).rows;
  if(rows.length!==1)return unavailable();
- if(rows[0].kind===kind)return readBoundRequiredModelOriginal(c,s,scope,revisionSha256,publicArtworkId,publicArtworkRevisionId,candidate,deps,signal);
+ if(rows[0].kind===kind||rows[0].kind===finishedHayesKind)return readBoundRequiredModelOriginal(c,s,scope,revisionSha256,publicArtworkId,publicArtworkRevisionId,candidate,deps,signal);
  if(rows[0].kind==='native-adopted-model-detail-binding')return readBoundAdoptedModelOriginal(c,s,scope,revisionSha256,publicArtworkId,publicArtworkRevisionId,candidate,deps,signal);
  return unavailable();
 }
