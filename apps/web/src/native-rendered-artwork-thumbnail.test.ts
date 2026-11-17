@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
 import {produceArtworkThumbnail} from './native-artwork-thumbnail';
-import {artworkThumbnailSource,type ArtworkThumbnailPhase} from './native-catalog-protocol';
+import {artworkThumbnailFailure,artworkThumbnailFailureV2,artworkThumbnailSource,type ArtworkThumbnailPhase,type ArtworkThumbnailPreviewStep} from './native-catalog-protocol';
 const state=vi.hoisted(()=>({dispose:vi.fn(),lose:vi.fn(),draw:vi.fn(),decode:vi.fn()}));
 vi.mock('./basis-loader.js',()=>({basisLoader:async()=>({dispose:()=>{}})}));
 vi.mock('./embedded-glb.js',()=>({embeddedPNGManager:(_manager:unknown,bytes:ArrayBuffer)=>({bytes,assertLoaded:()=>{},dispose:()=>{}})}));
 vi.mock('./viewer/metric-model.js',()=>({centerMetricModel:()=>({object:{},extent:{}}),metricCameraFit:()=>({near:.01,far:100,distance:2})}));
 vi.mock('three/addons/loaders/GLTFLoader.js',()=>({GLTFLoader:class {async parseAsync(){state.decode();return {scene:{traverse:()=>{}}};}}}));
 vi.mock('three',()=>({Mesh:class {},WebGLRenderer:class {domElement={};setPixelRatio(){}setSize(){}render(){state.draw();}dispose(){state.dispose();}forceContextLoss(){state.lose();}},LoadingManager:class {},Scene:class {add(){}},Color:class {},HemisphereLight:class {},DirectionalLight:class {position={set:()=>{}};},PerspectiveCamera:class {position={set:()=>({normalize:()=>({multiplyScalar:()=>{}})})};lookAt(){}},SRGBColorSpace:'srgb'}));
-afterEach(()=>{vi.unstubAllGlobals();vi.clearAllMocks();});
+afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.clearAllMocks();});
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hash=async(bytes:Uint8Array<ArrayBuffer>)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
 function fixture(){
@@ -47,8 +47,38 @@ it.each(['decode','render','encode','verification'] as const)('keeps a %s failur
  if(stage==='render')state.draw.mockImplementationOnce(fail);
  if(stage==='encode')f.mutate(fail);
  if(stage==='verification')f.mutate(()=>{f.artwork.assets[0]!.sha256='c'.repeat(64);});
- await expect(produceArtworkThumbnail(f.request,signal,value=>{phase=value;})).rejects.toThrow();
+ await expect(produceArtworkThumbnail(f.request,signal,(...step)=>{phase=step[0];})).rejects.toThrow();
  expect(phase).toBe(stage);
  expect(state.dispose).toHaveBeenCalledOnce();
  expect(state.lose).toHaveBeenCalledOnce();
+});
+
+it.each(['metadata','headers','body','digest'] as const)('separates a preview %s timeout before starting the renderer',async expected=>{
+ const f=fixture(),deadline=new AbortController();
+ const signal=AbortSignal.any([new AbortController().signal,deadline.signal]);
+ const reason=new DOMException('private timeout details','TimeoutError');
+ const expire=()=>{deadline.abort(reason);throw reason;};
+ const fetcher=f.fetcher.getMockImplementation()!;
+ if(expected==='metadata')f.fetcher.mockImplementationOnce(async()=>expire());
+ if(expected==='headers'||expected==='body'){
+  f.fetcher.mockImplementationOnce(fetcher).mockImplementationOnce(async path=>{
+   if(expected==='headers')return expire();
+   const response=await fetcher(path);
+   return new Response(new ReadableStream({pull:expire},{highWaterMark:0}),{headers:response.headers});
+  });
+ }
+ if(expected==='digest')vi.spyOn(crypto.subtle,'digest').mockImplementationOnce(async()=>expire());
+
+ let previewStep:ArtworkThumbnailPreviewStep|undefined;
+ await expect(produceArtworkThumbnail(f.request,signal,(...step)=>{
+  if(step[0]==='preview')previewStep=step[1];
+ })).rejects.toBe(reason);
+ expect(previewStep).toBe(expected);
+ const v1=artworkThumbnailFailure('preview',reason,signal,deadline.signal);
+ expect(v1).toEqual({thumbnailFailure:{version:1,phase:'preview',outcome:'timeout'}});
+ expect(artworkThumbnailFailureV2(v1,previewStep!)).toEqual({
+  thumbnailFailure:{version:2,phase:'preview',outcome:'timeout',previewStep:expected},
+ });
+ expect(state.decode).not.toHaveBeenCalled();
+ expect(state.draw).not.toHaveBeenCalled();
 });

@@ -24,7 +24,7 @@ import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedBoundedEditing,checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction,type NativeBoundedEditingCapability} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
-import {artworkThumbnailFailure,checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type ArtworkThumbnailFailure,type ArtworkThumbnailPhase,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
+import {artworkThumbnailFailure,artworkThumbnailFailureV2,checkedCatalogRequest,checkedFurnishingThumbnailRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,RENDERED_ARTWORK_THUMBNAIL_PROFILE,FURNISHING_THUMBNAIL_CAPABILITY,type ArtworkThumbnailFailure,type ArtworkThumbnailFailureV2,type ArtworkThumbnailPhase,type ArtworkThumbnailPreviewStep,type ArtworkThumbnailProgress,type FurnishingThumbnailRequest,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail,produceFurnishingThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
 import {NATIVE_PLACEMENT_CAPABILITY,placementFrameCompatible,type PlacementRequest} from './native-placement-protocol';
@@ -63,6 +63,7 @@ declare global {interface Window {exhibitosViewport?:{
  sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply>;
  thumbnailOutcomeV1:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
+ thumbnailOutcomeV2:(v:ThumbnailRequest)=>Promise<ArtworkThumbnailReply|ArtworkThumbnailFailureV2>;
  furnishingThumbnailV1:(v:unknown)=>Promise<FurnishingThumbnailRequest&Awaited<ReturnType<typeof produceFurnishingThumbnail>>>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
@@ -132,10 +133,12 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
  },
 });
 const requireEntranceIdle=()=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
-function requestArtworkThumbnail(value:unknown,reportFailure:false):Promise<ArtworkThumbnailReply>;
-function requestArtworkThumbnail(value:unknown,reportFailure:true):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
-async function requestArtworkThumbnail(value:unknown,reportFailure:boolean){
+function requestArtworkThumbnail(value:unknown,outcomeVersion:0):Promise<ArtworkThumbnailReply>;
+function requestArtworkThumbnail(value:unknown,outcomeVersion:1):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailure>;
+function requestArtworkThumbnail(value:unknown,outcomeVersion:2):Promise<ArtworkThumbnailReply|ArtworkThumbnailFailureV2>;
+async function requestArtworkThumbnail(value:unknown,outcomeVersion:0|1|2){
  let phase:ArtworkThumbnailPhase='request';
+ let previewStep:ArtworkThumbnailPreviewStep='metadata';
  let scope:ReturnType<typeof beginCatalogRequest>|undefined;
  try{
   requireEntranceIdle();
@@ -143,23 +146,28 @@ async function requestArtworkThumbnail(value:unknown,reportFailure:boolean){
   scope=beginCatalogRequest(request);
   const {signal}=scope;
   phase='queue';
-  const mark=(value:ArtworkThumbnailPhase)=>{if(!signal.aborted)phase=value;};
+  const mark:ArtworkThumbnailProgress=(...step)=>{
+   if(signal.aborted)return;
+   phase=step[0];
+   if(step[0]==='preview')previewStep=step[1];
+  };
   const cancelled=new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>{
-   reject(reportFailure?signal.reason:Error('CATALOG_REQUEST_CANCELLED'));
+   reject(outcomeVersion?signal.reason:Error('CATALOG_REQUEST_CANCELLED'));
   },{once:true}));
   return await Promise.race([thumbnailQueue.run(async()=>{
    mark('authorization');
    await catalogSession(frame!,signal);
    const renderedReady=currentSession?.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE;
-   const image=await produceArtworkThumbnail(request,signal,reportFailure?mark:undefined);
+   const image=await produceArtworkThumbnail(request,signal,outcomeVersion?mark:undefined);
    mark('verification');
    await catalogSession(frame!,signal);
    if('sourceAssetId' in image&&(currentReadOnly||!renderedReady))throw Error('THUMBNAIL_UNAVAILABLE');
    return {...catalogBinding(request),artworkId:request.artworkId,revision:request.expectedRevision,...image};
   }),cancelled]);
  }catch(error){
-  if(!reportFailure)throw error;
-  return artworkThumbnailFailure(phase,error,scope?.signal,scope?.deadline);
+  if(!outcomeVersion)throw error;
+  const failure=artworkThumbnailFailure(phase,error,scope?.signal,scope?.deadline);
+  return outcomeVersion===2?artworkThumbnailFailureV2(failure,previewStep):failure;
  }finally{
   if(scope){catalogRequests.delete(scope.abort);scope.abort.abort();}
  }
@@ -389,8 +397,9 @@ window.exhibitosViewport={
    return {...sceneSnapshotBinding(request),saved,candidateSha256,...image};
   }finally{snapshotBusy=false;if(activeSnapshotAbort===abort)activeSnapshotAbort=undefined;catalogRequests.delete(abort);abort.abort();}
  },
- thumbnail:value=>requestArtworkThumbnail(value,false),
- thumbnailOutcomeV1:value=>requestArtworkThumbnail(value,true),
+ thumbnail:value=>requestArtworkThumbnail(value,0),
+ thumbnailOutcomeV1:value=>requestArtworkThumbnail(value,1),
+ thumbnailOutcomeV2:value=>requestArtworkThumbnail(value,2),
  furnishingThumbnailV1:async value=>{
   requireEditable();
   const frame=current;
