@@ -192,3 +192,64 @@ test('combined 050+051 interrupted reopen preserves only an exact settled catalo
   }finally{await cleanup(f);}
  }
 });
+
+test('selected Hayes terminal upgrade appends only 054 and validates the exact reopened ledger without DDL',async()=>{
+ const {createHash}=await import('node:crypto'),{readFile,readdir}=await import('node:fs/promises'),{fileURLToPath}=await import('node:url');
+ const {prepareHayesPreopenTerminalCatalog,assertHayesPreopenTerminalBeforeCommit}=await import('./native-workspace-furnishing-bootstrap.mjs');
+ const {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION,
+  CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256}=await import('./native-oex-normal-catalog.mjs');
+ const root=fileURLToPath(new URL('../database/',import.meta.url)),f=await fixture('workspace-furnishing-036-reopen-v1');
+ const base=join(root,'migrations'),normal=join(root,'native-oex-normal');
+ const options=Object.fromEntries(Object.entries({
+  workspaceImportDirectory:'native-oex-workspace-import',workspaceWallImportDirectory:'native-oex-workspace-import-wall',
+  workspaceFurnishingDirectory:'native-workspace-furnishing',workspaceFurnishingWriterDirectory:'native-workspace-furnishing-writer',
+  workspaceFurnishingPublicationDirectory:'native-workspace-furnishing-publication',workspaceMaterialPublicationDirectory:'native-workspace-material-publication',
+  workspaceMaterialMultimapDirectory:'native-workspace-material-multimap',workspaceFramePreparationDirectory:'native-workspace-frame-preparation',
+  hayesOriginalDirectory:'native-hayes-original',hayesDispositionDirectory:'native-hayes-disposition',hayesReleaseDirectory:'native-hayes-release',
+  modelPreparationDirectory:'native-model-preparation',workspaceFurnishingThumbnailDirectory:'native-workspace-furnishing-thumbnail',
+  currentImageThumbnailDirectory:'native-current-image-thumbnail',
+ }).map(([key,dir])=>[key,join(root,dir)]));
+ const hayesPreopenTerminalDirectory=join(root,'native-hayes-preopen-terminal');
+ try{
+  const writer=await acceptFurnishingWriterLease(f.input);
+  const fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,
+   admissionKind:'clean-reopen',activeBindingSHA256:'b'.repeat(64)};
+  f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);
+  const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});
+  const parent=[];
+  for(const directory of [base,normal,...Object.values(options)]){
+   for(const name of (await readdir(directory)).filter(name=>name.endsWith('.sql'))){
+    parent.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+   }
+  }
+  parent.sort((a,b)=>a.name.localeCompare(b.name));
+  let rows=structuredClone(parent),changes=[],hayesOpen=true;
+  const client={query:async(sql,args)=>{
+   if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows};
+   if(sql==='SELECT pg_advisory_xact_lock(82001)')return {rows:[]};
+   changes.push(sql);
+   if(sql.startsWith('INSERT INTO public.schema_migrations'))rows.push({name:args[0],sha256:args[1]});
+   else assert(sql.includes('CREATE TABLE hayes_preopen_terminals'));
+   return {rows:[]};
+  }};
+  const admission={mode:f.fields.mode,writer,ordinaryAdmission,channel:f.input.channel,hayesChannel:{isOpen:()=>hayesOpen},
+   selection:HAYES_PREOPEN_TERMINAL_SELECTION,isStopped:()=>false};
+  const startup={...admission,base,normal,options,hayesPreopenTerminalDirectory};
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,{...startup,selection:undefined}),/FURNISHING_ADMISSION_INVALID/);
+  rows[0].sha256='0'.repeat(64);
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,startup),/NATIVE_OEX_CATALOG/);
+  rows=[...structuredClone(parent),{name:CURRENT_WORKSPACE_RAIL_MIGRATION,sha256:CURRENT_WORKSPACE_RAIL_SHA256}];
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,startup),/NATIVE_OEX_CATALOG/);
+  assert.deepEqual(changes,[]);
+  rows=structuredClone(parent);
+  assert.deepEqual(await prepareHayesPreopenTerminalCatalog(client,startup),{requireExisting:true});
+  assert.equal(changes.length,2);
+  assert.deepEqual(rows,[...parent,{name:HAYES_PREOPEN_TERMINAL_MIGRATION,sha256:HAYES_PREOPEN_TERMINAL_SHA256}]);
+  await assertHayesPreopenTerminalBeforeCommit(client,admission);
+  changes=[];
+  await prepareHayesPreopenTerminalCatalog(client,startup);
+  assert.deepEqual(changes,[]);
+  hayesOpen=false;
+  await assert.rejects(assertHayesPreopenTerminalBeforeCommit(client,admission),/NATIVE_OWNER_UNAVAILABLE/);
+ }finally{await cleanup(f);}
+});
