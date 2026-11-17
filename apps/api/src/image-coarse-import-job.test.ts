@@ -9,7 +9,7 @@ vi.mock('@exhibitos/storage',async original=>({...await original<typeof import('
 vi.mock('./rights.ts',()=>({validRights:()=>true,allowedRights:()=>true}));
 vi.mock('./validation-client.ts',()=>({decode:async()=>({})}));
 vi.mock('./image-coarse-intent.ts',()=>({storedImageCoarse:()=>state.coarse,imageCoarseIntent:()=>undefined,imageCoarsePolicy:()=>undefined}));
-vi.mock('./artwork-coarse-preparation.ts',()=>({prepareIntentImageCoarse:async()=>({bytes:Buffer.from('coarse'),width:512,height:408,profile:'viewer-png-box-512-v1'})}));
+vi.mock('./artwork-coarse-preparation.ts',()=>({prepareIntentImageCoarse:async()=>({bytes:Buffer.from('coarse'),sha256:hash(Buffer.from('coarse')),width:512,height:408,profile:'viewer-png-box-512-v1'})}));
 import {Imports} from './imports.ts';
 const hash=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 it('stages job-scoped coarse before atomic asset registration and drains its worker',async()=>{

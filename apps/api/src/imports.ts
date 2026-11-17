@@ -19,6 +19,7 @@ import type {FreshImageIntent} from './fresh-image-intent.ts';
 import {isProductImageIntent,productImageView,storedPreparedImage,type ProductImageIntent} from './product-image-intent.ts';
 import {assertProductImageAssets,createProductImageImport,workProductImageImport} from './product-image-import.ts';
 import {imageCoarseIntent,imageCoarsePolicy,storedImageCoarse,type ImageCoarseIntent} from './image-coarse-intent.ts';
+import {inspectBaselineJpegStructure} from './jpeg-baseline-structure.ts';
 import {prepareIntentImageCoarse} from './artwork-coarse-preparation.ts';
 import {decode} from './validation-client.ts';
 import {assertHayesOriginalContext} from './hayes-original-attempt.ts';
@@ -106,10 +107,10 @@ export class Imports {
    if(input.sha256==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&input.bytes===8383096)throw new ApiError(409,'MODEL_PREPARATION_DEDICATED_ROUTE_REQUIRED');
    await assertModelPreparationSlot(c,s.tenantId,input.artworkId,preparation.artworkRevision);
   }
-  if(coarse&&derived){if(reference)throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');if(artwork.revision!==coarse.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe);if(!allowedRights(input.rights,'display')||!allowedRights(input.rights,'export')||!isDeepStrictEqual(input.rights,artwork.metadata?.rights))throw new ApiError(403,'RIGHTS_DENIED');}
+  if(coarse&&derived){if(reference)throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');if(artwork.revision!==coarse.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');if(!coarse.approvalId&&derived.recipe.colourConversion?.algorithm!=='icc-to-srgb-jpeg-rgb8-v1')throw new ApiError(422,'COARSE_POLICY_UNQUALIFIED');if(!allowedRights(input.rights,'display')||!allowedRights(input.rights,'export')||!isDeepStrictEqual(input.rights,artwork.metadata?.rights))throw new ApiError(403,'RIGHTS_DENIED');}
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
-  const approvedCoarse=coarse&&derived?imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe).coarse:undefined;
-  const storedDerived=derived&&coarse&&approvedCoarse&&coarseWorkspace?{...derived,viewerCoarse:{intent:coarse,workspaceId:coarseWorkspace.workspaceId,principalId:s.userId,stageKey:`${s.tenantId}/quarantine/import-${id}/coarse-${approvedCoarse.sha256}`,sha256:approvedCoarse.sha256,bytes:approvedCoarse.bytes}}:derived;
+  const approvedCoarse=coarse?.approvalId&&derived?imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe).coarse:undefined;
+  const storedDerived=derived&&coarse&&coarseWorkspace?{...derived,viewerCoarse:{intent:coarse,workspaceId:coarseWorkspace.workspaceId,principalId:s.userId,stageKey:`${s.tenantId}/quarantine/import-${id}/coarse${approvedCoarse?`-${approvedCoarse.sha256}`:''}`,...(approvedCoarse?{sha256:approvedCoarse.sha256,bytes:approvedCoarse.bytes}:{})}}:derived;
   const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version'+(preparation?',model_preparation':'')+') VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17'+(preparation?',$18':'')+') RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,storedDerived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'||coarse||preparation?1:0,...(preparation?[{kind:'required-model-compact',request:{...preparation,...(reference?{sourceDisplayReference:structuredClone(reference)}:{})}}]:[])]);
   return this.view(row.rows[0]);
  }
@@ -139,10 +140,15 @@ export class Imports {
   let bytes:Buffer;try{const coarse=storedImageCoarse(row);bytes=Buffer.from(coarse?await this.boundedBlob(String(row.derived_object_key),derived.bytes):await this.blobs.get(String(row.derived_object_key)));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==derived.bytes||sha256(bytes)!==derived.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');return bytes;
  }
+ private async putPreparedBlob(key:string,bytes:Buffer,durable:boolean){
+  if(!durable){await this.blobs.put(key,bytes);return;}
+  if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
+  await this.blobs.putDurable(key,bytes);
+ }
  async uploadDerived(c:PoolClient,s:Session,id:string,bytes:Buffer){
   const row=await this.access(c,s,id),derived=this.prepared(row);if(!derived||row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   if(bytes.length!==derived.bytes||sha256(bytes)!==derived.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');
-  await this.blobs.put(row.derived_object_key,bytes);return {received:bytes.length};
+  const coarse=storedImageCoarse(row);await this.putPreparedBlob(row.derived_object_key,bytes,!!coarse&&!coarse.intent.approvalId);return {received:bytes.length};
  }
  async upload(c:PoolClient,s:Session,id:string,bytes:Buffer,large=false){
   const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
@@ -150,10 +156,10 @@ export class Imports {
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   if(large){
    await this.blobs.putLargeModelSource!(row.object_key,bytes);
-  }else if(storedPreparedImage(row)){
-   if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
-   await this.blobs.putDurable(row.object_key,bytes);
-  }else await this.blobs.put(row.object_key,bytes);
+  }else{
+   const coarse=storedImageCoarse(row);
+   await this.putPreparedBlob(row.object_key,bytes,!!storedPreparedImage(row)||!!coarse&&!coarse.intent.approvalId);
+  }
   return {received:bytes.length};
  }
  async complete(c:PoolClient,s:Session,id:string){
@@ -242,11 +248,31 @@ export class Imports {
    if(derived){
     // Bounded private original custody, not server JPEG codec or pixel-equivalence certification.
     if(bytes.length<4||bytes[0]!==255||bytes[1]!==216)throw new ApiError(422,'FORMAT_REJECTED');
+    if(coarse&&!coarse.intent.approvalId){
+     try{
+      const source=inspectBaselineJpegStructure(bytes);
+      if(!source.iccSha256||derived.recipe.colourConversion?.sourceIccSha256!==source.iccSha256)throw Error('JPEG_ICC_MISMATCH');
+     }catch{throw new ApiError(422,'COARSE_POLICY_UNQUALIFIED');}
+    }
     display=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return this.preparedBytes(row,derived);});preparedImageHeader(display);
    }
    await decode(display,derived?'image/png':row.mime,{classifyPngPixelLimit:row.mime==='image/png'&&!derived});
    let preparedCoarse:Awaited<ReturnType<typeof prepareIntentImageCoarse>>|undefined;
-   if(coarse){await transaction(this.pool,async c=>this.coarseOwner(c,String(row.tenant_id),String(row.user_id),coarse.workspaceId));preparedCoarse=await prepareIntentImageCoarse(coarse.intent,String(row.expected_hash),display);const readyCoarse=preparedCoarse;await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const live=await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() AND $3::uuid=ANY(png_worker_tokens) FOR UPDATE",[row.tenant_id,row.id,lease]);if(!live.rowCount||!isDeepStrictEqual(storedImageCoarse(live.rows[0]),coarse))throw new ApiError(409,'COARSE_SOURCE_CHANGED');await this.coarseOwner(c,String(row.tenant_id),String(row.user_id),coarse.workspaceId);await this.blobs.put(coarse.stageKey,readyCoarse.bytes);const staged=Buffer.from(await this.boundedBlob(coarse.stageKey,coarse.bytes));if(staged.length!==coarse.bytes||sha256(staged)!==coarse.sha256)throw new ApiError(409,'ASSET_INTEGRITY');});}
+   if(coarse){
+    await transaction(this.pool,async c=>this.coarseOwner(c,String(row.tenant_id),String(row.user_id),coarse.workspaceId));
+    preparedCoarse=await prepareIntentImageCoarse(coarse.intent,String(row.expected_hash),display);
+    const ready=preparedCoarse;
+    if(coarse.intent.approvalId&&(ready.bytes.length!==coarse.bytes||ready.sha256!==coarse.sha256))throw new ApiError(409,'ASSET_INTEGRITY');
+    await transaction(this.pool,async c=>{
+     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+     const live=await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() AND $3::uuid=ANY(png_worker_tokens) FOR UPDATE",[row.tenant_id,row.id,lease]);
+     if(!live.rowCount||!isDeepStrictEqual(storedImageCoarse(live.rows[0]),coarse))throw new ApiError(409,'COARSE_SOURCE_CHANGED');
+     await this.coarseOwner(c,String(row.tenant_id),String(row.user_id),coarse.workspaceId);
+     await this.putPreparedBlob(coarse.stageKey,ready.bytes,!coarse.intent.approvalId);
+     const staged=await this.boundedBlob(coarse.stageKey,ready.bytes.length);
+     if(staged.length!==ready.bytes.length||sha256(staged)!==ready.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+    });
+   }
    const model=this.model(row);let pair:ModelPairResult|undefined;
    if(model){try{pair=await prepareModelPair(display,model);}catch{/* Preserve a successfully decoded original without registering a partial derivative. */}}
    await hooks?.beforeCommit?.();
@@ -262,7 +288,7 @@ export class Imports {
     if(model&&row.asset_id){
      if(!existing||existing.mime!=='model/gltf-binary'||existing.sha256!==row.expected_hash||Number(existing.bytes)!==row.expected_bytes||existing.object_key!==row.approved_key||!isDeepStrictEqual(existing.rights,row.rights)||!allowedRights(existing.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
      if(!Buffer.from(await this.blobs.get(existing.object_key)).equals(display))throw new ApiError(409,'ASSET_INTEGRITY');
-    }else await this.blobs.put(row.approved_key,display);
+    }else await this.putPreparedBlob(row.approved_key,display,!!coarse&&!coarse.intent.approvalId);
     await hooks?.afterCopy?.();
     const deadline=await c.query('SELECT lease_until>clock_timestamp() AS valid FROM import_jobs WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id]);if(!deadline.rows[0]?.valid)throw new ApiError(409,'LEASE_EXPIRED');
     const asset=existing?.id??randomUUID(),rights=existing?.rights_id??randomUUID();if(!existing)await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[row.tenant_id,rights,row.rights]);
@@ -274,11 +300,11 @@ export class Imports {
     if(!existing)await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'approved')",[row.tenant_id,asset,row.artwork_id,rights,row.approved_key,derived?.sha256??row.expected_hash,derived?.bytes??row.expected_bytes,derived?'image/png':row.mime,row.scale_meters]);
     if(derived)await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalAsset,{version:1,kind:'image-preparation',originalAssetId:originalAsset,derivedAssetId:asset,original:{mime:row.mime,sha256:row.expected_hash,bytes:row.expected_bytes},derived:{mime:derived.mime,sha256:derived.sha256,bytes:derived.bytes},recipe:derived.recipe,provenance:'client-declared'}]);
     if(coarse&&preparedCoarse){
-     const staged=Buffer.from(await this.boundedBlob(coarse.stageKey,coarse.bytes));if(staged.length!==coarse.bytes||sha256(staged)!==coarse.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+     const staged=Buffer.from(await this.boundedBlob(coarse.stageKey,preparedCoarse.bytes.length));if(staged.length!==preparedCoarse.bytes.length||sha256(staged)!==preparedCoarse.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
      const coarseAsset=randomUUID();
-     await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",[row.tenant_id,coarseAsset,row.artwork_id,rights,coarse.stageKey,coarse.sha256,coarse.bytes]);
-     await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),asset,{version:1,kind:'viewer-image-coarse',sourceJobId:row.id,primaryAssetId:asset,primarySha256:derived!.sha256,coarseAssetId:coarseAsset,objectKey:coarse.stageKey,sha256:coarse.sha256,bytes:coarse.bytes,width:preparedCoarse.width,height:preparedCoarse.height,profile:preparedCoarse.profile,provenance:'server-generated'}]);
-     await c.query('UPDATE import_jobs SET derived=$3 WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id,{...(row.derived as Record<string,unknown>),viewerCoarse:{...coarse,assetId:coarseAsset}}]);
+     await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",[row.tenant_id,coarseAsset,row.artwork_id,rights,coarse.stageKey,preparedCoarse.sha256,preparedCoarse.bytes.length]);
+     await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),asset,{version:1,kind:'viewer-image-coarse',sourceJobId:row.id,primaryAssetId:asset,primarySha256:derived!.sha256,coarseAssetId:coarseAsset,objectKey:coarse.stageKey,sha256:preparedCoarse.sha256,bytes:preparedCoarse.bytes.length,width:preparedCoarse.width,height:preparedCoarse.height,profile:preparedCoarse.profile,provenance:'server-generated'}]);
+     await c.query('UPDATE import_jobs SET derived=$3 WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id,{...(row.derived as Record<string,unknown>),viewerCoarse:{...coarse,sha256:preparedCoarse.sha256,bytes:preparedCoarse.bytes.length,assetId:coarseAsset}}]);
     }
     if(model){
      let reducedAsset:string|undefined;
