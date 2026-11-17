@@ -4,7 +4,7 @@ import {applyGpuModelApproval,assertGpuModelBytes} from './approved-gpu-model.ts
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import type {Imports} from './imports.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
-import {canonicalImageHash,preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
+import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
@@ -373,16 +373,22 @@ export class Cms {
       ).rows,
     };
   }
-  async approveFreshImage(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string},imports:Imports,ownerOriginalSupported=false){
+  async approveFreshImage(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string},imports:Imports,ownerOriginalSupported=false,assertInitialProductReady?:()=>Promise<void>){
     if(!exact(b,['revision','jobId']))throw new ApiError(400,'INVALID_INPUT');
     uuid(b.jobId);
     const artwork=await this.ownArtwork(c,s,id);
     if(artwork.revision!==b.revision)throw new ApiError(409,'REVISION_CONFLICT');
     const job=await imports.access(c,s,b.jobId),state=storedPreparedImage(job),ownerPair=storedImageCoarse(job);
     const ownerOriginal=ownerOriginalSupported&&ownerPair?.assetId&&!ownerPair.intent.approvalId?ownerPair:undefined;
+    const initialProduct=state?.kind==='product-image-pair'&&state.request.purpose===INITIAL_PRODUCT_IMAGE_PURPOSE;
+    const prepared=state?.kind==='fresh-product-image'||initialProduct;
     if(job.artwork_id!==id||job.state!=='approved'||!productImageDrained(job)||
-       (ownerOriginal?ownerOriginal.intent.artworkRevision!==b.revision:state?.kind!=='fresh-product-image'||state.request.artworkRevision!==b.revision))
+       (ownerOriginal?ownerOriginal.intent.artworkRevision!==b.revision:!prepared||state.request.artworkRevision!==b.revision))
       throw new ApiError(409,'IMAGE_PREPARATION_NOT_READY');
+    if(initialProduct){
+      if(!assertInitialProductReady)throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
+      await assertInitialProductReady();
+    }
     const metadata=artwork.metadata;
     if(!validMetadata(metadata)||metadata.displayReference||json(metadata.rights)!==json(job.rights)||
        !allowedRights(metadata.rights,'display')||!allowedRights(metadata.rights,'export'))throw new ApiError(409,'APPROVAL_INVALID');
