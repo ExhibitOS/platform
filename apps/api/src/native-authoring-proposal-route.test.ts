@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
+import {ensureOrdinaryRoomBaseLight,ROOM_CEILING_FILL_PROFILE,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
@@ -44,7 +44,7 @@ it('proposes only a checked change to the current saved draft through the instal
  const before=structuredClone(draft);
  try{
   const response=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(response.json()).toMatchObject({roomBaseLightPlacementProfile:'room-base-light-placement-v1',nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1',nativeLightObjectAuthoringProposalProfile:'saved-head-light-object-v1'});
+  expect(response.json()).toMatchObject({roomBaseLightPlacementProfile:'room-base-light-placement-v1',roomCeilingFillProfile:ROOM_CEILING_FILL_PROFILE,nativeAuthoringProposalProfile:'saved-head-v1',nativeSceneAuthoringProposalProfile:'saved-head-scene-v1',nativeFixtureAuthoringProposalProfile:'saved-head-fixture-v1',nativeLightObjectAuthoringProposalProfile:'saved-head-light-object-v1'});
   expect((await ordinary.inject({method:'POST',url,headers,payload})).statusCode).toBe(404);
   expect((await post(payload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...payload,expectedRevision:revision-1})).statusCode).toBe(412);
@@ -83,6 +83,15 @@ it('proposes only a checked change to the current saved draft through the instal
   expect((await post({...createPayload,request:{...createPayload.request,light:originalLight}})).statusCode).toBe(422);
   expect((await post({...createPayload,request:{...createPayload.request,settings:{...settings,lightId:createdLight.id}}})).statusCode).toBe(422);
   expect((await post({...createPayload,request:{...createPayload.request,light:{...createdLight,roomId:randomUUID()}}})).statusCode).toBe(422);
+  const fill=ensureOrdinaryRoomBaseLight(before.candidate,roomId,randomUUID(),ROOM_CEILING_FILL_PROFILE);
+  const fillLight=fill.lights.at(-1)!;
+  const fillPayload={...payload,request:{...binding,type:'add-light',light:fillLight,
+   settings:{fixture:'none',purpose:'room-base',basePlacement:'auto',ceilingFill:{version:1,brightness:0.5}}}};
+  const fillReply=await post(fillPayload);
+  expect(fillReply.statusCode,fillReply.body).toBe(200);
+  expect(fillReply.json().candidate).toEqual(fill);
+  expect(fillReply.json().candidate.lights[0]).toEqual(originalLight);
+  expect((await post({...fillPayload,request:{...fillPayload.request,light:{...fillLight,intensity:fillLight.intensity+1}}})).statusCode).toBe(422);
   const {id:originalId,...originalFields}=originalLight;
   const updatePayload={...payload,request:{...binding,type:'set-light-details',lightId:originalId,light:{...originalFields,intensity:100},settings:{fixture:'none'}}};
   const updateReply=await post(updatePayload);

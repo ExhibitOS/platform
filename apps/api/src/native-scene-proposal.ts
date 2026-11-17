@@ -21,7 +21,7 @@ export function nativeSceneProposal(candidate:Exhibition,command:NativeSceneComm
   const {id,...light}=command.light;
   // Purpose is immutable on updates. Establish it only for this newly-created
   // light, then let the shared setter validate the complete binding and limits.
-  if(command.settings?.purpose==='room-base')next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[...lightDetailsFor(next),{...structuredClone(command.settings),lightId:id,basePlacement:command.settings.basePlacement??'auto',...((command.settings.basePlacement??'auto')==='auto'&&command.settings.range===undefined?{range:roomBaseLightRange(next.rooms.find(r=>r.id.toLowerCase()===light.roomId.toLowerCase())!.dimensions)}:{})}]} as unknown as NonNullable<Exhibition['extensions']>[string]};
+  if(command.settings?.purpose==='room-base')next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[...lightDetailsFor(next),{...structuredClone(command.settings),lightId:id,basePlacement:command.settings.basePlacement??'auto',...((command.settings.basePlacement??'auto')==='auto'&&!command.settings.ceilingFill&&command.settings.range===undefined?{range:roomBaseLightRange(next.rooms.find(r=>r.id.toLowerCase()===light.roomId.toLowerCase())!.dimensions)}:{})}]} as unknown as NonNullable<Exhibition['extensions']>[string]};
   return {lightId:id,candidate:command.settings?setLightDetails(next,id,light,command.settings):next};
  }
  const placement=next.placements.find(item=>item.id.toLowerCase()===command.placementId.toLowerCase());

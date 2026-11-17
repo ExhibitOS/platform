@@ -97,7 +97,7 @@ export function validateStudioLightDetails(candidate:unknown){
       const fill=entry.ceilingFill;
       const attachments=(candidate.extensions as Record<string,unknown>)['org.exhibitos.studio/light-attachments'];
       const attached=object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(b=>object(b)&&typeof b.lightId==='string'&&same(b.lightId,entry.lightId as string));
-      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||entry.purpose!=='room-base'||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||entry.trackAim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
+      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||entry.purpose!=='room-base'||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
         add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Expected a non-shadow-casting room base area light with explicit placement and brightness');
       }else if(entry.basePlacement==='auto'){
         try{
