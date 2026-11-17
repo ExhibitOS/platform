@@ -53,12 +53,13 @@ it('reports a read-only policy only for a proven bounded aggregate-only saved dr
  await expect(new Studio().nativeViewportPolicy(c,session,draft.exhibitionId)).rejects.toMatchObject({code:'NOT_FOUND'});
 });
 
-it('preflights only authorized fresh-draft frame deltas and checked replays',async()=>{
+it.each([4,11])('preflights only authorized fresh-draft v%s frame deltas and checked replays',async version=>{
  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),draft=newDraft(),art=structuredClone(original.exhibition.artworks.find(a=>a.artworkType==='image')!);
  art.dimensions={width:.6,height:.8};const placement=structuredClone(original.exhibition.placements.find(p=>p.artworkRevisionId===art.revisionId)!);placement.roomId=draft.candidate.rooms[0]!.id;draft.candidate.artworks=[art];draft.candidate.placements=[placement];draft.candidate.accessibility.artworkDescriptions=[{placementId:placement.id,text:'Synthetic color grid'}];
  const sha='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4',frame={id:crypto.randomUUID(),version:1,kind:'artwork-frame',name:'Brass',rights:{holder:'ExhibitOS',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:true,export:true,commercial:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:7892,sha256:sha}},next=structuredClone(draft);
- next.candidate.extensions={'org.exhibitos.studio/workspace-furnishings':{version:4,furnishings:[frame],placements:[],frameAttachments:[{placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:frame.id,furnishingVersion:1,modelSha256:sha}]}} as never;
- const service={supportsArtworkFrame:vi.fn(()=>true),authorize:vi.fn(async()=>{}),readVersion:vi.fn(async()=>structuredClone(frame)),checkDisplay:vi.fn(async()=>structuredClone(frame)),checkArtwork:vi.fn(async()=>{})};
+ if(version===11)draft.candidate.extensions={'org.exhibitos.studio/workspace-furnishings':{version,furnishings:[],placements:[],frameAttachments:[],openingAttachments:[],ceilingAttachments:[]}} as never;
+ next.candidate.extensions={'org.exhibitos.studio/workspace-furnishings':{version,furnishings:[frame],placements:[],frameAttachments:[{placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:frame.id,furnishingVersion:1,modelSha256:sha}],...(version===11?{openingAttachments:[],ceilingAttachments:[]}:{})}} as never;
+ const service={supportsArtworkFrame:vi.fn(()=>true),supportsReusableFit:vi.fn(()=>true),authorize:vi.fn(async()=>{}),readVersion:vi.fn(async()=>structuredClone(frame)),checkDisplay:vi.fn(async()=>structuredClone(frame)),checkArtwork:vi.fn(async()=>{})};
  const studio=new Studio({} as never,false,undefined,service as never),session={tenantId:crypto.randomUUID(),userId:crypto.randomUUID(),role:'artist'} as Session,c={} as PoolClient,row={metadata:draft,revision:1,nativeBounded:false};vi.spyOn(studio,'access').mockResolvedValue(row as never);
  const input={draft:next,requestId:crypto.randomUUID()},match=etag(1,draft);await expect(studio.validateNativeViewport(c,session,draft.exhibitionId,input)).rejects.toMatchObject({code:'IF_MATCH_REQUIRED'});await expect(studio.validateNativeViewport(c,session,draft.exhibitionId,input,'"studio-r1-'+ '0'.repeat(64)+'"')).rejects.toMatchObject({code:'REMOTE_CONFLICT'});
  expect(await studio.validateNativeViewport(c,session,draft.exhibitionId,input,match)).toEqual({valid:true});expect(service.checkDisplay).toHaveBeenCalledWith(c,session,frame.id,1);
@@ -68,5 +69,8 @@ it('preflights only authorized fresh-draft frame deltas and checked replays',asy
  service.checkDisplay.mockRejectedValueOnce(new ApiError(403,'DISPLAY_PERMISSION_REQUIRED'));await expect(studio.validateNativeViewport(c,session,draft.exhibitionId,replay,saved)).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
  service.checkDisplay.mockRejectedValueOnce(new ApiError(409,'ASSET_INTEGRITY'));await expect(studio.validateNativeViewport(c,session,draft.exhibitionId,replay,saved)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
  service.authorize.mockRejectedValueOnce(new ApiError(403,'FORBIDDEN'));await expect(studio.validateNativeViewport(c,session,draft.exhibitionId,replay,saved)).rejects.toMatchObject({code:'FORBIDDEN'});
- expect(await studio.validateNativeViewport(c,session,draft.exhibitionId,{draft,requestId:crypto.randomUUID()},saved)).toEqual({valid:true});
+ const detached=studio.validateNativeViewport(c,session,draft.exhibitionId,{draft,requestId:crypto.randomUUID()},saved);
+ // Retaining an empty v11 extension still fails the ordinary schema gate.
+ if(version===11)await expect(detached).rejects.toMatchObject({code:'WORKSPACE_FURNISHING_INVALID'});
+ else expect(await detached).toEqual({valid:true});
 });
