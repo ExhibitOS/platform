@@ -193,10 +193,11 @@ test('combined 050+051 interrupted reopen preserves only an exact settled catalo
  }
 });
 
-test('selected Hayes terminal upgrade appends only 054 and validates the exact reopened ledger without DDL',async()=>{
+test('selected Hayes terminal and bench upgrades each append only their exact migration',async()=>{
  const {createHash}=await import('node:crypto'),{readFile,readdir}=await import('node:fs/promises'),{fileURLToPath}=await import('node:url');
  const {prepareHayesPreopenTerminalCatalog,assertHayesPreopenTerminalBeforeCommit}=await import('./native-workspace-furnishing-bootstrap.mjs');
  const {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION,
+  BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_SHA256,
   CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256}=await import('./native-oex-normal-catalog.mjs');
  const root=fileURLToPath(new URL('../database/',import.meta.url)),f=await fixture('workspace-furnishing-036-reopen-v1');
  const base=join(root,'migrations'),normal=join(root,'native-oex-normal');
@@ -223,13 +224,14 @@ test('selected Hayes terminal upgrade appends only 054 and validates the exact r
    }
   }
   parent.sort((a,b)=>a.name.localeCompare(b.name));
-  let rows=structuredClone(parent),changes=[],hayesOpen=true;
+  let rows=structuredClone(parent),changes=[],hayesOpen=true,unsettled=false;
   const client={query:async(sql,args)=>{
    if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows};
    if(sql==='SELECT pg_advisory_xact_lock(82001)')return {rows:[]};
+   if(sql.endsWith('AS unsettled'))return {rows:[{unsettled}]};
    changes.push(sql);
    if(sql.startsWith('INSERT INTO public.schema_migrations'))rows.push({name:args[0],sha256:args[1]});
-   else assert(sql.includes('CREATE TABLE hayes_preopen_terminals'));
+   else assert(sql.includes('CREATE TABLE hayes_preopen_terminals')||sql.includes('ADD COLUMN producing_manifest_sha256'));
    return {rows:[]};
   }};
   const admission={mode:f.fields.mode,writer,ordinaryAdmission,channel:f.input.channel,hayesChannel:{isOpen:()=>hayesOpen},
@@ -251,5 +253,32 @@ test('selected Hayes terminal upgrade appends only 054 and validates the exact r
   assert.deepEqual(changes,[]);
   hayesOpen=false;
   await assert.rejects(assertHayesPreopenTerminalBeforeCommit(client,admission),/NATIVE_OWNER_UNAVAILABLE/);
+  hayesOpen=true;
+  const terminalParent=structuredClone(rows);
+  const benchOptions={benchAfterTerminalDirectory:join(root,'native-workspace-bench-after-terminal')};
+  const benchStartup={...startup,...benchOptions};
+  const benchAdmission={...admission,...benchOptions};
+  rows=structuredClone(parent);
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,benchStartup),/NATIVE_OEX_CATALOG/);
+  rows=structuredClone(terminalParent);
+  rows[47].sha256='0'.repeat(64);
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,benchStartup),/NATIVE_OEX_CATALOG/);
+  rows=structuredClone(terminalParent);
+  unsettled=true;
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,benchStartup),/FURNISHING_RECOVERY_UNAVAILABLE/);
+  unsettled=false;
+  assert.deepEqual(changes,[]);
+  assert.deepEqual(await prepareHayesPreopenTerminalCatalog(client,benchStartup),{requireExisting:true});
+  assert.equal(changes.length,2);
+  assert(changes[0].includes('ADD COLUMN producing_manifest_sha256'));
+  assert.deepEqual(rows,[...terminalParent,{name:BENCH_AFTER_TERMINAL_MIGRATION,sha256:BENCH_AFTER_TERMINAL_SHA256}]);
+  await assertHayesPreopenTerminalBeforeCommit(client,benchAdmission);
+  changes=[];
+  await prepareHayesPreopenTerminalCatalog(client,benchStartup);
+  await assert.rejects(prepareHayesPreopenTerminalCatalog(client,startup),/NATIVE_OEX_CATALOG/);
+  await assert.rejects(assertHayesPreopenTerminalBeforeCommit(client,admission),/NATIVE_OEX_CATALOG/);
+  rows[48].sha256='0'.repeat(64);
+  await assert.rejects(assertHayesPreopenTerminalBeforeCommit(client,benchAdmission),/NATIVE_OEX_CATALOG/);
+  assert.deepEqual(changes,[]);
  }finally{await cleanup(f);}
 });

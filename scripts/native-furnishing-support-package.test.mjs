@@ -37,3 +37,18 @@ test('054 is explicit and selected payloads exclude the sibling supplemental SQL
  assert.equal(createHash('sha256').update(HAYES_PREOPEN_TERMINAL_CAPABILITY).digest('hex'),
   '2d2709a4993a617b61a3120724ed75b8cb68ce6ff588f3970141346ec83f6799');
 });
+
+test('055 is an explicit 054-only bench successor with the existing visual and preparation capabilities',async()=>{
+ const {assertHayesPreopenTerminalPackageSelection,nativePackageExcludedFiles}=await import('./package-native-runtime.mjs');
+ const {BENCH_AFTER_TERMINAL_DIRECTORY,BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_MARKER}=await import('./native-oex-normal-catalog.mjs');
+ const options={benchAfterTerminalSelected:true,hayesPreopenTerminalSelected:true,hayesReleaseSelected:true,
+  workspaceFurnishingThumbnailsSelected:true,currentImageThumbnailSelected:true,
+  workspaceArtworkFramePreparationSelected:true,workspaceFurnishingRoomVisualSelected:true};
+ assert.doesNotThrow(()=>assertHayesPreopenTerminalPackageSelection(options));
+ for(const flag of ['hayesPreopenTerminalSelected','workspaceArtworkFramePreparationSelected','workspaceFurnishingRoomVisualSelected'])
+  assert.throws(()=>assertHayesPreopenTerminalPackageSelection({...options,[flag]:false}),/NATIVE_PACKAGE_INPUT_INVALID/);
+ for(const paths of [nativePackageExcludedFiles(false,true),nativePackageExcludedFiles(false,true,true)]){
+  assert(paths.has(BENCH_AFTER_TERMINAL_DIRECTORY+'/'+BENCH_AFTER_TERMINAL_MIGRATION));
+  assert(paths.has('scripts/'+BENCH_AFTER_TERMINAL_MARKER));
+ }
+});
