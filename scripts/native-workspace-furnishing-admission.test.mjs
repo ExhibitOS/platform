@@ -229,6 +229,7 @@ test('selected Hayes terminal and bench upgrades each append only their exact mi
    if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows};
    if(sql==='SELECT pg_advisory_xact_lock(82001)')return {rows:[]};
    if(sql.endsWith('AS unsettled'))return {rows:[{unsettled}]};
+   if(sql.startsWith('SELECT t.job_id')||sql.startsWith('SELECT r.job_id,r.completion_frame_sha256'))return {rows:[]};
    changes.push(sql);
    if(sql.startsWith('INSERT INTO public.schema_migrations'))rows.push({name:args[0],sha256:args[1]});
    else assert(sql.includes('CREATE TABLE hayes_preopen_terminals')||sql.includes('ADD COLUMN producing_manifest_sha256'));
