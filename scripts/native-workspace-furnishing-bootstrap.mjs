@@ -14,6 +14,7 @@ import {confirmedHayesReleaseBindings} from '../packages/storage/dist/hayes-rele
 import {migrateInTransaction} from '../packages/storage/dist/index.js';
 import {assertIssuedFurnishingWriterLease,assertIssuedFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {verifyWorkspaceFurnishingWriterMigration,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,verifyWorkspaceFurnishingPublicationMigration,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
+import {BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_SHA256,checkBenchAfterTerminalLedger,verifyBenchAfterTerminalMigration} from './native-oex-normal-catalog.mjs';
 import {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION,checkCombinedThumbnailParent,checkHayesPreopenTerminalLedger,verifyHayesPreopenTerminalMigration} from './native-oex-normal-catalog.mjs';
 import {assertExactWorkspaceMaterialPublicationCatalog,assertExactWorkspaceMaterialMultimapCatalog,recognizeNormalOexCatalog,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,verifyWorkspaceImportMigrations,verifyWorkspaceWallImportMigration,verifyWorkspaceFurnishingMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 
@@ -31,10 +32,13 @@ export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,{
 // Interrupted combined-thumbnail reopen preserves settled work only. Ordinary
 // PNG tokens have no generation/root claim, so none may be reclaimed here.
 // Keep this global predicate identical to Manager's PG-only pre-Node check.
-async function assertCombinedThumbnailInterruptedIdle(c){
+async function assertCombinedThumbnailInterruptedIdle(c,retained){
+ const lease=retained?
+  '((lease_id IS NOT NULL OR lease_until IS NOT NULL) AND (tenant_id IS DISTINCT FROM $1::uuid OR NOT (id=ANY($2::uuid[]))))':
+  'lease_id IS NOT NULL OR lease_until IS NOT NULL';
  const result=await c.query(`SELECT EXISTS (
  SELECT 1 FROM public.import_jobs WHERE state IN ('uploading','queued','processing')
- OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cardinality(png_worker_tokens)>0
+ OR ${lease} OR cardinality(png_worker_tokens)>0
  OR model_preparation ? 'claim' OR derived ? 'claim'
 ) OR EXISTS (
  SELECT 1 FROM public.oex_import_jobs WHERE state IN ('uploading','queued','processing')
@@ -47,8 +51,38 @@ async function assertCombinedThumbnailInterruptedIdle(c){
  SELECT 1 FROM public.freeze_requests WHERE state='creating' OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending
 ) OR EXISTS (
  SELECT 1 FROM public.workspace_frame_preparations WHERE state='staged'
-) AS unsettled`);
+) AS unsettled`,retained?[retained.tenantId,retained.jobIds]:[]);
  if(result.rows.length!==1||result.rows[0]?.unsettled!==false)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+}
+
+/** The exact 054 parent stores some settled Hayes leases as evidence.
+ * Admit those rows only as the same physical owner's immutable receipts. */
+export async function assertBenchAfterTerminalIdle(c,{tenantId,workspaceId,principalId}){
+ const parameters=[tenantId,workspaceId,principalId];
+ const {rows:terminals}=await c.query(`SELECT t.job_id
+  FROM public.hayes_preopen_terminal_bindings t
+  JOIN public.hayes_original_attempts a ON (a.tenant_id,a.id,a.job_id)=(t.tenant_id,t.attempt_id,t.job_id)
+  JOIN public.import_jobs j ON (j.tenant_id,j.id,j.hayes_attempt_id,j.lease_id)=(a.tenant_id,a.job_id,a.id,a.lease_id)
+  CROSS JOIN LATERAL (SELECT convert_from(t.proof_canonical,'UTF8')::jsonb AS body) proof
+  WHERE (t.tenant_id,t.workspace_id,t.principal_id)=($1::uuid,$2::uuid,$3::uuid)
+   AND (j.user_id,j.artwork_id)=(a.principal_id,a.artwork_id)
+   AND j.attempts=1 AND j.progress=25 AND j.lease_until<=clock_timestamp()
+   AND (proof.body#>>'{claim,leaseUntil}')::timestamptz=j.lease_until
+   AND proof.body#>>'{claim,systemId}'=(pg_control_system()).system_identifier::text
+   AND proof.body#>>'{claim,databaseOid}'=(SELECT oid::text FROM pg_database WHERE datname=current_database())
+   AND encode(sha256(t.proof_canonical),'hex')=t.proof_sha256`,parameters);
+ const {rows:releaseCandidates}=await c.query(`SELECT r.job_id,r.completion_frame_sha256
+  FROM public.hayes_native_releases r
+  JOIN public.hayes_original_attempts a ON (a.tenant_id,a.id,a.job_id)=(r.tenant_id,r.attempt_id,r.job_id)
+  JOIN public.import_jobs j ON (j.tenant_id,j.id,j.hayes_attempt_id,j.lease_id)=(a.tenant_id,a.job_id,a.id,a.lease_id)
+  WHERE (a.tenant_id,a.workspace_id,a.principal_id)=($1::uuid,$2::uuid,$3::uuid)
+   AND j.state='approved' AND j.progress=100 AND j.original_asset_id IS NULL AND j.lease_until IS NOT NULL`,parameters);
+ const jobIds=terminals.map(row=>row.job_id);
+ for(const {job_id:jobId,completion_frame_sha256:completionFrameSha256} of releaseCandidates){
+  const release=await confirmedHayesReleaseBindings(c,tenantId,{workspaceId,principalId,jobId,completionFrameSha256});
+  if(release.has(`import_jobs:${tenantId}:${jobId}`))jobIds.push(jobId);
+ }
+ await assertCombinedThumbnailInterruptedIdle(c,{tenantId,jobIds});
 }
 
 async function assertHayesPreopenTerminalLive({mode,writer,ordinaryAdmission,channel,hayesChannel,selection,isStopped}){
@@ -64,25 +98,36 @@ async function assertHayesPreopenTerminalLive({mode,writer,ordinaryAdmission,cha
 
 /** Requested under the existing exclusive workspace and maintenance fences.
  * The retained Hayes row may stay processing; this path only changes the catalog. */
-export async function prepareHayesPreopenTerminalCatalog(c,{base,normal,options,hayesPreopenTerminalDirectory,...admission}){
+export async function prepareHayesPreopenTerminalCatalog(c,{base,normal,options,hayesPreopenTerminalDirectory,benchAfterTerminalDirectory,...admission}){
  await assertHayesPreopenTerminalLive(admission);
  const sql=await verifyHayesPreopenTerminalMigration(hayesPreopenTerminalDirectory);
  await c.query('SELECT pg_advisory_xact_lock(82001)');
  const {rows}=await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
- if(rows.length===47){
+ if(benchAfterTerminalDirectory){
+  const benchSQL=await verifyBenchAfterTerminalMigration(benchAfterTerminalDirectory);
+  if(rows.length===48){
+   checkHayesPreopenTerminalLedger(rows);
+   if(!await recognizeNormalOexCatalog(c,base,normal,{...options,hayesPreopenTerminalDirectory}))throw Error('NATIVE_OEX_CATALOG');
+   await assertBenchAfterTerminalIdle(c,admission.writer.identity);
+   await assertHayesPreopenTerminalLive(admission);
+   await c.query(benchSQL);
+   await c.query('INSERT INTO public.schema_migrations(name,sha256) VALUES($1,$2)',[BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_SHA256]);
+  }else checkBenchAfterTerminalLedger(rows);
+ }else if(rows.length===47){
   checkCombinedThumbnailParent(rows);
   if(!await recognizeNormalOexCatalog(c,base,normal,options))throw Error('NATIVE_OEX_CATALOG');
   await assertHayesPreopenTerminalLive(admission);
   await c.query(sql);
   await c.query('INSERT INTO public.schema_migrations(name,sha256) VALUES($1,$2)',[HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256]);
  }
- if(!await recognizeNormalOexCatalog(c,base,normal,{...options,hayesPreopenTerminalDirectory}))throw Error('NATIVE_OEX_CATALOG');
+ if(!await recognizeNormalOexCatalog(c,base,normal,{...options,hayesPreopenTerminalDirectory,benchAfterTerminalDirectory}))throw Error('NATIVE_OEX_CATALOG');
  return {requireExisting:true};
 }
 
 export async function assertHayesPreopenTerminalBeforeCommit(c,admission){
  const {rows}=await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name');
- checkHayesPreopenTerminalLedger(rows);
+ if(admission.benchAfterTerminalDirectory)checkBenchAfterTerminalLedger(rows);
+ else checkHayesPreopenTerminalLedger(rows);
  await assertHayesPreopenTerminalLive(admission);
 }
 
