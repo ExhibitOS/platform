@@ -80,7 +80,7 @@ import type {CameraInteractionMode} from './geometry/camera-mode';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
 import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
-import {installLightDetails} from './light-details-renderer';
+import {hasAuthoredGalleryLighting,installLightDetails} from './light-details-renderer';
 import {installCeilingFillMask} from './viewer/ceiling-fill';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
@@ -104,7 +104,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, stagingHayesDetailBudget, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor, BUDGET_GEOMETRY_PAIR_PROFILE, LOD_NAMESPACE, type DetailTier } from "@exhibitos/studio-contract";
+import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, BUDGET_GEOMETRY_PAIR_PROFILE, LOD_NAMESPACE, type DetailTier } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -677,12 +677,7 @@ export function GeometryPreview({
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);owned.push(floorTextures,surfaceTextures);if(workspaceTextures)owned.push(workspaceTextures);
       const spaceLighting=spaceLightingFor(document);
-      const roomBaseLightIds = new Set(lightDetailsFor(document)
-        .filter(details => details.purpose === 'room-base')
-        .map(details => details.lightId.toLowerCase()));
-      // A room default adds local fill without changing the exhibition-wide
-      // fallback selected by the existing, explicitly authored lights.
-      const hasAuthoredLighting = document.lights.some(light => !roomBaseLightIds.has(light.id.toLowerCase()));
+      const hasAuthoredLighting = hasAuthoredGalleryLighting(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
