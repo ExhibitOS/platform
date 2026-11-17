@@ -345,8 +345,10 @@ export class WorkspaceFurnishingIntakes {
     if(bench){
      if(!this.supportsBenchBaseColorPreparation()||!this.admittedDeclaration(row.declaration))throw new ApiError(422,unsafeCode);
      if(!isDeclaredFurnishingPreparationOwner(row.declaration.rights)||!allowedRights(row.declaration.rights,'display'))throw new ApiError(403,'BENCH_BASECOLOR_PREPARATION_RIGHTS_DENIED');
-     await validateWorkspaceFurnishingGlb(source,bytes,workerHooks);
-     result=await prepareBenchBaseColorInWorker(bytes,workerHooks);
+     let legacySource=false;
+     try{await validateWorkspaceFurnishingGlb(source,bytes,workerHooks);}
+     catch(e){if(!(e instanceof ApiError)||e.code!=='FORMAT_REJECTED')throw e;legacySource=true;}
+     result=await prepareBenchBaseColorInWorker(bytes,workerHooks,legacySource);
      renderable={mime:source.mime,bytes:result.length,sha256:sha256(result)};
     }else if(infoStand){
      if(!isDeclaredFurnishingPreparationOwner(row.declaration.rights)||!allowedRights(row.declaration.rights,'display'))throw new ApiError(403,'INFO_STAND_PREPARATION_RIGHTS_DENIED');
