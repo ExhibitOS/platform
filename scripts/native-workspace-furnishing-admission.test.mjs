@@ -196,8 +196,7 @@ test('combined 050+051 interrupted reopen preserves only an exact settled catalo
 test('selected Hayes terminal upgrade appends only 054 and validates the exact reopened ledger without DDL',async()=>{
  const {createHash}=await import('node:crypto'),{readFile,readdir}=await import('node:fs/promises'),{fileURLToPath}=await import('node:url');
  const {prepareHayesPreopenTerminalCatalog,assertHayesPreopenTerminalBeforeCommit}=await import('./native-workspace-furnishing-bootstrap.mjs');
- const {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION,
-  CURRENT_WORKSPACE_RAIL_MIGRATION,CURRENT_WORKSPACE_RAIL_SHA256}=await import('./native-oex-normal-catalog.mjs');
+ const {HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256,HAYES_PREOPEN_TERMINAL_SELECTION}=await import('./native-oex-normal-catalog.mjs');
  const root=fileURLToPath(new URL('../database/',import.meta.url)),f=await fixture('workspace-furnishing-036-reopen-v1');
  const base=join(root,'migrations'),normal=join(root,'native-oex-normal');
  const options=Object.fromEntries(Object.entries({
@@ -238,7 +237,7 @@ test('selected Hayes terminal upgrade appends only 054 and validates the exact r
   await assert.rejects(prepareHayesPreopenTerminalCatalog(client,{...startup,selection:undefined}),/FURNISHING_ADMISSION_INVALID/);
   rows[0].sha256='0'.repeat(64);
   await assert.rejects(prepareHayesPreopenTerminalCatalog(client,startup),/NATIVE_OEX_CATALOG/);
-  rows=[...structuredClone(parent),{name:CURRENT_WORKSPACE_RAIL_MIGRATION,sha256:CURRENT_WORKSPACE_RAIL_SHA256}];
+  rows=[...structuredClone(parent),{name:'053_oex_current_workspace_rail.sql',sha256:'857547176c1149c25c04ad32003c2f148a907c6db7ed28ff1e7d7bb523086d16'}];
   await assert.rejects(prepareHayesPreopenTerminalCatalog(client,startup),/NATIVE_OEX_CATALOG/);
   assert.deepEqual(changes,[]);
   rows=structuredClone(parent);
