@@ -65,3 +65,21 @@ test('Hayes terminal selector travels only in the ordered retained-reopen owner 
   {...valid,selection:hayesOwnerChannel.selection},
  ])assert.throws(()=>unpackNativeOwnerInput(candidate),/NATIVE_OWNER_INPUT/);
 });
+
+test('thumbnail trace arms only the closed selected ordinary reopen envelope',()=>{
+ const ownerChannel={version:3,runtimeGeneration:id,secret,mode:'workspace-furnishing-036-reopen-v1'};
+ const hayesOwnerChannel={version:1,runtimeGeneration:id,secret:'b'.repeat(64),nativeOwnerId:id,
+  runtimeManifestSha256:'c'.repeat(64),selection:'hayes-preopen-retained-reopen-v1'};
+ const trace={version:1,requestId:id,outputFd:23};
+ const valid={workspace,ownerChannel,hayesOwnerChannel,thumbnailPreviewTrace:trace};
+ assert.deepEqual(unpackNativeOwnerInput(valid).thumbnailPreviewTrace,trace);
+ for(const value of [
+  {workspace,ownerChannel,thumbnailPreviewTrace:trace},
+  {workspace,thumbnailPreviewTrace:trace},
+  {...valid,thumbnailPreviewTrace:{...trace,outputFd:9}},
+  {...valid,thumbnailPreviewTrace:{...trace,outputFd:'23'}},
+  {...valid,thumbnailPreviewTrace:{...trace,requestId:'INVALID'}},
+  {...valid,thumbnailPreviewTrace:{...trace,url:'/bad'}},
+  {workspace,ownerChannel,thumbnailPreviewTrace:trace,hayesOwnerChannel},
+ ])assert.throws(()=>unpackNativeOwnerInput(value),/NATIVE_OWNER_INPUT/);
+});

@@ -6,6 +6,7 @@ import {recoverFreshImageClaims,recoverLargeModelClaims} from './native-workspac
 import {createNativeModelPreparationExecution} from '../apps/api/dist/model-preparation-import.js';
 import {CATALOG045_PRE_READY_HAYES_MARKER,CATALOG045_PRE_READY_HAYES_CAPABILITY,CATALOG045_PRE_READY_MARKER,CATALOG045_PRE_READY_CAPABILITY,hasCatalog045PreReadyCapability,LARGE_MODEL_RECOVERY_CAPABILITY,hasLargeModelRecoveryCapability,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,hasLargeModelCapability,verifyLargeModelMigration,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,hasFreshImageCapability,verifyFreshImageMigration,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,hasModelPreparationCapability,verifyModelPreparationMigration} from './native-oex-normal-catalog.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {createNativeThumbnailPreviewTrace,takeThumbnailPreviewTracePipe} from "./native-thumbnail-preview-trace.mjs";
 import { createServer, request as httpRequest } from "node:http";
 import { constants } from "node:fs";
 import { open, mkdir, lstat, readdir, realpath } from "node:fs/promises";
@@ -86,7 +87,7 @@ async function safeStatic(root, path) {
   const details = await file.stat(); if (!details.isFile() || details.size > 16 * 1024 * 1024) { await file.close(); throw Error("STATIC_FILE_INVALID"); }
   return file;
 }
-export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disableUpgrades = false, isAvailable = () => true }) {
+export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disableUpgrades = false, isAvailable = () => true, thumbnailPreviewTrace }) {
   const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "native-viewport.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
   for(const file of [...FLOOR_TEXTURE_FILES,...SURFACE_TEXTURE_FILES])allowed.add(file.path);
   for (const name of await readdir(join(root, "assets"))) if (/^[-\w.]+\.(?:js|css)$/.test(name)) allowed.add(`assets/${name}`);
@@ -102,15 +103,25 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disabl
       if (!/^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(req.method ?? "")) { deny(405); return; }
       if (req.headers["content-length"] !== undefined && (!/^\d+$/.test(req.headers["content-length"]) || Number(req.headers["content-length"]) > MAX_BODY)) { req.resume(); deny(413); return; }
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !hop.has(name)));
+      const trace=thumbnailPreviewTrace?.claimProxy(req);
       const upstream = httpRequest({ hostname: "127.0.0.1", port: apiPort, method: req.method, path: req.url, headers }, response => {
+        trace?.upstream(response.statusCode);
         if(!isAvailable()){response.resume();deny(503);return;}
-        reply.writeHead(response.statusCode ?? 502, Object.fromEntries(Object.entries(response.headers).filter(([name]) => !hop.has(name)))); response.once("error", () => reply.destroy()); response.pipe(reply);
+        reply.writeHead(response.statusCode ?? 502, Object.fromEntries(Object.entries(response.headers).filter(([name]) => !hop.has(name))));
+        // writeHead may only buffer headers. Finish confirms Node handed
+        // the complete downstream response off; Web still records receipt.
+        if(trace)reply.once('finish',()=>trace.forwarded(response.statusCode ?? 502));
+        response.once("error", () => reply.destroy()); response.pipe(reply);
+      });
+      if(trace)upstream.once('socket',socket=>{
+        const bind=()=>trace.connect(socket.localPort);
+        if(socket.connecting)socket.once('connect',bind);else bind();
       });
       let bytes = 0;
       const bounded = new Transform({ transform(chunk, _encoding, done) { bytes += chunk.length; if (bytes > MAX_BODY) done(Error("BODY_LIMIT")); else done(null, chunk); } });
       bounded.once("error", () => { upstream.destroy(); if (!reply.headersSent) deny(413); req.resume(); });
       upstream.once("error", () => { if (!reply.headersSent) deny(502); else reply.destroy(); });
-      req.once("aborted", () => upstream.destroy()); req.once("error", () => upstream.destroy()); reply.once("close", () => { if (!reply.writableFinished) upstream.destroy(); });
+      req.once("aborted", () => upstream.destroy()); req.once("error", () => upstream.destroy()); reply.once("close", () => { if (!reply.writableFinished){trace?.closed();upstream.destroy();} });
       req.pipe(bounded).pipe(upstream); return;
     }
     if (!new Set(["GET", "HEAD"]).has(req.method)) { req.resume(); deny(405); return; }
@@ -164,16 +175,24 @@ async function signingKey(directory) {
   } catch (error) { if (error.code !== "EEXIST") throw error; }
   return path;
 }
-export async function startLocalRuntime(environment = process.env, privateWorkspace, privateOwner, privateHayes, privateProbe, privateAdoption) {
+export async function startLocalRuntime(environment = process.env, privateWorkspace, privateOwner, privateHayes, privateProbe, privateAdoption, privatePreviewTrace) {
+  let tracePipe;
   const transfer={started:false,hayesStarted:false,socketTaken:false,rootClosed:false};
   if(privateHayes&&environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_OWNER_FD){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;transfer.hayesStarted=true;closeUnusedAdoptionDescriptors(environment);throw Error('NATIVE_OWNER_UNAVAILABLE');}
   if(!privateOwner&&environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
   try{if(privateHayes&&(!privateOwner||privateHayes.runtimeGeneration!==privateOwner.runtimeGeneration||privateHayes.secret===privateOwner.secret||environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD))throw Error('HAYES_OWNER_UNAVAILABLE');const adoptionDescriptors=inspectAdoptionDescriptors(environment,privateAdoption);
     if(privateAdoption&&(!privateOwner||environment.EXHIBITOS_AUTHORING_MODE!=='personal'||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('NATIVE_MODEL_ADOPTION_UNAVAILABLE');
-    return await startLocalRuntimeInner(environment,privateWorkspace,privateOwner,privateHayes,transfer,privateProbe,privateAdoption,adoptionDescriptors);}
+    if(privatePreviewTrace){
+      if(environment.EXHIBITOS_AUTHORING_MODE!=='personal'||environment.EXHIBITOS_RUNTIME_MODE!=='native'||
+         privateOwner?.mode!=='workspace-furnishing-036-reopen-v1'||privateHayes?.selection!==HAYES_PREOPEN_TERMINAL_SELECTION||
+         privateAdoption||privateProbe||privatePreviewTrace.version!==1)throw Error('NATIVE_THUMBNAIL_TRACE_INPUT');
+      tracePipe=takeThumbnailPreviewTracePipe(privatePreviewTrace,environment);
+    }
+    return await startLocalRuntimeInner(environment,privateWorkspace,privateOwner,privateHayes,transfer,privateProbe,privateAdoption,adoptionDescriptors,tracePipe);}
+  catch(error){tracePipe?.close();throw error;}
   finally{if(!transfer.started&&(privateOwner||environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined))closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);if(!transfer.hayesStarted&&environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==undefined)closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD);if(!transfer.socketTaken)closeUnusedAdoptionDescriptors(environment,transfer);}
 }
-async function startLocalRuntimeInner(environment, privateWorkspace, privateOwner, privateHayes, transfer, privateProbe, privateAdoption, adoptionDescriptors) {
+async function startLocalRuntimeInner(environment, privateWorkspace, privateOwner, privateHayes, transfer, privateProbe, privateAdoption, adoptionDescriptors, tracePipe) {
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
@@ -214,7 +233,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let adoptionIsTargetOnly=false;
+  let adoptionIsTargetOnly=false,thumbnailPreviewTrace;
   let gpuRuntime, gpuDrain, app, proxy, ownerChannel, hayesChannel, adoptionChannel, adoptionOperations, nativeHayesCaller, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, cleanupHandledFailure=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController(),hayesAbort=new AbortController(),adoptionAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
@@ -248,7 +267,10 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());if(gpuRuntime){await attempt(()=>gpuRuntime.jobs.close());await attempt(()=>gpuDrain(pool,gpuRuntime.jobRoot));}await attempt(()=>pool.end());
     if(adoptionDescriptors){closeUnusedAdoptionDescriptors(environment,transfer);transfer.rootClosed=true;}
     if(normalStop&&!failed&&!terminalFailure){await attempt(()=>finalizeFurnishingOrdinaryStop(ordinaryStop,async()=>{if(pinnedPayload){await pinnedPayload.close();pinnedPayload=undefined;}},()=>terminalFailure));}else if(normalStop)failed=true;
-    if(pinnedPayload)await attempt(()=>pinnedPayload.close());ordinaryStop?.dispose();ownerAbort.abort();if(ownerChannel)await attempt(()=>ownerChannel.close());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
+    if(pinnedPayload)await attempt(()=>pinnedPayload.close());ordinaryStop?.dispose();ownerAbort.abort();if(ownerChannel)await attempt(()=>ownerChannel.close());
+    if(normalStop&&!failed&&!terminalFailure&&thumbnailPreviewTrace)tracePipe.finish(thumbnailPreviewTrace.snapshot());
+    else tracePipe?.close();
+    if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
   })();
   shutdown=close;
   try {
@@ -313,6 +335,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const benchAfterTerminalCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?
       await hasBenchAfterTerminalCapability(fileURLToPath(new URL('./'+BENCH_AFTER_TERMINAL_MARKER,import.meta.url))):false;
     const benchAfterTerminalDirectory=benchAfterTerminalCapability?fileURLToPath(new URL('../'+BENCH_AFTER_TERMINAL_DIRECTORY+'/',import.meta.url)):undefined;
+    if(tracePipe&&!benchAfterTerminalCapability)throw Error('NATIVE_THUMBNAIL_TRACE_INPUT');
     if(benchAfterTerminalCapability&&(!hayesPreopenTerminalCapability||!workspaceFramePreparationCapability||!workspaceFurnishingRoomVisualCapability))
       throw Error('NATIVE_OEX_CATALOG');
     if(hayesPreopenTerminalCapability!==(privateHayes?.selection===HAYES_PREOPEN_TERMINAL_SELECTION)||
@@ -561,13 +584,19 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       const assertCleanupOwner=async()=>{assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if(ordinaryAdmission.writer!==writerLease||ordinaryAdmission.fields.admissionKind!=='clean-reopen'||ordinaryAdmission.fields.restoreProof||ordinaryAdmission.fields.carriedRestoreProof||ownerStopped||ownerAbort.signal.aborted||!ownerChannel?.isOpen()||!nativeOexWorkspace?.workspaceImport)throw Error('NATIVE_OEX_CLEANUP_OWNER');await writerLease.assertLive();};
       deferredStartup.push(async()=>{stage='OEX_CLEANUP';await assertCleanupOwner();await pinnedPayload.verify();const result=await attemptNativeOexCleanup({pool,blobs,context:nativeOexWorkspace,selection:oexCleanupSelection,sessionToken:privateWorkspace.sessionToken,csrfToken:privateWorkspace.csrfToken,assertRecovery:assertCleanupOwner});await assertCleanupOwner();cleanupHandledFailure=result.state==='unresolved';console.info('EXHIBITOS_NATIVE_OEX_CLEANUP_RESULT '+JSON.stringify(result));if(cleanupHandledFailure)console.error('LOCAL_RUNTIME_START_FAILED_OEX_CLEANUP');});
     }
-    app = buildApp({ ...(gpuRuntime?{gpuModelPreparations:gpuRuntime.jobs}:{}), ...(modelPreparationExecution?{modelPreparationExecution}:{}), ...(furnishingMode?{runtimeAvailable:isOwnerAvailable,deferredStartup}:{}), pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedPhase&&!oexCleanupSelection, ...(selectedPhase?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedPhase?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(nativeDetailContext?{nativeDetailContext}:{}),...(nativeHayesCaller?{nativeHayesCaller}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(workspaceFurnishing?{workspaceFurnishing}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}),...(furnishingMode?{workspaceFurnishingMigrationDirectory:workspaceFurnishingDirectory,workspaceFurnishingWriterMigrationDirectory:workspaceFurnishingWriterDirectory,...(workspaceFurnishingPublicationCapability?{workspaceFurnishingPublicationMigrationDirectory:workspaceFurnishingPublicationDirectory}:{}),...(workspaceMaterialPublicationCapability?{workspaceMaterialPublicationMigrationDirectory:workspaceMaterialPublicationDirectory}:{}),...(workspaceMaterialMultimapCapability?{workspaceMaterialMultimapMigrationDirectory:workspaceMaterialMultimapDirectory}:{}),...(workspaceFramePreparationCapability?{workspaceFramePreparationMigrationDirectory:workspaceFramePreparationDirectory}:{}),...(hayesOriginalCapability?{hayesOriginalMigrationDirectory:hayesOriginalDirectory}:{}),...(hayesDispositionCapability?{hayesDispositionMigrationDirectory:hayesDispositionDirectory}:{}),...(hayesReleaseCapability?{hayesReleaseMigrationDirectory:hayesReleaseDirectory}:{}),...(modelPreparationCapability?{modelPreparationMigrationDirectory:modelPreparationDirectory}:{}),...(freshImageCapability?{freshImageMigrationDirectory:freshImageDirectory}:{}),...(largeModelCapability?{largeModelMigrationDirectory:largeModelDirectory}:{}),...(infoStandPreparationCapability?{infoStandPreparationMigrationDirectory:infoStandPreparationDirectory}:{}),...(currentImageThumbnailCapability?{currentImageThumbnailMigrationDirectory:currentImageThumbnailDirectory}:{}),...(hayesPreopenTerminalDirectory?{hayesPreopenTerminalMigrationDirectory:hayesPreopenTerminalDirectory}:{}),...(benchAfterTerminalDirectory?{benchAfterTerminalMigrationDirectory:benchAfterTerminalDirectory}:{}),...(workspaceFurnishingThumbnailCapability?{workspaceFurnishingThumbnailMigrationDirectory:workspaceFurnishingThumbnailDirectory}:{}),...(gpuModelPreparationCapability?{gpuModelPreparationMigrationDirectory:gpuModelPreparationDirectory}:{})}:{}), webRoot, blobRoot } });
+    if(tracePipe){
+      if(!nativeOexWorkspace||ordinaryAdmission?.fields.admissionKind!=='clean-reopen'||!writerLease||
+         !ownerChannel?.isOpen()||!hayesChannel?.isOpen())throw Error('NATIVE_THUMBNAIL_TRACE_INPUT');
+      thumbnailPreviewTrace=createNativeThumbnailPreviewTrace({requestId:tracePipe.requestId,
+        tenantId:nativeOexWorkspace.tenantId,principalId:nativeOexWorkspace.principalId});
+    }
+    app = buildApp({ ...(thumbnailPreviewTrace?{thumbnailPreviewTrace}:{}), ...(gpuRuntime?{gpuModelPreparations:gpuRuntime.jobs}:{}), ...(modelPreparationExecution?{modelPreparationExecution}:{}), ...(furnishingMode?{runtimeAvailable:isOwnerAvailable,deferredStartup}:{}), pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedPhase&&!oexCleanupSelection, ...(selectedPhase?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedPhase?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(nativeDetailContext?{nativeDetailContext}:{}),...(nativeHayesCaller?{nativeHayesCaller}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(workspaceFurnishing?{workspaceFurnishing}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}),...(furnishingMode?{workspaceFurnishingMigrationDirectory:workspaceFurnishingDirectory,workspaceFurnishingWriterMigrationDirectory:workspaceFurnishingWriterDirectory,...(workspaceFurnishingPublicationCapability?{workspaceFurnishingPublicationMigrationDirectory:workspaceFurnishingPublicationDirectory}:{}),...(workspaceMaterialPublicationCapability?{workspaceMaterialPublicationMigrationDirectory:workspaceMaterialPublicationDirectory}:{}),...(workspaceMaterialMultimapCapability?{workspaceMaterialMultimapMigrationDirectory:workspaceMaterialMultimapDirectory}:{}),...(workspaceFramePreparationCapability?{workspaceFramePreparationMigrationDirectory:workspaceFramePreparationDirectory}:{}),...(hayesOriginalCapability?{hayesOriginalMigrationDirectory:hayesOriginalDirectory}:{}),...(hayesDispositionCapability?{hayesDispositionMigrationDirectory:hayesDispositionDirectory}:{}),...(hayesReleaseCapability?{hayesReleaseMigrationDirectory:hayesReleaseDirectory}:{}),...(modelPreparationCapability?{modelPreparationMigrationDirectory:modelPreparationDirectory}:{}),...(freshImageCapability?{freshImageMigrationDirectory:freshImageDirectory}:{}),...(largeModelCapability?{largeModelMigrationDirectory:largeModelDirectory}:{}),...(infoStandPreparationCapability?{infoStandPreparationMigrationDirectory:infoStandPreparationDirectory}:{}),...(currentImageThumbnailCapability?{currentImageThumbnailMigrationDirectory:currentImageThumbnailDirectory}:{}),...(hayesPreopenTerminalDirectory?{hayesPreopenTerminalMigrationDirectory:hayesPreopenTerminalDirectory}:{}),...(benchAfterTerminalDirectory?{benchAfterTerminalMigrationDirectory:benchAfterTerminalDirectory}:{}),...(workspaceFurnishingThumbnailCapability?{workspaceFurnishingThumbnailMigrationDirectory:workspaceFurnishingThumbnailDirectory}:{}),...(gpuModelPreparationCapability?{gpuModelPreparationMigrationDirectory:gpuModelPreparationDirectory}:{})}:{}), webRoot, blobRoot } });
     if(furnishingMode)app.addHook('onRequest',async(_request,reply)=>{try{if(!isOwnerAvailable())throw Error();await writerLease.assertLive();if(!isOwnerAvailable())throw Error();}catch{return reply.code(503).send({code:'NATIVE_OWNER_UNAVAILABLE'});}});
     if(furnishingMode){stage='API_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     if((selectedOex||furnishingMode)&&(ownerStopped||!ownerChannel?.isOpen()))throw Error('NATIVE_OWNER_UNAVAILABLE');
     apiListening=app.listen({ host: "127.0.0.1", port: apiPort });await apiListening;
     if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
-    stage = "WEB_PROXY"; proxyCreation=createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedPhase,...(furnishingMode?{isAvailable:isOwnerAvailable}:{}) }).then(value=>{proxy=value;return value;});await proxyCreation;if((selectedOex||furnishingMode)&&(ownerStopped||!ownerChannel?.isOpen()))throw Error('NATIVE_OWNER_UNAVAILABLE');
+    stage = "WEB_PROXY"; proxyCreation=createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedPhase,thumbnailPreviewTrace,...(furnishingMode?{isAvailable:isOwnerAvailable}:{}) }).then(value=>{proxy=value;return value;});await proxyCreation;if((selectedOex||furnishingMode)&&(ownerStopped||!ownerChannel?.isOpen()))throw Error('NATIVE_OWNER_UNAVAILABLE');
     if(furnishingMode){stage='PROXY_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     proxyListening=new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });await proxyListening;
     if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
@@ -612,6 +641,6 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   let handedOff=false;
-  try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel, received.hayesOwnerChannel, undefined, received.adoptionOwnerChannel); if(runtime.helperCompleted){console.info((runtime.result.mode==='workspace-furnishing-045-to-049-upgrade-v1'?'EXHIBITOS_NATIVE_GPU_MODEL_PREPARATION_UPGRADE_RESULT ':'EXHIBITOS_NATIVE_FURNISHING_THUMBNAIL_UPGRADE_RESULT ')+JSON.stringify(runtime.result));}else if(!runtime.cleanupHandledFailure)console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
+  try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel, received.hayesOwnerChannel, undefined, received.adoptionOwnerChannel,received.thumbnailPreviewTrace); if(runtime.helperCompleted){console.info((runtime.result.mode==='workspace-furnishing-045-to-049-upgrade-v1'?'EXHIBITOS_NATIVE_GPU_MODEL_PREPARATION_UPGRADE_RESULT ':'EXHIBITOS_NATIVE_FURNISHING_THUMBNAIL_UPGRADE_RESULT ')+JSON.stringify(runtime.result));}else if(!runtime.cleanupHandledFailure)console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
   catch (error) { if(!handedOff&&process.env.EXHIBITOS_AUTHORING_MODE==='personal'){closeUnusedAdoptionDescriptors(process.env);closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_OWNER_FD);if(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==process.env.EXHIBITOS_NATIVE_OWNER_FD)closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD);}console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
 }

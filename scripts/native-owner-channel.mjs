@@ -23,28 +23,32 @@ export function closeNativeOwnerDescriptor(fdText){if(typeof fdText==='string'&&
 /** Legacy FD0 data remains unchanged. The envelope is an opt-in fixed ABI. */
 export function unpackNativeOwnerInput(input){
  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('NATIVE_OWNER_INPUT');
- const hasHayes=Object.hasOwn(input,'hayesOwnerChannel'),hasAdoption=Object.hasOwn(input,'adoptionOwnerChannel');
- if(!Object.hasOwn(input,'ownerChannel')){if(hasHayes||hasAdoption)throw Error('NATIVE_OWNER_INPUT');return {workspace:input};}
+ const hasHayes=Object.hasOwn(input,'hayesOwnerChannel'),hasAdoption=Object.hasOwn(input,'adoptionOwnerChannel'),hasTrace=Object.hasOwn(input,'thumbnailPreviewTrace');
+ if(!Object.hasOwn(input,'ownerChannel')){if(hasHayes||hasAdoption||hasTrace)throw Error('NATIVE_OWNER_INPUT');return {workspace:input};}
  const owner=input.ownerChannel,v1=closed(owner,['version','runtimeGeneration','secret'])&&owner.version===1,v2=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===2&&['fresh-oex-test-v1','normal-oex-v1','normal-oex-027-v2'].includes(owner.mode),v3=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===3&&['normal-oex-027-v3','normal-oex-028-v4','normal-oex-workspace-v5','normal-oex-workspace-import-v6','normal-oex-workspace-import-v7','workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1','workspace-furnishing-045-to-050-upgrade-v1','workspace-furnishing-045-to-049-upgrade-v1','workspace-furnishing-045-to-051-upgrade-v1','workspace-furnishing-051-to-050-051-upgrade-v1'].includes(owner.mode);
- const hayes=input.hayesOwnerChannel,adoption=input.adoptionOwnerChannel,keys=['workspace','ownerChannel'];
+ const hayes=input.hayesOwnerChannel,adoption=input.adoptionOwnerChannel,trace=input.thumbnailPreviewTrace,keys=['workspace','ownerChannel'];
  if(hasHayes)keys.push('hayesOwnerChannel');
  if(hasAdoption)keys.push('adoptionOwnerChannel');
+ if(hasTrace)keys.push('thumbnailPreviewTrace');
  if(!closed(input,keys)||(!v1&&!v2&&!v3)||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
  const ordinary=owner.mode==='workspace-furnishing-036-initialize-v1'||owner.mode==='workspace-furnishing-036-reopen-v1';
- if((hasHayes||hasAdoption)&&(!v3||!ordered(input,keys)||!ordered(owner,['version','runtimeGeneration','secret','mode'])))throw Error('NATIVE_OWNER_INPUT');
+ if((hasHayes||hasAdoption||hasTrace)&&(!v3||!ordered(input,keys)||!ordered(owner,['version','runtimeGeneration','secret','mode'])))throw Error('NATIVE_OWNER_INPUT');
  const terminalSelected=hasHayes&&Object.hasOwn(hayes??{},'selection');
  const selectedHayesKeys=terminalSelected?[...hayesKeys,'selection']:hayesKeys;
  if(terminalSelected&&(hayes.selection!=='hayes-preopen-retained-reopen-v1'||
    owner.mode!=='workspace-furnishing-036-reopen-v1'||hasAdoption))throw Error('NATIVE_OWNER_INPUT');
  if(hasHayes&&((!ordinary&&!['workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'].includes(owner.mode))||
    !ordered(hayes,selectedHayesKeys)||!validDedicated(hayes,owner)))throw Error('NATIVE_OWNER_INPUT');
+ if(hasTrace&&(!terminalSelected||hasAdoption||!ordered(trace,['version','requestId','outputFd'])||trace.version!==1||
+   typeof trace.requestId!=='string'||!uuid.test(trace.requestId)||
+   !Number.isInteger(trace.outputFd)||trace.outputFd<10||trace.outputFd>1023))throw Error('NATIVE_OWNER_INPUT');
  if(hasAdoption&&(!ordinary||!ordered(adoption,adoptionKeys)||!validDedicated(adoption,owner)||
    typeof adoption.helper!=='string'||!isAbsolute(adoption.helper)||adoption.helper.includes('\0')||
    !validIdentity(adoption.rootDevice)||!validIdentity(adoption.rootInode)||adoption.rootInode==='0'||
    (hasHayes&&(hayes.secret===adoption.secret||hayes.nativeOwnerId===adoption.nativeOwnerId||hayes.runtimeManifestSha256!==adoption.runtimeManifestSha256))))throw Error('NATIVE_OWNER_INPUT');
  const unpackDedicated=({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256})=>({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256});
  return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})},
-   ...(hasHayes?{hayesOwnerChannel:{...unpackDedicated(hayes),...(terminalSelected?{selection:hayes.selection}:{})}}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{})};
+   ...(hasHayes?{hayesOwnerChannel:{...unpackDedicated(hayes),...(terminalSelected?{selection:hayes.selection}:{})}}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{}),...(hasTrace?{thumbnailPreviewTrace:trace}:{})};
 }
 
 /** Receives the Manager hello on its inherited socket; this cannot authenticate
