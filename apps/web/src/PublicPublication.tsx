@@ -55,7 +55,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     [loading, setLoading] = useState(Boolean(initial));
   const generation = useRef(0);
   const [coverVisit,setCoverVisit]=useState(0);
-  const coverRetirement=useMemo(()=>tracksWheatCover(value?.publication.revisionSha256)?createWheatCoverRetirement(()=>document.images):undefined,[value,coverVisit]);
+  const coverRetirement=useMemo(()=>tracksWheatCover(value?.publication.revisionSha256,value??undefined)?createWheatCoverRetirement(()=>document.images):undefined,[value,coverVisit]);
   const currentCoverRetirement=useRef(coverRetirement);
   currentCoverRetirement.current=coverRetirement;
   const coverOriginalEligible=useCallback(()=>currentCoverRetirement.current?.canAdmit()===true,[]);

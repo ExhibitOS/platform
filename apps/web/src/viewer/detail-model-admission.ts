@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {DetailAccess} from '../publication-client';
-import type {DetailRuntimeProfile} from './detail-runtime-profile';
+import {matchesDetailRuntime,type DetailRuntimeProfile} from './detail-runtime-profile';
 import {modelGeometryResidentBytes,textureResidentBytes} from './loading';
 
 type Candidate=Awaited<ReturnType<DetailAccess['candidatesFor']>>[number];
@@ -8,6 +8,14 @@ export const acquiredModelRuntime:DetailRuntimeProfile={
  renderer:'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)',platform:'macOS',
  browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true,
 };
+// Explicit current-runtime applicability candidate. This selection does not
+// substitute for actual render qualification; all geometry/cost/pressure guards
+// below and ownership/retirement checks at the consumer remain unchanged.
+export const acquiredModelChrome157Runtime:DetailRuntimeProfile=Object.freeze({...acquiredModelRuntime,browserVersion:'157.0.8103.51'});
+export async function matchesAcquiredModelRuntime(gl:WebGL2RenderingContext,hints:Parameters<typeof matchesDetailRuntime>[2],signal:AbortSignal):Promise<boolean>{
+ for(const runtime of [acquiredModelChrome157Runtime,acquiredModelRuntime])if(await matchesDetailRuntime(runtime,gl,hints,signal))return true;
+ return false;
+}
 export const acquiredModelTransitionCap=768*1024*1024;
 export const acquiredModelTextureEdge=4096;
 const inspector='native-adopted-embedded-glb-v1';

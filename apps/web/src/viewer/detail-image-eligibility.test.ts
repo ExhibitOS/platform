@@ -128,3 +128,22 @@ it('admits the r57 Wheat original only for the exact north wall publication and 
  expect(matchesMeasuredWheatImage(r57,{...attestation,publicationSha256:'cdef470d858b51723ae5598e4a648df04a4bdd5ef91f8eaa24fe2ed461ba6de3'},gallery)).toBe(false);
  expect(matchesMeasuredWheatImage({...r57,sourceBindingSha256:'52b6a986cd5996358a96a0c6cf3a1e7ad70e4afe05d4d3d411293535515367a8'},attestation,gallery)).toBe(false);
 });
+
+it('reuses the measured source and conservative cost across fresh loader-owned publication aliases',()=>{
+ const revision='c'.repeat(64),artworkRevisionId='fresh-art';
+ const projection:DetailProjectionBinding={...binding,revisionSha256:revision,candidate:{...binding.candidate,artworkRevisionId},qualification:{candidateId:'fresh-candidate',tier:'acquired-original',sourceBindingSha256:'d'.repeat(64),featureReportSha256:'e'.repeat(64),inspector:'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579',model:'native-baseline-icc-jpeg-384-v1',residentBytes:163942340,peakAdditionalBytes:402653184}};
+ const selected=qualifiedDetailImageProfile(revision,artworkRevisionId,projection)!;
+ expect(selected).toMatchObject({revisionSha256:revision,artworkRevisionId,candidateId:'fresh-candidate',sourceBindingSha256:'d'.repeat(64),model:'native-baseline-icc-jpeg-384-v1',maxSceneBytes:201326592,transitionCapBytes:603979776});
+ expect(matchesMeasuredWheatImage(selected,projection,gallery)).toBe(true);
+ expect(qualifiedDetailImageProfile(revision,artworkRevisionId)).toBeUndefined();
+ expect(qualifiedDetailImageProfile('f'.repeat(64),artworkRevisionId,projection)).toBeUndefined();
+ expect(qualifiedDetailImageProfile(revision,'other-art',projection)).toBeUndefined();
+ for(const candidate of [{...projection.candidate,sha256:a},{...projection.candidate,bytes:8291195},{...projection.candidate,width:3999}])expect(qualifiedDetailImageProfile(revision,artworkRevisionId,{...projection,candidate})).toBeUndefined();
+ for(const qualification of [{...projection.qualification!,tier:'approved-detail'},{...projection.qualification!,model:'unknown'},{...projection.qualification!,residentBytes:163942341},{...projection.qualification!,peakAdditionalBytes:402653185},{...projection.qualification!,inspector:'unknown'}])expect(qualifiedDetailImageProfile(revision,artworkRevisionId,{...projection,qualification})).toBeUndefined();
+ for(const altered of [{...selected,sourceBindingSha256:a},{...selected,featureReportSha256:a},{...selected,model:'unknown'},{...selected,inspector:'unknown'},{...selected,maxSceneBytes:201326593},{...selected,runtime:wingedR12Wheat.runtime}])expect(matchesMeasuredWheatImage(altered,projection,gallery)).toBe(false);
+ expect(matchesMeasuredWheatImage(selected,projection,{...gallery,devicePixelRatio:2})).toBe(false);
+ const successor={...projection,indexSha256:'1'.repeat(64),publicationSha256:'2'.repeat(64),revisionSha256:'3'.repeat(64),candidate:{...projection.candidate,artworkRevisionId:'successor-art'},qualification:{...projection.qualification!,candidateId:'successor-candidate',sourceBindingSha256:'4'.repeat(64)}};
+ const next=qualifiedDetailImageProfile(successor.revisionSha256,successor.candidate.artworkRevisionId,successor)!;
+ expect(matchesMeasuredWheatImage(next,successor,gallery)).toBe(true);
+ expect(matchesMeasuredWheatImage(selected,successor,gallery)).toBe(false);
+});
