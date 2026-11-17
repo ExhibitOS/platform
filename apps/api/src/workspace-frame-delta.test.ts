@@ -25,3 +25,81 @@ test('allows one source-bound v9 frame edit while retaining portals and rejects 
  const after=structuredClone(before),ext=after.candidate.extensions![namespace] as unknown as {version:number;furnishings:object[];frameAttachments:object[];openingAttachments:object[]};ext.version=9;ext.furnishings.push({id:'miter',kind:'artwork-frame'});ext.frameAttachments.push({placementId:'image',furnishingId:'miter'});
  assert.equal(ordinaryFrameDelta(before,after,namespace),true);assert.equal(ordinaryFrameDelta(after,before,namespace),true);ext.version=8;assert.equal(ordinaryFrameDelta(before,after,namespace),false);ext.version=9;ext.openingAttachments=[];assert.equal(ordinaryFrameDelta(before,after,namespace),false);
 });
+
+const ceilingBase=()=>{
+ const draft=base();
+ draft.candidate.extensions![namespace]={
+  version:11,
+  furnishings:[{id:'rail',kind:'ceiling-rail'},{id:'portal',kind:'portal-finish'}],
+  placements:[{id:'rail-placement',furnishingId:'rail'}],
+  frameAttachments:[],
+  openingAttachments:[{openingId:'door',furnishingId:'portal'}],
+  ceilingAttachments:[
+   {placementId:'rail-placement',surfaceId:'ceiling',anchor:[0,0],yaw:0,gap:0},
+   {placementId:'other-rail',surfaceId:'other-ceiling',anchor:[1,2],yaw:1,gap:0},
+  ],
+ } as never;
+ return draft;
+};
+type FrameVisuals={
+ version:number;furnishings:{id:string;kind:string}[];placements:{id:string;furnishingId:string}[];
+ frameAttachments:{placementId:string;furnishingId:string}[];
+ openingAttachments:{openingId:string;furnishingId:string}[];
+ ceilingAttachments:{placementId:string;surfaceId:string;anchor:number[];yaw:number;gap:number}[];
+};
+const visuals=(draft:Draft)=>draft.candidate.extensions![namespace] as unknown as FrameVisuals;
+const addCeilingFrame=(before:Draft)=>{
+ const after=structuredClone(before),ext=visuals(after);
+ ext.furnishings.push({id:'frame',kind:'artwork-frame'});
+ ext.frameAttachments.push({placementId:'painting',furnishingId:'frame'});
+ after.editVersion++;after.updatedAt='b';
+ return after;
+};
+test('allows v11 frame attach, replacement and final detach while preserving both ceiling rails',()=>{
+ const before=ceilingBase(),after=addCeilingFrame(before);
+ assert.equal(ordinaryFrameDelta(before,after,namespace),true);
+ assert.equal(ordinaryFrameDelta(after,before,namespace),true);
+ const replacement=structuredClone(after);
+ visuals(replacement).furnishings.push({id:'other-frame',kind:'artwork-frame'});
+ visuals(replacement).frameAttachments[0]!.furnishingId='other-frame';
+ assert.equal(ordinaryFrameDelta(after,replacement,namespace),true);
+ assert.equal(ordinaryFrameDelta(after,after,namespace),false);
+ assert.equal(visuals(before).ceilingAttachments.length,2);
+});
+test('rejects v11 rail, room visual, portal or unrelated document changes alongside a frame edit',()=>{
+ const before=ceilingBase();
+ const mutations:((after:Draft)=>void)[]=[
+  after=>{visuals(after).ceilingAttachments[0]!.anchor[0]=3;},
+  after=>{visuals(after).ceilingAttachments.pop();},
+  after=>{visuals(after).placements[0]!.furnishingId='other';},
+  after=>{visuals(after).furnishings[0]!.id='other-rail';},
+  after=>{visuals(after).openingAttachments=[];},
+  after=>{after.candidate.title='changed';},
+  after=>{after.candidate.extensions!.other={value:2} as never;},
+ ];
+ for(const mutate of mutations){
+  const after=addCeilingFrame(before);mutate(after);
+  assert.equal(ordinaryFrameDelta(before,after,namespace),false);
+ }
+});
+test('rejects v11 downgrades, missing ceiling arrays and multiple frame targets',()=>{
+ const before=ceilingBase();
+ for(const version of [4,5,6,7,9,10]){
+  const after=addCeilingFrame(before);visuals(after).version=version;
+  assert.equal(ordinaryFrameDelta(before,after,namespace),false);
+ }
+ const after=addCeilingFrame(before);
+ delete (visuals(after) as Partial<FrameVisuals>).ceilingAttachments;
+ assert.equal(ordinaryFrameDelta(before,after,namespace),false);
+ const multiple=addCeilingFrame(before);
+ visuals(multiple).frameAttachments.push({placementId:'other-painting',furnishingId:'frame'});
+ assert.equal(ordinaryFrameDelta(before,multiple,namespace),false);
+ const empty=ceilingBase();visuals(empty).ceilingAttachments=[];
+ const downgrade=addCeilingFrame(empty);visuals(downgrade).version=10;
+ assert.equal(ordinaryFrameDelta(empty,downgrade,namespace),false);
+});
+test('compares additional extension fields instead of silently discarding them during a frame edit',()=>{
+ const before=ceilingBase(),after=addCeilingFrame(before);
+ (after.candidate.extensions![namespace] as unknown as Record<string,unknown>).unexpected={changed:true};
+ assert.equal(ordinaryFrameDelta(before,after,namespace),false);
+});
