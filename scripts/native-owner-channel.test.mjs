@@ -51,3 +51,17 @@ test('after hello ACK the same inherited socket carries one bounded frame',{time
  const hello=Buffer.from(JSON.stringify({version:1,kind:'hello',...workspace,runtimeGeneration:id,secret})),header=Buffer.alloc(4);header.writeUInt32BE(hello.length);socket.write(Buffer.concat([header,hello]));
  const status=await closed;clearTimeout(timer);if(failure)throw failure;assert.equal(status,0);assert.equal(phase,2);
 });
+
+test('Hayes terminal selector travels only in the ordered retained-reopen owner envelope',()=>{
+ const ownerChannel={version:3,runtimeGeneration:id,secret,mode:'workspace-furnishing-036-reopen-v1'};
+ const hayesOwnerChannel={version:1,runtimeGeneration:id,secret:'b'.repeat(64),nativeOwnerId:id,
+  runtimeManifestSha256:'c'.repeat(64),selection:'hayes-preopen-retained-reopen-v1'};
+ const valid={workspace,ownerChannel,hayesOwnerChannel};
+ assert.equal(unpackNativeOwnerInput(valid).hayesOwnerChannel.selection,hayesOwnerChannel.selection);
+ for(const candidate of [
+  {...valid,ownerChannel:{...ownerChannel,mode:'workspace-furnishing-036-initialize-v1'}},
+  {...valid,hayesOwnerChannel:{...hayesOwnerChannel,selection:'unrecognized'}},
+  {...valid,hayesOwnerChannel:{selection:hayesOwnerChannel.selection,...hayesOwnerChannel}},
+  {...valid,selection:hayesOwnerChannel.selection},
+ ])assert.throws(()=>unpackNativeOwnerInput(candidate),/NATIVE_OWNER_INPUT/);
+});

@@ -32,15 +32,19 @@ export function unpackNativeOwnerInput(input){
  if(!closed(input,keys)||(!v1&&!v2&&!v3)||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
  const ordinary=owner.mode==='workspace-furnishing-036-initialize-v1'||owner.mode==='workspace-furnishing-036-reopen-v1';
  if((hasHayes||hasAdoption)&&(!v3||!ordered(input,keys)||!ordered(owner,['version','runtimeGeneration','secret','mode'])))throw Error('NATIVE_OWNER_INPUT');
+ const terminalSelected=hasHayes&&Object.hasOwn(hayes??{},'selection');
+ const selectedHayesKeys=terminalSelected?[...hayesKeys,'selection']:hayesKeys;
+ if(terminalSelected&&(hayes.selection!=='hayes-preopen-retained-reopen-v1'||
+   owner.mode!=='workspace-furnishing-036-reopen-v1'||hasAdoption))throw Error('NATIVE_OWNER_INPUT');
  if(hasHayes&&((!ordinary&&!['workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1'].includes(owner.mode))||
-   !ordered(hayes,hayesKeys)||!validDedicated(hayes,owner)))throw Error('NATIVE_OWNER_INPUT');
+   !ordered(hayes,selectedHayesKeys)||!validDedicated(hayes,owner)))throw Error('NATIVE_OWNER_INPUT');
  if(hasAdoption&&(!ordinary||!ordered(adoption,adoptionKeys)||!validDedicated(adoption,owner)||
    typeof adoption.helper!=='string'||!isAbsolute(adoption.helper)||adoption.helper.includes('\0')||
    !validIdentity(adoption.rootDevice)||!validIdentity(adoption.rootInode)||adoption.rootInode==='0'||
    (hasHayes&&(hayes.secret===adoption.secret||hayes.nativeOwnerId===adoption.nativeOwnerId||hayes.runtimeManifestSha256!==adoption.runtimeManifestSha256))))throw Error('NATIVE_OWNER_INPUT');
  const unpackDedicated=({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256})=>({runtimeGeneration,secret,nativeOwnerId,runtimeManifestSha256});
  return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})},
-   ...(hasHayes?{hayesOwnerChannel:unpackDedicated(hayes)}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{})};
+   ...(hasHayes?{hayesOwnerChannel:{...unpackDedicated(hayes),...(terminalSelected?{selection:hayes.selection}:{})}}:{}),...(hasAdoption?{adoptionOwnerChannel:{...unpackDedicated(adoption),helper:adoption.helper,rootDevice:adoption.rootDevice,rootInode:adoption.rootInode}}:{})};
 }
 
 /** Receives the Manager hello on its inherited socket; this cannot authenticate
