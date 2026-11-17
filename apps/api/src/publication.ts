@@ -339,6 +339,12 @@ export interface PublicationSource {
     resource?(id:string,sha256:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
     furnishingNotice?(id:string,assetId:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
 }
+function publicationRequestHash(id:string,requestId:string,match:string,detailMode:boolean,detail?:NativeOriginalPublication){
+    const image=detail?.originalImage;
+    return sha256(Buffer.from(JSON.stringify({id,requestId,match,...(detailMode?{detailProfile:'native-original-v1'}:{}),
+        ...(image?{originalImage:{artworkId:image.artworkId,artworkRevision:image.artworkRevision,importJobId:image.importJobId}}:{})})));
+}
+
 export class Publications {
     readonly studio = new Studio();
     private readonly listingStudio: Studio;
@@ -350,7 +356,7 @@ export class Publications {
     private readonly furnishingOwner:import('./native-oex-provenance.ts').NativeOexWorkspaceContext|undefined;
     constructor(pool: Pool, blobs?: BlobStore, nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes,furnishingOwner?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes) { this.workspaceMaterial=workspaceMaterial; this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); this.listingStudio = new Studio(nativeOexWorkspace); this.workspaceFurnishing=workspaceFurnishing; this.furnishingOwner=furnishingOwner; }
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
-    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864,checkpoint?:()=>void) {
+    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864,checkpoint?:()=>void, originalImage?:NativeOriginalPublication['originalImage']) {
         if(!Number.isSafeInteger(budget)||budget<1||budget>536870912||budget>67108864&&!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
         const store=async(bytes:Buffer):Promise<PublicationBytes>=>{checkpoint?.();const result=await stageReadinessBytes(stage,bytes);checkpoint?.();return result;};
         const errors: PublicationIssue[] = [], prepared: PreparedAsset[] = [], media:PreparedMedia[]=[];
@@ -429,6 +435,7 @@ export class Publications {
                 }
                 const primary = artwork.assets.find(a => a.id === artwork.primaryAssetId)!;
                 const provisionalModel=artwork.schemaVersion==='1.0.0-draft.2';
+                const ownerApprovedImage=originalImage?.artworkId===artwork.id&&originalImage.artworkRevision===artwork.revision;
                 const exactModel=provisionalModel||qualifyDemoDisplay(artwork)?.canonicalMime==='model/gltf-binary';
                 let result: {bytes:Buffer;mime:"model/gltf-binary"|"image/png"};
                 if (artwork.artworkType === "image") {
@@ -437,7 +444,7 @@ export class Publications {
                     if(!asset||!this.blobs)throw new ApiError(503,"STORAGE_UNAVAILABLE");
                     const original=Buffer.from(await this.blobs.get(asset.object_key));
                     if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
-                    checkpoint?.();result={bytes:await publicationImageDerivative(artwork,original,artwork.primaryAssetId,{watermark:displayWatermark,cache:{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256,checkpoint}}),mime:"image/png"};
+                    checkpoint?.();result={bytes:await publicationImageDerivative(artwork,original,artwork.primaryAssetId,{watermark:displayWatermark,ownerApprovedImage,cache:{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256,checkpoint}}),mime:"image/png"};
                 } else if(exactModel){
                     const original=await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision);
                     checkpoint?.();if(provisionalModel){await decode(original,'model/gltf-binary');result={bytes:Buffer.from(original),mime:'model/gltf-binary'};}
@@ -450,6 +457,7 @@ export class Publications {
                 const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {profile?:GeneratedVariants['profile'];variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
+                if(ownerApprovedImage&&(!low||!high||result.mime!=='image/png'))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
                 checkpoint?.();const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>{checkpoint?.();return {full:fullMetric};});
                 let variants:GeneratedVariants={...generated,full:fullMetric};
                 let coarseSource:PreparedAsset['coarseSource'];
@@ -457,7 +465,7 @@ export class Publications {
                     const full=await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision);
                     const coarse=await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision);
                     // Both inputs must remain authorized even for unsupported pairs.
-                    checkpoint?.();const displayCoarse=await publicationImageDerivative(artwork,coarse,low.assetId,{watermark:displayWatermark,cache:this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:low.assetId,sourceSha256:sha256(coarse),checkpoint}:undefined});
+                    checkpoint?.();const displayCoarse=await publicationImageDerivative(artwork,coarse,low.assetId,{watermark:displayWatermark,ownerApprovedImage,cache:this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:low.assetId,sourceSha256:sha256(coarse),checkpoint}:undefined});
                     try{
                         qualifyApprovedImagePair(full,coarse,high.textureSize!,low.textureSize!);
                         const coarseMetric=measureFullVariant(displayCoarse,'image/png');
@@ -465,7 +473,7 @@ export class Publications {
                         variants={full:fullMetric,coarse:coarseMetric,bytes:displayCoarse};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch(error){checkpoint?.();if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    }catch(error){checkpoint?.();if(ownerApprovedImage||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse))throw new ApiError(409,'ASSET_INTEGRITY');
                 }
@@ -615,12 +623,14 @@ export class Publications {
         if(row.revision_sha256!==revisionSha256)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
     }
     /** Authenticated exact-request lookup; never adopts or retires a stage. */
-    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false){
+    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false,detail?:NativeOriginalPublication){
         uuid(requestId);await this.studio.access(c,s,id);
-        const payloadHash=sha256(Buffer.from(JSON.stringify(detailMode?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
+        const payloadHash=publicationRequestHash(id,requestId,match,detailMode,detail);
         const receipt=(await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3",[s.tenantId,s.userId,requestId])).rows[0];
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
-        return this.summary(await this.owned(c,s,receipt.publication_id));
+        const existing=await this.owned(c,s,receipt.publication_id);
+        if(detail?.originalImage)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
+        return this.summary(existing);
     }
     async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage,detail?:NativeOriginalPublication) {
         let finalTimeFence:(()=>void)|undefined,finalDetailFence:(()=>void)|undefined;
@@ -629,12 +639,14 @@ export class Publications {
         if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
         if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.assertDetailMode(!!detail);
         if(detail)await detail.assertLive(c,s);
-        const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify(detail?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
+        const row = await this.studio.access(c, s, id), payloadHash = publicationRequestHash(id,requestId,match,!!detail,detail);
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
         if (receipt) {
             if (receipt.payload_sha256 !== payloadHash)
                 throw new ApiError(409, "REQUEST_CONFLICT");
-            return this.summary(await this.owned(c, s, receipt.publication_id));
+            const existing=await this.owned(c,s,receipt.publication_id);
+            if(detail?.originalImage)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
+            return this.summary(existing);
         }
         if (match !== etag(row.revision, row.metadata))
             throw new ApiError(412, "REMOTE_CONFLICT");
@@ -667,7 +679,7 @@ export class Publications {
         // publication journal. Keep its earlier fence, including detail mode.
         if(fileOperation instanceof NativeLocalPublicationStage&&(detail||row.metadata.candidate.artworks.length))
             fileOperation.markEffectsPossible();
-        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined);detail?.assertCurrent(s);
+        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined,detail?.originalImage);detail?.assertCurrent(s);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
