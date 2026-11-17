@@ -46,12 +46,26 @@ export async function produceArtworkThumbnail(
  phase?.('preview','metadata');
  const path=`/api/v1/tenants/${request.tenantId}/cms/artworks/${request.artworkId}`;
  const options={credentials:'same-origin' as const,redirect:'error' as const,cache:'no-store' as const,signal};
- const metadataResponse=await fetch(path,options);if(!metadataResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
- const artwork=await metadataResponse.json() as {id:string;revision:number;approvedRevision:number|null;approvedAssetId:string|null;archived:boolean};
- if(artwork.id!==request.artworkId||artwork.archived||artwork.revision!==request.expectedRevision||artwork.approvedRevision!==request.expectedRevision||!artwork.approvedAssetId)throw Error('THUMBNAIL_REVISION');
- phase?.('preview','headers');
+ signal.throwIfAborted();
+ const metadata=fetch(path,options);
+ // The revision-pinned preview is independently authorized by the API.
+ // Dispatch it while detail is loading, and gate body consumption on both.
  const previewPath=`${path}/preview?expectedRevision=${request.expectedRevision}`;
- const response=await (previewObservation?previewObservation.fetch(previewPath,options):fetch(previewPath,options));
+ const preview=previewObservation?previewObservation.fetch(previewPath,options):fetch(previewPath,options);
+ void preview.catch(()=>{});
+ let artwork:{id:string;revision:number;approvedRevision:number|null;approvedAssetId:string|null;archived:boolean};
+ try{
+  const metadataResponse=await metadata;if(!metadataResponse.ok)throw Error('THUMBNAIL_UNAVAILABLE');
+  artwork=await metadataResponse.json();
+  if(artwork.id!==request.artworkId||artwork.archived||artwork.revision!==request.expectedRevision||artwork.approvedRevision!==request.expectedRevision||!artwork.approvedAssetId)throw Error('THUMBNAIL_REVISION');
+  signal.throwIfAborted();
+ }catch(error){
+  // The request owner also aborts the shared signal when it releases the request.
+  void preview.then(response=>response.body?.cancel()).catch(()=>{});
+  throw error;
+ }
+ phase?.('preview','headers');
+ const response=await preview;
  if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||!approvedDisplayCopyResponse(response.headers))throw Error('THUMBNAIL_REVISION');
  const mime=response.headers.get('content-type')?.split(';')[0];if(mime!=='image/png'&&mime!=='model/gltf-binary')throw Error('THUMBNAIL_TYPE');
  const source=mime==='model/gltf-binary'?artworkThumbnailSource(artwork,request.artworkId,request.expectedRevision):undefined;
