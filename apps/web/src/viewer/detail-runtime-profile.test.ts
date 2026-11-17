@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {acquiredModelRuntime} from './detail-model-admission';
+import {acquiredModelRuntime,matchesAcquiredModelRuntime} from './detail-model-admission';
 import {expect,it,vi} from 'vitest';import {matchesDetailRuntime,type DetailRuntimeProfile} from './detail-runtime-profile';
 const profile:DetailRuntimeProfile={renderer:'Apple M1 Metal',platform:'macOS',browserBrand:'Google Chrome',browserVersion:'156.0.8078.79',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true};
 function gl(framebuffer:unknown=null){return {FRAMEBUFFER_BINDING:1,SAMPLES:2,isContextLost:()=>false,getParameter:(key:number)=>key===1?framebuffer:key===2?4:'Apple M1 Metal',getContextAttributes:()=>({alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true}),getExtension:()=>({UNMASKED_RENDERER_WEBGL:3})} as unknown as WebGL2RenderingContext;}
@@ -23,4 +23,17 @@ it('admits the observed acquired-model context alpha channel and refuses mismatc
  const hints={platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[{brand:'Google Chrome',version:acquiredModelRuntime.browserVersion}]})};
  expect(await matchesDetailRuntime(acquiredModelRuntime,context,hints,new AbortController().signal)).toBe(true);
  expect(await matchesDetailRuntime({...acquiredModelRuntime,alpha:false},context,hints,new AbortController().signal)).toBe(false);
+});
+
+it('bounds acquired-model applicability to the retained and explicit current M1 runtime',async()=>{
+ const context=gl();context.getParameter=((key:number)=>key===1?null:key===2?4:acquiredModelRuntime.renderer) as typeof context.getParameter;
+ const hints=(version:string)=>({platform:'macOS',getHighEntropyValues:async()=>({fullVersionList:[{brand:'Google Chrome',version}]})});
+ const signal=new AbortController().signal;
+ expect(await matchesAcquiredModelRuntime(context,hints('157.0.8103.51'),signal)).toBe(true);
+ expect(await matchesAcquiredModelRuntime(context,hints('156.0.8078.79'),signal)).toBe(true);
+ expect(await matchesAcquiredModelRuntime(context,hints('157.0.8103.52'),signal)).toBe(false);
+ expect(await matchesAcquiredModelRuntime(context,{...hints('157.0.8103.51'),platform:'Windows'},signal)).toBe(false);
+ const abort=new AbortController();abort.abort();expect(await matchesAcquiredModelRuntime(context,hints('157.0.8103.51'),abort.signal)).toBe(false);
+ context.getContextAttributes=()=>({alpha:false,depth:true,antialias:true,preserveDrawingBuffer:true}) as WebGLContextAttributes;
+ expect(await matchesAcquiredModelRuntime(context,hints('157.0.8103.51'),signal)).toBe(false);
 });

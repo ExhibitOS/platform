@@ -54,8 +54,8 @@ import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {retireDetailCanvas,completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {DetailAccessFailure} from './detail-access-failure';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
-import {acquiredModelRuntime,acquiredModelTransitionCap,checkAcquiredModelGeometry,eligibleAcquiredModel} from './viewer/detail-model-admission';
-import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
+import {matchesAcquiredModelRuntime,acquiredModelTransitionCap,checkAcquiredModelGeometry,eligibleAcquiredModel} from './viewer/detail-model-admission';
+import {isVerifiedStaticDetailAccess,staticArtworkDetailAttestation,staticDetailAttestation} from './static-publication-source';
 import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -3001,7 +3001,7 @@ export function GeometryPreview({
           const context=renderer.getContext();
           if(typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))return;
           for(const {art,coverCurrent} of candidates){
-            const profile=qualifiedDetailImageProfile(publicSource?.revisionSha256,art.revisionId);
+            const profile=qualifiedDetailImageProfile(publicSource?.revisionSha256,art.revisionId,staticArtworkDetailAttestation(detailAccess,detailOwner,art.revisionId));
             if(!profile||art.artworkType!=='image')continue;
             const compatible=()=>coverCurrent?.()!==false&&!disposed&&!gpuLost&&!xrActive.current&&!publicDisplayStopped&&!suspendedRef.current&&
               !renderer.domElement.ownerDocument.hidden&&renderer.getContext()===context&&
@@ -3365,7 +3365,7 @@ export function GeometryPreview({
           const placement=document.placements.find(p=>p.id.toLowerCase()===input.placementId.toLowerCase());
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
-          const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
+          const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId,staticArtworkDetailAttestation(detailAccess,detailOwner,art.revisionId)):undefined;
           const selectedBinding=selectedProfile&&detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,selectedProfile.candidateId):undefined;
           let imageProfile=selectedProfile&&coverReady()&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
           // A reopened qualified original waits for the previous owned work and
@@ -3733,7 +3733,7 @@ export function GeometryPreview({
                   try{await recheck;}finally{if(recheckWork===recheck)recheckWork=undefined;}
                 };
                 const modelWork=(async()=>{
-                  const matches=await matchesDetailRuntime(acquiredModelRuntime,context,detailRuntimeHints(),originalSignal);
+                  const matches=await matchesAcquiredModelRuntime(context,detailRuntimeHints(),originalSignal);
                   if(!matches||!current())return;
                   const candidates=await access.candidatesFor(art.revisionId,originalSignal);
                   const candidate=candidates.find(item=>item.tier==='acquired-original'&&item.mime==='model/gltf-binary');

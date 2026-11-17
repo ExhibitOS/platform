@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {qualifiedDetailImageProfile,type QualifiedDetailImage} from './detail-image-attempt';
+import {qualifiedDetailImageProfile,type DetailImageProjection,type QualifiedDetailImage} from './detail-image-attempt';
 
 /** Exact, loader-attested projection; these values are not a source grant. */
-export interface DetailProjectionBinding {readonly indexSha256:string;readonly publicationSha256:string;readonly candidate:Readonly<{artworkRevisionId:string;sha256:string;bytes:number;mime:string;width:number;height:number}>}
+export type DetailProjectionBinding=DetailImageProjection;
 export interface DetailGalleryBuffer {width:number;height:number;pixelRatio:number;devicePixelRatio:number}
 
 /** Only the bounded Wheat image envelopes are admitted. */
 export function matchesMeasuredWheatImage(profile:QualifiedDetailImage,binding:DetailProjectionBinding|undefined,gallery:DetailGalleryBuffer):boolean{
  try{
   const hash=(value:string)=>/^[a-f0-9]{64}$/.test(value);
-  const viewport=profile.detailViewport,runtime=profile.runtime,qualified=qualifiedDetailImageProfile(profile.revisionSha256,profile.artworkRevisionId);
+  const viewport=profile.detailViewport,runtime=profile.runtime,qualified=qualifiedDetailImageProfile(profile.revisionSha256,profile.artworkRevisionId,binding);
   const matchesRegisteredBounds=qualified!==undefined&&(['staticIndexSha256','publicationSha256','candidateId','sourceBindingSha256',
-    'featureReportSha256','maxSceneBytes','transitionCapBytes'] as const).every(key=>profile[key]===qualified[key]);
+    'featureReportSha256','inspector','model','maxSceneBytes','transitionCapBytes'] as const).every(key=>profile[key]===qualified[key]);
   return !!binding&&hash(profile.staticIndexSha256)&&hash(profile.publicationSha256)&&profile.staticIndexSha256===binding.indexSha256&&profile.publicationSha256===binding.publicationSha256&&profile.artworkRevisionId===binding.candidate.artworkRevisionId&&profile.sha256===binding.candidate.sha256&&profile.bytes===binding.candidate.bytes&&profile.mime===binding.candidate.mime&&profile.width===binding.candidate.width&&profile.height===binding.candidate.height&&
    hash(profile.revisionSha256)&&hash(profile.sourceBindingSha256)&&hash(profile.featureReportSha256)&&
    profile.sha256==='b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d'&&profile.bytes===8291194&&profile.mime==='image/jpeg'&&profile.width===4000&&profile.height===3184&&

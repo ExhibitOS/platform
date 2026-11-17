@@ -1,3 +1,4 @@
+import type {DetailImageProjection} from './viewer/detail-image-attempt';
 import {workspaceFloorMaterials} from './drafts/workspace-material-validation.mjs';
 import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.mjs';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
@@ -65,7 +66,7 @@ type DetailDescriptor={assetId:string;url:string;mime:string};
 // Registration remains private to this module and occurs only after the full
 // static publication has been verified. A wrapper or another publication may
 // not borrow a capability's reader-retirement disposition.
-type StaticDetailAttestation=Readonly<{indexSha256:string;publicationSha256:string;candidate:Readonly<{artworkRevisionId:string;sha256:string;bytes:number;mime:string;width:number;height:number}>}>;
+type StaticDetailAttestation=Readonly<DetailImageProjection>;
 const verifiedDetailOwners=new WeakMap<object,{owner:PublicPublication;publication:PublicPublication['publication'];exhibition:PublicPublication['exhibition'];local:NonNullable<PublicPublication['local']>;attestations:ReadonlyMap<string,StaticDetailAttestation>}>();
 export function isVerifiedStaticDetailAccess(publication:unknown,access:unknown):access is DetailAccess{
  if(!access||typeof access!=='object')return false;
@@ -75,6 +76,11 @@ export function isVerifiedStaticDetailAccess(publication:unknown,access:unknown)
 export function staticDetailAttestation(access:unknown,owner:unknown,candidateId:string):StaticDetailAttestation|undefined{
  if(!isVerifiedStaticDetailAccess(owner,access)||typeof candidateId!=='string')return undefined;
  return verifiedDetailOwners.get(access)?.attestations.get(candidateId);
+}
+/** Synchronous verified snapshot for image profile selection; it grants no read. */
+export function staticArtworkDetailAttestation(access:unknown,owner:unknown,artworkRevisionId:string):StaticDetailAttestation|undefined{
+ if(!isVerifiedStaticDetailAccess(owner,access))return undefined;
+ return [...verifiedDetailOwners.get(access)!.attestations.values()].find(value=>value.candidate.artworkRevisionId===artworkRevisionId&&value.qualification?.tier==='acquired-original');
 }
 const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
 async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal,onVerifiedSize?:(bytes:number)=>void):Promise<StaticIndex>{
@@ -161,7 +167,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   }
   if(!retainsCopyInventory(index,{...activeIndex,assets:[...activeIndex.assets,...supplemental]},activeIndex.version===4))throw Error('STATIC_PREVIOUS_ASSETS');
  }
- const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,entranceBootstrapBytes:indexBytes+p.length,fetcher:fetchAsset,assetFetcher:fetchAsset,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
+ const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,entranceBootstrapBytes:indexBytes+p.length,fetcher:fetchAsset,assetFetcher:fetchAsset,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,revisionSha256,qualification:Object.freeze({candidateId:candidate.candidateId,tier:candidate.tier,sourceBindingSha256:candidate.sourceBindingSha256,featureReportSha256:candidate.featureReportSha256,inspector:candidate.featureReport.inspector,model:candidate.featureReport.cost.model,residentBytes:candidate.featureReport.cost.residentBytes,peakAdditionalBytes:candidate.featureReport.cost.peakAdditionalBytes}),candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
  return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}

@@ -13,6 +13,12 @@ export interface QualifiedDetailImage {
  staticIndexSha256:string;publicationSha256:string;candidateId:string;sha256:string;bytes:number;mime:'image/png'|'image/jpeg';width:number;height:number;
  reservationBytes:number;restoreReservationBytes:number;transitionCapBytes:number;maxSceneBytes:number;maxRestoreWidth:number;maxRestoreHeight:number;devicePixelRatio:number;detailViewport:DetailImageViewport;runtime:DetailRuntimeProfile;revisionSha256:string;artworkRevisionId:string;sourceBindingSha256:string;featureReportSha256:string;inspector:string;model:string;
 }
+/** Facts copied from the loader-owned verified relation, never from mutable artwork extensions. */
+export interface DetailImageProjection {
+ readonly indexSha256:string;readonly publicationSha256:string;readonly revisionSha256?:string;
+ readonly candidate:Readonly<{artworkRevisionId:string;sha256:string;bytes:number;mime:string;width:number;height:number}>;
+ readonly qualification?:Readonly<{candidateId:string;tier:string;sourceBindingSha256:string;featureReportSha256:string;inspector:string;model:string;residentBytes:number;peakAdditionalBytes:number}>;
+}
 export type DetailImageSlot=ReturnType<typeof createDetailAttemptSlot<DetailImageResource>>;
 interface DetailImageResource {bitmap:ImageBitmap;texture:Three.Texture;geometry:Three.PlaneGeometry;material:Three.MeshBasicMaterial;object:Three.Mesh}
 export class DetailImageBudgetRefusal extends Error {
@@ -261,7 +267,19 @@ const r285Wheat:QualifiedDetailImage=Object.freeze({...wingedR12Wheat,
  runtime:Object.freeze({...wingedR12Wheat.runtime,browserVersion:'157.0.8103.51'}),
 });
 const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat,r24Wheat,r26Wheat,r27Wheat,r41Wheat,r44Wheat,r46Wheat,r52Wheat,r53Wheat,r57Wheat,r61Wheat,r62Wheat,r64Wheat,r65Wheat,r67Wheat,r69Wheat,r85Wheat,r86Wheat,r285Wheat]);
-export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string,projection?:DetailImageProjection):QualifiedDetailImage|undefined{
+ const historical=qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);
+ if(historical)return historical;
+ const candidate=projection?.candidate,facts=projection?.qualification,hash=(value:unknown)=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+ // Reuse the independently measured source/decoder/cost envelope across fresh
+ // publication aliases. Live scene pressure, viewport, runtime and authority
+ // still gate the attempt; a publication hash alone cannot qualify an image.
+ if(!projection||!candidate||!facts||!hash(revisionSha256)||projection.revisionSha256!==revisionSha256||candidate.artworkRevisionId!==artworkRevisionId||
+  !hash(projection.indexSha256)||!hash(projection.publicationSha256)||!hash(facts.sourceBindingSha256)||!hash(facts.featureReportSha256)||!facts.candidateId||facts.tier!=='acquired-original'||
+  candidate.sha256!==r285Wheat.sha256||candidate.bytes!==r285Wheat.bytes||candidate.mime!==r285Wheat.mime||candidate.width!==r285Wheat.width||candidate.height!==r285Wheat.height||
+  facts.inspector!==r285Wheat.inspector||facts.model!=='native-baseline-icc-jpeg-384-v1'||facts.residentBytes!==163942340||facts.peakAdditionalBytes!==r285Wheat.reservationBytes)return undefined;
+ return Object.freeze({...r285Wheat,staticIndexSha256:projection.indexSha256,publicationSha256:projection.publicationSha256,revisionSha256:revisionSha256!,artworkRevisionId:artworkRevisionId!,candidateId:facts.candidateId,sourceBindingSha256:facts.sourceBindingSha256,featureReportSha256:facts.featureReportSha256,inspector:facts.inspector,model:facts.model});
+}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
 export interface DetailImageViewport {width:number;height:number;canvasWidth:number;canvasHeight:number;pixelRatio:number;devicePixelRatio:number}

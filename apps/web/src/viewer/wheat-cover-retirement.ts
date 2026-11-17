@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {hasQualifiedWheatRevision} from './detail-image-attempt';
+import type {PublicPublication} from '../publication-client';
+import {staticArtworkDetailAttestation} from '../static-publication-source';
+import {qualifiedDetailImageProfile,hasQualifiedWheatRevision} from './detail-image-attempt';
 /** Admission evidence only for the measured Wheat publication. It does not
  * imply browser cache reclamation and never gates ordinary gallery viewing. */
 type CoverIdentity={sha256:string;bytes:number;mime:string};
 type ImageSize={width:number;height:number};
 const primary={sha256:'cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7',bytes:8103573,width:2048,height:1630};
 const variant={sha256:'0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304',bytes:509458,width:512,height:408};
-/** Only the exact publications with a qualified Wheat detail profile track cover retirement. */
-export const tracksWheatCover=hasQualifiedWheatRevision;
+/** Verified publications with a measured Wheat detail profile track cover retirement. */
+export function tracksWheatCover(revisionSha256?:string,publication?:PublicPublication):boolean{
+ if(hasQualifiedWheatRevision(revisionSha256))return true;
+ if(!publication||publication.publication.revisionSha256!==revisionSha256)return false;
+ return publication.exhibition.artworks.some(art=>!!qualifiedDetailImageProfile(revisionSha256,art.revisionId,staticArtworkDetailAttestation(publication.local?.detailAccess,publication,art.revisionId)));
+}
 // A new publication component cannot forget cover work from an old instance.
 // Positively retired operations are removed; uncertain cleanup remains blocked.
 type CoverWork={url:string;retired:boolean;images:()=>Iterable<{src:string;isConnected:boolean}>};
