@@ -9,4 +9,6 @@ export const BENCH_BASECOLOR_SHA256: string;
 export const CURRENT_WORKSPACE_RAIL_MIGRATION:string;
 export const CURRENT_WORKSPACE_RAIL_SHA256:string;
 export const CURRENT_WORKSPACE_RAIL_PARENT_SHA256:string;
+export const HAYES_PREOPEN_TERMINAL_MIGRATION:string;
+export const HAYES_PREOPEN_TERMINAL_SHA256:string;
 export function assertExactCurrentWorkspaceRailCatalog(client:Pick<PoolClient,'query'>):Promise<void>;
