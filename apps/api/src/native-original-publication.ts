@@ -45,6 +45,14 @@ export function createNativeOriginalPublication(services:Services){
   originalImage,
   assertCurrent(s:Session){if(!context.live()||s.tenantId!==owner.tenantId||s.userId!==owner.principalId||!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))unavailable();signal.throwIfAborted();},
   async assertLive(c:PoolClient,s:Session){await live(c,s);},
+  async assertImageSelection(c:PoolClient,s:Session,exhibitionId:string){
+   if(!originalImage)return;
+   await live(c,s);
+   const source=await readApprovedOriginalStaticSource(c,s,exhibitionId,originalImage,studio,cms,imports,blobs,signal);
+   try{
+    if(legacyImage(s,exhibitionId)?!matchesPrivateWheatGrant(source.grant):source.grant.rightsEvidenceEncoding!=='freeze-canonical-utf8')unavailable();
+   }finally{source.bytes.fill(0);}
+  },
   async verifyExisting(c:PoolClient,s:Session,exhibitionId:string,publicationId:string,revision:string,snapshot:Exhibition){
    await live(c,s);if((await c.query('SHOW transaction_isolation')).rows[0]?.transaction_isolation!=='read committed'||revisionHash(snapshot)!==revision)unavailable();
    const owned=(await c.query('SELECT 1 FROM exhibitions WHERE tenant_id=$1 AND id=$2 AND studio_owner_user_id=$3 AND deleted_at IS NULL',[s.tenantId,exhibitionId,s.userId])).rowCount;if(owned!==1)unavailable();
