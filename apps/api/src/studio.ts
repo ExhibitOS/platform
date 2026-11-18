@@ -16,7 +16,7 @@ import {ordinaryWorkspaceBenchVisualReplacementDelta} from './workspace-bench-vi
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
 import {nativeFixtureProposal,type NativeFixtureCommand} from './native-fixture-proposal.ts';
 import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
-import {applyFurnishingWalkingCollisionOverride,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,validateFurnishings,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
+import {applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,validateFurnishings,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
@@ -425,7 +425,7 @@ export class Studio {
     try{
       if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
-      else if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
+      else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(request.type==='reconcile-frame-image-fit'){
         const service=this.workspaceFurnishing,workspace=draft.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as import('@exhibitos/studio-contract').WorkspaceFurnishings|undefined;
         if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');

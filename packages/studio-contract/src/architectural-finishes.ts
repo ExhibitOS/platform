@@ -3,9 +3,11 @@ import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,artifactBounds,validateArtifactHull,createConvexCollision,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
 import {surfacePanels} from './surface-panels.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
+import {plainBaseboardPortalFeet} from './architectural-portal-feet.js';
+export {plainBaseboardPortalFeet,type ArchitecturalPortalFoot} from './architectural-portal-feet.js';
 export const ARCHITECTURAL_FINISH_NAMESPACE='org.exhibitos.studio/architectural-finishes';
 export const ARCHITECTURAL_FINISH_LIMITS=Object.freeze({walls:20,bytes:8192,openingsPerWall:8,boxes:256,triangles:3072});
-export interface WallFinish {surfaceId:string;depth:number;preset:'plain'|'painted-edge'|'dark-edge';trimWidth:number;baseboardHeight:number;ceilingBand:boolean}
+export interface WallFinish {surfaceId:string;depth:number;preset:'plain'|'painted-edge'|'dark-edge';trimWidth:number;baseboardHeight:number;ceilingBand:boolean;plainBaseboard?:boolean}
 export interface ArchitecturalFinishes {version:1;walls:WallFinish[]}
 export interface ArchitecturalBox {position:AffinePoint;dimensions:{width:number;height:number;depth:number};kind:'structure'|'finish'}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -13,9 +15,28 @@ const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{
 const equal=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const finite=(v:unknown,min:number,max:number):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 /** XY never enters the original opening. No sill/threshold, or independent door geometry. */
-export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],openings:Exhibition['openings'],settings:WallFinish,includeBaseboard=true):ArchitecturalBox[]{
+export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],openings:Exhibition['openings'],settings:WallFinish,includeBaseboard=true,document?:Exhibition):ArchitecturalBox[]{
  const panels=surfacePanels(surface,openings),boxes:ArchitecturalBox[]=panels.map(p=>({position:[p.x,p.y,0],dimensions:{width:p.width,height:p.height,depth:settings.depth},kind:'structure'}));
- if(settings.preset==='plain')return boxes;
+ if(settings.preset==='plain'){
+  if(settings.plainBaseboard!==true||!includeBaseboard)return boxes;
+  if(!document)throw Error('PLAIN_BASEBOARD_CONTEXT_REQUIRED');
+  const feet=plainBaseboardPortalFeet(document,surface.id),bottom=-surface.dimensions.height/2,top=bottom+settings.baseboardHeight;
+  for(const p of panels){
+   const left=p.x-p.width/2,right=p.x+p.width/2,b=Math.max(p.y-p.height/2,bottom),t=Math.min(p.y+p.height/2,top);
+   if(t<=b)continue;
+   for(const side of [-1,1]){
+    const z=side*(settings.depth/2+.001),cuts=feet.filter(f=>Math.min(z+.001,f.max[2])-Math.max(z-.001,f.min[2])>1e-9);
+    const xs=[...new Set([left,right,...cuts.flatMap(f=>[f.min[0],f.max[0]]).filter(x=>x>left&&x<right)])].sort((a,b)=>a-b),ys=[...new Set([b,t,...cuts.flatMap(f=>[f.min[1],f.max[1]]).filter(y=>y>b&&y<t)])].sort((a,b)=>a-b);
+    for(let i=1;i<xs.length;i++)for(let j=1;j<ys.length;j++){
+     const l=xs[i-1]!,r=xs[i]!,low=ys[j-1]!,high=ys[j]!;
+     if(r-l<=1e-8||high-low<=1e-8||cuts.some(f=>(l+r)/2>f.min[0]&&(l+r)/2<f.max[0]&&(low+high)/2>f.min[1]&&(low+high)/2<f.max[1]))continue;
+     boxes.push({position:[(l+r)/2,(low+high)/2,z],dimensions:{width:r-l,height:high-low,depth:.002},kind:'finish'});
+     if(boxes.length>ARCHITECTURAL_FINISH_LIMITS.boxes)throw Error('ARCHITECTURAL_FINISH_LIMIT');
+    }
+   }
+  }
+  return boxes;
+ }
  const w=surface.dimensions.width,h=surface.dimensions.height,t=settings.trimWidth,bands:{l:number;r:number;b:number;t:number}[]=[];
  // Junctions lie on the same existing solid wall, never on the walkable floor.
  if(includeBaseboard)bands.push({l:-w/2,r:w/2,b:-h/2,t:-h/2+settings.baseboardHeight});
@@ -43,7 +64,7 @@ export function validateArchitecturalFinishes(candidate:unknown){
  const document=candidate as unknown as Exhibition,seen=new Set<string>();let count=0;
  for(const [i,row]of value.walls.entries()){
   const path='/walls/'+i;
-  if(!object(row)||Object.keys(row).sort().join(',')!=='baseboardHeight,ceilingBand,depth,preset,surfaceId,trimWidth'||!uuid(row.surfaceId)||!finite(row.depth,.02,.2)||!finite(row.trimWidth,.02,.08)||!finite(row.baseboardHeight,.04,.15)||!['plain','painted-edge','dark-edge'].includes(row.preset as string)||typeof row.ceilingBand!=='boolean'){add('ARCHITECTURAL_FINISH_SCHEMA',path,'Expected bounded existing wall finish');continue;}
+  if(!object(row)||!['baseboardHeight,ceilingBand,depth,preset,surfaceId,trimWidth','baseboardHeight,ceilingBand,depth,plainBaseboard,preset,surfaceId,trimWidth'].includes(Object.keys(row).sort().join(','))||!uuid(row.surfaceId)||!finite(row.depth,.02,.2)||!finite(row.trimWidth,.02,.08)||!finite(row.baseboardHeight,.04,.15)||!['plain','painted-edge','dark-edge'].includes(row.preset as string)||typeof row.ceilingBand!=='boolean'||Object.hasOwn(row,'plainBaseboard')&&(typeof row.plainBaseboard!=='boolean'||row.plainBaseboard&&row.preset!=='plain')){add('ARCHITECTURAL_FINISH_SCHEMA',path,'Expected bounded existing wall finish with optional plain-only baseboard');continue;}
   if(seen.has(row.surfaceId.toLowerCase()))add('ARCHITECTURAL_FINISH_REFERENCE',path,'Wall must be unique');seen.add(row.surfaceId.toLowerCase());
   const surface=document.surfaces.find(s=>s&&typeof s.id==='string'&&equal(s.id,row.surfaceId as string)),room=surface&&document.rooms.find(r=>r&&typeof r.id==='string'&&typeof surface.roomId==='string'&&equal(r.id,surface.roomId));
   if(!surface||surface.type!=='wall'||!room){add('ARCHITECTURAL_FINISH_REFERENCE',path,'Existing wall and room required');continue;}
@@ -51,7 +72,7 @@ export function validateArchitecturalFinishes(candidate:unknown){
   try{
    const footprint=artifactCorners(surface.dimensions,[surface.transform]);
    if(footprint.some(p=>Math.abs(p[0])>room.dimensions.width/2+1e-6||p[1]<-1e-6||p[1]>room.dimensions.height+1e-6||Math.abs(p[2])>room.dimensions.depth/2+1e-6))throw Error('WALL_TANGENTIAL_BOUNDS');
-   const boxes=architecturalWallBoxes(surface,document.openings,row as unknown as WallFinish);count+=boxes.length;
+   const boxes=architecturalWallBoxes(surface,document.openings,row as unknown as WallFinish,true,document);count+=boxes.length;
    const bounds=boxes.map(box=>artifactBounds(boxVertices(box,surface.transform,room.transform)));
    // Conservative world assertion AABBs prevent silently burying existing artwork.
    for(const placement of document.placements??[]){const art=document.artworks.find(a=>equal(a.revisionId,placement.artworkRevisionId)),artRoom=document.rooms.find(r=>equal(r.id,placement.roomId));if(!art||!artRoom)throw Error();const a=artifactBounds(artifactCorners(art.dimensions,[art.transform,placement.transform,artRoom.transform],true));if(bounds.some(b=>[0,1,2].every(j=>Math.min(a.max[j]!,b.max[j]!)-Math.max(a.min[j]!,b.min[j]!)>.001)))throw Error('ARTWORK_OBSCURED');}
@@ -76,7 +97,7 @@ export function architecturalSolids(document:Exhibition,includeBaseboard:(surfac
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
  return wallFinishesFor(document).flatMap(w=>{
   const surface=document.surfaces.find(s=>equal(s.id,w.surfaceId))!,room=document.rooms.find(r=>equal(r.id,surface.roomId))!;
-  return architecturalWallBoxes(surface,document.openings,w,includeBaseboard(surface.id)).map(box=>{
+  return architecturalWallBoxes(surface,document.openings,w,includeBaseboard(surface.id),document).map(box=>{
    const vertices=boxVertices(box,surface.transform,room.transform);
    return {surfaceId:surface.id,roomId:room.id,kind:box.kind,vertices,indices:[...indices],collision:createConvexCollision(vertices,indices)};
   });

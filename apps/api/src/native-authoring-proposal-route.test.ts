@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
@@ -59,6 +59,21 @@ it('proposes only a checked change to the current saved draft through the instal
   const wallReply=await post({...payload,request:{...binding,...wall}});
   expect(wallReply.statusCode,wallReply.body).toBe(200);
   expect(wallReply.json()).toEqual({...binding,surfaceId:wall.wall.surfaceId,candidate:applyArchitecturalFinishCommand(before.candidate,wall)});
+  const plain={type:'set-wall-finish' as const,wall:{...wall.wall,preset:'plain' as const,baseboardHeight:.04,plainBaseboard:true}},plainPayload={...payload,request:{...binding,...plain}};
+  const plainReply=await post(plainPayload);expect(plainReply.statusCode,plainReply.body).toBe(200);
+  expect(plainReply.json()).toEqual({...binding,surfaceId:plain.wall.surfaceId,candidate:applyArchitecturalFinishCommand(before.candidate,plain)});
+  expect((await post(plainPayload)).json()).toEqual(plainReply.json());expect((await post({...plainPayload,expectedRevision:revision-1})).statusCode).toBe(412);
+  for(const fields of [{plainBaseboard:'true'},{plainBaseboard:true,preset:'painted-edge'},{plainBaseboard:true,extra:true}])expect((await post({...plainPayload,request:{...binding,...plain,wall:{...plain.wall,...fields}}})).statusCode).toBe(422);
+  for(const priorPlain of [false,true])for(const unrelated of [false,true]){
+   let withOverrides=applyFurnishingWalkingCollisionOverride(applyArchitecturalFinishCommand(before.candidate,priorPlain?plain:wall),{kind:'baseboard',id:wall.wall.surfaceId},true);
+   if(unrelated)withOverrides=applyFurnishingWalkingCollisionOverride(withOverrides,{kind:'light',id:originalLight.id},false);
+   draft.candidate=withOverrides;const overrideHead=etag(revision,draft),disabled={...plain,wall:{...plain.wall,plainBaseboard:false}},cleanupPayload={...payload,request:{...binding,...disabled}};
+   const cleaned=await post(cleanupPayload,{'if-match':overrideHead});expect(cleaned.statusCode,cleaned.body).toBe(200);
+   expect(cleaned.json().candidate).toEqual(reconcileFurnishingWalkingCollision(withOverrides,applyArchitecturalFinishCommand(withOverrides,disabled)));
+   expect(cleaned.json().candidate.extensions[FURNISHING_WALKING_COLLISION_NAMESPACE]).toEqual(unrelated?{version:1,overrides:[{kind:'light',id:originalLight.id,enabled:false}]}:undefined);
+   expect((await post(cleanupPayload,{'if-match':overrideHead})).json()).toEqual(cleaned.json());
+  }
+  draft.candidate=before.candidate;
   const pedestal={kind:'box' as const,position:[0,0,0] as [number,number,number],yaw:0,dimensions:{width:.65,depth:.65,height:.18},material:{preset:'paint' as const,color:'#F2F2F2',roughness:.7,metalness:0}};
   const pedestalPayload={...payload,request:{...binding,type:'set-pedestal',placementId:placement.id,pedestal}};
   const pedestalReply=await post(pedestalPayload);

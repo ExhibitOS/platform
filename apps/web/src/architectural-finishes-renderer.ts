@@ -28,11 +28,11 @@ export function installArchitecturalFinishes(three:typeof Three,document:Exhibit
  const records:{surfaceId:string;depth:number;preset:string;boxes:number;triangles:number;openingWidths:number[]}[]=[];let disposed=false;
  const dispose=()=>{if(disposed)return;disposed=true;for(const m of meshes){m.removeFromParent();if(m instanceof three.InstancedMesh)m.dispose();}geometry?.dispose();for(const g of ownedGeometries)g.dispose();for(const m of materials.values())m.dispose();materials.clear();};
  try{for(const wall of walls){const surface=document.surfaces.find(s=>s.id.toLowerCase()===wall.surfaceId.toLowerCase())!,parent=surfaces.get(wall.surfaceId.toLowerCase()),base=baseMaterials.get(wall.surfaceId.toLowerCase());if(!parent||!base)throw Error('ARCHITECTURAL_FINISH_REFERENCE');
-  const boxes=architecturalWallBoxes(surface,document.openings,wall),pose=new three.Object3D();
+  const boxes=architecturalWallBoxes(surface,document.openings,wall,true,document),pose=new three.Object3D();
   const openingWidths=document.openings.filter(o=>o.surfaceId.toLowerCase()===surface.id.toLowerCase()).map(o=>o.dimensions.width);
   let triangles=0;
   for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind&&!buriedPairedFinish(b,coverage.get(surface.id.toLowerCase())));if(!items.length)continue;let material=base;
-   if(kind==='finish'){let own=materials.get(wall.preset);if(!own){own=new three.MeshStandardMaterial(wall.preset==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(wall.preset,own);}material=own;}
+   if(kind==='finish'){const style=wall.preset==='dark-edge'?'dark-edge':'painted-edge';let own=materials.get(style);if(!own){own=new three.MeshStandardMaterial(style==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(style,own);}material=own;}
    const binding=kind==='structure'?(workspaceBindings?.get(surface.id.toLowerCase())??surfaceTextureFor(document,surface.id)):undefined;let mesh:Three.Mesh;
    if(binding||kind==='structure'&&items.length>1){
     const reveal=coverage.get(surface.id.toLowerCase()),own=binding?texturedWallGeometry(three,items,parent,binding,reveal):wallOpeningShell(three,items,reveal);

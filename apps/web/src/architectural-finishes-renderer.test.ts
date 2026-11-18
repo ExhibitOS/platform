@@ -14,6 +14,35 @@ test('finish pooled rendering matches world hulls once and disposes owned buffer
  const worldBounds=new Three.Box3().setFromObject(room),points=architecturalSolids(d).flatMap(s=>s.vertices);for(const axis of [0,1,2]){expect(worldBounds.min.getComponent(axis)).toBeCloseTo(Math.min(...points.map(p=>p[axis]!)),6);expect(worldBounds.max.getComponent(axis)).toBeCloseTo(Math.max(...points.map(p=>p[axis]!)),6);}
  const geometries=r.meshes.map(m=>vi.spyOn(m.geometry,'dispose'));r.dispose();r.dispose();for(const geometry of geometries)expect(geometry).toHaveBeenCalledOnce();expect(borrowed).not.toHaveBeenCalled();expect(parent.children).toHaveLength(0);base.dispose();
 });
+test('plain baseboard opt-in renders only the lower band and retains structural texture reserves and borrowed paint',()=>{
+ const {d:before,wall}=fixture();
+ const settings={surfaceId:wall.id,depth:.12,preset:'plain' as const,trimWidth:.04,baseboardHeight:.04,ceilingBand:false};
+ const plain=applyArchitecturalFinishCommand(before,{type:'set-wall-finish',wall:settings});
+ const opted=applyArchitecturalFinishCommand(plain,{type:'set-wall-finish',wall:{...settings,plainBaseboard:true}});
+ const parent=new Three.Group(),base=new Three.MeshStandardMaterial();
+ const borrowed=vi.spyOn(base,'dispose');
+ const legacy=installArchitecturalFinishes(Three,plain,new Map([[wall.id,parent]]),new Map([[wall.id,base]]));
+ expect(legacy.meshes.every(mesh=>mesh.userData.architecturalFinish.kind==='structure')).toBe(true);
+ const structural=Array.from(legacy.meshes[0]!.geometry.getAttribute('position').array);legacy.dispose();
+ const result=installArchitecturalFinishes(Three,opted,new Map([[wall.id,parent]]),new Map([[wall.id,base]]));
+ try{
+  const structure=result.meshes.find(mesh=>mesh.userData.architecturalFinish.kind==='structure')!;
+  expect(Array.from(structure.geometry.getAttribute('position').array)).toEqual(structural);
+  const finish=result.meshes.find(mesh=>mesh.userData.architecturalFinish.kind==='finish') as Three.InstancedMesh;
+  expect(finish).toBeInstanceOf(Three.InstancedMesh);expect(finish.count).toBe(4);
+  const matrix=new Three.Matrix4(),position=new Three.Vector3(),rotation=new Three.Quaternion(),scale=new Three.Vector3();
+  for(let i=0;i<finish.count;i++){
+   finish.getMatrixAt(i,matrix);matrix.decompose(position,rotation,scale);
+   expect(position.y-scale.y/2).toBeCloseTo(-wall.dimensions.height/2,6);
+   expect(position.y+scale.y/2).toBeCloseTo(-wall.dimensions.height/2+.04,6);
+   expect(scale.z).toBeCloseTo(.002,6);
+   expect(Math.abs(position.x)-scale.x/2).toBeGreaterThanOrEqual(1.2-1e-6);
+  }
+  expect(structure.material).toBe(base);
+  expect(surfaceTexturePlan(opted,512,1).geometryReserve).toBe(surfaceTexturePlan(plain,512,1).geometryReserve);
+ }finally{result.dispose();}
+ expect(borrowed).not.toHaveBeenCalled();expect(parent.children).toHaveLength(0);base.dispose();
+});
 test('finish actual Rapier and server presence agree on wall thickness while retaining clear door width',async()=>{
  const {d}=fixture(),c=await createNavigationController(d,{position:[0,1.65,0]}),presence=createPresenceGeometry(d),roomId=d.rooms[0]!.id;try{
   expect(c.isWalkable([3,1.65,-3.72])).toBe(false);expect(presence.valid({roomId,position:[3,1.65,-3.72],yaw:0})).toBe(false);
