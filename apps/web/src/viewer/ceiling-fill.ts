@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {alignedDoorPair, lightDetailsFor} from '@exhibitos/studio-contract';
+import {alignedDoorPair, lightDetailsFor, type LightDetails} from '@exhibitos/studio-contract';
 import type * as Three from 'three';
+import {createUpperAngularLighting} from './upper-angular-lighting';
 
 const passageMetres = .5;
 const boundaryTolerance = .002;
@@ -103,8 +104,18 @@ export function installCeilingFillMask(
   rooms: ReadonlyMap<string, Three.Group>,
   lights: ReadonlyMap<string, {light: Three.Light}>,
 ) {
-  const tagged = new Set(lightDetailsFor(doc).filter(entry => entry.ceilingFill).map(entry => entry.lightId.toLowerCase()));
-  if (!tagged.size) return;
+  const details = lightDetailsFor(doc);
+  const tagged = new Set(details.filter(entry => entry.ceilingFill).map(entry => entry.lightId.toLowerCase()));
+  const upperProfiles = new Map<Three.SpotLight, NonNullable<LightDetails['angularProfile']>>();
+  for (const entry of details) {
+    if (!entry.angularProfile) continue;
+    const id = doc.lights.find(light => light.id.toLowerCase() === entry.lightId.toLowerCase())?.id;
+    const spot = id ? lights.get(id)?.light : undefined;
+    if (!(spot instanceof three.SpotLight)) throw Error('UPPER_ANGULAR_SPOT_BINDING');
+    upperProfiles.set(spot, entry.angularProfile);
+  }
+  const upperAngular = createUpperAngularLighting(three, upperProfiles);
+  if (!tagged.size && !upperAngular) return;
   scene.updateMatrixWorld(true);
   const byObject = new Map<Three.RectAreaLight, string>();
   for (const item of doc.lights) {
@@ -122,16 +133,17 @@ export function installCeilingFillMask(
   const materials = new Map<Three.Material, () => void>();
   const indices = new Map([...byObject.keys()].map((light, i) => [light, i]));
   const definitions = [...byObject.values()].join('\n');
-  let previousAssignments: string | undefined;
+  let previousAssignments: string | undefined, previousAngularAssignments: string | undefined;
   let sourceKey = '', injectedLighting = '';
 
   const prepare = (camera: Three.Camera) => {
-    const order: Three.RectAreaLight[] = [], receiving = new Set<Three.Material>();
+    const order: Three.RectAreaLight[] = [], spots: Three.SpotLight[] = [], receiving = new Set<Three.Material>();
     // Three r186 gathers lights in visible scene traversal order. Its stable
     // shadow/map sort leaves the relative order of passive RectAreaLights intact.
     scene.traverseVisible(object => {
       if (!object.layers.test(camera.layers)) return;
       if (object instanceof three.RectAreaLight) order.push(object);
+      if (upperAngular && object instanceof three.SpotLight) spots.push(object);
       if (object instanceof three.Mesh) {
         for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
           if (material instanceof three.MeshStandardMaterial) receiving.add(material);
@@ -142,10 +154,12 @@ export function installCeilingFillMask(
       const zone = indices.get(light);
       return zone === undefined ? '' : `if (UNROLLED_LOOP_INDEX == ${i}) exhibitosFillWeight = exhibitosRoomFill${zone}(exhibitosFillWorld, exhibitosFillNormal);`;
     }).join('\n');
-    if (previousAssignments !== assignments) {
+    const angularAssignments = upperAngular?.prepare(spots);
+    if (previousAssignments !== assignments || previousAngularAssignments !== angularAssignments) {
       previousAssignments = assignments;
-      sourceKey = assignments + definitions;
-      injectedLighting = fragment.replace(directAreaCall, `{
+      previousAngularAssignments = angularAssignments;
+      sourceKey = assignments + definitions + (angularAssignments ? '|upper-angular-v1|' + upperAngular?.definitions + angularAssignments : '');
+      const areaLighting = tagged.size ? fragment.replace(directAreaCall, `{
         vec3 exhibitosFillWorld = ((vec4(geometryPosition, 1.0) - viewMatrix[3]) * viewMatrix).xyz;
         vec3 exhibitosFillNormal = (vec4(nonPerturbedNormal, 0.0) * viewMatrix).xyz;
         float exhibitosFillWeight = 1.0;
@@ -154,7 +168,8 @@ export function installCeilingFillMask(
           rectAreaLight.color *= exhibitosFillWeight;
           ${directAreaCall}
         }
-      }`);
+      }`) : fragment;
+      injectedLighting = upperAngular?.inject(areaLighting, angularAssignments ?? '') ?? areaLighting;
       for (const material of materials.keys()) material.needsUpdate = true;
     }
     for (const material of receiving) {
@@ -163,6 +178,12 @@ export function installCeilingFillMask(
       const baseKey = key.call(material);
       const hook: Three.Material['onBeforeCompile'] = (shader, renderer) => {
         before.call(material, shader, renderer);
+        // Three retains one uniform dictionary per material, even when
+        // switching between cached programs with different visible light rosters.
+        upperAngular?.applyUniform(shader.uniforms);
+        if (previousAngularAssignments && upperAngular) {
+          shader.fragmentShader = upperAngular.definitions + '\n' + shader.fragmentShader;
+        }
         shader.fragmentShader = definitions + '\n' + shader.fragmentShader.replace(lightChunk, injectedLighting);
       };
       const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey;
@@ -196,5 +217,5 @@ export function installCeilingFillMask(
       for (const retire of materials.values()) retire();
     }
   };
-  return {prepare, dispose};
+  return {prepare, dispose, hasUpperAngular: !!upperAngular};
 }

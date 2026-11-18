@@ -8,6 +8,8 @@ import {artifactBounds,artifactCorners} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
 import {deriveRoomCeilingFill,type RoomCeilingFill} from './room-ceiling-fill.js';
 import {roomCeilingFillDimensions} from './room-envelope-faces.js';
+import {isUpperFramingProfile,upperFramingProtectsImage,type UpperFramingProfile} from './upper-framing.js';
+export type {UpperFramingProfile} from './upper-framing.js';
 
 export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as const;
@@ -28,6 +30,8 @@ export interface LightDetails {
   aim?:LightAim;
   /** One known articulated source; mount and aim override base optics. */
   trackAim?:TrackSpotAimBinding;
+  /** Source-local upper attenuation, absent for ordinary circular optics. */
+  angularProfile?:UpperFramingProfile;
   /** Spot beam edge only, independent of bounded shadow filtering. */
   penumbra?:number;
   /** Existing Three point/spot distance cutoff in metres. */
@@ -91,7 +95,7 @@ export function validateStudioLightDetails(candidate:unknown){
   const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>(),legacyBaseRooms=new Set<string>(),supplementalRooms=new Map<string,string>();
   value.lights.forEach((entry,i)=>{
     const path='/lights/'+i;
-    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','ceilingFill','trackAim'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
+    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose','basePlacement','ceilingFill','trackAim','angularProfile'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
     const light=lights.find(l=>typeof l.id==='string'&&same(l.id,entry.lightId as string)),room=light&&rooms.find(r=>typeof r.id==='string'&&typeof light.roomId==='string'&&same(r.id,light.roomId));
     if(seen.has(entry.lightId.toLowerCase())||!light||!room||!object(room.dimensions)){add('LIGHT_DETAILS_REFERENCE',path,'Expected unique existing light and room');return;}seen.add(entry.lightId.toLowerCase());
     const roomId=(room.id as string).toLowerCase(),supplemental=entry.purpose==='room-supplemental-fill';
@@ -135,6 +139,10 @@ export function validateStudioLightDetails(candidate:unknown){
       if(!finite(entry.temperatureKelvin,1000,20000))add('LIGHT_DETAILS_COLOR',path+'/temperatureKelvin','Expected1000..20000K visual approximation');
       else {const expected=lightKelvinLinear(entry.temperatureKelvin);if(!Array.isArray(light.color)||light.color.length!==3||light.color.some((n,j)=>!finite(n,0,1)||Math.abs(n-expected[j]!)>1e-6))add('LIGHT_DETAILS_COLOR',path+'/temperatureKelvin','Stored linear RGB must match explicit K intent; direct edits must clear K atomically');}
     }
+    const hasAngularProfile=Object.hasOwn(entry,'angularProfile');
+    const angularProfile=isUpperFramingProfile(entry.angularProfile)?entry.angularProfile:undefined;
+    if(hasAngularProfile&&(!angularProfile||!object(entry.trackAim)))
+      add('LIGHT_ANGULAR_PROFILE_INVALID',path+'/angularProfile','Use bounded upper framing on a qualified articulated spot aimed at an image placement');
     if(Object.hasOwn(entry,'trackAim')){
       if(!validateTrackSpotAimBinding(entry.trackAim)||entry.fixture!=='none'||Object.hasOwn(entry,'aim')||Object.hasOwn(entry,'purpose')||Object.hasOwn(entry,'basePlacement')||light.type!=='spot')add('TRACK_SPOT_AIM_INVALID_BINDING',path+'/trackAim','Use the known articulated fixture with one explicit mount/aim and no legacy aim or base-light intent');
       else {
@@ -142,6 +150,8 @@ export function validateStudioLightDetails(candidate:unknown){
         if(object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(a=>object(a)&&typeof a.lightId==='string'&&same(a.lightId,entry.lightId as string)))add('TRACK_SPOT_AIM_INVALID_BINDING',path+'/trackAim','The articulated mount replaces the legacy emitter attachment');
         const result=resolveTrackSpotAiming(candidate as unknown as Exhibition,entry.lightId as string,entry.trackAim);
         if(!result.reachable)add('TRACK_SPOT_AIM_'+result.reason,path+'/trackAim',result.remedy);
+        else if(angularProfile&&!upperFramingProtectsImage(candidate as unknown as Exhibition,entry.trackAim,result,angularProfile))
+          add('LIGHT_ANGULAR_PROFILE_REQUALIFY',path+'/angularProfile','Requalify or clear upper framing so the complete aimed image stays below the cutoff');
       }
     }
     const aim=entry.aim;
@@ -327,7 +337,10 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   if(!validation.valid){
     const trackPath=`/lights/${at<0?bindings.length-1:at}/trackAim`;
     const issue=settings.trackAim&&validation.errors.find(error=>error.path.endsWith(trackPath)&&error.code.startsWith('TRACK_SPOT_AIM_'));
-    throw new Error('LIGHT_DETAILS_INVALID',issue?{cause:{code:issue.code,remedy:issue.message}}:undefined);
+    const angularPath=`/lights/${at<0?bindings.length-1:at}/angularProfile`;
+    const angular=settings.angularProfile&&validation.errors.find(error=>error.path.endsWith(angularPath)&&error.code.startsWith('LIGHT_ANGULAR_PROFILE_'));
+    const diagnostic=issue??angular;
+    throw new Error('LIGHT_DETAILS_INVALID',diagnostic?{cause:{code:diagnostic.code,remedy:diagnostic.message}}:undefined);
   }
   return next;
 }
