@@ -166,6 +166,17 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
   }
   case 'remove-light-object':{
    if(!closed(command,['type','lightId']))fail();assertNoForeignReference(next,light.id);
+   const prior=settingsFor(next,light.id);
+   if(light.type==='point'&&prior.purpose==='room-base'&&!Object.hasOwn(prior,'basePlacement')&&!Object.hasOwn(prior,'ceilingFill')){
+    // Full input admission establishes the unique canonical automatic fill.
+    // Retain that emitter verbatim when retiring its legacy point prerequisite.
+    const details=lightDetailsFor(next),fills=details.filter(binding=>binding.purpose==='room-supplemental-fill'&&next.lights.some(row=>same(row.id,binding.lightId)&&same(row.roomId,light.roomId)));
+    if(fills.length>1)fail();
+    if(fills.length===1){
+     fills[0]!.purpose='room-base';
+     writeBindings(next,LIGHT_DETAILS_NAMESPACE,details);
+    }
+   }
    if(settingsFor(next,light.id).trackAim){
     const value=furnishingsFor(next)!;value.bindings=value.bindings.filter(b=>b.hostKind!=='light'||!same(b.hostId,light.id));value.assets=value.assets.filter(a=>value.bindings.some(b=>same(b.assetId,a.id)));
     if(value.bindings.length)next.extensions![FURNISHING_NAMESPACE]=value as unknown as NonNullable<Exhibition['extensions']>[string];else delete next.extensions![FURNISHING_NAMESPACE];
