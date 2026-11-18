@@ -1,3 +1,4 @@
+import {nativePlacementVoiceProposal,type NativePlacementVoiceCommand} from './native-placement-voice-proposal.ts';
 import type {BlobStore} from '@exhibitos/storage';
 import type {Cms} from './cms.ts';
 import {viewerBudgetAssetSource} from './viewer-budget-producer.ts';
@@ -55,7 +56,7 @@ export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -422,7 +423,8 @@ export class Studio {
     checked({draft,requestId},budgetCommand&&!!row.nativeBounded,budgetCommand);
     let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string};
     try{
-      if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
+      if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
+      else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
       else if(request.type==='set-wall-finish')result={candidate:applyArchitecturalFinishCommand(draft.candidate,request),surfaceId:request.wall.surfaceId};
       else if(request.type==='reconcile-frame-image-fit'){
         const service=this.workspaceFurnishing,workspace=draft.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as import('@exhibitos/studio-contract').WorkspaceFurnishings|undefined;
