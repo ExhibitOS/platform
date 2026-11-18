@@ -460,6 +460,10 @@ export class Studio {
         &&typeof issue.remedy==='string'&&issue.remedy.length>0&&issue.remedy.length<=256){
         throw new NativeTrackSpotAimProposalError(issue.code,issue.remedy);
       }
+      if(operation.type==='set-light-object'&&operation.settings.angularProfile!==undefined&&issue&&typeof issue==='object'&&'code' in issue
+        &&(issue.code==='LIGHT_ANGULAR_PROFILE_INVALID'||issue.code==='LIGHT_ANGULAR_PROFILE_REQUALIFY')){
+        throw new ApiError(422,issue.code);
+      }
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
     }
     let beamFit:Awaited<ReturnType<typeof prepareNativeSpotBeamFit>>['beamFit']|undefined;

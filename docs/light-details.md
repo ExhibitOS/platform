@@ -52,3 +52,16 @@ keeps the source/raw input; use the new atomic command instead. No ordinary v1
 frame selection/action whitelist is widened. Public/OEX projections remap typed
 light IDs only. Native GUI, public hosting and human rendering acceptance remain
 separate from shared-source and local-output verification.
+
+The saved-head light-object proposal can carry
+`settings.angularProfile = {version:1,kind:'upper-framing',cutoffAngle,softnessAngle}`
+when the owner session advertises `saved-head-upper-framing-v1`. The angles are
+radians in the articulated head frame, where −Z is forward and +Y is up. The
+profile reduces direct spot contribution above the cutoff. Omitting the
+property clears the profile and uses the standard circular beam.
+
+Upper framing requires a qualified articulated spot aimed at a same-room
+image and a positive uniform room scale. Validation checks the complete
+canonical image footprint or authored containment plane against the cutoff
+again after target or room edits. Requalify or clear the profile if a change
+moves part of the image into the attenuated region.
