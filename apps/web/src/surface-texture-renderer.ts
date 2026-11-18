@@ -12,7 +12,7 @@ export function surfaceTexturePlan(document:Exhibition,maxTextureSize:number,ava
  // Textured structures also own the metric UV buffer, including during fallback.
  const geometryReserve=wallFinishesFor(document).reduce((sum,w)=>{
   const surface=document.surfaces.find(s=>s.id.toLowerCase()===w.surfaceId.toLowerCase())!;
-  const boxes=architecturalWallBoxes(surface,document.openings,w).filter(b=>b.kind==='structure');
+  const boxes=architecturalWallBoxes(surface,document.openings,w,true,document).filter(b=>b.kind==='structure');
   const textured=workspaceTargets?.has(w.surfaceId.toLowerCase())===true||surfaceTextureFor(document,w.surfaceId)!==undefined;
   if(boxes.length>1)return sum+wallOpeningShellReserve(boxes,textured);
   return sum+(textured?boxes.length*2*(24*32+36*4):0);
