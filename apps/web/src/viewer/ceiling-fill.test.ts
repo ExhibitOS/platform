@@ -160,6 +160,18 @@ test('upper angular direct spot terms compose with area and contact, including s
   expect(fragment(material)).toMatch(/#if UNROLLED_LOOP_INDEX == 0\s+\{\s+vec4 exhibitosUpperPlane/);
   expect(material.customProgramCacheKey()).not.toBe(key);
 
+  const activeKey = material.customProgramCacheKey();
+  spot.visible = false;
+  mask.prepare(camera);
+  const inactiveShader = shaderFor(material);
+  expect(inactiveShader.fragmentShader).not.toContain('uniform vec4 exhibitosUpperAngularPlanes');
+  expect(inactiveShader.uniforms.exhibitosUpperAngularPlanes).toBe(uniform);
+  spot.visible = true;
+  mask.prepare(camera);
+  expect(material.customProgramCacheKey()).toBe(activeKey);
+  // Returning to a cached active program may reuse the inactive compile's dictionary.
+  expect(inactiveShader.uniforms.exhibitosUpperAngularPlanes!.value[0].x).toBeCloseTo(-Math.cos(cutoffAngle));
+
   mask.dispose(contacts.dispose);
   expect(material.onBeforeCompile).toBe(before);
   mesh.geometry.dispose();

@@ -178,8 +178,10 @@ export function installCeilingFillMask(
       const baseKey = key.call(material);
       const hook: Three.Material['onBeforeCompile'] = (shader, renderer) => {
         before.call(material, shader, renderer);
+        // Three retains one uniform dictionary per material, even when
+        // switching between cached programs with different visible light rosters.
+        upperAngular?.applyUniform(shader.uniforms);
         if (previousAngularAssignments && upperAngular) {
-          upperAngular.applyUniform(shader.uniforms);
           shader.fragmentShader = upperAngular.definitions + '\n' + shader.fragmentShader;
         }
         shader.fragmentShader = definitions + '\n' + shader.fragmentShader.replace(lightChunk, injectedLighting);
