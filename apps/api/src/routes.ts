@@ -48,6 +48,7 @@ import { openingHostAuthority } from './opening-authority.ts';
 import {NATIVE_SPOT_BEAM_FIT_PROFILE} from './native-spot-beam-fit.ts';
 import {NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE,NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE,NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE,NATIVE_AUTHORING_PROPOSAL_PROFILE,type NativeDefaultSeatProposalInput,type NativeAuthoringProposalInput, Studio, etag, requiredMatch, type StudioInput } from './studio.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
+import {loadSelectedNativeRelease, selectedNarrationRights, SELECTED_NATIVE_RELEASE, type NativeReleaseSelection, type SelectedNativeRelease} from './native-selected-release.ts';
 import {ADOPTED_MODEL_ORIGINAL_APPROVAL,approveAdoptedModelOriginal,type AdoptedModelOriginalApproval} from './adopted-model-original-approval.ts';
 import {hasAdoptedModelOriginalApproval} from './adopted-model-original-binding.ts';
 import {createNativeOriginalPublication} from './native-original-publication.ts';
@@ -464,8 +465,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const requestId=mutate?(req.body as {requestId:string}).requestId:undefined;if(requestId)uuid(requestId);
   const profile=req.headers['x-exhibitos-publication-profile'];if(profile!==undefined&&profile!=='bounded-local-v1'&&profile!=='native-original-v1')throw new ApiError(400,'INVALID_INPUT');
   const detailMode=profile==='native-original-v1';
-  const originalImage=mutate?(req.body as {originalImage?:OriginalStaticApprovalInput}).originalImage:undefined;
-  if(originalImage&&!detailMode)throw new ApiError(400,'INVALID_INPUT');if(detailMode&&(!mutate||!nativeDetailContext||!nativeOexWorkspace||!(store instanceof FileBlobStore)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+  const {originalImage,releaseSelection}=mutate?req.body as {originalImage?:OriginalStaticApprovalInput;releaseSelection?:NativeReleaseSelection}:{};
+  if((originalImage||releaseSelection)&&!detailMode)throw new ApiError(400,'INVALID_INPUT');if(detailMode&&(!mutate||!nativeDetailContext||!nativeOexWorkspace||!(store instanceof FileBlobStore)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
   const match=mutate||profile!==undefined?requiredMatch(req.headers['if-match']):undefined;
   if(profile===undefined)return call(mutate,async(c,s,_request,response)=>{if(!mutate)return publications.ready(c,s,p.id);const result=await publications.publish(c,s,p.id,requestId!,match!);response.code(201);return result;})(req,reply);
   if(closingPublications)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
@@ -483,17 +484,23 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     if(detailMode)cancelled.signal.throwIfAborted();
     if(detailMode&&!originalImage&&!hasQualifiedOriginalImageModel(nativeDetailContext,s,p.id)&&!await hasAdoptedModelOriginalApproval(c,s,nativeDetailContext!.owner.workspaceId,p.id)&&!await hasRequiredModelOriginalApproval(c,s,nativeDetailContext!.owner.workspaceId,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
     const producer=detailMode?createNativeOriginalPublication({context:nativeDetailContext!,studio,cms,imports:importer(),blobs:store,operationSignal:cancelled.signal,originalImage}):undefined;
-    if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode,producer);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');return existing;}}
+    let selected:SelectedNativeRelease|undefined, assertNarrationTime:(()=>void)|undefined;
+    if(releaseSelection){
+     const row=await studio.access(c,s,p.id);
+     selected=await loadSelectedNativeRelease(c,s,p.id,row,match!,originalImage);
+     assertNarrationTime=await selectedNarrationRights(c,s,p.id,selected);
+    }
+    if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode,producer,releaseSelection);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');assertNarrationTime?.();return existing;}}
     {
      const row=await studio.access(c,s,p.id),current=etag(row.revision,row.metadata);if(match&&match!==current)throw new ApiError(412,'REMOTE_CONFLICT');
      await producer?.assertImageSelection(c,s,p.id);
-     operation=await NativeLocalPublicationStage.create(c,s,nativeExportWorkspace,store,kind,p.id,current,requestId,detailMode);
+     operation=await NativeLocalPublicationStage.create(c,s,nativeExportWorkspace,store,kind,p.id,current,requestId,detailMode,releaseSelection);
     }
 
     if(detailMode)cancelled.signal.throwIfAborted();
-    const result=await (mutate?publications.publish(c,s,p.id,requestId!,match!,operation,producer):publications.ready(c,s,p.id,operation));
+    const result=await (mutate?publications.publish(c,s,p.id,requestId!,match!,operation,producer,selected):publications.ready(c,s,p.id,operation));
     if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');
-    if(detailMode)cancelled.signal.throwIfAborted();return result;
+    if(detailMode)cancelled.signal.throwIfAborted();assertNarrationTime?.();return result;
    };
    const credentials=[token(req),p.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined] as const;
    const result=detailMode?await auth.requestForNativeWorkspaceMutation(...credentials,run):await auth.request(...credentials,mutate,run);
@@ -503,7 +510,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  };
  app.get(`${sp}/:id/ready`,localPublication('readiness'));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.listForRead(c,s,(req.params as {id:string}).id)));
- app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id,originalImage:object(originalImageBody)},['requestId'])}},localPublication('publish'));
+ app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id,originalImage:object(originalImageBody),releaseSelection:{type:'string',enum:[SELECTED_NATIVE_RELEASE]}},['requestId'])}},localPublication('publish'));
  for(const action of ['unpublish','republish'] as const)app.post(`${prefix}/studio/publications/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>publications[action](c,s,(req.params as {id:string}).id)));
  if(federationConfig){
   const federation=new Federation(pool,federationConfig),rates=new Map<string,{count:number;until:number}>();
