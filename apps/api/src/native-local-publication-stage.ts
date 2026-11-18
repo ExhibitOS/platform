@@ -12,6 +12,9 @@ import type {NativeLocalExportContext} from './native-oex-provenance.ts';
 
 const ORDINARY_LOCAL_STAGE_BYTES=200*1024*1024;
 const ORIGINAL_DETAIL_STAGE_BYTES=160*1024*1024;
+// The selected release adds 41,256,260 required WAV bytes to the retained
+// 155,881,900-byte ordinary inventory. Original payload limits are separate.
+const SELECTED_RELEASE_STAGE_BYTES=200*1024*1024;
 
 /** Private, one-at-a-time local publication staging. This is not a disk
  * reservation or a restart recovery capability. Any potentially written
@@ -27,7 +30,8 @@ export class NativeLocalPublicationStage {
   if(s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(403,'FORBIDDEN');pinPublicationFileStore(blobs);await context.assertDatabase(c);
   const root=await realpath(blobs.root),parent=await realpath(dirname(root)),p=await lstat(parent);
   if(root!==blobs.root||dirname(root)!==parent||!p.isDirectory()||p.isSymbolicLink()||p.uid!==process.getuid?.()||(p.mode&0o077)!==0)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
-  const budget=detailMode?ORIGINAL_DETAIL_STAGE_BYTES:ORDINARY_LOCAL_STAGE_BYTES;
+  const budget=releaseSelection?SELECTED_RELEASE_STAGE_BYTES:
+   detailMode?ORIGINAL_DETAIL_STAGE_BYTES:ORDINARY_LOCAL_STAGE_BYTES;
   const capacity=await statfs(parent,{bigint:true});if(capacity.bavail*capacity.bsize<BigInt(budget*3+1024*1024*1024))throw new ApiError(409,'PUBLICATION_STAGE_CAPACITY');
   const dir=join(parent,`native-publication-${context.workspaceId}`);try{await mkdir(dir,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code==='EEXIST')throw new ApiError(409,'PUBLICATION_STAGE_BUSY');throw e;}
   const d=await lstat(dir,{bigint:true});if(!d.isDirectory()||d.isSymbolicLink()||d.uid!==BigInt(process.getuid?.()??-1)||(d.mode&0o077n)!==0n)throw Error('PUBLICATION_STAGE_UNCERTAIN');
