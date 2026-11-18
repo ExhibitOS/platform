@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
+import {syntheticArtwork} from "../../../apps/web/src/placement/model.js";
 import {validateExhibition} from '@exhibitos/spec';
 import {articulatedTrackSpotCandidate,lightId} from '../test-fixtures/articulated-track-spot.js';
 import {applyLightObjectCommand} from './light-object.js';
@@ -49,4 +50,32 @@ it('fails unreachable, missing target and dual authority without silently detach
 it('deletes a configured light and its owned model/aim in one detached command',()=>{
  const {candidate}=articulatedTrackSpotCandidate(),before=structuredClone(candidate),next=applyLightObjectCommand(candidate,{type:'remove-light-object',lightId},{verifiedBaseline:candidate}).candidate;
  expect(next.lights.some(l=>l.id===lightId)).toBe(false);expect(lightDetailsFor(next).some(d=>d.lightId===lightId)).toBe(false);expect(furnishingsFor(next)?.bindings.some(b=>b.hostId===lightId)??false).toBe(false);expect(validateFurnishings(next).valid).toBe(true);expect(candidate).toEqual(before);
+});
+
+it('preserves authored upper framing through projection but rejects stale image coverage and nonuniform room scale',()=>{
+ const {candidate,placementId,railPlacementId}=articulatedTrackSpotCandidate();
+ const previous=candidate.artworks[0]!;
+ const image=syntheticArtwork('image');
+ candidate.artworks[0]={...image,id:previous.id,revisionId:previous.revisionId,dimensions:{width:.5,height:.5,depth:.02}};
+ const light=candidate.lights.find(row=>row.id===lightId)!;
+ const {id:ignoredId,...fields}=light;void ignoredId;
+ const {lightId:ignoredDetail,...settings}=lightDetailsFor(candidate).find(row=>row.lightId===lightId)!;void ignoredDetail;
+ const profile={version:1,kind:'upper-framing',cutoffAngle:.25,softnessAngle:.1} as const;
+ const command={type:'set-light-object' as const,lightId,light:fields,settings:{...settings,angularProfile:profile}};
+ const active=applyLightObjectCommand(candidate,command).candidate;
+ expect(lightDetailsFor(candidate).find(row=>row.lightId===lightId)?.angularProfile).toBeUndefined();
+ expect(validateStudioLightDetails(active).valid).toBe(true);
+ expect(materializeTrackSpotAiming(active).extensions).toEqual(active.extensions);
+ const ids=new Map([lightId,placementId,railPlacementId].map((id,i)=>[id,`d0000000-0000-4000-8000-00000000000${i+1}`]));
+ expect(remapStudioLightDetails({version:1,lights:[lightDetailsFor(active).find(row=>row.lightId===lightId)!]},ids).lights[0]?.angularProfile).toEqual(profile);
+ const moved=structuredClone(active);
+ moved.placements[0]!.transform.scale=[1,5,1];
+ expect(validateStudioLightDetails(moved).errors).toContainEqual(expect.objectContaining({code:'LIGHT_ANGULAR_PROFILE_REQUALIFY'}));
+ const nonuniform=structuredClone(active);
+ nonuniform.rooms[0]!.transform.scale=[1,1.01,1];
+ expect(validateStudioLightDetails(nonuniform).valid).toBe(false);
+ expect(lightDetailsFor(applyLightObjectCommand(active,{...command,settings}).candidate).find(row=>row.lightId===lightId)?.angularProfile).toBeUndefined();
+ for(const invalid of [{...profile,extra:true},{...profile,softnessAngle:0},{...profile,softnessAngle:1e-40},{...profile,cutoffAngle:1.5},{...profile,cutoffAngle:NaN}]){
+  expect(()=>applyLightObjectCommand(candidate,{...command,settings:{...settings,angularProfile:invalid}})).toThrow('LIGHT_DETAILS_INVALID');
+ }
 });
