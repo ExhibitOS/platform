@@ -179,7 +179,9 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       if(new three.Vector3(0,0,1).applyQuaternion(rotation).dot(point(normal))<.999)return [];
       const local=corners.map(value=>wall.group.worldToLocal(room.localToWorld(point(value))));
       const [a,b]=local;
-      if(!a||!b||Math.abs(a.y-b.y)>.004||local.some(p=>p.z<frame.thickness||p.z>frame.thickness+.05))return [];
+      // Wall groups sit on the structural centre plane; the frame is supported
+      // by the visible face, which is also used for the cue and containment.
+      if(!a||!b||Math.abs(a.y-b.y)>.004||local.some(p=>p.z-wall.faceZ<frame.thickness||p.z-wall.faceZ>frame.thickness+.05))return [];
       const border=frame.gap+frame.matWidth+frame.borderWidth;
       // Architectural wall structures are centred on the metadata plane.
       // Shade their visible front face, rather than the buried centre plane.
