@@ -651,6 +651,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const viewerBudgetPolicy=object({...binding,type:{const:'set-viewer-budget-policy'},policy:{anyOf:[{type:'object'},{type:'null'}]}});
   const wall=object({...binding,type:{const:'set-wall-finish'},wall:{type:'object'}});
   const pedestal=object({...binding,type:{const:'set-pedestal'},placementId:id,pedestal:{type:'object'}});
+  const placementVoice=object({...binding,type:{const:'set-placement-voice'},placementId:id,audioId:id,locale:{type:'string',pattern:'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}$'},transcript:{type:'string',minLength:1,maxLength:16384},expectedMediaAsset:{type:'object'}});
   const frameImageFit=object({...binding,type:{const:'reconcile-frame-image-fit'},placementId:id});
   const newLight=object({...binding,type:{const:'add-light'},light:{type:'object'},settings:{type:'object'}},[...Object.keys(binding),'type','light']);
   const supplementalFill=object({...binding,type:{const:'add-room-supplemental-ceiling-fill'},roomId:id,baseLightId:id,lightId:id});
@@ -670,9 +671,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const ceilingFillBrightness=object({...binding,type:{const:'set-room-ceiling-fill-brightness'},lightId:id,brightness});
   const duplicateLightObject=object({...binding,type:{const:'duplicate-light-object'},lightId:id});
   const removeLightObject=object({...binding,type:{const:'remove-light-object'},lightId:id});
-  app.post(`${sp}/:id/native-authoring-proposal`,{bodyLimit:69632,schema:{body:object({expectedRevision:{type:'integer',minimum:1,maximum:2147483647},request:{oneOf:[viewerBudgetPolicy,plaque,wall,frameImageFit,pedestal,newLight,supplementalFill,lightDetails,fixtureVisual,lightAttachment,setLightObject,setLightFixture,duplicateLightObject,removeLightObject,baseLightPlacement,ceilingFillBrightness]}})}},nativeMutation(async(c,s,req,reply)=>{
+  app.post(`${sp}/:id/native-authoring-proposal`,{bodyLimit:69632,schema:{body:object({expectedRevision:{type:'integer',minimum:1,maximum:2147483647},request:{oneOf:[placementVoice,viewerBudgetPolicy,plaque,wall,frameImageFit,pedestal,newLight,supplementalFill,lightDetails,fixtureVisual,lightAttachment,setLightObject,setLightFixture,duplicateLightObject,removeLightObject,baseLightPlacement,ceilingFillBrightness]}})}},nativeMutation(async(c,s,req,reply)=>{
    const command=(req.body as NativeAuthoringProposalInput).request;
-   if(command.type==='set-pedestal'||command.type==='add-light'||command.type==='add-room-supplemental-ceiling-fill'||command.type==='set-light-details'||command.type==='set-furnishing-visual'||command.type==='set-light-attachment'||command.type==='set-room-base-light-placement'||command.type==='set-room-ceiling-fill-brightness'||command.type==='set-light-object'||command.type==='set-light-fixture'||command.type==='duplicate-light-object'||command.type==='remove-light-object')await sceneAuthoringReady(c,s);
+   if(command.type==='set-placement-voice'||command.type==='set-pedestal'||command.type==='add-light'||command.type==='add-room-supplemental-ceiling-fill'||command.type==='set-light-details'||command.type==='set-furnishing-visual'||command.type==='set-light-attachment'||command.type==='set-room-base-light-placement'||command.type==='set-room-ceiling-fill-brightness'||command.type==='set-light-object'||command.type==='set-light-fixture'||command.type==='duplicate-light-object'||command.type==='remove-light-object')await sceneAuthoringReady(c,s);
    const result=await studio.proposeNativeAuthoring(c,s,(req.params as {id:string}).id,req.body as NativeAuthoringProposalInput,requiredMatch(req.headers['if-match']));
    reply.header('etag',result.etag);
    return result.proposal;

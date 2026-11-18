@@ -4,7 +4,7 @@ import {validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {newDraft} from '../../../apps/web/src/drafts/example.js';
 import {applyLightObjectCommand,type LightObjectCommand} from './light-object.js';
 import {applyFurnishingCommand,furnishingsFor,validateFurnishings,FURNISHING_NAMESPACE} from './furnishings.js';
-import {lightDetailsFor,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type LightDetails,type ExhibitionLight} from './light-details.js';
+import {addRoomSupplementalCeilingFill,lightDetailsFor,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type LightDetails,type ExhibitionLight} from './light-details.js';
 import {lightAttachmentsFor,lightAttachmentPose,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE} from './room-envelope.js';
 import {TEMPLATE_NAMESPACE,validateArchitecture} from './architecture.js';
 const id='a0000000-0000-4000-8000-000000000001',cloneId='a0000000-0000-4000-8000-000000000002',assetId='a0000000-0000-4000-8000-000000000003';
@@ -54,6 +54,36 @@ it('legacy absence remains absent when cloned or explicitly detached without an 
 });
 it('rejects room-base duplication and preserves purpose on explicit edits and removal',()=>{
  const d=fixture();d.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:[{lightId:id,fixture:'none',purpose:'room-base'}]};const before=structuredClone(d);expect(()=>applyLightObjectCommand(d,{type:'duplicate-light-object',lightId:id},{newLightId:cloneId})).toThrow();expect(d).toEqual(before);expect(lightDetailsFor(applyLightObjectCommand(d,set(d)).candidate)[0]!.purpose).toBe('room-base');expect(applyLightObjectCommand(d,{type:'remove-light-object',lightId:id}).candidate.lights).toEqual([]);
+});
+function legacyPointWithFill(){
+ const d=fixture();d.lights[0]!.type='point';delete d.lights[0]!.beamAngle;
+ d.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:[{lightId:id,fixture:'none',purpose:'room-base',range:10}]};
+ return addRoomSupplementalCeilingFill(d,d.rooms[0]!.id,id,cloneId);
+}
+it('retires a legacy point and promotes only its canonical automatic fill without changing emitter or independent content',()=>{
+ const d=legacyPointWithFill();d.lights.push({...fixture().lights[0]!,id:assetId,roomId:d.rooms[0]!.id});valid(d);const before=structuredClone(d),command={type:'remove-light-object' as const,lightId:id.toUpperCase()},r=applyLightObjectCommand(d,command);
+ const expected=structuredClone(d);expected.lights=expected.lights.filter(row=>row.id!==id);
+ expected.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:lightDetailsFor(d).filter(row=>row.lightId!==id).map(row=>row.lightId===cloneId?{...row,purpose:'room-base' as const}:row)} as unknown as NonNullable<Exhibition['extensions']>[string];
+ expected.extensions![TEMPLATE_NAMESPACE]={...expected.extensions![TEMPLATE_NAMESPACE] as object,modified:true};
+ valid(r.candidate);expect(r).toEqual({candidate:expected,lightId:id});expect(r.candidate.lights).toEqual(before.lights.filter(row=>row.id!==id));expect(d).toEqual(before);
+ expect(applyLightObjectCommand(d,command)).toEqual(r);
+ const saved=structuredClone(r.candidate);expect(()=>applyLightObjectCommand(r.candidate,command)).toThrow('LIGHT_OBJECT_REFERENCE');expect(r.candidate).toEqual(saved);
+});
+it.each(['ambiguous','manual','brightness','noncanonical','foreign-reference'] as const)('rejects %s legacy-fill promotion without partial edits',kind=>{
+ const d=legacyPointWithFill(),details=lightDetailsFor(d),fill=details.find(row=>row.lightId===cloneId)!;
+ if(kind==='ambiguous'){d.lights.push({...structuredClone(d.lights[1]!),id:assetId});details.push({...structuredClone(fill),lightId:assetId});}
+ if(kind==='manual')fill.basePlacement='manual';
+ if(kind==='brightness')fill.ceilingFill!.brightness=.4;
+ if(kind==='noncanonical')d.lights[1]!.intensity+=1;
+ if(kind==='foreign-reference')d.extensions!['org.example/reference']={lightId:id};
+ d.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:details} as unknown as NonNullable<Exhibition['extensions']>[string];const before=structuredClone(d);
+ expect(()=>applyLightObjectCommand(d,{type:'remove-light-object',lightId:id})).toThrow();expect(d).toEqual(before);
+});
+it('leaves another room legacy point and supplemental fill unchanged',()=>{
+ let d=legacyPointWithFill();const room=structuredClone(d.rooms[0]!),pointId=crypto.randomUUID(),fillId=crypto.randomUUID();room.id=crypto.randomUUID();room.transform.position=[20,0,0];d.rooms.push(room);
+ d.lights.push({...structuredClone(d.lights[0]!),id:pointId,roomId:room.id});d.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:[...lightDetailsFor(d),{lightId:pointId,fixture:'none',purpose:'room-base',range:10}]} as unknown as NonNullable<Exhibition['extensions']>[string];
+ d=addRoomSupplementalCeilingFill(d,room.id,pointId,fillId);const before=structuredClone(d),r=applyLightObjectCommand(d,{type:'remove-light-object',lightId:id});valid(r.candidate);
+ expect(r.candidate.lights.filter(row=>row.roomId===room.id)).toEqual(before.lights.filter(row=>row.roomId===room.id));expect(lightDetailsFor(r.candidate).filter(row=>[pointId,fillId].includes(row.lightId))).toEqual(lightDetailsFor(before).filter(row=>[pointId,fillId].includes(row.lightId)));expect(d).toEqual(before);
 });
 it.each(['missing','new-id-absent','room','extension','case-collision'])('rejects missing/foreign/identity collision %s without input mutation',kind=>{
  const d=fixture(),before=structuredClone(d);if(kind==='extension')d.extensions!['org.example/another']={id:cloneId};const stored=structuredClone(d);

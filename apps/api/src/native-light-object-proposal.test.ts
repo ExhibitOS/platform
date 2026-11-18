@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
-import {applyFurnishingCommand,furnishingsFor,setLightDetails,validateFurnishings} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyFurnishingCommand,furnishingsFor,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,setLightDetails,validateFurnishings,validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {newLight} from '../../web/src/placement/model.ts';
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
@@ -14,6 +14,16 @@ function fixture(){
  const scope:NativeFixtureScope={workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),exhibitionId:candidate.id,head:'saved-head',requestId:randomUUID(),epoch:randomUUID(),sequence:1};
  return {candidate,light,fields,scope};
 }
+it('returns the removed legacy point and an exact purpose-only fill promotion with deterministic saved-head recomputation',()=>{
+ const f=fixture(),point=f.candidate.lights.find(row=>row.id===f.light.id)!;point.type='point';delete point.beamAngle;
+ f.candidate.extensions={...f.candidate.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[{lightId:point.id,fixture:'none',purpose:'room-base',range:10}]}};
+ const fillId=randomUUID(),candidate=addRoomSupplementalCeilingFill(f.candidate,point.roomId,point.id,fillId),before=structuredClone(candidate),command={type:'remove-light-object' as const,lightId:point.id};
+ const result=nativeLightObjectProposal(candidate,command,f.scope),expected=structuredClone(candidate);expected.lights=expected.lights.filter(row=>row.id!==point.id);
+ expected.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:lightDetailsFor(candidate).filter(row=>row.lightId!==point.id).map(row=>row.lightId===fillId?{...row,purpose:'room-base' as const}:row)} as unknown as NonNullable<typeof expected.extensions>[string];
+ expect(result).toEqual({candidate:expected,lightId:point.id});expect(validateStudioLightDetails(result.candidate).valid).toBe(true);expect(candidate).toEqual(before);
+ expect(nativeLightObjectProposal(candidate,command,f.scope)).toEqual(result);
+ expect(()=>nativeLightObjectProposal(result.candidate,command,{...f.scope,head:'new-saved-head',requestId:randomUUID()})).toThrow('LIGHT_OBJECT_REFERENCE');
+});
 it('derives replay-stable clone identity from the complete authenticated saved-head scope and fails closed on collision',()=>{
  const f=fixture(),before=structuredClone(f.candidate),command={type:'duplicate-light-object' as const,lightId:f.light.id};
  const a=nativeLightObjectProposal(f.candidate,command,f.scope);expect(nativeLightObjectProposal(f.candidate,command,f.scope)).toEqual(a);
