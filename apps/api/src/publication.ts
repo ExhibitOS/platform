@@ -54,7 +54,8 @@ import {entranceFor} from '@exhibitos/studio-contract';
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
 import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_GEOMETRY_PAIR_PROFILE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
-import { Studio, etag } from "./studio.ts";
+import { Studio, etag, insertStudioReceipt } from "./studio.ts";
+import {assertSelectedOriginals, selectedNarrationRights, SELECTED_NATIVE_RELEASE, type NativeReleaseSelection, type SelectedNativeRelease} from './native-selected-release.ts';
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
 import { qualifyApprovedTexturedPair, qualifyApprovedCompactGeometryPair, qualifyApprovedNearGeometryPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
@@ -339,9 +340,10 @@ export interface PublicationSource {
     resource?(id:string,sha256:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
     furnishingNotice?(id:string,assetId:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
 }
-function publicationRequestHash(id:string,requestId:string,match:string,detailMode:boolean,detail?:NativeOriginalPublication){
+function publicationRequestHash(id:string,requestId:string,match:string,detailMode:boolean,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection){
     const image=detail?.originalImage;
     return sha256(Buffer.from(JSON.stringify({id,requestId,match,...(detailMode?{detailProfile:'native-original-v1'}:{}),
+        ...(releaseSelection?{releaseSelection}:{}),
         ...(image?{originalImage:{artworkId:image.artworkId,artworkRevision:image.artworkRevision,importJobId:image.importJobId}}:{})})));
 }
 
@@ -623,23 +625,25 @@ export class Publications {
         if(row.revision_sha256!==revisionSha256)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
     }
     /** Authenticated exact-request lookup; never adopts or retires a stage. */
-    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false,detail?:NativeOriginalPublication){
+    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection){
         uuid(requestId);await this.studio.access(c,s,id);
-        const payloadHash=publicationRequestHash(id,requestId,match,detailMode,detail);
+        const payloadHash=publicationRequestHash(id,requestId,match,detailMode,detail,releaseSelection);
         const receipt=(await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3",[s.tenantId,s.userId,requestId])).rows[0];
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
         const existing=await this.owned(c,s,receipt.publication_id);
         if(detail?.originalImage)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
         return this.summary(existing);
     }
-    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage,detail?:NativeOriginalPublication) {
-        let finalTimeFence:(()=>void)|undefined,finalDetailFence:(()=>void)|undefined;
+    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage,detail?:NativeOriginalPublication,selected?:SelectedNativeRelease) {
+        let finalNarrationFence:(()=>void)|undefined,finalTimeFence:(()=>void)|undefined,finalDetailFence:(()=>void)|undefined;
         try{
         uuid(requestId);
         if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
-        if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.assertDetailMode(!!detail);
+        const releaseSelection=selected?SELECTED_NATIVE_RELEASE:undefined;
+        if(selected&&!detail)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+        if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.assertDetailMode(!!detail,releaseSelection);
         if(detail)await detail.assertLive(c,s);
-        const row = await this.studio.access(c, s, id), payloadHash = publicationRequestHash(id,requestId,match,!!detail,detail);
+        const row = await this.studio.access(c, s, id), payloadHash = publicationRequestHash(id,requestId,match,!!detail,detail,releaseSelection);
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
         if (receipt) {
             if (receipt.payload_sha256 !== payloadHash)
@@ -653,12 +657,21 @@ export class Publications {
         // Studio.access holds the authoring row FOR UPDATE in this same
         // READ COMMITTED transaction. Supported API writers therefore observe
         // a concurrent publication after waiting for the lock, before writing.
-        const existing=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3 ORDER BY p.published_at DESC,p.id DESC LIMIT 1',[s.tenantId,id,row.revision])).rows[0];
+        const candidate=selected?.candidate??row.metadata.candidate;
+        // The immutable private Studio receipt separates the selected scene
+        // from ordinary freezes of the same saved head without a catalog migration.
+        const existing=(await c.query(`SELECT p.*,s.status FROM studio_publications p
+          JOIN publication_states s ON s.publication_id=p.id
+          WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3
+          AND EXISTS(SELECT 1 FROM studio_requests r
+            WHERE (r.tenant_id,r.user_id,r.exhibition_id)=(p.tenant_id,p.created_by,p.exhibition_id)
+            AND r.response->>'releaseSelection'=$4 AND r.response->>'publicationId'=p.id::text)=$5::boolean
+          ORDER BY p.published_at DESC,p.id DESC LIMIT 1`,[s.tenantId,id,row.revision,SELECTED_NATIVE_RELEASE,!!selected])).rows[0];
         // A new original-inclusive publication request may observe a newly
         // selected CMS thumbnail without any saved-draft edit. Keep exact
         // request replay and withdrawn-version behavior, but project a fresh
         // immutable version when that external publication input has changed.
-        if(existing&&(!detail||existing.status!=='published'||await publicationThumbnailsCurrent(c,s.tenantId,existing.id,row.metadata.candidate))){
+        if(existing&&(!detail||existing.status!=='published'||await publicationThumbnailsCurrent(c,s.tenantId,existing.id,candidate))){
             if(detail)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
             await c.query('INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)',[s.tenantId,s.userId,requestId,payloadHash,existing.id]);
             // A lost response or a second publish click must not republish an
@@ -666,7 +679,7 @@ export class Publications {
             return this.summary(existing);
         }
         // Workspace publications require owned staging before any output writes.
-        if(row.metadata.candidate.extensions&&(Object.hasOwn(row.metadata.candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE)||Object.hasOwn(row.metadata.candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))&&!fileOperation)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+        if(candidate.extensions&&(Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE)||Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))&&!fileOperation)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
         // Legacy publication retains its bounded memory path. Staging is only
         // selected by an explicitly admitted context, with no silent fallback.
         if(fileOperation&&!(fileOperation instanceof PublicationFileOperation)&&!(fileOperation instanceof NativeLocalPublicationStage))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
@@ -677,15 +690,16 @@ export class Publications {
         const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
         // Artwork preparation can persist derivative caches before the
         // publication journal. Keep its earlier fence, including detail mode.
-        if(fileOperation instanceof NativeLocalPublicationStage&&(detail||row.metadata.candidate.artworks.length))
+        if(fileOperation instanceof NativeLocalPublicationStage&&(detail||candidate.artworks.length))
             fileOperation.markEffectsPossible();
-        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined,detail?.originalImage);detail?.assertCurrent(s);
+        detail?.assertCurrent(s);const report = await this.prepare(c, s, candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined,detail?.originalImage);detail?.assertCurrent(s);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
         let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings,artworkIdentities}=projected,reservedIds=[...assets.map(a=>a.id),...media.map(a=>a.id),...(cover?[cover.id]:[]),...workspaceBindings.map(a=>a.publicId),...workspaceMaterialBindings.map(a=>a.publicId),...(furnishingsFor(snapshot)?.assets??[]).map(a=>a.id)],detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot,artworkIdentities,reservedIds):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
+        if(selected)assertSelectedOriginals(detailPrepared!);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -713,6 +727,9 @@ export class Publications {
         if(cover){const p=cover.prepared,key=`${s.tenantId}/publications/${publicationId}/${cover.id}/${p.source.sha256}`;await put(key,p.bytes);await c.query('INSERT INTO publication_cover_images(tenant_id,publication_id,id,source_image_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)',[s.tenantId,publicationId,cover.id,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);}
         await stage?.close();detail?.assertCurrent(s);
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
+        if(releaseSelection)await insertStudioReceipt(c,[s.tenantId,s.userId,requestId,payloadHash,id,{
+            releaseSelection,publicationId,head:match,
+        }]);
         await this.event(c, s, publicationId, "published");
         const publishedRow={tenant_id:s.tenantId,created_by:s.userId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
         if(detail&&detailPrepared){
@@ -724,7 +741,10 @@ export class Publications {
         if(fileOperation){
         final=await finalizePublicationOperation(
           ()=>fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId),
-          ()=>recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs),
+          async()=>{
+            await recheckPublicationSources(c,s,candidate,id,this.cms,this.blobs);
+            if(selected)finalNarrationFence=await selectedNarrationRights(c,s,id,selected);
+          },
           ()=>this.gate(c,publishedRow),
           ()=>fileOperation.assertClaimed());
         if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
@@ -733,7 +753,7 @@ export class Publications {
         if(detail&&detailPrepared){fileOperation!.assertClaimed();if(!final)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');finalTimeFence=final.assertTime;finalDetailFence=()=>detail.assertCurrent(s);}
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
         }finally{await stage?.close();}
-        }finally{await fileOperation?.close();if(finalTimeFence){finalTimeFence();finalDetailFence!();}}
+        }finally{await fileOperation?.close();if(finalTimeFence){finalTimeFence();finalDetailFence!();finalNarrationFence?.();}}
     }
     private async event(c: PoolClient, s: Session, id: string, action: string) { await c.query("INSERT INTO publication_events(id,publication_id,actor_user_id,action) VALUES($1,$2,$3,$4)", [randomUUID(), id, s.userId, action]); await c.query("INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)", [s.tenantId, randomUUID(), { action: `studio.${action}`, actor: s.userId, target: id }]); }
     async unpublish(c: PoolClient, s: Session, id: string) { const row = await this.owned(c, s, id); if (row.status !== "unpublished") {

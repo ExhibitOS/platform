@@ -3,6 +3,8 @@ import {afterEach,expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import {Publications} from './publication.ts';
+import type {NativeOriginalPublication} from './native-original-publication.ts';
+import {SELECTED_NATIVE_RELEASE} from './native-selected-release.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import {createHash} from 'node:crypto';
 
@@ -34,7 +36,8 @@ it('records a new request for an already published saved revision without reacti
  const query=vi.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[published]}).mockResolvedValueOnce({rows:[]});
  const result=await new Publications({} as Pool).publish({query} as unknown as PoolClient,session,exhibition,requestId,etag(2,metadata));
  expect(result).toMatchObject({publicationId:publication,status:'unpublished'});
- expect(query.mock.calls[1]![1]).toEqual([tenant,exhibition,2]);
+ expect(query.mock.calls[1]![1]).toEqual([tenant,exhibition,2,SELECTED_NATIVE_RELEASE,false]);
+ expect(query.mock.calls[1]![0]).toContain("r.response->>'releaseSelection'=$4");
  expect(query.mock.calls[2]![0]).toContain('INSERT INTO publication_requests');
  expect(query.mock.calls.some(([sql])=>/UPDATE publication_states|INSERT INTO studio_publications/.test(sql))).toBe(false);
 });
@@ -53,4 +56,28 @@ it('recovers the same publication receipt before a newer private draft ETag',asy
  const result=await new Publications({} as Pool).publish({query} as unknown as PoolClient,session,exhibition,requestId,match);
  expect(result).toMatchObject({publicationId:publication,status:'unpublished'});
  expect(query).toHaveBeenCalledTimes(2);
+});
+
+
+it('requires the same selection on a committed original publication request', async () => {
+ const match = '"saved-source"';
+ const originalImage = {artworkId: exhibition, artworkRevision: 1, importJobId: requestId};
+ const payload = createHash('sha256').update(JSON.stringify({
+  id: exhibition, requestId, match, detailProfile: 'native-original-v1',
+  releaseSelection: SELECTED_NATIVE_RELEASE, originalImage,
+ })).digest('hex');
+ vi.spyOn(Studio.prototype, 'access').mockResolvedValue({revision: 3, metadata: {}} as never);
+ const verifyExisting = vi.fn();
+ const detail = {originalImage, verifyExisting} as unknown as NativeOriginalPublication;
+ const frozen = {...published, status: 'published'};
+ const query = vi.fn(async (sql: string) => sql.includes('FROM publication_requests')
+  ? {rows: [{payload_sha256: payload, publication_id: publication}]}
+  : {rows: [frozen]});
+ const c = {query} as unknown as PoolClient, publications = new Publications({} as Pool);
+ await expect(publications.existingRequest(c, session, exhibition, requestId, match, true, detail))
+  .rejects.toMatchObject({code: 'REQUEST_CONFLICT'});
+ expect(verifyExisting).not.toHaveBeenCalled();
+ await expect(publications.existingRequest(c, session, exhibition, requestId, match, true, detail, SELECTED_NATIVE_RELEASE))
+  .resolves.toMatchObject({publicationId: publication});
+ expect(verifyExisting).toHaveBeenCalledOnce();
 });
