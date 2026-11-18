@@ -131,6 +131,38 @@ it('places frame support on the visible wall face and still excludes openings',(
 });
 
 
+it('admits a close frame on a thick wall while rejecting buried, distant and unsupported edges',()=>{
+  const pose={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]};
+  const room=new three.Group(),wall=new three.Group();room.position.set(6,0,-7);wall.position.set(0,2,-4.99);room.add(wall);
+  const geometry=new three.BoxGeometry(4,4,.12),material=new three.MeshStandardMaterial();
+  wall.add(new three.Mesh(geometry,material));
+  const document={surfaces:[{id:'wall',type:'wall',roomId:'room'}],
+    artworks:[{revisionId:'art',artworkType:'image',dimensions:{width:1.016,height:1.016},transform:pose}],
+    placements:[{id:'placement',roomId:'room',artworkRevisionId:'art',transform:{...pose,position:[0,1.5,-4.909]}}],
+    extensions:{
+      [INSTALLATION_NAMESPACE]:{version:1,placements:[{placementId:'placement',frame:{kind:'flat',thickness:.02,gap:0,matWidth:0,borderWidth:.04}}]},
+      [ARCHITECTURAL_FINISH_NAMESPACE]:{version:1,walls:[{surfaceId:'wall',depth:.12}]},
+    }} as unknown as Exhibition;
+  const before=JSON.stringify(document);
+  const get=(rectangles=[{x:0,y:0,width:4,height:4}])=>supportContacts(three,document,
+    new Map([['room',room]]),new Map([['wall',wall]]),[rectangles],new Map());
+  const contacts=get();
+  expect(contacts).toHaveLength(1);
+  expect(contacts[0]!.receiver).toBe(wall);
+  expect(contacts[0]!.position).toEqual([0,expect.closeTo(.94,6),expect.closeTo(-4.928,6)]);
+  expect(contacts[0]!.width).toBeCloseTo(1.136,6);
+  expect(contacts[0]!.height).toBe(.075);
+  expect(JSON.stringify(document)).toBe(before);
+  expect(get([{x:-1.25,y:0,width:1.5,height:4},{x:1.25,y:0,width:1.5,height:4}])).toEqual([]);
+  // The image must still clear the visible face by the frame thickness and
+  // stay within the existing 50mm support range above it.
+  for(const z of [-4.911,-4.859]){
+    document.placements[0]!.transform.position[2]=z;
+    expect(get()).toEqual([]);
+  }
+  geometry.dispose();material.dispose();
+});
+
 it('reclaims only unpinned encoded bytes for contact headroom without changing modeled limits',()=>{
   const cache=new MemoryAssetCache<ArrayBuffer>(8*1024*1024),pinned=new ArrayBuffer(4),raw=new ArrayBuffer(4),spare=new ArrayBuffer(4);
   cache.set('pinned',pinned,2*1024*1024);cache.acquire('pinned');
