@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {fixtureURL} from '@exhibitos/spec';
+import {sha256} from '@exhibitos/storage';
+import type {Pool} from 'pg';
+import {expect,it,vi} from 'vitest';
+import {newDraft} from '../../web/src/drafts/example.ts';
+import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/model.ts';
+import {buildApp} from './app.ts';
+import {Cms} from './cms.ts';
+import {etag} from './studio.ts';
+
+it('fits a fixed aim without changing it, verifies approved bounds, and preserves the manual reply shape',async()=>{
+ const draft=newDraft(),room=draft.candidate.rooms[0]!;
+ const art=syntheticArtwork('image');
+ const png=Buffer.from(await readFile(fixtureURL('fixtures/synthetic/painting.png')));
+ Object.assign(art.assets[0]!,{bytes:png.length,sha256:sha256(png)});
+ const placement=newPlacement(art,room.id);
+ placement.transform.position=[0,1.5,0];
+ draft.candidate.artworks=[art];
+ draft.candidate.placements=[placement];
+ draft.candidate.accessibility.artworkDescriptions=[{placementId:placement.id,text:'Synthetic painting'}];
+ const light=newLight(room.id,'spot');light.transform.position=[0,1.5,3];
+ draft.candidate.lights=[light];
+ const {id:lightId,...lightFields}=light;
+ const revision=3,match=etag(revision,draft);
+ const tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf';
+ let remoteRevision=revision;
+ const queries:string[]=[];
+ const client={query:async(sql:string)=>{
+  queries.push(sql);
+  if(sql.includes('SELECT s.*,m.role'))return {rows:[{id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),csrf_token:csrf,expires_at:new Date('2099-01-01')}],rowCount:1};
+  if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))return {rows:[{id:draft.exhibitionId,revision:remoteRevision,metadata:draft,studio_owner_user_id:userId}],rowCount:1};
+  return {rows:[],rowCount:0};
+ },release:()=>{}};
+ const pool={connect:async()=>client} as unknown as Pool;
+ const auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
+ const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
+ const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>true});
+ const headers={host:'127.0.0.1:13200',origin:auth.origin,cookie:'exhibitos_local_session='+'a'.repeat(43),'x-csrf-token':csrf,'if-match':match};
+ const url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`;
+ const settings={fixture:'none',aim:{kind:'point',position:[0,1.5,0]},range:5,penumbra:.1};
+ const base={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID(),type:'set-light-object',lightId,light:lightFields,settings};
+ const request={...base,fitBeam:{placementId:placement.id}};
+ const post=(request:object)=>app.inject({method:'POST',url,headers,payload:{expectedRevision:revision,request}});
+ const approved=vi.spyOn(Cms.prototype,'studioArtwork').mockResolvedValue({artwork:art,previewUrl:''});
+ const read=vi.fn(async()=>png);
+ const source=vi.spyOn(Cms.prototype,'approvedVariantSource').mockResolvedValue({...art.assets[0]!,read});
+ try{
+  const manual=await post(base);
+  expect(manual.statusCode,manual.body).toBe(200);
+  expect(manual.json()).not.toHaveProperty('beamFit');
+  expect(read).not.toHaveBeenCalled();
+  const fitted=await post(request);
+  expect(fitted.statusCode,fitted.body).toBe(200);
+  const reply=fitted.json(),expected=manual.json().candidate;
+  expect(reply.beamFit).toMatchObject({placementId:placement.id,bounds:'display-plane',minImageIncidence:expect.any(Number),floorSpill:'unknown'});
+  const beam=reply.candidate.lights[0].beamAngle;
+  expect(beam).toBeGreaterThan(0);
+  expect(beam).toBeLessThan(expected.lights[0].beamAngle);
+  expected.lights[0].beamAngle=beam;
+  expect(reply.candidate).toEqual(expected);
+  expect(source).toHaveBeenCalledWith(expect.anything(),expect.anything(),art.id,art.primaryAssetId,art.revision);
+  const limited=await post({...request,settings:{...settings,range:3}});
+  expect(limited.json().code).toBe('SPOT_BEAM_FIT_OUT_OF_RANGE');
+  const unqualified=await post({...request,fitBeam:{placementId:randomUUID()}});
+  expect(unqualified.statusCode).toBe(422);
+  expect((await post({...request,fitBeam:{...request.fitBeam,width:1}})).statusCode).toBe(400);
+  read.mockImplementationOnce(async()=>{remoteRevision+=1;return png;});
+  expect((await post(request)).statusCode).toBe(412);
+  expect(queries.some(sql=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
+ }finally{source.mockRestore();approved.mockRestore();await app.close();}
+});

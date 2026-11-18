@@ -245,6 +245,7 @@ export * from './display-policy.js';
 export * from './benches.js';
 export * from './bench-geometry.js';
 export * from './light-details.js';
+export * from './spot-optical-geometry.js';
 export * from './space-lighting.js';
 
 export * from './plaques.js';
