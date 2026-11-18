@@ -11,6 +11,8 @@ import {buildApp} from './app.ts';
 import {Auth,type Session} from './auth.ts';
 import {Studio,etag} from './studio.ts';
 import {Publications} from './publication.ts';
+import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
+import {SELECTED_NATIVE_RELEASE} from './native-selected-release.ts';
 import type {NativeLocalExportContext} from './native-oex-provenance.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 const roots:string[]=[];
@@ -84,5 +86,46 @@ it('releases the owned stage after rejected ordinary audio preparation', async (
   const readiness = await app.inject({method: 'GET', url: base + '/ready', headers});
   expect(readiness.statusCode).toBe(200);
   expect(readiness.json()).toMatchObject({status: 'BLOCKED', issues: [{code: 'FORBIDDEN', path: '/candidate/mediaAssets/0'}]});
+ } finally {await app.close();}
+});
+
+
+it('admits the selected release budget only for the detail publication stage', async () => {
+ const root = await realpath(await mkdtemp(join(tmpdir(), 'native-selected-release-stage-')));
+ roots.push(root);
+ const storage = join(root, 'blobs');
+ await mkdir(storage, {mode: 0o700});
+ const blobs = new FileBlobStore(storage);
+ const draft = newDraft();
+ const session = {id: randomUUID(), tenantId: randomUUID(), userId: randomUUID(), role: 'admin'} as Session;
+ const c = {} as PoolClient;
+ const context = {workspaceId: randomUUID(), tenantId: session.tenantId, principalId: session.userId,
+  assertDatabase: async () => {}} as NativeLocalExportContext;
+ const args = [c, session, context, blobs, 'publish', draft.exhibitionId, etag(1, draft), randomUUID()] as const;
+ await expect(NativeLocalPublicationStage.create(...args, false, SELECTED_NATIVE_RELEASE)).rejects.toThrow('PUBLICATION_STAGE_BINDING');
+
+ const ordinaryDetail = await NativeLocalPublicationStage.create(...args, true);
+ try {
+  expect(ordinaryDetail.budget).toBe(160 * 1024 * 1024);
+  expect(() => ordinaryDetail.assertDetailMode(true, SELECTED_NATIVE_RELEASE)).toThrow('PUBLICATION_STAGE_BINDING');
+ } finally {await ordinaryDetail.finish(false);}
+
+ const selected = await NativeLocalPublicationStage.create(...args, true, SELECTED_NATIVE_RELEASE);
+ try {
+  expect(selected.budget).toBe(200 * 1024 * 1024);
+  expect(() => selected.assertDetailMode(true)).toThrow('PUBLICATION_STAGE_BINDING');
+ } finally {await selected.finish(false);}
+});
+
+it('rejects the selected release on ordinary publication profiles', async () => {
+ const draft = newDraft(), publish = vi.spyOn(Publications.prototype, 'publish');
+ const app = buildApp({pool: {} as Pool, auth: {mode: 'local', origin: 'http://127.0.0.1:13200', bindHost: '127.0.0.1'}});
+ const url = `/api/v1/tenants/${randomUUID()}/studio/exhibitions/${draft.exhibitionId}/publications`;
+ const headers = {host: '127.0.0.1:13200', origin: 'http://127.0.0.1:13200', 'if-match': etag(1, draft)};
+ const payload = {requestId: randomUUID(), releaseSelection: SELECTED_NATIVE_RELEASE};
+ try {
+  expect((await app.inject({method: 'POST', url, headers, payload})).statusCode).toBe(400);
+  expect((await app.inject({method: 'POST', url, headers: {...headers, 'x-exhibitos-publication-profile': 'bounded-local-v1'}, payload})).statusCode).toBe(400);
+  expect(publish).not.toHaveBeenCalled();
  } finally {await app.close();}
 });
