@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE, lightDetailsFor} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
@@ -131,8 +131,12 @@ test('upper angular direct spot terms compose with area and contact, including s
   room.add(spot, other);
   const id = crypto.randomUUID(), cutoffAngle = .16, softnessAngle = .24;
   document.lights.push({...document.lights[0]!, id, type: 'spot', unit: 'candela', beamAngle: .7});
+  const existing = document.extensions?.[LIGHT_DETAILS_NAMESPACE];
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing) || !Array.isArray(existing.lights)) {
+    throw Error('Expected the test fixture ceiling-fill bindings');
+  }
   document.extensions = {...document.extensions, [LIGHT_DETAILS_NAMESPACE]: {version: 1, lights: [
-    ...lightDetailsFor(document),
+    ...existing.lights,
     {lightId: id, fixture: 'none', angularProfile: {version: 1, kind: 'upper-framing', cutoffAngle, softnessAngle}},
   ]}};
   lights.set(id, {light: spot});
