@@ -14,6 +14,8 @@
 | [platform](https://github.com/ExhibitOS/platform) | Public | 작품·전시 데이터와 도메인, API·저장, 공용 3D·Viewer, OEX·정적 출력 기반. 기존 웹 Studio/CMS 구현도 여기서 보존 |
 | [manager](https://github.com/ExhibitOS/manager) | Public | SwiftUI/AppKit 앱과 통합 Studio/CMS 조작, Docker 없는 서비스 실행, 백업·업데이트·배포 관리. Platform API·공용 렌더러를 소비하며 도메인을 중복 구현하지 않음 |
 | [spec](https://github.com/ExhibitOS/spec) | Public | 공개 OES/OEX/OED 형식·호환 계약과 validators·conformance |
+| [default-furnishings](https://github.com/ExhibitOS/default-furnishings) | Public | 재사용 기본 가구·조명·액자 등의 버전별 배포 원본과 권리 고지·manifest. 저장소 공개나 bundle 존재만으로 설치·등록·사용이 완료되는 것은 아님 |
+| [demo](https://github.com/ExhibitOS/demo) | Public | 승인된 참조 전시의 정적 입력·잠금·검증 및 `demo.exhibitos.org` 빌드/배포. 공개 전시 산출물과 편집 가능한 원본 보관 범위는 구분 |
 | [capture-ios](https://github.com/ExhibitOS/capture-ios) | Private | ExhibitOS Capture의 촬영·원본 보존·EXCP 생성/전달 |
 | [capture-processing](https://github.com/ExhibitOS/capture-processing) | Private | ExhibitOS Processing의 촬영본 처리·재구성·모델 마무리와 일반 GLB 출력 |
 | [website](https://github.com/ExhibitOS/website) | Private 저장소 / Public 사이트 | 소개·도움말·Viewer 데모 진입. Studio 편집 데모 진입은 제공하지 않음. 사이트 공개와 저장소 공개를 구분 |
@@ -32,10 +34,16 @@
 ```text
 Public Spec artifact → Public Platform domain / API / storage / shared3D / OEX
 Native Manager / Studio-CMS controls → Public Platform API / shared3D
+Public default-furnishings manifest + originals → verified native runtime package → separately qualified Manager installation
+Studio saved exhibition → qualified static input + pinned Platform Viewer → Public Demo build
 Optional ExhibitOS Capture → Optional ExhibitOS Processing → GLB → Studio
 Other capture / modeling tools → supported GLB → Studio
 Studio → exhibition → OEX export
 ```
+
+기본 가구 패키징은 [Platform native runtime 패키저](../scripts/package-native-runtime.mjs)의 선택 release commit·manifest 크기/SHA-256과 각 모델·권리 고지를 검증해 복사한다. 예를 들어 코드에 명시된 1.19.0 입력은 commit `1c81844b8c7f545387fff4ade6823aee4b72eff7`, manifest SHA-256 `138b8307dba70f382f886c5c37b6396f1327b0b7311a202ec5d6932185743b08`이다. 이는 패키저가 인정하는 입력 식별자이며 현재 설치 앱의 버전·발견·사용 완료를 뜻하지 않는다. Manager의 실제 설치는 해당 앱에 봉인된 runtime·SDK/helper와 manifest를 확인한다. Demo는 [demo-lock.json](https://github.com/ExhibitOS/demo/blob/main/demo-lock.json)의 Platform source, 전시 static input, publication/index/manifest 및 출력 해시를 고정하며, 이 잠금은 공개 산출물의 근거이지 원본 전체의 복구 보증이 아니다.
+
+전시별 원본·녹음·대본·권리/출처를 Demo 안의 별도 source 영역에 보존하고 공용 에셋은 기존 소유 저장소를 참조하는 방안은 **검토 제안**이다. 현재 승인된 저장 위치나 이전·업로드 완료를 뜻하지 않는다. 원본과 재배포 권한, 공개 범위, 실제 복구 가능성을 먼저 확인하며 비공개 프로필·키·자격증명·운영 자료는 공개 빌드 의존성에 넣지 않는다.
 
 Processing의 최신 마무리 도구 확장과 구현 한계는 [현재 제품 방향](../README.md#first-release-direction)을 따릅니다. 아래 날짜의 역할 설명은 당시 결정이며, 작품·전시·OEX의 Studio 소유권은 계속 유지합니다.
 
