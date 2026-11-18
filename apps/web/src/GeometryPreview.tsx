@@ -1099,8 +1099,11 @@ export function GeometryPreview({
           }
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
+          // Spot slots must reflect the shadow/map flags Three will sort for this frame.
+          if(ceilingFill?.hasUpperAngular)shadowPass.flush(camera);
           ceilingFill?.prepare(camera);
-          contactShadows?.setView(camera);shadowPass.flush(camera);
+          contactShadows?.setView(camera);
+          if(!ceilingFill?.hasUpperAngular)shadowPass.flush(camera);
           artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           const poseFrame=nativeCameraPoseFrame.current,bridge=editingRef.current;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE, lightDetailsFor} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
@@ -44,7 +44,7 @@ function fixture(supplemental = false) {
   camera.lookAt(0, 0, 0);
   camera.updateMatrixWorld();
   const mask = installCeilingFillMask(three, document, scene, rooms, lights)!;
-  return {camera, document, lights, mask, material, mesh, room, untaggedArea};
+  return {camera, document, lights, mask, material, mesh, room, untaggedArea, scene, rooms};
 }
 
 test('a supplemental ceiling fill masks its area contribution without changing the gallery fallback or legacy point', () => {
@@ -67,15 +67,16 @@ test('a supplemental ceiling fill masks its area contribution without changing t
   material.dispose();
 });
 
-function fragment(material: three.Material) {
+function shaderFor(material: three.Material) {
   const shader = {
-    uniforms: {},
+    uniforms: {} as Record<string, three.IUniform>,
     vertexShader: three.ShaderLib.standard.vertexShader,
     fragmentShader: three.ShaderLib.standard.fragmentShader,
   };
   material.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0], {} as three.WebGLRenderer);
-  return shader.fragmentShader;
+  return shader;
 }
+const fragment = (material: three.Material) => shaderFor(material).fragmentShader;
 
 test('mask follows the visible area roster and releases a retired model material', () => {
   const {camera, mask, material, mesh, untaggedArea} = fixture();
@@ -116,6 +117,51 @@ test('ordinary scene retirement unwinds support contact before its ceiling-fill 
   expect(hasCeilingFillMaterialHook(material)).toBe(false);
   expect(material.onBeforeCompile).toBe(before);
   expect(material.customProgramCacheKey).toBe(three.Material.prototype.customProgramCacheKey);
+  mesh.geometry.dispose();
+  material.dispose();
+});
+
+
+test('upper angular direct spot terms compose with area and contact, including spot reordering', () => {
+  const {camera, document, lights, material, mesh, room, scene, rooms, mask: oldMask} = fixture();
+  oldMask.dispose();
+  const spot = new three.SpotLight();
+  const other = new three.SpotLight();
+  other.castShadow = true;
+  room.add(spot, other);
+  const id = crypto.randomUUID(), cutoffAngle = .16, softnessAngle = .24;
+  document.lights.push({...document.lights[0]!, id, type: 'spot', unit: 'candela', beamAngle: .7});
+  document.extensions = {...document.extensions, [LIGHT_DETAILS_NAMESPACE]: {version: 1, lights: [
+    ...lightDetailsFor(document),
+    {lightId: id, fixture: 'none', angularProfile: {version: 1, kind: 'upper-framing', cutoffAngle, softnessAngle}},
+  ]}};
+  lights.set(id, {light: spot});
+  const mask = installCeilingFillMask(three, document, scene, rooms, lights)!;
+  const before = material.onBeforeCompile;
+  mask.prepare(camera);
+  const contacts = installSupportContactShadows(three, [{
+    room, receiver: mesh, position: [0, .002, 0], rotation: [0, 0, 0, 1], width: .2, height: .2,
+  }], false, () => {});
+  contacts.setView(camera);
+  const shader = shaderFor(material);
+  expect(shader.fragmentShader).toContain('exhibitosRoomFill');
+  expect(shader.fragmentShader).toContain('contactStrength');
+  expect(shader.fragmentShader).toMatch(/#if UNROLLED_LOOP_INDEX == 1\s+\{\s+vec4 exhibitosUpperPlane/);
+  const uniform = shader.uniforms.exhibitosUpperAngularPlanes!;
+  expect(uniform.value[0].toArray()).toEqual([0, Math.cos(cutoffAngle), Math.sin(cutoffAngle), Math.fround(1 / Math.sin(softnessAngle))]);
+
+  const key = material.customProgramCacheKey();
+  spot.rotateZ(Math.PI / 2);
+  mask.prepare(camera);
+  expect(material.customProgramCacheKey()).toBe(key);
+  expect(uniform.value[0].x).toBeCloseTo(-Math.cos(cutoffAngle));
+  other.visible = false;
+  mask.prepare(camera);
+  expect(fragment(material)).toMatch(/#if UNROLLED_LOOP_INDEX == 0\s+\{\s+vec4 exhibitosUpperPlane/);
+  expect(material.customProgramCacheKey()).not.toBe(key);
+
+  mask.dispose(contacts.dispose);
+  expect(material.onBeforeCompile).toBe(before);
   mesh.geometry.dispose();
   material.dispose();
 });
