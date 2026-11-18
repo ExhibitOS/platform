@@ -17,7 +17,10 @@ jobs:
           node-version-file: .nvmrc
       - run: npm install --global npm@11.19.0
       - run: npm ci
-      - run: node scripts/ci-check-auth.mjs check
+      - id: check
+        run: node scripts/ci-check-auth.mjs check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: node scripts/ci-check-auth.mjs auth
+        env:
+          EXHIBITOS_CI_CHECK_RECEIPT: ${{ steps.check.outputs.receipt }}

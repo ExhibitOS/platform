@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {execFileSync} from 'node:child_process';
-import {createHash} from 'node:crypto';
-import {existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
+import {createHash, randomUUID} from 'node:crypto';
+import {appendFileSync, existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, unlinkSync, writeFileSync} from 'node:fs';
 import {basename, join, relative, sep} from 'node:path';
 
 const outputRoots = [
@@ -57,9 +57,10 @@ function fingerprint(roots, dependencies = false) {
   return digest.digest('hex');
 }
 
-const {GITHUB_ACTIONS, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_JOB, RUNNER_TEMP} = process.env;
+const {GITHUB_ACTIONS, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_JOB, GITHUB_OUTPUT,
+  RUNNER_TEMP, EXHIBITOS_CI_CHECK_RECEIPT} = process.env;
 const workflow = GITHUB_ACTIONS === 'true' && GITHUB_SHA && GITHUB_RUN_ID && GITHUB_RUN_ATTEMPT && GITHUB_JOB && RUNNER_TEMP;
-const receipt = workflow && join(RUNNER_TEMP, 'exhibitos-platform-check-auth.json');
+const receiptPath = id => join(RUNNER_TEMP, `exhibitos-platform-check-auth-${id}.json`);
 
 function inputs() {
   const revision = command('git', ['rev-parse', 'HEAD']);
@@ -100,17 +101,25 @@ function collect(read) {
 
 const phase = process.argv[2];
 if (phase === 'check') {
-  if (receipt) rmSync(receipt, {force: true});
-  const before = receipt && outputRoots.every(root => !existsSync(root)) && collect(inputs);
+  const before = workflow && GITHUB_OUTPUT && outputRoots.every(root => !existsSync(root)) && collect(inputs);
   run('npm', ['run', 'check']);
   const after = before && collect(() => ({inputs: inputs(), outputs: outputs()}));
   if (after && JSON.stringify(before) === JSON.stringify(after.inputs)) {
-    writeFileSync(receipt, JSON.stringify(after), {flag: 'wx', mode: 0o600});
-    console.log('Recorded this CI check build for auth.');
+    const recorded = collect(() => {
+      const id = randomUUID();
+      writeFileSync(receiptPath(id), JSON.stringify(after), {flag: 'wx', mode: 0o600});
+      appendFileSync(GITHUB_OUTPUT, `receipt=${id}\n`, {flag: 'a'});
+      return true;
+    });
+    if (recorded) console.log('Recorded this CI check build for auth.');
   }
 } else if (phase === 'auth') {
-  const recorded = receipt && collect(() => readFileSync(receipt, 'utf8'));
-  if (receipt) rmSync(receipt, {force: true});
+  const recorded = workflow && /^[0-9a-f-]{36}$/.test(EXHIBITOS_CI_CHECK_RECEIPT ?? '') && collect(() => {
+    const path = receiptPath(EXHIBITOS_CI_CHECK_RECEIPT);
+    const data = readFileSync(path, 'utf8');
+    unlinkSync(path);
+    return data;
+  });
   const current = recorded && collect(() => JSON.stringify({inputs: inputs(), outputs: outputs()}));
   if (current && current === recorded) {
     console.log('Reusing this CI check build for auth.');
