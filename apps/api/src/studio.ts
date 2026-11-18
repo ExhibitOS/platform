@@ -11,6 +11,7 @@ export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
 import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
+import {prepareNativeSpotBeamFit,type NativeSpotBeamFitIntent} from './native-spot-beam-fit.ts';
 import {ordinaryWorkspaceBenchModelForwardDelta} from './workspace-bench-model-forward-delta.ts';
 import {ordinaryWorkspaceBenchVisualReplacementDelta} from './workspace-bench-visual-replacement-delta.ts';
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
@@ -56,7 +57,7 @@ export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -422,6 +423,7 @@ export class Studio {
     const budgetCommand=request.type==='set-viewer-budget-policy';
     checked({draft,requestId},budgetCommand&&!!row.nativeBounded,budgetCommand);
     let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string};
+    let fitEdit:{command:Extract<LightObjectCommand,{type:'set-light-object'}>;intent:NativeSpotBeamFitIntent}|undefined;
     try{
       if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
@@ -437,7 +439,12 @@ export class Studio {
       }
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
       else if(operation.type==='set-room-base-light-placement'||operation.type==='set-room-ceiling-fill-brightness'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
-        const command:LightObjectCommand=operation.type==='set-light-details'?{type:'set-light-object',lightId:operation.lightId,light:operation.light,settings:operation.settings}:operation;
+        let command:LightObjectCommand;
+        if(operation.type==='set-light-object'&&'fitBeam' in operation){
+          const {fitBeam,...normal}=operation;
+          fitEdit={command:normal,intent:fitBeam};
+          command=normal;
+        }else command=operation.type==='set-light-details'?{type:'set-light-object',lightId:operation.lightId,light:operation.light,settings:operation.settings}:operation;
         result=nativeLightObjectProposal(draft.candidate,command,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
         checked({draft:{...draft,candidate:result.candidate} as Draft,requestId});
       }
@@ -455,8 +462,20 @@ export class Studio {
       }
       throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
     }
+    let beamFit:Awaited<ReturnType<typeof prepareNativeSpotBeamFit>>['beamFit']|undefined;
+    if(fitEdit){
+      const {command:fitted,intent}=fitEdit;
+      const prepared=await prepareNativeSpotBeamFit(c,s,this.budgetCms,result.candidate,fitted.lightId,intent);
+      // Reuse the ordinary edit pipeline so template, attachment and solved
+      // track transforms have exactly the same semantics as a manual width.
+      result=nativeLightObjectProposal(draft.candidate,{...fitted,light:{...fitted.light,beamAngle:prepared.fullBeamRadians}},{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
+      beamFit=prepared.beamFit;
+      await owner.assertDatabase(c);
+      const latest=await this.access(c,s,id);
+      if(latest.studio_owner_user_id!==s.userId||latest.revision!==expectedRevision||etag(latest.revision,latest.metadata)!==head)throw new ApiError(412,'REMOTE_CONFLICT');
+    }
     checked({draft:{...draft,candidate:result.candidate} as Draft,requestId},budgetCommand&&!!row.nativeBounded);
-    return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result}};
+    return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result,...(beamFit?{beamFit}:{})}};
   }
 
   async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string,placementId?:string,mode?:'same-artwork-model'):Promise<StudioResponse>{
