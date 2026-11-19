@@ -87,8 +87,11 @@ it('proposes only a checked change to the current saved draft through the instal
   expect((await post({...pedestalPayload,request:{...pedestalPayload.request,placementId:randomUUID()}})).statusCode).toBe(422);
   expect((await post({...pedestalPayload,request:{...pedestalPayload.request,pedestal:{...pedestal,dimensions:{...pedestal.dimensions,height:-1}}}})).statusCode).toBe(422);
   const createdLight=newLight(roomId,'spot');createdLight.transform.position=[1,3,1];createdLight.targetPlacementId=placement.id;
-  const settings={fixture:'none' as const,aim:{kind:'placement-center' as const},range:4.1,penumbra:.35};
+  const settings={fixture:'spot-can' as const,aim:{kind:'placement-center' as const},range:4.1,penumbra:.35};
   const createPayload={...payload,request:{...binding,type:'add-light',light:createdLight,settings}};
+  const bareCreate=await post({...createPayload,request:{...createPayload.request,settings:{...settings,fixture:'none'}}});
+  expect(bareCreate.statusCode).toBe(422);
+  expect(bareCreate.json().code).toBe('LIGHT_FIXTURE_REQUIRED');
   const {id:createdId,...createdFields}=createdLight;
   const createdReply=await post(createPayload);
   expect(createdReply.statusCode,createdReply.body).toBe(200);
@@ -152,17 +155,38 @@ it('proposes only a checked change to the current saved draft through the instal
   const selectedPayload={...payload,request:{...binding,type:'set-light-fixture',lightId:originalId,visual:{catalogId:'museum-track-spot',catalogVersion:1,pose:fixturePayload.request.pose}}};
   const clonePayload={...payload,request:{...binding,type:'duplicate-light-object',lightId:originalId}};
   const removePayload={...payload,request:{...binding,type:'remove-light-object',lightId:originalId}};
-  for(const value of [objectPayload,selectedPayload,clonePayload,removePayload]){
+  for(const value of [objectPayload,selectedPayload,removePayload]){
    const reply=await post(value);expect(reply.statusCode,reply.body).toBe(200);
    expect(Object.keys(reply.json()).sort()).toEqual([...Object.keys(binding),'lightId','candidate'].sort());
    expect(reply.headers.etag).toBe(match);expect(reply.json()).toMatchObject(binding);
-   expect(reply.json().lightId===originalId).toBe(value!==clonePayload);
+   expect(reply.json().lightId).toBe(originalId);
    expect((await post(value)).json()).toEqual(reply.json());
   }
+  const bareClone=await post(clonePayload);
+  expect(bareClone.statusCode).toBe(422);
+  expect(bareClone.json().code).toBe('LIGHT_FIXTURE_REQUIRED');
+  draft.candidate=setLightDetails(before.candidate,originalId,originalFields,{fixture:'spot-can'});
+  const cloneHeaders={'if-match':etag(revision,draft)};
+  const clone=await post(clonePayload,cloneHeaders);
+  expect(clone.statusCode,clone.body).toBe(200);
+  expect(clone.json().lightId).not.toBe(originalId);
+  expect((await post(clonePayload,cloneHeaders)).json()).toEqual(clone.json());
+  draft.candidate=before.candidate;
   expect((await post({...selectedPayload,request:{...selectedPayload.request,visual:null}})).statusCode).toBe(200);
   const washerReply=await post({...selectedPayload,request:{...selectedPayload.request,visual:{catalogId:'museum-wallwasher',catalogVersion:1,pose:{position:[0,.106,.05],yaw:0,scale:1}}}});
   expect((await post({...fixturePayload,request:{...fixturePayload.request,catalogId:'museum-wallwasher'}})).statusCode).toBe(400);
-  expect(washerReply.statusCode,washerReply.body).toBe(200);expect(washerReply.json().candidate.extensions['org.exhibitos.studio/furnishing-visuals'].assets[0]).toMatchObject({catalogId:'museum-wallwasher',bytes:201724,provenance:{recipe:'omit-unused-tangent-v1'},rights:{notice:{bytes:1115}}});
+  const washerRoot='assets/furnishings/exhibitos-authored-20261111/museum-wallwasher/';
+  const [washerModel,washerNotice]=await Promise.all([
+   readInstalledFurnishing(washerRoot+'model.glb',201724,'a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d',undefined,true),
+   readInstalledFurnishing(washerRoot+'LICENSE-NOTICE.txt',1115,'b40713d9c089649c71aeed2c8fced9d9274612ef376b77d19ab5f6becd5b0cf3',undefined,true),
+  ]);
+  if(washerModel&&washerNotice){
+   expect(washerReply.statusCode,washerReply.body).toBe(200);
+   expect(washerReply.json().candidate.extensions['org.exhibitos.studio/furnishing-visuals'].assets[0]).toMatchObject({catalogId:'museum-wallwasher',bytes:201724,provenance:{recipe:'omit-unused-tangent-v1'},rights:{notice:{bytes:1115}}});
+  }else{
+   expect(washerReply.statusCode,washerReply.body).toBe(422);
+   expect(washerReply.json().code).toBe('LIGHT_FIXTURE_SOURCE_UNAVAILABLE');
+  }
   expect((await post(clonePayload,{'x-csrf-token':''})).statusCode).toBe(403);
   expect((await post({...clonePayload,expectedRevision:revision-1})).statusCode).toBe(412);
   expect((await post(clonePayload,{'if-match':etag(revision-1,draft)})).statusCode).toBe(412);

@@ -27,7 +27,7 @@ import {privateFloorMaterialCatalog,readPrivateMaterialPreview} from './private-
 import {MODEL_DERIVATION_SCHEMA} from './model-derivation.ts';
 import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
 import {surfaceMaterialCatalog} from './surface-materials.ts';
-import {WORKSPACE_BENCH_MODEL_FORWARD_PROFILE,furnishingAsset,ROOM_BASE_LIGHT_PROFILE,ROOM_BASE_LIGHT_PLACEMENT_PROFILE,ROOM_CEILING_FILL_PROFILE,type FurnishingCatalogId} from '@exhibitos/studio-contract';
+import {WORKSPACE_BENCH_MODEL_FORWARD_PROFILE,furnishingAsset,ROOM_BASE_LIGHT_PROFILE,ROOM_BASE_LIGHT_PLACEMENT_PROFILE,ROOM_CEILING_FILL_PROFILE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,type FurnishingCatalogId} from '@exhibitos/studio-contract';
 import { OperationalMetrics } from './operational-metrics.ts';
 import { Privacy } from './privacy.ts';
 import { Preservation } from './preservation.ts';

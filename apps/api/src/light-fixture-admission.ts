@@ -13,7 +13,7 @@ function resolveFixtures(scene:Exhibition){
   const detail=details.get(light.id.toLowerCase());
   const binding=bindings.get(light.id.toLowerCase());
   if(binding){const asset=assets.get(binding.assetId.toLowerCase());return asset&&{kind:'model' as const,asset};}
-  if(light.type==='area'&&detail?.purpose==='room-base')return {kind:'room-area' as const};
+  if(light.type==='area'&&(detail?.purpose==='room-base'||detail?.purpose==='room-supplemental-fill'))return {kind:'room-area' as const};
   if(detail?.fixture==='spot-can'||detail?.fixture==='disc'||detail?.fixture==='panel')return {kind:'built-in' as const};
  };
 }
