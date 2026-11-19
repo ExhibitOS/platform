@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
 import type {PoolClient} from 'pg';
-import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,ROOM_CEILING_FILL_PROFILE,type LightDetails} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,ROOM_CEILING_FILL_DEFAULT_PROFILE,ROOM_CEILING_FILL_PROFILE,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {syntheticArtwork} from '../../web/src/placement/model.ts';
 import type {Session} from './auth.ts';
 import {Studio,etag} from './studio.ts';
-it('first ordinary Save validates the exact tagged default before inserting a new exhibition',async()=>{
+it.each([
+ [ROOM_CEILING_FILL_PROFILE,89.30480858594046],
+ [ROOM_CEILING_FILL_DEFAULT_PROFILE,446.5240429297023],
+])('first ordinary Save validates the %s profile before inserting a new exhibition',async(profile,intensity)=>{
  const draft=newDraft(),room=draft.candidate.rooms[0]!;
- draft.candidate=ensureOrdinaryRoomBaseLight(draft.candidate,room.id,undefined,ROOM_CEILING_FILL_PROFILE);
- expect(draft.candidate.lights[0]).toMatchObject({type:'area',unit:'lumen',intensity:89.30480858594046,dimensions:{width:12*.8,height:8*.8},transform:{position:[0,3.98,0]}});
+ draft.candidate=ensureOrdinaryRoomBaseLight(draft.candidate,room.id,undefined,profile);
+ expect(draft.candidate.lights[0]).toMatchObject({type:'area',unit:'lumen',intensity,dimensions:{width:12*.8,height:8*.8},transform:{position:[0,3.98,0]}});
  const studio=new Studio(),session={tenantId:crypto.randomUUID(),userId:crypto.randomUUID(),role:'admin'} as Session;
  const query=vi.fn(async()=>({rowCount:0,rows:[]})),client={query} as unknown as PoolClient;
  const stale=structuredClone(draft);stale.candidate.lights[0]!.intensity+=.01;

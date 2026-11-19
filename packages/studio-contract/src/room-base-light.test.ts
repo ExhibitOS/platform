@@ -2,7 +2,7 @@
 import {expect,it} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint} from './artifact-affine.js';
-import {addRoomSupplementalCeilingFill,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,roomBaseLight,roomBaseLightRange,remapStudioLightDetails,setLightDetails,validateStudioLightDetails,type LightDetails} from './light-details.js';
+import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,hasDefaultRoomLighting,ROOM_CEILING_FILL_DEFAULT_PROFILE,ROOM_CEILING_FILL_PROFILE,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,roomBaseLight,roomBaseLightRange,remapStudioLightDetails,setLightDetails,validateStudioLightDetails,type LightDetails} from './light-details.js';
 import {applyLightObjectCommand} from './light-object.js';
 const roomId='aaaaaaaa-0000-4000-8000-000000000001';
 function fixture(){return {id:crypto.randomUUID(),revisionId:crypto.randomUUID(),rooms:[{id:roomId,name:'room',dimensions:{width:10,height:4,depth:8},transform:{position:[8,2,3],rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2],scale:[1,1,1]}}],lights:[],surfaces:[],openings:[],placements:[],artworks:[],extensions:{'org.example/intent':{value:'untouched'}}} as unknown as Exhibition;}
@@ -67,6 +67,31 @@ it('tagged ceiling fill derives canonical power and reflows without resetting br
  expect(reflowed.lights[0]!.intensity).not.toEqual(light.intensity);
  expect(settings(reflowed).ceilingFill).toEqual(settings(auto).ceilingFill);
  expect(source.lights).toEqual([]);
+});
+
+it('explicit default is five times the legacy .5 emitter through refit and separate from a deliberate .5 override',()=>{
+ const source=fixture(),id=crypto.randomUUID();
+ const legacy=ensureOrdinaryRoomBaseLight(source,roomId,id,ROOM_CEILING_FILL_PROFILE);
+ const marked=ensureOrdinaryRoomBaseLight(source,roomId,id,ROOM_CEILING_FILL_DEFAULT_PROFILE);
+ const chooseDefault={type:'set-room-ceiling-fill-brightness',lightId:id,brightness:.5,mode:'default'} as const;
+ expect(marked.lights).toEqual([{...legacy.lights[0],intensity:5*legacy.lights[0]!.intensity}]);
+ expect(settings(marked).ceilingFill).toEqual({version:1,brightness:.5,mode:'default'});
+ expect(hasDefaultRoomLighting(legacy)).toBe(false);
+ expect(hasDefaultRoomLighting(marked)).toBe(true);
+ expect(applyLightObjectCommand(legacy,chooseDefault).candidate).toEqual(marked);
+ expect(applyLightObjectCommand(marked,chooseDefault).candidate).toEqual(marked);
+ expect(applyLightObjectCommand(marked,{type:chooseDefault.type,lightId:id,brightness:.5}).candidate).toEqual(legacy);
+ expect(()=>applyLightObjectCommand(marked,{...chooseDefault,brightness:.4})).toThrow('ROOM_CEILING_FILL_BRIGHTNESS');
+ expect(ensureOrdinaryRoomBaseLight(legacy,roomId,undefined,ROOM_CEILING_FILL_DEFAULT_PROFILE)).toBe(legacy);
+ const editRoom=(doc:Exhibition)=>({...doc,rooms:[{...doc.rooms[0]!,dimensions:{width:8,height:5,depth:12}}]});
+ const refit=reflowRoomBaseLight(editRoom(marked),roomId);
+ const legacyRefit=reflowRoomBaseLight(editRoom(legacy),roomId);
+ expect(refit.lights).toEqual([{...legacyRefit.lights[0],intensity:5*legacyRefit.lights[0]!.intensity}]);
+ const manual=applyLightObjectCommand(marked,{type:'set-room-base-light-placement',lightId:id,basePlacement:'manual'}).candidate;
+ expect(hasDefaultRoomLighting(manual)).toBe(false);
+ const manuallyResized=editRoom(manual);
+ expect(reflowRoomBaseLight(manuallyResized,roomId)).toEqual(manuallyResized);
+ expect(applyLightObjectCommand(manuallyResized,{type:'set-room-base-light-placement',lightId:id,basePlacement:'auto'}).candidate).toEqual(refit);
 });
 
 it('tagged manual pose survives resize and zero brightness survives return to auto',()=>{

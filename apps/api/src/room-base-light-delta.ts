@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {isDeepStrictEqual} from 'node:util';
-import {addRoomSupplementalCeilingFill,applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureOrdinaryRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,roomSupplementalCeilingFill,ROOM_CEILING_FILL_PROFILE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyLightObjectCommand,assertRoomEnvelopeContentsAgainstBaseline,ensureOrdinaryRoomBaseLight,lightDetailsFor,reflowRoomBaseLight,resizeRoomEnvelope,roomBaseLight,roomSupplementalCeilingFill,ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_DEFAULT_PROFILE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 /** Narrow bounded-save replay. Complete candidate validation, saved-head CAS,
  * ownership and material/furnishing custody remain in Studio's existing path. */
@@ -12,7 +12,8 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
  const source=before.candidate,target=after.candidate;
  const replayCreation=(candidate:Exhibition,roomId:string,lightId:string)=>{
   const fill=lightDetailsFor(target).find(binding=>same(binding.lightId,lightId))?.ceilingFill;
-  return ensureOrdinaryRoomBaseLight(candidate,roomId,lightId,fill?ROOM_CEILING_FILL_PROFILE:undefined);
+  const profile=fill?.mode==='default'?ROOM_CEILING_FILL_DEFAULT_PROFILE:fill&&ROOM_CEILING_FILL_PROFILE;
+  return ensureOrdinaryRoomBaseLight(candidate,roomId,lightId,profile);
  };
  const matches=(candidate:Exhibition)=>{
   const template=candidate.extensions?.[TEMPLATE_NAMESPACE];if(template&&typeof template==='object'&&!Array.isArray(template))(template as unknown as {modified:boolean}).modified=true;
@@ -58,7 +59,8 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
    if(!same(next.id,old.id))continue;
    const settings=lightDetailsFor(target).find(v=>same(v.lightId,next.id))!;
    for(const placement of ['auto','manual'] as const)if(settings.basePlacement===placement&&matches(applyLightObjectCommand(source,{type:'set-room-base-light-placement',lightId:old.id,basePlacement:placement},{verifiedBaseline:source}).candidate))return true;
-   if(settings.ceilingFill&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:settings.ceilingFill.brightness},{verifiedBaseline:source}).candidate))return true;
+   const fill=settings.ceilingFill;
+   if(fill&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:fill.brightness,...(fill.mode&&{mode:fill.mode})},{verifiedBaseline:source}).candidate))return true;
    const {id:_,...light}=next,{lightId:__,...details}=settings;void _;void __;
    const previous=lightDetailsFor(source).find(v=>same(v.lightId,old.id));
    if(previous?.basePlacement!==undefined)details.basePlacement=previous.basePlacement;else delete details.basePlacement;

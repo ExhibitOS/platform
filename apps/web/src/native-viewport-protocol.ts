@@ -5,7 +5,7 @@ import {applyGeometryCommand,createGeometryState,newRoom} from './geometry/model
 import {newLight} from './placement/model';
 import {alignedWall,type EditorSelection,type EditMode} from './geometry/direct-edit';
 import type {GeometryCommand} from './geometry/model';
-import {freezeCanonical,isPbrMaterial,isSurfaceTextureBinding,ROOM_CEILING_FILL_PROFILE} from '@exhibitos/studio-contract';
+import {freezeCanonical,isPbrMaterial,isSurfaceTextureBinding,isRoomCeilingFillProfile,type RoomCeilingFillProfile} from '@exhibitos/studio-contract';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const NATIVE_VIEWPORT_PRESENTATIONS=['3d','plan'] as const;
 export interface NativeViewportFrame {
@@ -51,7 +51,7 @@ export function geometryProposal(frame:NativeViewportFrame,command:GeometryComma
  }
  return result;
 }
-export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-room-with-base-light';name:string;ceilingFillProfile?:typeof ROOM_CEILING_FILL_PROFILE}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'|'ensure-room-base-light'}>;
+export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-room-with-base-light';name:string;ceilingFillProfile?:RoomCeilingFillProfile}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'|'ensure-room-base-light'}>;
 export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeometryAction):Draft['candidate'] {
  if(frame.disabled)throw Error('VIEWPORT_COMMAND_DENIED');
  if(action.type==='set-material-texture'){
@@ -65,15 +65,15 @@ export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeom
  if(action.type==='white-cube'&&Object.keys(action).sort().join(',')==='roomId,type'&&uuid.test(action.roomId))return geometryProposal(frame,{type:'white-cube',roomId:action.roomId});
  if(action.type==='add-room'||action.type==='add-room-with-base-light'){
   const keys=Object.keys(action).sort().join(',');
-  const ceilingFill=action.type==='add-room-with-base-light'&&keys==='ceilingFillProfile,name,type'&&action.ceilingFillProfile===ROOM_CEILING_FILL_PROFILE;
+  const ceilingFill=action.type==='add-room-with-base-light'&&keys==='ceilingFillProfile,name,type'&&isRoomCeilingFillProfile(action.ceilingFillProfile);
   if((keys==='name,type'||ceilingFill)&&typeof action.name==='string'&&action.name.trim()&&action.name.length<=512){
    const room=newRoom(action.name,{width:12,height:4,depth:8});
-   return geometryProposal(frame,ceilingFill?{type:'add-room-with-base-light',room,ceilingFillProfile:ROOM_CEILING_FILL_PROFILE}:{type:action.type,room});
+   return geometryProposal(frame,ceilingFill?{type:'add-room-with-base-light',room,ceilingFillProfile:action.ceilingFillProfile}:{type:action.type,room});
   }
  }
  if(action.type==='ensure-room-base-light'&&uuid.test(action.roomId)&&frame.selection?.kind==='room'&&frame.selection.id===action.roomId){
   const keys=Object.keys(action).sort().join(',');
-  if(keys==='roomId,type'||keys==='ceilingFillProfile,roomId,type'&&action.ceilingFillProfile===ROOM_CEILING_FILL_PROFILE)return geometryProposal(frame,action);
+  if(keys==='roomId,type'||keys==='ceilingFillProfile,roomId,type'&&isRoomCeilingFillProfile(action.ceilingFillProfile))return geometryProposal(frame,action);
  }
  if(action.type==='add-light'&&Object.keys(action).sort().join(',')==='roomId,type'&&uuid.test(action.roomId))return geometryProposal(frame,{type:'add-light',light:newLight(action.roomId)});
  throw Error('VIEWPORT_COMMAND_DENIED');

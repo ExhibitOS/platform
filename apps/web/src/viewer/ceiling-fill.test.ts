@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE,setSpaceLighting} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
-import {hasAuthoredGalleryLighting} from '../light-details-renderer';
+import {galleryLightingFor,hasAuthoredGalleryLighting} from '../light-details-renderer';
 import {retireArtworkResources} from './artwork-ownership';
 import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 import {hasCeilingFillMaterialHook, installCeilingFillMask} from './ceiling-fill';
@@ -66,6 +66,35 @@ test('a supplemental ceiling fill masks its area contribution without changing t
   mask.dispose();
   mesh.geometry.dispose();
   material.dispose();
+});
+
+test('only marked auto room fill replaces synthetic lighting and explicit space settings keep their values',()=>{
+  const h=fixture();
+  const base=h.document.lights[0]!;
+  const command={type:'set-room-ceiling-fill-brightness',lightId:base.id,brightness:.5} as const;
+  const marked=applyLightObjectCommand(h.document,{...command,mode:'default'}).candidate;
+
+  expect(galleryLightingFor(h.document)).toMatchObject({roomOnly:false,fallbackSun:true,baselineIntensity:2.5,reflectionIntensity:.45});
+  expect(galleryLightingFor(marked)).toMatchObject({
+    roomOnly:true,fallbackSun:false,baselineIntensity:0,environmentBaselineIntensity:0,reflectionIntensity:0,
+  });
+  expect(marked.lights[0]!.intensity).toBe(5*base.intensity);
+  expect(marked.lights[0]!.transform).toEqual(base.transform);
+  expect(marked.rooms).toEqual(h.document.rooms);
+
+  const explicit=setSpaceLighting(marked,{version:1,baselineIntensity:.25,reflectionIntensity:.4});
+  expect(galleryLightingFor(explicit)).toMatchObject({
+    roomOnly:false,fallbackSun:false,baselineIntensity:.25,environmentBaselineIntensity:.25,reflectionIntensity:.4,
+  });
+  const zero=setSpaceLighting(marked,{version:1,baselineIntensity:0,reflectionIntensity:0});
+  expect(galleryLightingFor(zero)).toMatchObject({roomOnly:false,fallbackSun:false,baselineIntensity:0,reflectionIntensity:0});
+  const manual=applyLightObjectCommand(marked,{type:'set-room-base-light-placement',lightId:base.id,basePlacement:'manual'}).candidate;
+  expect(manual.lights[0]!.intensity).toBe(marked.lights[0]!.intensity);
+  expect(galleryLightingFor(manual).roomOnly).toBe(false);
+  const edited=applyLightObjectCommand(marked,command).candidate;
+  expect(edited.lights[0]!.intensity).toBe(base.intensity);
+  expect(galleryLightingFor(edited).roomOnly).toBe(false);
+  h.mask.dispose();
 });
 
 function shaderFor(material: three.Material) {

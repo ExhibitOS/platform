@@ -15,7 +15,7 @@ export type LightObjectCommand=
  |{type:'add-light-with-fixture';light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>;visual?:LightFixtureVisual}
  |{type:'set-light-object';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>|null}
  |{type:'set-room-base-light-placement';lightId:string;basePlacement:'auto'|'manual'}
- |{type:'set-room-ceiling-fill-brightness';lightId:string;brightness:number}
+ |{type:'set-room-ceiling-fill-brightness';lightId:string;brightness:number;mode?:'default'}
  |{type:'set-light-fixture';lightId:string;visual:null|LightFixtureVisual}
  |{type:'duplicate-light-object';lightId:string}
  |{type:'remove-light-object';lightId:string};
@@ -143,8 +143,9 @@ export function applyLightObjectCommand(document:Exhibition,command:LightObjectC
    next=setRoomBaseLightPlacement(next,light.id,command.basePlacement);break;
   }
   case 'set-room-ceiling-fill-brightness':{
-   if(!closed(command,['type','lightId','brightness'])||!finite(command.brightness,0,1))fail();
-   next=setRoomCeilingFillBrightness(next,light.id,command.brightness);break;
+   if(!closed(command,['type','lightId','brightness'],['mode'])||!finite(command.brightness,0,1)||
+      Object.hasOwn(command,'mode')&&command.mode!=='default')fail();
+   next=setRoomCeilingFillBrightness(next,light.id,command.brightness,command.mode);break;
   }
   case 'set-light-fixture':{
    if(!closed(command,['type','lightId','visual']))fail();
