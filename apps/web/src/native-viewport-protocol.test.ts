@@ -24,6 +24,9 @@ it('selects the exact paired ceiling profile for new rooms and keeps point fallb
  const existing={...f,draft:{...f.draft,candidate:cube},selection:{kind:'room' as const,id:roomId}};
  const fallback=nativeGeometryAction(existing,{type:'ensure-room-base-light',roomId,ceilingFillProfile:ROOM_CEILING_FILL_PROFILE});
  expect(fallback.lights[0]).toMatchObject({type:'point',intensity:16});
+ const unsupported=nativeGeometryAction(existing,{type:'ensure-room-base-light',roomId,ceilingFillProfile:ROOM_CEILING_FILL_DEFAULT_PROFILE});
+ expect(unsupported).toEqual(cube);
+ expect(unsupported.lights).toEqual([]);
  expect(lightDetailsFor(fallback)[0]?.ceilingFill).toBeUndefined();
  expect(fallback.surfaces).toEqual(cube.surfaces);
 });

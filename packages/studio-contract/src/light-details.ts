@@ -239,11 +239,11 @@ export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId
   if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
   return next;
 }
-/** Only the paired ordinary client opts in. Existing authoring keeps its point recipe for unsupported ceilings. */
+/** The negotiated default creates only a qualified area. The incumbent profile retains its point fallback. */
 export function ensureOrdinaryRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string,ceilingFillProfile?:RoomCeilingFillProfile):Exhibition {
   if(!isRoomCeilingFillProfile(ceilingFillProfile)||roomBaseLight(document,roomId))return ensureRoomBaseLight(document,roomId,newLightId);
   try{deriveRoomCeilingFill(roomCeilingFillDimensions(document,roomId),0);}
-  catch{return ensureRoomBaseLight(document,roomId,newLightId);}
+  catch{return ceilingFillProfile===ROOM_CEILING_FILL_DEFAULT_PROFILE?document:ensureRoomBaseLight(document,roomId,newLightId);}
   return ensureRoomBaseLight(document,roomId,newLightId,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS,ceilingFillProfile===ROOM_CEILING_FILL_DEFAULT_PROFILE?'default':undefined);
 }
 /** Local room-space cutoff covers the farthest corner up to the existing50m limit.
