@@ -87,7 +87,7 @@ function varyingAxis([from, to]: Edge): Axis {
 /** Render the exterior of the existing equal-depth wall panels. At a jamb,
  * neighboring panels subdivide the same edge at the head/sill breakpoints.
  * Collision still uses the original solids. */
-function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,coverage:readonly OpeningRevealCoverage[]=[]) {
+function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,coverage:readonly OpeningRevealCoverage[]=[],roomFacingOnly=false) {
   const raw = boxes.map(({ position: [x, y], dimensions: { width, height } }): Panel => ({
     min: [x - width / 2, y - height / 2], max: [x + width / 2, y + height / 2],
   }));
@@ -120,7 +120,8 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   }
   for (const panel of panels) {
     const center: Point = [(panel.min[0] + panel.max[0]) / 2, (panel.min[1] + panel.max[1]) / 2];
-    const front = vertex(center, halfDepth, 0, 0, 1), back = vertex(center, -halfDepth, 0, 0, -1);
+    const front = vertex(center, halfDepth, 0, 0, 1);
+    const back = roomFacingOnly ? undefined : vertex(center, -halfDepth, 0, 0, -1);
     for (const edge of panelEdges(panel)) {
       const axis = varyingAxis(edge), [from, to] = edge, fixed = from[1 - axis]!;
       const direction = Math.sign(to[axis] - from[axis]);
@@ -130,15 +131,16 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
       const points: Point[] = cuts.map(value => axis === 0 ? [value, fixed] : [fixed, value]);
       for (let i = 1; i < points.length; i++) {
         const a = points[i - 1]!, b = points[i]!;
-        indices.push(front, vertex(a, halfDepth, 0, 0, 1), vertex(b, halfDepth, 0, 0, 1),
-          back, vertex(b, -halfDepth, 0, 0, -1), vertex(a, -halfDepth, 0, 0, -1));
+        indices.push(front, vertex(a, halfDepth, 0, 0, 1), vertex(b, halfDepth, 0, 0, 1));
+        if(back!==undefined)indices.push(back, vertex(b, -halfDepth, 0, 0, -1), vertex(a, -halfDepth, 0, 0, -1));
         if (!boundary.delete(`${b}:${a}`)) boundary.set(`${a}:${b}`, [a, b]);
       }
     }
   }
   // Only unmatched edges bound the outer wall or an opening reveal.
   for (const [a, b] of boundary.values()) {
-    const reveal=coverageForEdge([a,b],coverage);if(reveal?.omit)continue;
+    const reveal=coverageForEdge([a,b],coverage);
+    if(reveal?.omit||(roomFacingOnly&&coverage[0]?.omit))continue;
     const minZ=reveal?.minZ??-halfDepth,maxZ=reveal?.maxZ??halfDepth;
     const nx = Math.sign(b[1] - a[1]), ny = Math.sign(a[0] - b[0]);
     const am = vertex(a, minZ, nx, ny, 0), bm = vertex(b, minZ, nx, ny, 0);
@@ -148,8 +150,8 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   return {positions,normals,indices};
 }
 
-export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>,coverage?:readonly OpeningRevealCoverage[]) {
-  const {positions,normals,indices}=wallOpeningShellData(boxes,coverage);
+export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>,coverage?:readonly OpeningRevealCoverage[],roomFacingOnly=false) {
+  const {positions,normals,indices}=wallOpeningShellData(boxes,coverage,roomFacingOnly);
   return new three.BufferGeometry()
     .setAttribute('position', new three.Float32BufferAttribute(positions, 3))
     .setAttribute('normal', new three.Float32BufferAttribute(normals, 3))

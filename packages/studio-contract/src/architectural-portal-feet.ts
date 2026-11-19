@@ -24,7 +24,7 @@ export function plainBaseboardPortalFeet(document:Exhibition,surfaceId:string):A
   if(sources.length!==1||!source||source.kind!=='portal-finish'||source.model.sha256!==attachment.modelSha256)return unsupported();
   const geometry=workspaceFitGeometry(source);
   if(!geometry||geometry.profile!=='modular-portal-v1')return unsupported();
-  const target=qualifiedModularPortalTarget(geometry,document,opening.id);
+  const target=qualifiedModularPortalTarget(geometry,document,opening.id,source);
   if(!target)return unsupported();
   for(const face of ['front','back'] as const)for(const side of ['left','right'] as const){
    const part=geometry.parts[`${face}-${side}`],width=part.max[0]-part.min[0],edge=opening.offset[0]+(side==='left'?-target.width/2:target.width/2),bottom=opening.offset[1]-target.height/2;
