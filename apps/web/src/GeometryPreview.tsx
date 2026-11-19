@@ -1084,8 +1084,8 @@ export function GeometryPreview({
       const entranceVerifiedAssets=new Set<string>();
       let nativePoseEditorIdle=()=>false;
       const clearNativePose=()=>clearNativeCameraPose(renderer.domElement.dataset);
-      const livePoseEnabled=import.meta.env&&import.meta.env.DEV&&import.meta.env.MODE==='live-viewer-pose'&&
-        window.location.hostname==='127.0.0.1'&&!!publicSource&&immersive;
+      const livePoseEnabled=import.meta.env&&import.meta.env.MODE==='live-viewer-pose'&&
+        import.meta.env.EXHIBITOS_LOOPBACK_LIVE_POSE==='1'&&window.location.hostname==='127.0.0.1'&&!!publicSource&&immersive;
       let inspectionPose: LivePose|undefined;
       let releaseLivePose = () => {};
       const inspectionDrawn=new Set<string>();

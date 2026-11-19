@@ -99,7 +99,7 @@ directory is cleaned up on pre-commit failure. To cancel, send
 
 Use the approved local static publication export and its manifest SHA-256. With
 the development dependencies and workspace build prepared, run the loopback
-Viewer entry and open its printed URL in the browser under test.
+Viewer entry. It bundles the Viewer before opening the local URL.
 
 ```sh
 node scripts/dev-live-viewer.mjs /absolute/static-export MANIFEST_SHA256
