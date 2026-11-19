@@ -48,6 +48,7 @@ import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import {NativeTrackSpotAimProposalError} from './api-error.ts';
+import {applyRecordedFloorCommand, floorRecordingStatus, recordedFloorScopes, type FloorRecordingStatus, type RecordedFloorCommand} from '@exhibitos/studio-contract';
 export type Draft = Extract<Lifecycle, { kind: "exhibition-draft" }>;
 export interface StudioResponse {
   revision: number;
@@ -60,7 +61,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -426,10 +427,17 @@ export class Studio {
     const draft=row.metadata as Draft;
     const budgetCommand=request.type==='set-viewer-budget-policy';
     checked({draft,requestId},budgetCommand&&!!row.nativeBounded,budgetCommand);
-    let result:{candidate:Draft['candidate'];surfaceId?:string;plaqueId?:string;placementId?:string;lightId?:string;openingIds?:[string,string]};
+    let result:{candidate:Draft['candidate'];surfaceId?:string;floorRecording?:FloorRecordingStatus;plaqueId?:string;placementId?:string;lightId?:string;openingIds?:[string,string]};
     let fitEdit:{command:Extract<LightObjectCommand,{type:'set-light-object'}>;intent:NativeSpotBeamFitIntent}|undefined;
     try{
       if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
+      else if(request.type==='select-floor-material'||request.type==='reset-floor-sound'){
+        const candidate=applyRecordedFloorCommand(draft.candidate,request);
+        const target=request.target;
+        const floor=recordedFloorScopes(candidate).find(scope=>target.kind==='surface'?scope.surfaceId===target.surfaceId:scope.roomId===target.roomId&&scope.surfaceId===undefined);
+        if(!floor)throw Error('FLOOR_TARGET_INVALID');
+        result={candidate,...(floor.surfaceId&&{surfaceId:floor.surfaceId}),floorRecording:floorRecordingStatus(floor)};
+      }
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
       else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(operation.type==='add-connected-door-pair'){
@@ -463,6 +471,8 @@ export class Studio {
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){
+      if((request.type==='select-floor-material'||request.type==='reset-floor-sound')&&error instanceof Error&&
+        ['FLOOR_TARGET_INVALID','FLOOR_RECORDING_UNASSIGNED','FLOOR_SETTINGS_INVALID'].includes(error.message))throw new ApiError(422,error.message);
       if(error instanceof Error&&error.message==='LIGHT_FIXTURE_REQUIRED')throw new ApiError(422,'LIGHT_FIXTURE_REQUIRED');
       const articulated=(operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'
         ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
