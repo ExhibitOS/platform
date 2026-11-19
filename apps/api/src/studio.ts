@@ -5,7 +5,7 @@ import {viewerBudgetAssetSource} from './viewer-budget-producer.ts';
 import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy,type ViewerBudgetAssetReference} from '@exhibitos/studio-contract';
 import {analyzeViewerBudget,type ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
 import {ordinaryViewerBudgetPolicyDelta} from './viewer-budget-policy-delta.ts';
-import {ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
+import {ordinaryCeilingRailInsertionDelta,ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
 import {nativeFrameImageFitProposal,type NativeFrameImageFitCommand} from './native-frame-image-fit.ts';
 export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
@@ -211,6 +211,21 @@ export class Studio {
   /** The persisted, owner-bound provenance controls profile selection. */
   async validateNativeViewport(c:PoolClient,s:Session,id:string,input:StudioInput,match?:string) {
     const row=await this.access(c,s,id);
+    // An ordinary fresh placement can be previewed from its exact saved head.
+    // Keep the existing bounded, removal, and replacement paths independent.
+    const stockRail=!row.nativeBounded&&input?.draft?.candidate&&ordinaryCeilingRailInsertionDelta(row.metadata,input.draft);
+    if(stockRail){
+      const service=this.workspaceFurnishing,owner=this.nativeOexWorkspace;
+      if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId||
+         row.studio_owner_user_id!==s.userId||!service?.hasWriterLease()||!service.supportsCeilingRail())throw new ApiError(403,'FORBIDDEN');
+      await service.authorize(c,s);
+      if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
+      if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+      checked(input);
+      await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,service);
+      await service.checkActiveStockCeilingRail(c,s,stockRail);
+      return {valid:true as const};
+    }
     const frameDelta=!!input?.draft?.candidate&&ordinaryFrameDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE);
     const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
     const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;

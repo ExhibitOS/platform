@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
-import {TEMPLATE_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {TEMPLATE_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishingDescriptor,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {Draft} from './studio.ts';
 
 /** Replace one selected same-source ceiling run with one registered visual.
@@ -32,4 +32,27 @@ export function ordinaryCeilingRailReplacementDelta(before:Draft,after:Draft):bo
   expected.editVersion=after.editVersion;expected.updatedAt=after.updatedAt;
   return isDeepStrictEqual(expected,after);
  }catch{return false;}
+}
+
+/** Recognize the draft produced by a single Native rail attachment. The
+ * viewport caller still has to verify the current catalog, bytes and fit. */
+export function ordinaryCeilingRailInsertionDelta(before:Draft,after:Draft):WorkspaceFurnishingDescriptor|undefined {
+ if(after.editVersion!==before.editVersion+1||!validateWorkspaceFurnishings(before.candidate).valid)return;
+ const left=before.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+ const right=after.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+ if(right?.version!==11||!Array.isArray(right.placements)||!Array.isArray(right.furnishings)||
+    !Array.isArray(right.ceilingAttachments))return;
+ const placements=left?.placements??[],ceilings=left?.ceilingAttachments??[],furnishings=left?.furnishings??[];
+ const added=right.placements[placements.length],attachment=right.ceilingAttachments[ceilings.length];
+ if(!added||!attachment||added.id!==attachment.placementId)return;
+ const descriptor=right.furnishings.find(item=>item?.id===added.furnishingId);
+ if(descriptor?.kind!=='ceiling-rail'||descriptor.version!==added.furnishingVersion)return;
+ const expected=structuredClone(before);
+ const graph:WorkspaceFurnishings={version:11,placements:[...placements,added],ceilingAttachments:[...ceilings,attachment],
+  furnishings:furnishings.some(item=>item.id===descriptor.id)?furnishings:[...furnishings,descriptor],
+  frameAttachments:left?.frameAttachments??[],openingAttachments:left?.openingAttachments??[]};
+ expected.candidate.extensions={...expected.candidate.extensions,
+  [WORKSPACE_FURNISHING_NAMESPACE]:graph as unknown as NonNullable<Draft['candidate']['extensions']>[string]};
+ expected.editVersion=after.editVersion;expected.updatedAt=after.updatedAt;
+ return isDeepStrictEqual(expected,after)?descriptor:undefined;
 }
