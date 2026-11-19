@@ -10,6 +10,8 @@ import {prepareBenchBaseColorInWorker,prepareInfoStandInWorker} from './frame-pr
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrameById,readInstalledFrameThumbnail,installedFrameThumbnail} from './installed-artwork-frame.ts';
+import * as furnishingAssets from './furnishing-assets.ts';
+import installedHosts from './installed-workspace-hosts.json' with {type:'json'};
 vi.mock('./installed-artwork-frame.ts',async importOriginal=>({
  ...await importOriginal<typeof import('./installed-artwork-frame.ts')>(),
  readInstalledFrameById:vi.fn(),
@@ -451,6 +453,39 @@ it('discovers installed frames in order and keeps tenant registration separate',
   expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing'))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockReset();}
 });
+it('resolves installed rail and portal only for the live owner with their existing host capabilities',async()=>{
+ const f=fixture(true);
+ const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,
+  workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const,workspacePortalFinish:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ const read=vi.spyOn(furnishingAssets,'readInstalledFurnishing').mockImplementation(async(path,bytes,hash)=>{
+  const entry=installedHosts.find(host=>host.path===path);
+  if(!entry||entry.descriptor.model.bytes!==bytes||entry.descriptor.model.sha256!==hash)throw Error('unexpected installed model');
+  return Buffer.alloc(bytes);
+ });
+ try{
+  const listed=await service.list(f.client,f.session);
+  expect(listed.items).toHaveLength(2);
+  for(const {descriptor} of installedHosts){
+   expect(listed.items).toContainEqual(expect.objectContaining({id:descriptor.id,version:1,kind:descriptor.kind,installedCatalog:true,
+    rightsAvailability:{display:true,download:true,export:true}}));
+   expect(await service.checkDisplay(f.client,f.session,descriptor.id,1)).toEqual(descriptor);
+   expect(await service.readVersion(f.client,f.session,descriptor.id,1)).toEqual(descriptor);
+   await expect(service.readVersion(f.client,f.session,descriptor.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
+   await expect(service.readVersion(f.client,{...f.session,userId:id(9)},descriptor.id,1)).rejects.toMatchObject({code:'FORBIDDEN'});
+   const declared=await service.readVersion(f.client,f.session,descriptor.id,1);
+   const bound={workspaceId:owner.workspaceId,tenantId:owner.tenantId,userId:owner.principalId,descriptor:declared};
+   expect((await service.publicationModel(f.client,bound)).sha256).toBe(descriptor.model.sha256);
+   await expect(service.publicationModel(f.client,{...bound,descriptor:{...declared,provenance:'Unreviewed'}}))
+    .rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+   const unavailable=new WorkspaceFurnishingIntakes(f.blobs,f.owner,f.writer);
+   await expect(unavailable.readVersion(f.client,f.session,descriptor.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
+  }
+  expect(f.query.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+  expect(f.blobs.put).not.toHaveBeenCalled();
+ }finally{read.mockRestore();}
+});
+
 it('authorizes immutable installed cards before and after reading, without registry or selection writes',async()=>{
  const f=fixture(true),id='af88109b-27e2-4d10-a08c-3ddc0224451a',thumbnail=installedFrameThumbnail(id)!,png=Buffer.alloc(5176),service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true},f.writer);
  vi.mocked(readInstalledFrameById).mockResolvedValue({bytes:Buffer.alloc(7892),mime:'model/gltf-binary',sha256:thumbnail.source.modelSha256});vi.mocked(readInstalledFrameThumbnail).mockResolvedValue({bytes:png,thumbnail});

@@ -9,6 +9,7 @@ import {cp, mkdir, lstat, readFile, readdir, readlink, realpath, writeFile} from
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import installedArtworkFrames from '../apps/api/src/installed-artwork-frames.json' with {type:'json'};
+import installedWorkspaceHosts from '../apps/api/src/installed-workspace-hosts.json' with {type:'json'};
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
@@ -148,6 +149,7 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Verify the selected release's exact models and notices before and after
 // copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
+ '1.21.0':{commit:'00816efa898cf78bbf47ac3a4d29d3904bb8a34f',manifestSHA256:'f248b227b60ec97c8c951c56fc56a998aa1b0eb485106a04a0d7ccd6f31d517b',bytes:36360},
  '1.20.0':{commit:'addb2f3312209303f426d4ea687af183ccc279ce',manifestSHA256:'4bcb9616719bedaa2f3436630f9c499c2e2dad7538150b862fc7de84b43db147',bytes:29400},
   '1.19.0':{commit:'1c81844b8c7f545387fff4ade6823aee4b72eff7',manifestSHA256:'138b8307dba70f382f886c5c37b6396f1327b0b7311a202ec5d6932185743b08',bytes:27317},
   '1.18.0':{commit:'e9fc45d3bca70690922a9e92849e4ecd1c587a33',manifestSHA256:'83d9d1913850c310e63a1d5a77297ca8944da1fc9720cf017e3a9dad361b7e5a',bytes:25957},
@@ -213,8 +215,10 @@ const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manif
 const DEFAULT_FRAME_ID='black-aluminum-frame';
 const wheatFrame=installedArtworkFrames.find(frame=>frame.catalogId===DEFAULT_WHEAT_FRAME_ID);
 const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice&&frame.catalogId!==DEFAULT_WHEAT_FRAME_ID);
-const articulatedReleases=['1.18.0','1.19.0','1.20.0'];
-const oakBenchReleases=['1.19.0','1.20.0'];
+const installedHostEntries=new Map(installedWorkspaceHosts.map(item=>[item.catalogId,item]));
+const articulatedReleases=['1.18.0','1.19.0','1.20.0','1.21.0'];
+const oakBenchReleases=['1.19.0','1.20.0','1.21.0'];
+const wheatReleases=['1.20.0','1.21.0'];
 const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:[...(frame.custodyFiles??[]),...(frame.thumbnail?[{path:frame.thumbnail.path,bytes:frame.thumbnail.png.bytes,sha256:frame.thumbnail.png.sha256}]:[])]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
@@ -239,7 +243,8 @@ async function readDefaultFurnishingsManifest(root){
   const version=articulatedBundle?'1.17.0':bundleVersion;
   const manifest=JSON.parse(bytes.toString('utf8'));
   const hosts={...DEFAULT_FURNISHINGS_HOSTS,
-    ...(bundleVersion==='1.20.0'?{[DEFAULT_WHEAT_FRAME_ID]:'artwork-frame'}:{}),
+    ...(wheatReleases.includes(bundleVersion)?{[DEFAULT_WHEAT_FRAME_ID]:'artwork-frame'}:{}),
+    ...(bundleVersion==='1.21.0'?Object.fromEntries(installedWorkspaceHosts.map(item=>[item.catalogId,item.hostKind])):{}),
     ...(oakBenchReleases.includes(bundleVersion)?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
     ...(['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?Object.fromEntries(additionalInstalledFrames.map(frame=>[frame.catalogId,'artwork-frame'])):{}),
     ...(['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'recessed-downlight':'light'}:{}),
@@ -259,9 +264,10 @@ async function readDefaultFurnishingsManifest(root){
     const id=item.catalogId;
     if(!Object.hasOwn(hosts,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     seen.add(id);
-    if(id===DEFAULT_WHEAT_FRAME_ID){
-      const {descriptor,path,notice}=wheatFrame;
-      const expected={catalogId:id,catalogVersion:descriptor.version,name:descriptor.name,hostKind:descriptor.kind,
+    const installedDefault=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:installedHostEntries.get(id);
+    if(installedDefault){
+      const {descriptor,path,notice}=installedDefault;
+      const expected={catalogId:id,catalogVersion:descriptor.version,name:descriptor.name,hostKind:hosts[id],
         model:{path,...descriptor.model},rights:{licenseId:descriptor.rights.licenseId,notice},
         provenance:{sourceSha256:descriptor.model.sha256,recipe:'original-v1'},workspaceFurnishing:descriptor};
       if(!isDeepStrictEqual(item,expected))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
@@ -312,10 +318,10 @@ export async function checkedDefaultFurnishingsRoot(root){
   if(top!==root||commit!==release.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   return {root:canonical,...release};
 }
-/** A new runtime must select the matched 1.20 release before any
+/** A new runtime must select the matched 1.21 release before any
  * build. Older release verification/copy remains available for immutable audits. */
 export async function requireCurrentFurnishingsRelease(root){
-  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.20.0']);
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.21.0']);
 }
 export async function requireGpuModelPreparationFurnishingsRelease(root){
   return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.7.0']);
@@ -343,7 +349,8 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
   if(oakBenchReleases.includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_OAK_BENCH_ID);
-  if(bundled?.manifest.bundleVersion==='1.20.0')ids.push(DEFAULT_WHEAT_FRAME_ID);
+  if(wheatReleases.includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_WHEAT_FRAME_ID);
+  if(bundled?.manifest.bundleVersion==='1.21.0')ids.push(...installedHostEntries.keys());
   if(['1.15.0','1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_BENCH_V6_ID);
   if(['1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_DARK_TRACK_ID);
   if(inheritedVersion==='1.17.0')ids.push(DEFAULT_RECTANGLE_TRACK_ID);
@@ -358,9 +365,11 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
     const workspaceOriginal=bundled&&(id===DEFAULT_OAK_BENCH_ID||id===DEFAULT_RECTANGLE_TRACK_ID||id===DEFAULT_DARK_TRACK_ID||id===DEFAULT_BENCH_V6_ID||id===DEFAULT_CLEAR_HOOD_ID||id==='linear-track'||exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_COMPACT_STAND_ID)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
-    const addedFrame=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:
-      ['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
-    const entry = addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?{...workspaceOriginal.model,rights:{
+    const installedHost=installedHostEntries.get(id);
+    const installedDefault=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:installedHost;
+    const legacyFrame=['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
+    const packagedFurnishing=installedDefault??legacyFrame;
+    const entry = packagedFurnishing?installedFrameEntry(packagedFurnishing):workspaceOriginal?{...workspaceOriginal.model,rights:{
       licenseId:workspaceOriginal.rights.licenseId,
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
     }}:id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
@@ -371,8 +380,9 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
     const preparedSign=id==='exit-pictogram-sign'&&hasPreparedExitSign(inheritedVersion);
     if(id===DEFAULT_FRAME_ID)files.push([DEFAULT_FRAME_ROOT+'/source.glb',101768,entry.provenance.sourceSha256]);
     if(preparedSign)files.push([DEFAULT_EXIT_SIGN_SOURCE.path,DEFAULT_EXIT_SIGN_SOURCE.bytes,DEFAULT_EXIT_SIGN_SOURCE.sha256]);
+    const assetDirectory=installedHost?dirname(installedHost.path)+ '/':`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`;
     for (const [path, bytes, sha256] of files) {
-      if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`)
+      if (typeof path !== 'string' || !path.startsWith(assetDirectory)
           || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)&&!extraPaths.has(path)) || path.includes('..') || path.includes('\\')
           || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
       seen.add(path);
