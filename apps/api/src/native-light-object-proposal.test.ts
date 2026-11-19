@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
-import {addRoomSupplementalCeilingFill,applyFurnishingCommand,furnishingsFor,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,setLightDetails,validateFurnishings,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyFurnishingCommand,ensureOrdinaryRoomBaseLight,furnishingsFor,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,ROOM_CEILING_FILL_PROFILE,setLightDetails,validateFurnishings,validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {newLight} from '../../web/src/placement/model.ts';
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import type {NativeFixtureScope} from './native-fixture-proposal.ts';
 import {nativeLightObjectProposal} from './native-light-object-proposal.ts';
+import {assertLightFixtureDelta} from './light-fixture-admission.ts';
 function fixture(){
  let candidate=newDraft().candidate;candidate.surfaces=whiteCubeSurfaces(candidate.rooms[0]!);
  const light=newLight(candidate.rooms[0]!.id,'spot');light.transform.position=[0,2,0];candidate.lights.push(light);
@@ -53,4 +54,34 @@ it('changes authored shadow intent through the scoped typed light operation and 
  const enabled=nativeLightObjectProposal(f.candidate,command,f.scope);expect(enabled.candidate.lights[0]).toEqual({...before.lights[0],castsShadow:true});expect(f.candidate).toEqual(before);
  const disabled=nativeLightObjectProposal(enabled.candidate,{...command,light:{...f.fields,castsShadow:false}},f.scope);expect(disabled.candidate.lights[0]!.castsShadow).toBe(false);
  for(const invalid of ['true',1,null])expect(()=>nativeLightObjectProposal(f.candidate,{...command,light:{...f.fields,castsShadow:invalid as unknown as boolean}},f.scope)).toThrow();expect(f.candidate).toEqual(before);
+});
+
+it('creates one built-in or exact installed fixture atomically and preserves the room area path',async()=>{
+ const {candidate,fields,scope}=fixture(),original=structuredClone(candidate);
+ const command={type:'add-light-with-fixture' as const,light:{...fields,castsShadow:false},settings:{fixture:'spot-can' as const}};
+ const builtIn=nativeLightObjectProposal(candidate,command,scope);
+ expect(nativeLightObjectProposal(candidate,command,scope)).toEqual(builtIn);
+ expect(lightDetailsFor(builtIn.candidate).find(row=>row.lightId===builtIn.lightId)?.fixture).toBe('spot-can');
+ await expect(assertLightFixtureDelta(candidate,builtIn.candidate)).resolves.toBeUndefined();
+
+ const visual=nativeLightObjectProposal(candidate,{...command,settings:{fixture:'none'},
+  visual:{catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}}},scope);
+ expect(furnishingsFor(visual.candidate)?.bindings).toEqual([expect.objectContaining({hostId:visual.lightId,hostKind:'light'})]);
+ await expect(assertLightFixtureDelta(candidate,visual.candidate)).resolves.toBeUndefined();
+ const detached=nativeLightObjectProposal(visual.candidate,{type:'set-light-fixture',lightId:visual.lightId,visual:null},scope);
+ await expect(assertLightFixtureDelta(visual.candidate,detached.candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ const removed=nativeLightObjectProposal(visual.candidate,{type:'remove-light-object',lightId:visual.lightId},scope);
+ await expect(assertLightFixtureDelta(visual.candidate,removed.candidate)).resolves.toBeUndefined();
+ expect(removed.candidate.lights).toEqual(candidate.lights);
+ expect(furnishingsFor(removed.candidate)).toBeUndefined();
+
+ expect(()=>nativeLightObjectProposal(candidate,{...command,settings:{fixture:'none'}},scope)).toThrow('LIGHT_FIXTURE_REQUIRED');
+ const duplicate=nativeLightObjectProposal(candidate,{type:'duplicate-light-object',lightId:candidate.lights[0]!.id},scope);
+ await expect(assertLightFixtureDelta(candidate,duplicate.candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ await expect(assertLightFixtureDelta(candidate,candidate)).resolves.toBeUndefined();
+ await expect(assertLightFixtureDelta(undefined,candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ const area=ensureOrdinaryRoomBaseLight(candidate,fields.roomId,randomUUID(),ROOM_CEILING_FILL_PROFILE);
+ expect(area.lights.at(-1)?.type).toBe('area');
+ await expect(assertLightFixtureDelta(candidate,area)).resolves.toBeUndefined();
+ expect(candidate).toEqual(original);
 });
