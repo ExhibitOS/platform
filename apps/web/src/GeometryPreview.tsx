@@ -2571,6 +2571,7 @@ export function GeometryPreview({
         let publicThumbnailTask:string|undefined;
         const cancelPublicThumbnail=()=>{if(publicThumbnailTask){scheduler.cancel(publicThumbnailTask);publicThumbnailTask=undefined;}};
         preserveQualityFrame=()=>{
+          if(inspectionPose)return;
           const live=renderer.domElement,stage=live.parentElement?.parentElement;
           if(!stage||gpuLost||!live.width||!live.height||qualityFrame.current)return;
           const visibleWorks=[...active.keys()].filter(id=>observedVisible.get(id)===true);
