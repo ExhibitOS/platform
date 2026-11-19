@@ -10,6 +10,10 @@ import {
   checkDefaultCatalogueLedger,
 } from './native-oex-normal-catalog.mjs';
 
+export const OCCUPIED_ROOM_LIGHTING_SOURCE_MANIFEST = 'platform/scripts/occupied-room-lighting-source.json';
+export const OCCUPIED_ROOM_LIGHTING_DONOR_MANIFEST = 'platform/scripts/occupied-room-lighting-donor.json';
+export const OCCUPIED_ROOM_LIGHTING_MIGRATION = 'platform/scripts/occupied-room-lighting-migration.sql';
+
 const occupiedSource = {
   manifest: '86796846d9f8c082746370b7e9cfe25fce002dc79fe21d45f80e165807ccf61b',
   sourceCommit: '97cfd01de5b6d99911f1b7ec063abf293fd915cc',
@@ -46,11 +50,28 @@ function sqlMembers(files) {
 }
 
 function sameMember(a, b) {
-  return a?.path === b.path && a.bytes === b.bytes && a.sha256 === b.sha256 && a.executable === b.executable;
+  return a?.path === b.path && a.link === undefined && a.bytes === b.bytes && a.sha256 === b.sha256 && a.executable === b.executable;
 }
 
 function ledger(files) {
   return files.map(row => ({name: basename(row.path), sha256: row.sha256}));
+}
+
+function ledgerLineDigest(files) {
+  return sha(ledger(files).map(row => `${row.name}|${row.sha256}`).join('\n'));
+}
+
+function sqlLedgerGuard(files, phase) {
+  return `DO $occupied_057$
+BEGIN
+  IF (SELECT count(*) <> ${files.length} OR
+      encode(sha256(convert_to(coalesce(string_agg(name || '|' || sha256,
+        E'\\n' ORDER BY name COLLATE "C"), ''), 'UTF8')), 'hex') <> '${ledgerLineDigest(files)}'
+      FROM public.schema_migrations) THEN
+    RAISE EXCEPTION 'OCCUPIED_CHECKPOINT_${phase}_LEDGER';
+  END IF;
+END;
+$occupied_057$;`;
 }
 
 /** This plan describes only the exact existing-owner migration and retained files.
@@ -77,7 +98,23 @@ export function planOfficialRoomLightingCheckpoint(sourceManifestBytes, freshMan
   const targetSql = sqlMembers([...sourceSql, added]);
   return {
     sourceManifestSHA256: occupiedSource.manifest, donorManifestSHA256: freshDonor.manifest,
+    sourceManifestBytes: sourceManifestBytes.length, donorManifestBytes: freshManifestBytes.length,
     sourceLedger: ledger(sourceSql), targetLedger: ledger(targetSql), added: {...added},
+    sourceLedgerLinesSHA256: ledgerLineDigest(sourceSql), targetLedgerLinesSHA256: ledgerLineDigest(targetSql),
+    // Native supplies the protected trial and invokes this on its bound DB with
+    // psql ON_ERROR_STOP. Ordinary Server startup only recognizes the result.
+    renderProtectedMigration(bytes) {
+      if (bytes.length !== added.bytes || sha(bytes) !== added.sha256) throw Error('OCCUPIED_CHECKPOINT_MIGRATION');
+      return 'BEGIN ISOLATION LEVEL SERIALIZABLE;\n'
+        + 'SET LOCAL search_path TO public, pg_catalog;\n'
+        + 'SELECT pg_advisory_xact_lock(82001);\n'
+        + 'LOCK TABLE public.schema_migrations IN SHARE ROW EXCLUSIVE MODE;\n'
+        + sqlLedgerGuard(sourceSql, 'SOURCE') + '\n'
+        + bytes.toString('utf8').trimEnd() + '\n'
+        + `INSERT INTO public.schema_migrations(name,sha256) VALUES ('${basename(added.path)}','${added.sha256}');\n`
+        + sqlLedgerGuard(targetSql, 'TARGET') + '\n'
+        + 'COMMIT;\n';
+    },
     checkTargetMembers(files) {
       const actual = sqlMembers(files);
       if (actual.length !== targetSql.length || targetSql.some((row, index) => !sameMember(actual[index], row))

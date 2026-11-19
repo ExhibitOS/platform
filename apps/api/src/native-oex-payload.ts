@@ -22,6 +22,6 @@ export async function pinNativeOexPayloadManifest(path:string){
   const hasPath=(path:string)=>entries().some(item=>item&&item.path===path);
   const hasRegular=(path:string)=>{const selected=entries().filter(item=>item&&item.path===path);return selected.length===1&&selected[0]!.link===undefined&&selected[0]!.executable===false&&typeof selected[0]!.bytes==='number'&&typeof selected[0]!.sha256==='string';};
   const hasExact=(path:string,sha256:string,bytes:number)=>{const selected=entries().filter(item=>item&&item.path===path);return selected.length===1&&selected[0]!.sha256===sha256&&selected[0]!.bytes===bytes&&selected[0]!.executable===false;};
-  return Object.freeze({digest,hasPath,hasRegular,hasExact,verify:async()=>{if(closed)throw Error('NATIVE_OEX_PAYLOAD');await verify();},close:async()=>{if(!closed){closed=true;await file.close();}}});
+  return Object.freeze({digest,hasPath,hasRegular,hasExact,members:entries,verify:async()=>{if(closed)throw Error('NATIVE_OEX_PAYLOAD');await verify();},close:async()=>{if(!closed){closed=true;await file.close();}}});
  }catch(error){await file.close().catch(()=>{});throw error;}
 }

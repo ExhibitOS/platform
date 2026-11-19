@@ -22,6 +22,10 @@ import {ADOPTION_CAPABILITY,ADOPTION_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY,A
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
 import {assertNativeStaticResources} from './native-static-resource-closure.mjs';
+import {
+  OCCUPIED_ROOM_LIGHTING_SOURCE_MANIFEST, OCCUPIED_ROOM_LIGHTING_DONOR_MANIFEST, OCCUPIED_ROOM_LIGHTING_MIGRATION,
+  planOfficialRoomLightingCheckpoint,
+} from './native-official-room-lighting-checkpoint.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 const fail = code => { throw Error(code); };
@@ -616,7 +620,7 @@ export function assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminal
     fail('NATIVE_PACKAGE_INPUT_INVALID');
 }
 
-export async function packageNativeRuntime(destination, {defaultCatalogueBaseline, nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, hayesPreopenTerminalSelected = false, benchAfterTerminalSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, currentImageThumbnailSelected = false, gpuModelPreparationSelected = false, gpuModelEncoderRoot, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, qualifiedStudioContractManifest, privateWheatQualification}) {
+export async function packageNativeRuntime(destination, {defaultCatalogueBaseline, occupiedRoomLightingCheckpoint, nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, hayesPreopenTerminalSelected = false, benchAfterTerminalSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, currentImageThumbnailSelected = false, gpuModelPreparationSelected = false, gpuModelEncoderRoot, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, qualifiedStudioContractManifest, privateWheatQualification}) {
   if (defaultCatalogueBaseline !== undefined &&
       (!defaultCatalogueBaseline || Object.keys(defaultCatalogueBaseline).length !== 2 ||
        typeof defaultCatalogueBaseline.path !== 'string' || !isAbsolute(defaultCatalogueBaseline.path) ||
@@ -626,6 +630,21 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
        !workspaceFurnishingThumbnailsSelected || !currentImageThumbnailSelected ||
        benchAfterTerminalSelected || hayesPreopenTerminalSelected || privateWheatQualification !== undefined))
     fail('NATIVE_PACKAGE_INPUT_INVALID');
+  let occupiedPlan, occupiedSourceBytes, occupiedDonorBytes;
+  if (occupiedRoomLightingCheckpoint !== undefined) {
+    const input = occupiedRoomLightingCheckpoint;
+    if (!input || Object.keys(input).length !== 2
+        || typeof input.sourceManifestPath !== 'string' || !isAbsolute(input.sourceManifestPath)
+        || typeof input.donorManifestPath !== 'string' || !isAbsolute(input.donorManifestPath)
+        || !defaultCatalogueBaseline || freshOexValidation || modelAdoptionSelected || modelAdoptionCarriedTargetSelected
+        || workspaceFurnishingSelectedImport || workspaceMaterialSelectedImport || workspaceMaterialMultimapSelectedImport
+        || hayesReleaseProbeSelected || hayesDispositionProbeSelected || hayesSessionProbeSelected)
+      fail('NATIVE_PACKAGE_INPUT_INVALID');
+    occupiedSourceBytes = await readFile(await checkedSource(input.sourceManifestPath, 'file'));
+    occupiedDonorBytes = await readFile(await checkedSource(input.donorManifestPath, 'file'));
+    try { occupiedPlan = planOfficialRoomLightingCheckpoint(occupiedSourceBytes, occupiedDonorBytes); }
+    catch { fail('NATIVE_PACKAGE_OCCUPIED_CHECKPOINT_INVALID'); }
+  }
   assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminalSelected,hayesReleaseSelected,
     workspaceFurnishingThumbnailsSelected,currentImageThumbnailSelected,benchAfterTerminalSelected,workspaceArtworkFramePreparationSelected,workspaceFurnishingRoomVisualSelected});
   if(typeof currentImageThumbnailSelected!=='boolean'||currentImageThumbnailSelected&&(!modelPreparationSelected||!workspaceFurnishingWriterSelected||gpuModelPreparationSelected||infoStandPreparationSelected||freshImageSelected||largeModelSelected||catalog045PreReadyPreservation||catalog045PreReadyHayesPreservation||modelAdoptionSelected||modelAdoptionCarriedTargetSelected))fail('NATIVE_PACKAGE_INPUT_INVALID');
@@ -676,6 +695,9 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
   if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   if(isDefaultRelease(furnishingsRelease,DEFAULT_WORKSPACE_RELEASES)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if (occupiedPlan && (!isDefaultRelease(furnishingsRelease, ['1.21.0']) ||
+      await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],{cwd:source,capture:true})))
+    fail('NATIVE_PACKAGE_OCCUPIED_CHECKPOINT_INVALID');
   // mkdir without recursive refuses an existing destination and preserves failures.
   await mkdir(destination, {mode:0o700});
   const root = await realpath(destination), platform = join(root, 'platform');
@@ -712,6 +734,13 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   await copyNativeFurnishings(furnishingsRelease?.root??source, platform, furnishingsRelease);
   if(defaultCatalogueBaseline)await copyDefaultCatalogueBaseline(source, platform, tracked, defaultCatalogueBaseline);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
+  await copy(join(source,'scripts/native-official-room-lighting-checkpoint.mjs'),join(platform,'scripts/native-official-room-lighting-checkpoint.mjs'));
+  if (occupiedPlan) {
+    await writeFile(join(root,OCCUPIED_ROOM_LIGHTING_SOURCE_MANIFEST),occupiedSourceBytes,{flag:'wx',mode:0o600});
+    await writeFile(join(root,OCCUPIED_ROOM_LIGHTING_DONOR_MANIFEST),occupiedDonorBytes,{flag:'wx',mode:0o600});
+    const migration=occupiedPlan.renderProtectedMigration(await readFile(join(root,occupiedPlan.added.path)));
+    await writeFile(join(root,OCCUPIED_ROOM_LIGHTING_MIGRATION),migration,{flag:'wx',mode:0o600});
+  }
   // The launcher imports this module before it checks for a trace request.
   await copy(join(source,'scripts/native-thumbnail-preview-trace.mjs'),join(platform,'scripts/native-thumbnail-preview-trace.mjs'));
   if(hayesSessionProbeSelected){const probe='scripts/native-hayes-session-probe.mjs';await command('/usr/bin/git',['ls-files','--error-unmatch','--',probe],{cwd:source,capture:true});const path=await checkedSource(join(source,probe),'file');await copy(path,join(platform,probe));if(await hash(path)!==await hash(join(platform,probe)))fail('NATIVE_PACKAGE_SOURCE_INVALID');}
@@ -741,11 +770,11 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   if(catalog045PreReadyHayesPreservation)await writeFile(join(platform,'scripts',CATALOG045_PRE_READY_HAYES_MARKER),CATALOG045_PRE_READY_HAYES_CAPABILITY,{flag:'wx',mode:0o600});
   await copyWorkspaceFurnishingThumbnailSelectedFiles(source,platform,tracked,workspaceFurnishingThumbnailsSelected);
   await copyCurrentImageThumbnailSelectedFiles(source,platform,tracked,currentImageThumbnailSelected);
-  if(hayesPreopenTerminalSelected){
+  if(hayesPreopenTerminalSelected||occupiedPlan){
     await copyCheckedValidationFile(source,platform,tracked,HAYES_PREOPEN_TERMINAL_DIRECTORY+'/'+HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256);
     await writeFile(join(platform,'scripts',HAYES_PREOPEN_TERMINAL_MARKER),HAYES_PREOPEN_TERMINAL_CAPABILITY,{flag:'wx',mode:0o600});
   }
-  if(benchAfterTerminalSelected){
+  if(benchAfterTerminalSelected||occupiedPlan){
     await copyCheckedValidationFile(source,platform,tracked,BENCH_AFTER_TERMINAL_DIRECTORY+'/'+BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_SHA256);
     await writeFile(join(platform,'scripts',BENCH_AFTER_TERMINAL_MARKER),BENCH_AFTER_TERMINAL_CAPABILITY,{flag:'wx',mode:0o600});
   }
@@ -815,9 +844,14 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   // developer checkout. No npm/tsc/vite/Homebrew executable is shipped or needed.
   await command(nodeBinary,[npmCLI,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],{cwd:platform});
   const files = await inventory(root);
+  if (occupiedPlan) {
+    try { occupiedPlan.checkTargetMembers(files); }
+    catch { fail('NATIVE_PACKAGE_OCCUPIED_CHECKPOINT_INVALID'); }
+  }
   assertNativeJpegPayloadInventory(files);
   const sourceCommit = await command('/usr/bin/git',['rev-parse','HEAD'],{cwd:source,capture:true});
   const sourceModified = Boolean(await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],{cwd:source,capture:true}));
+  if(occupiedPlan&&sourceModified)fail('NATIVE_PACKAGE_OCCUPIED_CHECKPOINT_INVALID');
   const manifest = {
     format:'exhibitos-native-runtime-v1',mode:'local-validation',platform:'darwin-arm64',
     nodeVersion:'24.21.0',postgresVersion:'18.6',platformVersion:'0.1.0',protocolVersion:'1',
