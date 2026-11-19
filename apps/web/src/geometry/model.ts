@@ -6,7 +6,7 @@ import {
   reflowRoomBaseLight, manualizeRoomBaseLight, preserveRoomCeilingFillAfterCeilingEdit, sameLightPose,
   reconcileFurnishingWalkingCollision,
   ensureRoomBaseLight,
-  ensureOrdinaryRoomBaseLight, type ROOM_CEILING_FILL_PROFILE,
+  ensureOrdinaryRoomBaseLight, type RoomCeilingFillProfile,
   roomBaseLight,
   resizeRoomEnvelope, completeRoomCeiling, setLightAttachment, LIGHT_ATTACHMENT_NAMESPACE, type LightAttachment,
   TEMPLATE_NAMESPACE,
@@ -48,8 +48,8 @@ export type GeometryCommand =
   | { type: "set-title"; title: string }
   | { type: "set-presentation"; presentation: StudioPresentation }
   | { type: "add-room"; room: Room }
-  | { type: "add-room-with-base-light"; room: Room; ceilingFillProfile?: typeof ROOM_CEILING_FILL_PROFILE }
-  | { type: "ensure-room-base-light"; roomId: string; ceilingFillProfile?: typeof ROOM_CEILING_FILL_PROFILE }
+  | { type: "add-room-with-base-light"; room: Room; ceilingFillProfile?: RoomCeilingFillProfile }
+  | { type: "ensure-room-base-light"; roomId: string; ceilingFillProfile?: RoomCeilingFillProfile }
   | { type: "set-room"; id: string; room: Omit<Room, "id"> }
   | { type: "white-cube"; roomId: string }
   | { type: "add-surface"; surface: Surface }

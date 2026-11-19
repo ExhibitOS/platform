@@ -4,7 +4,11 @@ import type { Exhibition } from '@exhibitos/spec';
 export interface RoomCeilingFill {
   version: 1;
   brightness: number;
+  /** Absence preserves the original brightness mapping for authored and legacy fills. */
+  mode?: 'default';
 }
+
+export const ROOM_CEILING_FILL_INITIAL_BRIGHTNESS = 0.5;
 
 type RoomDimensions = Exhibition['rooms'][number]['dimensions'];
 type CeilingFillEmitter = Pick<Exhibition['lights'][number], 'dimensions' | 'intensity' | 'transform'>;
@@ -37,11 +41,12 @@ function meanFloorLuxPerLumen(floor: RoomDimensions, panelWidth: number, panelDe
 }
 
 /** Version 1 trial recipe for an already verified flat, rectangular room. */
-export function deriveRoomCeilingFill(room: RoomDimensions, brightness: number): CeilingFillEmitter {
+export function deriveRoomCeilingFill(room: RoomDimensions, brightness: number, mode?: RoomCeilingFill['mode']): CeilingFillEmitter {
   if (![room.width, room.depth, room.height].every(dimension => Number.isFinite(dimension) && dimension > 0 && dimension <= 10_000) || room.height <= ceilingGapMetres) {
     throw new Error('ROOM_CEILING_FILL_GEOMETRY');
   }
-  if (!Number.isFinite(brightness) || brightness < 0 || brightness > 1) {
+  if (!Number.isFinite(brightness) || brightness < 0 || brightness > 1 ||
+      (mode !== undefined && (mode !== 'default' || brightness !== ROOM_CEILING_FILL_INITIAL_BRIGHTNESS))) {
     throw new Error('ROOM_CEILING_FILL_BRIGHTNESS');
   }
 
@@ -49,7 +54,8 @@ export function deriveRoomCeilingFill(room: RoomDimensions, brightness: number):
   const depth = room.depth * panelInsetRatio;
   const height = room.height - ceilingGapMetres;
   // The trial maps full brightness to one ideal mean floor lux.
-  const intensity = brightness === 0 ? 0 : brightness / meanFloorLuxPerLumen(room, width, depth, height);
+  const baselineIntensity = brightness === 0 ? 0 : brightness / meanFloorLuxPerLumen(room, width, depth, height);
+  const intensity = mode === 'default' ? 5 * baselineIntensity : baselineIntensity;
   if (!Number.isFinite(intensity) || (brightness > 0 && intensity <= 0)) {
     throw new Error('ROOM_CEILING_FILL_GEOMETRY');
   }
