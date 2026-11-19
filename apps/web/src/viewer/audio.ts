@@ -183,6 +183,7 @@ export class ExhibitionAudio implements AudioApi {
   private stepSession = new RecordedStepSession();
   private failedStepPreloads=new Set<string>();
   private pressureDeferredSteps=new Set<string>();
+  private deferredNarrationBytes=new Map<string,number>();
   private position: [number, number, number] = [0, 0, 0];
   private room?: string;
   private experience: Experience;
@@ -572,7 +573,21 @@ export class ExhibitionAudio implements AudioApi {
     }catch{this.stop(source);if(bank?.id){this.failedStepPreloads.add(bank.id);this.stepSession.failed(bank.key,bank.id);this.preload();}this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
     this.state.footsteps++; this.emit();
   }
-  private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) { this.playing.add(source); source.onended = () => { this.playing.delete(source); source.disconnect(); cleanup(); if(this.pressureDeferredSteps.size){this.pressureDeferredSteps.clear();this.preload();} this.emit(); }; }
+  private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) {
+    this.playing.add(source);
+    source.onended = () => {
+      this.playing.delete(source);
+      source.disconnect();
+      cleanup();
+      const freedCacheSpace = this.deferredNarrationBytes.size>0 && [...this.buffers].some(([id,buffer]) =>
+        buffer===source.buffer && !this.cacheBufferPinned(id,buffer,this.selectedStepBank()?.id));
+      if(this.pressureDeferredSteps.size||freedCacheSpace){
+        this.pressureDeferredSteps.clear();
+        this.preload();
+      }
+      this.emit();
+    };
+  }
   private worldPosition(roomId: string, local: [number, number, number]): [number, number, number] {
     const room = this.publication.exhibition.rooms.find(r => r.id === roomId); if (!room) return local;
     const [x, y, z, w] = room.transform.rotation, [a, b, c] = local;
@@ -595,6 +610,7 @@ export class ExhibitionAudio implements AudioApi {
     this.allowed = new Set(this.state.zoneTransitions?doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId):[]);
     for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
     this.nonStepAllowed = new Set(this.allowed);
+    for(const id of this.deferredNarrationBytes.keys())if(!this.nonStepAllowed.has(id))this.deferredNarrationBytes.delete(id);
     for (const entry of this.state.footstepsEnabled?this.experience.footsteps:[]) {
       const surface=doc.surfaces.find(s=>s.id===entry.surfaceId);if(!surface||!rooms.has(surface.roomId))continue;
       const resolved=resolveFootsteps(doc,surface.roomId,surface.id,entry);
@@ -614,7 +630,10 @@ export class ExhibitionAudio implements AudioApi {
   }
   private preload() {
     if (!this.state.enabled || !this.visible || this.disposed || this.state.muted || (this.preferenceKey&&!this.galleryReady)) return;
-    const bank=this.selectedStepBank(),missing=this.preloadTargets().filter(id=>!this.buffers.has(id)&&!this.pending.has(id));
+    const bank=this.selectedStepBank();
+    const freeBytes=this.deferredNarrationBytes.size?MAX_DECODED-this.pinnedDecodedBytes(bank?.id):MAX_DECODED;
+    const missing=this.preloadTargets().filter(id=>!this.buffers.has(id)&&!this.pending.has(id)
+      &&(id===bank?.id||(this.deferredNarrationBytes.get(id)??0)<=freeBytes));
     for(const id of missing.slice(0,Math.max(0,8-this.pending.size)))void this.load(id,true).then(buffer=>{
       if(bank?.id===id&&!bank.legacy&&(!Number.isFinite(buffer.duration)||buffer.duration<RECORDED_STEP_LIMITS.minClipSeconds||buffer.duration>RECORDED_STEP_LIMITS.maxClipSeconds)){
         this.failedStepPreloads.add(id);this.stepSession.failed(bank.key,id);
@@ -622,16 +641,28 @@ export class ExhibitionAudio implements AudioApi {
       }
       if(!this.allowed.has(id)&&![...this.playing].some(source=>source.buffer===this.buffers.get(id)))this.buffers.delete(id);this.emit();
     }).catch(error=>{
-      if(error instanceof Error&&error.message==='AUDIO_PRELOAD_STALE')return;
+      if(error instanceof Error&&(error.message==='AUDIO_PRELOAD_STALE'||error.message==='AUDIO_PRELOAD_PRESSURE'))return;
       if(error instanceof Error&&error.message==='AUDIO_CACHE_PRESSURE'&&bank?.id===id){this.pressureDeferredSteps.add(id);return;}
       if(bank?.id===id){this.failedStepPreloads.add(id);this.stepSession.failed(bank.key,id);}
       this.state.message='일부 소리가 없거나 검증되지 않았습니다. 글 설명과 걷기는 유지되며, 준비되지 않은 녹음 발소리는 재생하지 않습니다.';this.emit();
     }).finally(()=>{if(!this.preloadTargets().includes(id))this.preload();});
   }
-  private admitDecodedBytes(bytes:number, retainedStepId?:string){
+  private cacheBufferPinned(id:string,buffer:AudioBuffer,retainedStepId?:string){
+    return id===retainedStepId||[...this.playing].some(source=>source.buffer===buffer);
+  }
+  private pinnedDecodedBytes(retainedStepId?:string){
+    return [...this.buffers].reduce((total,[id,buffer])=>total+
+      (this.cacheBufferPinned(id,buffer,retainedStepId)?buffer.length*buffer.numberOfChannels*4:0),0);
+  }
+  private admitDecodedBytes(bytes:number,retainedStepId?:string,optionalNarrationId?:string){
     if(!Number.isFinite(bytes)||bytes>MAX_DECODED)throw Error('AUDIO_CACHE_LIMIT');
+    if(optionalNarrationId&&bytes+this.pinnedDecodedBytes(retainedStepId)>MAX_DECODED){
+      // Releasing idle buffers cannot make this narration fit while these pins remain.
+      this.deferredNarrationBytes.set(optionalNarrationId,bytes);
+      throw Error('AUDIO_PRELOAD_PRESSURE');
+    }
     while(bytes+[...this.buffers.values()].reduce((total,buffer)=>total+buffer.length*buffer.numberOfChannels*4,0)>MAX_DECODED){
-      const key=[...this.buffers.keys()].find(key=>key!==retainedStepId&&![...this.playing].some(source=>source.buffer===this.buffers.get(key)));
+      const key=[...this.buffers].find(([id,buffer])=>!this.cacheBufferPinned(id,buffer,retainedStepId))?.[0];
       if(!key)throw Error('AUDIO_CACHE_PRESSURE');
       this.buffers.delete(key);
     }
@@ -666,13 +697,18 @@ export class ExhibitionAudio implements AudioApi {
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const pcm=verifyPcmWav(bytes);
       if(!curationDurationValid(this.publication.exhibition,id,pcm.duration))throw Error("AUDIO_TRANSCRIPT_DURATION_MISMATCH");
-      // Background preloads must leave the current recording ready for the next stride.
-      // Explicit playback can still reclaim its cache space when needed.
-      const admit = (decodedBytes:number) => this.admitDecodedBytes(
-        decodedBytes, preload && !this.explicitLoads.has(id) ? this.selectedStepBank()?.id : undefined,
-      );
+      const roomBgmAsset=this.experience.rooms.some(room=>room.bgm?.assetId.toLowerCase()===id.toLowerCase());
+      const narrationOnly=preload&&!roomBgmAsset&&this.experience.voices.some(voice=>voice.assetId===id)
+        &&!this.publication.exhibition.audioZones?.some(zone=>zone.assetId===id);
+      const admit = (decodedBytes:number) => {
+        // Explicit playback may join the load before admission.
+        const optional=preload&&!this.explicitLoads.has(id);
+        const retainedStepId=optional?this.selectedStepBank()?.id:undefined;
+        const optionalNarrationId=optional&&narrationOnly&&id!==retainedStepId?id:undefined;
+        this.admitDecodedBytes(decodedBytes,retainedStepId,optionalNarrationId);
+      };
       const prepareDecode = this.pendingDecodePreparation.get(id);
-      if (prepareDecode || this.experience.rooms.some(room => room.bgm?.assetId.toLowerCase() === id.toLowerCase())) {
+      if (prepareDecode || roomBgmAsset) {
         const decodedBytes = Math.ceil(pcm.duration * this.context.sampleRate) * pcm.channels * 4;
         if (prepareDecode) {
           try {
@@ -690,6 +726,7 @@ export class ExhibitionAudio implements AudioApi {
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       admit(buffer.length*buffer.numberOfChannels*4);
+      this.deferredNarrationBytes.delete(id);
       this.buffers.set(id, buffer); this.emit(); return buffer;
     }).finally(()=>{this.pending.delete(id);this.pendingDecodePreparation.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;

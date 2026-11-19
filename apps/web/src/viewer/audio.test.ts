@@ -477,6 +477,77 @@ test('room narration preloads retain the selected wood recording beside active B
   assert.ok(f.runtime.snapshot().decodedBytes <= 24*1024*1024);
  } finally { f.runtime.dispose(); }
 });
+test('speculative narration waits for active cache space without evicting an idle voice or publishing an error', async () => {
+ const f = await verifiedStepFixture();
+ const publication = f.internal.publication, doc = publication.exhibition;
+ const assetId = '22222222-2222-4222-8222-222222222222';
+ // Reproduce the public Cannon cache budget with synthetic PCM and decoded shapes.
+ const bytes = wav(28.92);
+ const decoded = (length:number,numberOfChannels=1) => ({
+  length,numberOfChannels,sampleRate:48000,duration:length/48000,
+ }) as AudioBuffer;
+ const background = decoded(1988840,2), cannon = decoded(974592), hayes = decoded(1011456);
+ const narration = decoded(1388160);
+ const source = (buffer:AudioBuffer) => ({
+  buffer,stop:()=>{},disconnect:()=>{},
+ }) as unknown as AudioBufferSourceNode;
+ const cannonSource = source(cannon);
+ let requests = 0;
+ try {
+  f.internal.state.enabled = false;
+  f.runtime.footstepsEnabled(false);
+  doc.rooms.push({id:'next-room'} as typeof doc.rooms[number]);
+  doc.placements = [{id:assetId,roomId:'next-room'},{id:'hayes',roomId:'room'}] as typeof doc.placements;
+  doc.mediaAssets = [{
+   id:assetId,mime:'audio/wav',bytes:bytes.byteLength,
+   sha256:createHash('sha256').update(new Uint8Array(bytes)).digest('hex'),
+  }] as typeof doc.mediaAssets;
+  publication.assets = [{assetId,mime:'audio/wav',url:`/api/v1/publications/${publication.publication.id}/assets/${assetId}`}];
+  (f.runtime as unknown as {experience:{voices:Array<{assetId:string;placementId:string}>}}).experience.voices = [{assetId,placementId:assetId},{assetId:'hayes',placementId:'hayes'}];
+  publication.local!.fetcher = async () => {
+   requests++;
+   return new Response(bytes,{headers:{
+    'content-type':'audio/wav','x-exhibitos-publication-revision':publication.publication.revisionSha256,
+   }});
+  };
+  f.internal.context.decodeAudioData = async () => narration;
+  f.internal.buffers.set('bgm',background).set('cannon',cannon).set('hayes',hayes);
+  f.audio.track(source(background));
+  f.audio.track(cannonSource);
+  f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));
+  f.internal.state.enabled = true;
+  const message = f.runtime.snapshot().message;
+  f.runtime.lifecycle(true);
+  const pending = f.audio.pending.get(assetId);
+  assert(pending);
+  await assert.rejects(pending,/AUDIO_CACHE_PRESSURE|AUDIO_PRELOAD_PRESSURE/);
+  assert.deepEqual({
+   idleVoiceRetained:f.internal.buffers.get('hayes')===hayes,
+   message:f.runtime.snapshot().message,
+   bytes:f.runtime.snapshot().decodedBytes,
+   active:f.runtime.snapshot().active,
+  },{idleVoiceRetained:true,message,bytes:23854912,active:2});
+  f.runtime.lifecycle(true);
+  assert.equal(f.audio.pending.has(assetId),false);
+  assert.equal(requests,1);
+  const unrelatedSource = source(decoded(6720));
+  f.audio.track(unrelatedSource);
+  unrelatedSource.onended?.(new Event('ended'));
+  assert.equal(f.audio.pending.has(assetId),false);
+  // A deliberate request bypasses the speculative deferral and surfaces real pressure.
+  await assert.rejects(f.runtime.playVoice(assetId),/AUDIO_CACHE_PRESSURE/);
+  assert.equal(f.runtime.snapshot().voice.status,'unavailable');
+  assert.equal(requests,2);
+  cannonSource.onended?.(new Event('ended'));
+  const retry = f.audio.pending.get(assetId);
+  assert(retry);
+  assert.equal(await retry,narration);
+  assert.equal(requests,3);
+  assert.equal(f.internal.buffers.get('bgm'),background);
+  assert.equal(f.runtime.snapshot().active,1);
+  assert.ok(f.runtime.snapshot().decodedBytes<=24*1024*1024);
+ } finally { f.runtime.dispose(); }
+});
 test('actual cache eviction is followed by one same-choice reload on a new stride, never synthetic playback',async()=>{
  const f=await verifiedStepFixture();
  try{
