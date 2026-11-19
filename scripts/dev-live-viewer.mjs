@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
-import {mkdtemp, readdir, readFile, realpath, rm, stat} from 'node:fs/promises';
+import {mkdtemp, readdir, readFile, realpath, rm} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {extname, isAbsolute, join} from 'node:path';
@@ -21,8 +20,7 @@ const manifestBytes = await readFile(join(sourceDir, 'static-export-manifest.jso
 if (hash(manifestBytes) !== manifestSha256) throw Error('LIVE_VIEWER_MANIFEST_PIN');
 const {indexSha256, publicationId, revisionSha256} = JSON.parse(manifestBytes);
 const source = await localStaticPublicationSource({sourceDir, sourceManifestSha256:manifestSha256, indexSha256, publicationId, revisionSha256});
-const shellBytes = await readFile(join(sourceDir, 'index.html'));
-if (hash(shellBytes) !== source.entries.get('index.html')?.sha256) throw Error('LIVE_VIEWER_SHELL_PIN');
+const shellBytes = await source.read('index.html');
 const shell = shellBytes.toString('utf8');
 const cover = shell.match(/<body><div id="root">([\s\S]*)<\/div><\/body>/)?.[1];
 const title = shell.match(/<title>[^<]*<\/title>/)?.[0];
@@ -48,14 +46,21 @@ try {
     .replace(/<title>[^<]*<\/title>/, () => title));
 
   const files = new Map();
+  const staticViewerFiles=new Set(['static-publication-index.json','viewer-favicon.svg','voice-pcm-worklet.js',
+    'THIRD_PARTY_NOTICES.txt','floor-texture-notices.txt','basis/basis_transcoder.js',
+    'basis/basis_transcoder.wasm','basis/exhibitos-basis-worker.js']);
   for (const [path, entry] of source.entries) {
-    if (!path.endsWith('.html')) files.set(path,{path:join(sourceDir,path),size:entry.bytes});
+    if (staticViewerFiles.has(path) || /^data\/[a-f0-9]{64}\.(?:json|bin)$/.test(path) ||
+        /^(?:floor-textures|surface-material-textures)\/.*\.png$/.test(path) ||
+        /^surface-material-notices\/[A-Za-z0-9_.-]+\.txt$/.test(path)) {
+      files.set(path,{length:entry.bytes,read:()=>source.read(path)});
+    }
   }
-  files.set('static-export-manifest.json',{path:join(sourceDir,'static-export-manifest.json'),size:manifestBytes.length});
+  files.set('static-export-manifest.json',{length:manifestBytes.length,read:()=>manifestBytes});
   for (const entry of await readdir(join(staging,'assets'),{withFileTypes:true})) {
     if (!entry.isFile()) throw Error('LIVE_VIEWER_BUNDLE_ENTRY');
-    const path = join(staging,'assets',entry.name);
-    files.set('assets/'+entry.name,{path,size:(await stat(path)).size});
+    const bytes=await readFile(join(staging,'assets',entry.name));
+    files.set('assets/'+entry.name,{length:bytes.length,read:()=>bytes});
   }
   const mime = {'.json':'application/json','.js':'text/javascript','.css':'text/css',
     '.wasm':'application/wasm','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg',
@@ -78,9 +83,11 @@ try {
       response.writeHead(404).end();
       return;
     }
-    response.writeHead(200,{'Content-Type':mime[extname(path)]??'application/octet-stream','Content-Length':entry.size});
-    if (request.method==='HEAD') response.end();
-    else createReadStream(entry.path).on('error',()=>response.destroy()).pipe(response);
+    void Promise.resolve().then(async ()=>{
+      const bytes=request.method==='GET'?await entry.read():undefined;
+      response.writeHead(200,{'Content-Type':mime[extname(path)]??'application/octet-stream','Content-Length':entry.length});
+      response.end(bytes);
+    }).catch(()=>{response.writeHead(410).end();});
   });
   await new Promise((resolve,reject)=>{
     server.once('error',reject);
