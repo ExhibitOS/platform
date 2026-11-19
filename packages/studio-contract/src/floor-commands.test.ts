@@ -5,6 +5,7 @@ import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/
 import {recordedFloorScopes} from './footstep-bank.js';
 import {EXPERIENCE_NAMESPACE,experienceFor,validateViewerExperience} from './experience.js';
 import {applyRecordedFloorCommand,applyFloorPreset,createFloorPreset,resetFloorFields} from './floor-commands.js';
+import {validateStudioMaterials} from './index.js';
 import {FLOOR_NAMESPACE,floorFor,floorMaterial,type FloorBinding} from './floors.js';
 const target={kind:'room-base' as const,roomId:'11111111-1111-4111-8111-111111111111'};
 describe('explicit floor preset scopes',()=>{
@@ -71,6 +72,21 @@ describe('ordinary whole material and recorded reset',()=>{
   bindings[0]=applyFloorPreset(bindings[0]!,'tile',['texturePack','repeatMeters','rotation']);
   const prior=floor(source), next=reset(source);
   expect(floor(next)).toMatchObject({preset:'tile',texturePack:prior.texturePack,repeatMeters:prior.repeatMeters,rotation:prior.rotation});
+  expect(recordedFloorScopes(next)[0]!.sound).toMatchObject({kind:'builtin',material:'tile'});
+ });
+ it('keeps legacy PBR on reset when its stored surface reference has different casing',()=>{
+  const source=doc(),surfaceId='abcdef12-3333-4333-8333-333333333333';
+  source.surfaces.push({id:surfaceId,roomId,type:'floor'} as Exhibition['surfaces'][number]);
+  const target={kind:'surface' as const,surfaceId};
+  const binding=applyFloorPreset(createFloorPreset(target,'wood'),'tile',['texturePack']);
+  delete binding.materialOverride;
+  const material={color:'#123456',roughness:.4,metalness:.2};
+  source.extensions={[FLOOR_NAMESPACE]:{version:1,bindings:[binding]},
+   'org.exhibitos.studio/materials':{version:1,surfaces:{[surfaceId.toUpperCase()]:material}}};
+  expect(validateStudioMaterials(source).valid).toBe(true);
+  const next=applyRecordedFloorCommand(source,{type:'reset-floor-sound',target});
+  expect(floorFor(next,{roomId,surfaceId})).toMatchObject({preset:'tile',materialOverride:material});
+  expect(next.extensions!['org.exhibitos.studio/materials']).toEqual(source.extensions!['org.exhibitos.studio/materials']);
   expect(recordedFloorScopes(next)[0]!.sound).toMatchObject({kind:'builtin',material:'tile'});
  });
  it('does not infer sound on a custom map or treat a dormant room base as active',()=>{

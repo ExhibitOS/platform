@@ -113,21 +113,27 @@ export function validateStudioMaterials(
   errors.push(...validateSurfaceTextures(candidate,value));
   return { valid: errors.length === 0, errors };
 }
+export function assignedSurfaceMaterial(
+  candidate: { extensions?: unknown },
+  surfaceId: string,
+): PbrMaterial | undefined {
+  const extensions = object(candidate.extensions)
+    ? candidate.extensions
+    : undefined;
+  const value = extensions?.[MATERIAL_NAMESPACE] as StudioMaterials | undefined;
+  return value && object(value.surfaces)
+      ? Object.entries(value.surfaces).find(
+          ([id]) => id.toLowerCase() === surfaceId.toLowerCase(),
+        )?.[1]
+      : undefined;
+}
+
 /** Caller validates complete draft before using this projection. Returns a fresh value. */
 export function materialFor(
   candidate: { extensions?: unknown },
   surfaceId: string,
 ): PbrMaterial {
-  const extensions = object(candidate.extensions)
-    ? candidate.extensions
-    : undefined;
-  const value = extensions?.[MATERIAL_NAMESPACE] as StudioMaterials | undefined;
-  const entry =
-    value && object(value.surfaces)
-      ? Object.entries(value.surfaces).find(
-          ([id]) => id.toLowerCase() === surfaceId.toLowerCase(),
-        )?.[1]
-      : undefined;
+  const entry = assignedSurfaceMaterial(candidate, surfaceId);
   const texture=surfaceTextureFor(candidate,surfaceId);
   return { ...(entry ?? (texture?surfaceTextureDefaults(texture.pack.id).material:DEFAULT_MATERIAL)) };
 }

@@ -443,7 +443,8 @@ export class Publications {
                 checkpoint?.();
                 if(error instanceof PublicationStageError)throw error;
                 const code=error instanceof ApiError?error.code:'AUDIO_UNAVAILABLE';
-                const linked=recordedFloors.filter(({sound})=>sound.kind==='publication'&&sound.ids.includes(asset.id));
+                const assetKey=asset.id.toLowerCase();
+                const linked=recordedFloors.filter(({sound})=>sound.kind==='publication'&&sound.ids.some(id=>id.toLowerCase()===assetKey));
                 if(linked.length){
                     for(const scope of linked)errors.push(floorIssue(code,scope,`The approved floor recording ${code==='AUDIO_RIGHTS_DENIED'?'rights':'bytes or descriptor'} are unavailable (${asset.sha256.slice(0,12)}).`));
                 }else errors.push(issue(code,`/candidate/mediaAssets/${i}`,'Current approved audio, bytes or display rights unavailable.','Restore the exact approved audio and current permissions.'));

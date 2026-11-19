@@ -5,7 +5,7 @@ import {EXPERIENCE_NAMESPACE, experienceFor, experienceFootstepFor} from './expe
 import {declareFootstepFamily} from './footstep-bank.js';
 import {FLOOR_NAMESPACE,floorFor,floorTargetKey,validateStudioFloors,type StudioFloors,floorMaterial,floorPresetDefaults,floorSoundFamily,type FloorBinding,type FloorPreset,type FloorTarget} from './floors.js';
 import type {PbrMaterial} from './pbr-material.js';
-import type {StudioMaterials} from './index.js';
+import {assignedSurfaceMaterial} from './index.js';
 export type FloorApplyField='color'|'roughness'|'metalness'|'repeatMeters'|'rotation'|'texturePack'|'normalScale'|'aoStrength'|'sound';
 const appearance=['color','roughness','metalness','repeatMeters','rotation','texturePack','normalScale','aoStrength'] as const;
 /** Explicit whole-preset creation; callers must first present customized legacy fields for selection. */
@@ -73,8 +73,7 @@ export function applyRecordedFloorCommand(document: Exhibition, command: Recorde
   if (current?.sound) binding.sound = current.sound;
   else if (hasLegacyRecording) delete binding.sound;
  } else if (current && currentMaterial) {
-  const materials = document.extensions?.['org.exhibitos.studio/materials'] as unknown as StudioMaterials | undefined;
-  const legacyMaterial = surface && materials?.surfaces[surface.id];
+  const legacyMaterial = surface && assignedSurfaceMaterial(document, surface.id);
   binding = applyFloorPreset(current, currentMaterial, ['sound'], legacyMaterial);
  } else if (current) {
   binding = current;
