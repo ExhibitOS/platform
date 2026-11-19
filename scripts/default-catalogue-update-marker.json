@@ -1,0 +1,29 @@
+{
+  "profile": "default-catalogue-update-v1",
+  "mode": "ordinary-owner",
+  "managerVersion": "0.1.0",
+  "parentCatalog": 52,
+  "ledger": {
+    "parentRows": 47,
+    "parentSha256": "4745457a32f053697cfa3f91dba752a35526ff8e7a4c04890c6364e39c964a6d",
+    "rows": 48,
+    "sha256": "c804f9d5a158ad701fe35d43d390bdc81edc5302abf6a390df93f9e43b23e135"
+  },
+  "baseline": {
+    "bundleVersion": "1.21.0",
+    "sourceCommit": "00816efa898cf78bbf47ac3a4d29d3904bb8a34f",
+    "manifest": {
+      "path": "platform/assets/furnishings/default-manifest.json",
+      "bytes": 36360,
+      "sha256": "f248b227b60ec97c8c951c56fc56a998aa1b0eb485106a04a0d7ccd6f31d517b"
+    },
+    "metadata": {
+      "path": "platform/apps/api/trust/default-catalogue-baseline-v1.json"
+    }
+  },
+  "migration": {
+    "path": "platform/database/native-default-catalogue/057_default_catalogue.sql",
+    "bytes": 1027,
+    "sha256": "c0868465d7b223f884c178e3b776affa27bcc5c2bc3d81063389e7b5660ab9c7"
+  }
+}

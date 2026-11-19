@@ -15,7 +15,8 @@ import {prepareBenchBaseColorInWorker,prepareFrameInWorker,prepareInfoStandInWor
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.ts';
 import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
-import {installedFurnishingDescriptors,installedFurnishingDescriptorFor,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
+import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
+import type {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
 import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
 import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
@@ -24,6 +25,7 @@ import {WorkspaceFurnishingThumbnails} from './workspace-furnishing-thumbnails.t
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
 type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspaceInfoStandPreparation?:true;workspaceBenchBaseColorPreparation?:true;workspacePortalFinish?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
+type DefaultCatalogueRuntime=ReturnType<typeof createDefaultCatalogueRuntime>;
 type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;payloadManifestSHA256?:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
 type Receipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:WorkspaceFurnishingDeclaration;phase:string;received:Receipt|null;error:unknown;retryable:boolean;furnishing_id:string;furnishing_version:number;worker_token?:string|null;worker_generation?:string|null;worker_root_device?:string|null;worker_root_inode?:string|null;worker_lock_device?:string|null;worker_lock_inode?:string|null};
@@ -41,12 +43,21 @@ function verifiedPreparationPair(model:WorkspaceFurnishingDeclaration['model']){
  * preview/placement and export before exposing any route or capability. */
 export class WorkspaceFurnishingIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly writer:Writer|undefined;
+ private readonly defaultCatalogue:DefaultCatalogueRuntime|undefined;
  private readonly portableImportReceipts=new WeakMap<object,WorkspaceFurnishingDescriptor>();
- constructor(blobs:BlobStore,owner:Owner,writer?:Writer){if(writer){assertIssuedFurnishingWriterLease(writer);if(writer.identity.workspaceId!==owner.workspaceId||writer.identity.tenantId!==owner.tenantId||writer.identity.principalId!==owner.principalId)throw Error('FURNISHING_LEASE_INVALID');}this.blobs=blobs;this.owner=owner;this.writer=writer;}
+ constructor(blobs:BlobStore,owner:Owner,writer?:Writer,defaultCatalogue?:DefaultCatalogueRuntime){if(writer){assertIssuedFurnishingWriterLease(writer);if(writer.identity.workspaceId!==owner.workspaceId||writer.identity.tenantId!==owner.tenantId||writer.identity.principalId!==owner.principalId)throw Error('FURNISHING_LEASE_INVALID');}this.blobs=blobs;this.owner=owner;this.writer=writer;this.defaultCatalogue=defaultCatalogue;if(defaultCatalogue&&(!writer||!this.supportsArtworkFrameModels()||!defaultCatalogue.matchesBinding(owner,blobs)))throw Error('DEFAULT_CATALOGUE_CONFIGURATION');}
  private checkClaim(row:Row,token:string){const writer=this.writer;if(writer&&(row.worker_token!==token||row.worker_generation!==writer.identity.runtimeGeneration||row.worker_root_device!==writer.identity.rootDevice||row.worker_root_inode!==writer.identity.rootInode||row.worker_lock_device!==writer.identity.lockDevice||row.worker_lock_inode!==writer.identity.lockInode))throw Error('FURNISHING_WORKER_OWNERSHIP');}
  private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();}
  matchesBinding(owner:unknown,store:unknown){return this.owner===owner&&this.blobs===store;}
  hasWriterLease(){return this.writer!==undefined;}
+ hasDefaultCatalogueUpdates(){return this.defaultCatalogue!==undefined;}
+ defaultCatalogueUpdates(c:PoolClient){
+  if(!this.defaultCatalogue)throw new ApiError(404,'DEFAULT_CATALOGUE_UNAVAILABLE');
+  return this.defaultCatalogue.updates(c,{
+   ceilingRail:this.supportsCeilingRail(),
+   modularPortal:this.supportsPortalFinish()&&this.supportsReusableFit(),
+  });
+ }
  supportsStool(){return this.owner.workspaceFurnishingStool===true;}
  supportsRoomVisual(){return this.owner.workspaceFurnishingRoomVisual===true&&this.supportsStool();}
  supportsArtworkFrame(){return this.owner.workspaceFurnishingArtworkFrame===true&&this.supportsRoomVisual();}
@@ -195,7 +206,7 @@ export class WorkspaceFurnishingIntakes {
    [this.owner.workspaceId,s.tenantId,s.userId,after],
   );
   const candidates:(typeof result.rows[number]&{installedCatalog?:true})[]=[...result.rows];
-  for(const descriptor of installedFurnishingDescriptors())if(descriptor.id>after.toLowerCase()&&this.supportsInstalled(descriptor)&&await readInstalledFurnishingModel(descriptor.id)){
+  for(const descriptor of installedFurnishingDescriptors())if(descriptor.id>after.toLowerCase()&&this.supportsInstalled(descriptor)&&await this.installedBytes(c,descriptor,true)){
    candidates.push({id:descriptor.id,version:1,descriptor,installedCatalog:true});
    candidates.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:a.version-b.version);
   }
@@ -220,11 +231,22 @@ export class WorkspaceFurnishingIntakes {
    default:return false;
   }
  }
+ private async installedBytes(c:PoolClient,descriptor:WorkspaceFurnishingDescriptor,discover=false,signal?:AbortSignal){
+  signal?.throwIfAborted();
+  if(this.defaultCatalogue){
+   const binding=installedFurnishingCatalogueFile(descriptor);
+   const bytes=binding&&await this.defaultCatalogue.installedModel(c,binding.catalogId,descriptor.version,binding.file,discover);
+   signal?.throwIfAborted();
+   if(bytes===null)return;
+   if(bytes)return {bytes,mime:descriptor.model.mime,sha256:descriptor.model.sha256};
+  }
+  return readInstalledFurnishingModel(descriptor.id,signal);
+ }
  private async installedModel(c:PoolClient,s:Session,version:number,descriptor:WorkspaceFurnishingDescriptor,purpose?:'display'|'export'){
   await this.checkOwner(c,s);
   if(version!==descriptor.version)throw new ApiError(400,'INVALID_INPUT');
   if(purpose&&!allowedRights(descriptor.rights,purpose))throw new ApiError(403,'RIGHTS_DENIED');
-  const model=this.supportsInstalled(descriptor)?await readInstalledFurnishingModel(descriptor.id):undefined;
+  const model=this.supportsInstalled(descriptor)?await this.installedBytes(c,descriptor):undefined;
   if(!model)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.writer?.assertLive();
   return model;
@@ -306,7 +328,7 @@ export class WorkspaceFurnishingIntakes {
   if(installed){
    if(!this.supportsInstalled(installed)||!isDeepStrictEqual(descriptor,installed)||
       !allowedRights(installed.rights,'display')||!allowedRights(installed.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-   const model=await readInstalledFurnishingModel(installed.id,signal);
+   const model=await this.installedBytes(c,installed,false,signal);
    if(!model)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
    await this.writer.assertLive();
    await this.owner.assertDatabase(c);
