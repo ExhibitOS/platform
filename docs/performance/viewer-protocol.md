@@ -36,6 +36,8 @@ After all reference placements are loaded under a recorded quality profile, capt
 
 Report browser JS heap and renderer geometry/texture counts or estimated GPU allocations as explicit proxies. These do not prove the target sustained mobile tab working set≤400MB. Actual tab/process working set requires an available, documented measurement source on a reference device; unavailable measurements remain unverified. Desktop60FPS/mobile30FPS are proposal targets and may be claimed only for the measured environment and actual scene workload.
 
+For visual changes that depend on quality, select Detailed and Lightweight explicitly on the target browser. Keep camera pose, field of view, viewport and exposure fixed and record the effective profile. Confirm the affected material maps and visible artwork before comparing images. Record an intentional budget fallback as its own outcome. Isolate one factor at a time at a fixed pose in a profile that admits the affected material and artwork.
+
 ## Failure and lifecycle qualification
 
 Use real corrupt/hash-mismatched and missing asset responses, interrupted/network-denied transfers, abort/cancel and explicit retry. Verify entrance priority, bounded concurrency/byte/decode budgets, coarse-to-full selection, safe fallback when a coarse variant fails, shared asset reuse across placements, and disposal on replacement/unmount/account/publication changes. Stale async results must not populate a disposed renderer. GPU-unavailable/lost UI must retain a keyboard-usable text alternative; event-handler tests are distinct from physical GPU loss.

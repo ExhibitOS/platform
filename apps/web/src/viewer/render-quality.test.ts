@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
 import * as three from 'three';
-import {applyReferenceOutput,environmentEstimate,installReferenceEnvironment} from './render-quality';
+import {applyDiffuseFloorReferenceEnvironment,applyReferenceOutput,environmentEstimate,installReferenceEnvironment} from './render-quality';
 
 function harness(fail=false,onGenerate=()=>{}) {
  const oldTarget=new three.WebGLRenderTarget(),output=new three.WebGLRenderTarget(),previous=new three.Texture(),scene=new three.Scene();scene.environment=previous;
@@ -50,4 +50,15 @@ test('lifecycle cancellation after generation disposes the result without attach
  let cancelled=false;const h=harness(false,()=>{cancelled=true;});
  expect(await installReferenceEnvironment(h.api,h.renderer,h.scene,environmentEstimate(128).generationPeakBytes,false,()=>cancelled)).toBeUndefined();
  expect(h.state.outputDisposed).toBe(1);expect(h.scene.environment===h.previous).toBe(true);
+});
+
+test('workspace floor reference environment preserves diffuse and direct lighting chunks',()=>{
+ const floor=new three.MeshStandardMaterial(),standard=new three.MeshStandardMaterial();
+ applyDiffuseFloorReferenceEnvironment(floor);
+ const shader={...three.ShaderLib.standard,uniforms:{}};
+ floor.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0], {} as three.WebGLRenderer);
+ expect(shader.fragmentShader).toContain('#include <lights_fragment_begin>');
+ expect(shader.fragmentShader).toMatch(/vec3 beforeEnvironmentSpecular = reflectedLight\.indirectSpecular;[\s\S]*#include <lights_fragment_end>[\s\S]*reflectedLight\.indirectSpecular = beforeEnvironmentSpecular;/);
+ expect(floor.customProgramCacheKey()).not.toBe(standard.customProgramCacheKey());
+ expect(shader.uniforms).toEqual({});
 });
