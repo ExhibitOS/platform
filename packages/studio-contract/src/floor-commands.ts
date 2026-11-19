@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {WORKSPACE_MATERIAL_NAMESPACE, type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
+import type {WORKSPACE_MATERIAL_NAMESPACE as WorkspaceMaterialNamespace, WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {EXPERIENCE_NAMESPACE, experienceFor, experienceFootstepFor} from './experience.js';
 import {declareFootstepFamily} from './footstep-bank.js';
 import {FLOOR_NAMESPACE,floorFor,floorTargetKey,validateStudioFloors,type StudioFloors,floorMaterial,floorPresetDefaults,floorSoundFamily,type FloorBinding,type FloorPreset,type FloorTarget} from './floors.js';
@@ -37,6 +37,8 @@ export function applyFloorPreset(current:FloorBinding,preset:FloorPreset,fields:
 /** Reset writes defaults of the persisted preset. Removing a binding is a separate legacy restoration. */
 export function resetFloorFields(current:FloorBinding,fields:readonly FloorApplyField[]):FloorBinding {return applyFloorPreset(current,current.preset,fields);}
 
+
+const WORKSPACE_MATERIAL_NAMESPACE: typeof WorkspaceMaterialNamespace = 'org.exhibitos.studio/workspace-materials';
 
 const recordedStockPresets: Readonly<Partial<Record<NonNullable<FloorBinding['texturePack']>['id'], FloorPreset>>> = {
  WoodFloor051: 'wood', 'quiet-oak-herringbone': 'wood', Tiles074: 'tile', Marble006: 'marble', Carpet004: 'carpet',
