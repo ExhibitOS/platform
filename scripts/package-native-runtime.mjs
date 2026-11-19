@@ -1,4 +1,5 @@
 import {BENCH_AFTER_TERMINAL_CAPABILITY,BENCH_AFTER_TERMINAL_DIRECTORY,BENCH_AFTER_TERMINAL_MARKER,BENCH_AFTER_TERMINAL_MIGRATION,BENCH_AFTER_TERMINAL_SHA256} from './native-oex-normal-catalog.mjs';
+import {BENCH_BASECOLOR_MIGRATION,CURRENT_WORKSPACE_RAIL_MIGRATION} from './native-oex-normal-catalog.mjs';
 import {CURRENT_IMAGE_THUMBNAIL_MIGRATION,CURRENT_IMAGE_THUMBNAIL_SHA256,CURRENT_IMAGE_THUMBNAIL_MARKER,CURRENT_IMAGE_THUMBNAIL_CAPABILITY} from './native-oex-normal-catalog.mjs';
 import {HAYES_PREOPEN_TERMINAL_CAPABILITY,HAYES_PREOPEN_TERMINAL_DIRECTORY,HAYES_PREOPEN_TERMINAL_MARKER,HAYES_PREOPEN_TERMINAL_MIGRATION,HAYES_PREOPEN_TERMINAL_SHA256} from './native-oex-normal-catalog.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -9,6 +10,7 @@ import {cp, mkdir, lstat, readFile, readdir, readlink, realpath, writeFile} from
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import installedArtworkFrames from '../apps/api/src/installed-artwork-frames.json' with {type:'json'};
+import installedWorkspaceHosts from '../apps/api/src/installed-workspace-hosts.json' with {type:'json'};
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
@@ -58,6 +60,8 @@ async function copyTrackedTree(name, destination, excluded = new Set()) {
 }
 const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.35.tgz';
 const OEX_SPEC_HASH='dc9b0f75ab735abe36c64fb34df3230f2564b295f744874943c735424114bc2b';
+const CURRENT_OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.38.tgz';
+const CURRENT_OEX_SPEC_HASH='df898ceec6053a9a6e12f512a86f85acc8d7bb15230cbf5510082263d0c49ddd';
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
@@ -71,10 +75,11 @@ const NORMAL_OEX_PROVENANCE_PATH='database/native-oex-normal/027_oex_exhibition_
 const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7';
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
 // The candidate import schema is inert until a future, separately selected capability.
-export function nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected=false){
+export function nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected=false,ordinaryInstalledFurnishingsSelected=false){
+  const excludeUnselectedMigrations = hayesPreopenTerminalSelected || ordinaryInstalledFurnishingsSelected;
   return new Set([BENCH_AFTER_TERMINAL_DIRECTORY+'/'+BENCH_AFTER_TERMINAL_MIGRATION,'scripts/'+BENCH_AFTER_TERMINAL_MARKER,HAYES_PREOPEN_TERMINAL_DIRECTORY+'/'+HAYES_PREOPEN_TERMINAL_MIGRATION,'scripts/'+HAYES_PREOPEN_TERMINAL_MARKER,
-    ...(hayesPreopenTerminalSelected?['database/native-workspace-bench-basecolor-preparation/052_workspace_bench_basecolor_preparation.sql',
-      'database/native-oex-current-workspace-rail/053_oex_current_workspace_rail.sql']:[]),'database/native-gpu-model-preparation/'+GPU_MODEL_PREPARATION_MIGRATION,'database/native-workspace-furnishing-thumbnail/050_workspace_furnishing_thumbnail.sql','database/native-current-image-thumbnail/051_current_image_thumbnail.sql','database/native-workspace-info-stand-preparation/'+INFO_STAND_PREPARATION_MIGRATION,'database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql','database/native-workspace-furnishing/036_workspace_furnishing.sql','database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql','database/native-workspace-furnishing-publication/038_workspace_furnishing_publication.sql','database/native-workspace-material-publication/039_workspace_material_publication.sql','database/native-workspace-material-multimap/040_workspace_material_multimap.sql','database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql','database/native-hayes-original/042_hayes_original_attempt.sql','database/native-hayes-disposition/043_hayes_output_stage.sql','database/native-hayes-release/044_hayes_native_release.sql','database/native-model-preparation/045_required_model_preparation.sql','database/native-fresh-image-preparation/047_fresh_image_preparation.sql','database/native-large-model-preparation/046_large_model_preparation.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
+    ...(excludeUnselectedMigrations?['database/native-workspace-bench-basecolor-preparation/'+BENCH_BASECOLOR_MIGRATION,
+      'database/native-oex-current-workspace-rail/'+CURRENT_WORKSPACE_RAIL_MIGRATION]:[]),'database/native-gpu-model-preparation/'+GPU_MODEL_PREPARATION_MIGRATION,'database/native-workspace-furnishing-thumbnail/050_workspace_furnishing_thumbnail.sql','database/native-current-image-thumbnail/051_current_image_thumbnail.sql','database/native-workspace-info-stand-preparation/'+INFO_STAND_PREPARATION_MIGRATION,'database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql','database/native-workspace-furnishing/036_workspace_furnishing.sql','database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql','database/native-workspace-furnishing-publication/038_workspace_furnishing_publication.sql','database/native-workspace-material-publication/039_workspace_material_publication.sql','database/native-workspace-material-multimap/040_workspace_material_multimap.sql','database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql','database/native-hayes-original/042_hayes_original_attempt.sql','database/native-hayes-disposition/043_hayes_output_stage.sql','database/native-hayes-release/044_hayes_native_release.sql','database/native-model-preparation/045_required_model_preparation.sql','database/native-fresh-image-preparation/047_fresh_image_preparation.sql','database/native-large-model-preparation/046_large_model_preparation.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
 }
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
@@ -97,10 +102,13 @@ export async function copyModelPreparationSelectedFiles(sourceRoot,platformRoot,
 }
 /** Local validation only: lockfile dependency is included for every mode;
  * the supplemental isolated-test migration requires explicit opt-in. */
-export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation) {
+export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation, currentFurnishings = false) {
   const lock=JSON.parse(await readFile(join(sourceRoot,'package-lock.json'),'utf8'));
   const spec=lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
-  if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
+  if (currentFurnishings) {
+    if(spec!==`file:${CURRENT_OEX_SPEC_PATH}`)fail('NATIVE_PACKAGE_SOURCE_INVALID');
+    await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,CURRENT_OEX_SPEC_PATH,CURRENT_OEX_SPEC_HASH);
+  } else if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
   else if (requireOexSpec) fail('NATIVE_PACKAGE_SOURCE_INVALID');
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
 }
@@ -148,6 +156,8 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Verify the selected release's exact models and notices before and after
 // copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
+ '1.21.0':{commit:'00816efa898cf78bbf47ac3a4d29d3904bb8a34f',manifestSHA256:'f248b227b60ec97c8c951c56fc56a998aa1b0eb485106a04a0d7ccd6f31d517b',bytes:36360},
+ '1.20.0':{commit:'addb2f3312209303f426d4ea687af183ccc279ce',manifestSHA256:'4bcb9616719bedaa2f3436630f9c499c2e2dad7538150b862fc7de84b43db147',bytes:29400},
   '1.19.0':{commit:'1c81844b8c7f545387fff4ade6823aee4b72eff7',manifestSHA256:'138b8307dba70f382f886c5c37b6396f1327b0b7311a202ec5d6932185743b08',bytes:27317},
   '1.18.0':{commit:'e9fc45d3bca70690922a9e92849e4ecd1c587a33',manifestSHA256:'83d9d1913850c310e63a1d5a77297ca8944da1fc9720cf017e3a9dad361b7e5a',bytes:25957},
   '1.17.0':{commit:'cc477089d9a0792a26563f9b618ecf6e962d2caf',manifestSHA256:'4751b398f8a1d6edd362004449655932fabfdd78de3500b74b29453b05d5475a',bytes:25051},
@@ -199,7 +209,8 @@ const DEFAULT_OAK_BENCH_ENTRY={
     runtimeManifestSHA256:'927367b6d36432b9c82eeb1f45b058b00d61a34f3ede8244f16f2a8d007ec132',
     registeredReceiptSHA256:'3bd188caeef7847d7def4f43c65731df609f3bfe90326e127e26d8885dcc47f4'},
 };
-const defaultFurnishingDirectory=id=>id===DEFAULT_OAK_BENCH_ID?'exhibitos-authored-20261117':[DEFAULT_DARK_TRACK_ID,DEFAULT_RECTANGLE_TRACK_ID,DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID].includes(id)?'exhibitos-authored-20261115':(id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID)?'exhibitos-authored-20261114':id===DEFAULT_REFINED_SCULPTURE_BENCH_ID?'exhibitos-authored-20261112':id===DEFAULT_COMPACT_STAND_ID||(id==='museum-wallwasher'||id==='museum-wallwasher-rear-relief')?'exhibitos-authored-20261111':Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
+const DEFAULT_WHEAT_FRAME_ID='wheat-matte-oak-frame';
+const defaultFurnishingDirectory=id=>id===DEFAULT_OAK_BENCH_ID?'exhibitos-authored-20261117':[DEFAULT_DARK_TRACK_ID,DEFAULT_RECTANGLE_TRACK_ID,DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID].includes(id)?'exhibitos-authored-20261115':(id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID)?'exhibitos-authored-20261114':id===DEFAULT_REFINED_SCULPTURE_BENCH_ID?'exhibitos-authored-20261112':id===DEFAULT_COMPACT_STAND_ID||(id==='museum-wallwasher'||id==='museum-wallwasher-rear-relief')?'exhibitos-authored-20261111':(id===DEFAULT_WHEAT_FRAME_ID||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id))?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
   Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)?'generated-20261109':'user-authored-20261027';
 const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0'||version==='1.8.0'||version==='1.9.0'||version==='1.10.0'||version==='1.11.0'||version==='1.12.0'||['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version);
 const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
@@ -209,7 +220,12 @@ const DEFAULT_EXIT_SIGN_SOURCE={
 };
 const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256);
 const DEFAULT_FRAME_ID='black-aluminum-frame';
-const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice);
+const wheatFrame=installedArtworkFrames.find(frame=>frame.catalogId===DEFAULT_WHEAT_FRAME_ID);
+const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice&&frame.catalogId!==DEFAULT_WHEAT_FRAME_ID);
+const installedHostEntries=new Map(installedWorkspaceHosts.map(item=>[item.catalogId,item]));
+const articulatedReleases=['1.18.0','1.19.0','1.20.0','1.21.0'];
+const oakBenchReleases=['1.19.0','1.20.0','1.21.0'];
+const wheatReleases=['1.20.0','1.21.0'];
 const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:[...(frame.custodyFiles??[]),...(frame.thumbnail?[{path:frame.thumbnail.path,bytes:frame.thumbnail.png.bytes,sha256:frame.thumbnail.png.sha256}]:[])]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
@@ -230,10 +246,13 @@ async function readDefaultFurnishingsManifest(root){
   const match=Object.entries(DEFAULT_FURNISHINGS_RELEASES).find(([,release])=>release.manifestSHA256===digest&&release.bytes===bytes.length);
   if(!match)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const [bundleVersion,release]=match;
-  const articulatedBundle=['1.18.0','1.19.0'].includes(bundleVersion);
+  const articulatedBundle=articulatedReleases.includes(bundleVersion);
   const version=articulatedBundle?'1.17.0':bundleVersion;
   const manifest=JSON.parse(bytes.toString('utf8'));
-  const hosts={...DEFAULT_FURNISHINGS_HOSTS,...(bundleVersion==='1.19.0'?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
+  const hosts={...DEFAULT_FURNISHINGS_HOSTS,
+    ...(wheatReleases.includes(bundleVersion)?{[DEFAULT_WHEAT_FRAME_ID]:'artwork-frame'}:{}),
+    ...(bundleVersion==='1.21.0'?Object.fromEntries(installedWorkspaceHosts.map(item=>[item.catalogId,item.hostKind])):{}),
+    ...(oakBenchReleases.includes(bundleVersion)?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
     ...(['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?Object.fromEntries(additionalInstalledFrames.map(frame=>[frame.catalogId,'artwork-frame'])):{}),
     ...(['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'recessed-downlight':'light'}:{}),
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
@@ -252,6 +271,15 @@ async function readDefaultFurnishingsManifest(root){
     const id=item.catalogId;
     if(!Object.hasOwn(hosts,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     seen.add(id);
+    const installedDefault=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:installedHostEntries.get(id);
+    if(installedDefault){
+      const {descriptor,path,notice}=installedDefault;
+      const expected={catalogId:id,catalogVersion:descriptor.version,name:descriptor.name,hostKind:hosts[id],
+        model:{path,...descriptor.model},rights:{licenseId:descriptor.rights.licenseId,notice},
+        provenance:{sourceSha256:descriptor.model.sha256,recipe:'original-v1'},workspaceFurnishing:descriptor};
+      if(!isDeepStrictEqual(item,expected))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+      continue;
+    }
     if(id===DEFAULT_OAK_BENCH_ID){if(!isDeepStrictEqual(item,DEFAULT_OAK_BENCH_ENTRY))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');continue;}
     if(id===DEFAULT_RECTANGLE_TRACK_ID){if(!isDeepStrictEqual(item,DEFAULT_RECTANGLE_TRACK_ENTRY))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');continue;}
     if(Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID){
@@ -297,10 +325,10 @@ export async function checkedDefaultFurnishingsRoot(root){
   if(top!==root||commit!==release.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   return {root:canonical,...release};
 }
-/** A new runtime must select the matched 1.19 release before any
+/** A new runtime must select the matched 1.21 release before any
  * build. Older release verification/copy remains available for immutable audits. */
 export async function requireCurrentFurnishingsRelease(root){
-  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.19.0']);
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.21.0']);
 }
 export async function requireGpuModelPreparationFurnishingsRelease(root){
   return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.7.0']);
@@ -317,7 +345,7 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
   const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher','museum-wallwasher-rear-relief','sculpture-bench-refined','recessed-downlight',DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== functionalIds.length || functionalIds.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  const articulatedRelease=isDefaultRelease(release,['1.18.0','1.19.0']);
+  const articulatedRelease=isDefaultRelease(release,articulatedReleases);
   const inheritedRelease=articulatedRelease?DEFAULT_FURNISHINGS_RELEASES['1.17.0']:release;
   const ids=functionalIds.filter(id=>!release||(id===DEFAULT_ARTICULATED_SPOT_ID?articulatedRelease:id===DEFAULT_FIXED64_SPOT_ID?isDefaultRelease(inheritedRelease,['1.17.0']):id==='recessed-downlight'?isDefaultRelease(inheritedRelease,['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='sculpture-bench-refined'?isDefaultRelease(inheritedRelease,['1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='museum-wallwasher-rear-relief'?isDefaultRelease(inheritedRelease,['1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='museum-wallwasher'?isDefaultRelease(inheritedRelease,['1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):true));
   const includesExitOriginals=isDefaultRelease(inheritedRelease,DEFAULT_EXIT_RELEASES);
@@ -327,7 +355,9 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(bundled&&bundled.release.manifestSHA256!==release.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
-  if(bundled?.manifest.bundleVersion==='1.19.0')ids.push(DEFAULT_OAK_BENCH_ID);
+  if(oakBenchReleases.includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_OAK_BENCH_ID);
+  if(wheatReleases.includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_WHEAT_FRAME_ID);
+  if(bundled?.manifest.bundleVersion==='1.21.0')ids.push(...installedHostEntries.keys());
   if(['1.15.0','1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_BENCH_V6_ID);
   if(['1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_DARK_TRACK_ID);
   if(inheritedVersion==='1.17.0')ids.push(DEFAULT_RECTANGLE_TRACK_ID);
@@ -342,8 +372,11 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
     const workspaceOriginal=bundled&&(id===DEFAULT_OAK_BENCH_ID||id===DEFAULT_RECTANGLE_TRACK_ID||id===DEFAULT_DARK_TRACK_ID||id===DEFAULT_BENCH_V6_ID||id===DEFAULT_CLEAR_HOOD_ID||id==='linear-track'||exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_COMPACT_STAND_ID)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
-    const addedFrame=['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
-    const entry = addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?{...workspaceOriginal.model,rights:{
+    const installedHost=installedHostEntries.get(id);
+    const installedDefault=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:installedHost;
+    const legacyFrame=['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
+    const packagedFurnishing=installedDefault??legacyFrame;
+    const entry = packagedFurnishing?installedFrameEntry(packagedFurnishing):workspaceOriginal?{...workspaceOriginal.model,rights:{
       licenseId:workspaceOriginal.rights.licenseId,
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
     }}:id===DEFAULT_FRAME_ID?DEFAULT_FRAME_ENTRY:furnishingCatalogueEntry(id);
@@ -354,8 +387,9 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
     const preparedSign=id==='exit-pictogram-sign'&&hasPreparedExitSign(inheritedVersion);
     if(id===DEFAULT_FRAME_ID)files.push([DEFAULT_FRAME_ROOT+'/source.glb',101768,entry.provenance.sourceSha256]);
     if(preparedSign)files.push([DEFAULT_EXIT_SIGN_SOURCE.path,DEFAULT_EXIT_SIGN_SOURCE.bytes,DEFAULT_EXIT_SIGN_SOURCE.sha256]);
+    const assetDirectory=installedHost?dirname(installedHost.path)+ '/':`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`;
     for (const [path, bytes, sha256] of files) {
-      if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/${defaultFurnishingDirectory(id)}/${id}/`)
+      if (typeof path !== 'string' || !path.startsWith(assetDirectory)
           || (!['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1))&&path!==DEFAULT_FRAME_ROOT+'/source.glb'&&!(preparedSign&&path===DEFAULT_EXIT_SIGN_SOURCE.path)&&!extraPaths.has(path)) || path.includes('..') || path.includes('\\')
           || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
       seen.add(path);
@@ -508,7 +542,7 @@ export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRo
 async function verifyArticulatedStudioContract(source, manifestPath) {
   const manifest = await checkedSource(manifestPath, 'file');
   const bytes = await readFile(manifest);
-  if (createHash('sha256').update(bytes).digest('hex') !== '4cb0526f7868c03a8279739fec0a06bb0df649e6d551a4df04b4496e8f81dfe4')
+  if (createHash('sha256').update(bytes).digest('hex') !== '4d0b0ac9010a53f0c885f3842ea353392a8b5d56159f35d880b5c671e9b8f637')
     fail('NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID');
   const expected = JSON.parse(bytes.toString('utf8'));
   const actual = await inventory(join(source, 'packages/studio-contract/dist'));
@@ -603,12 +637,19 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   const tracked = new Map();
-  const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected);
+  const currentFurnishings = isDefaultRelease(furnishingsRelease,['1.21.0']);
+  // The ordinary rail and portal use the image-thumbnail parent catalog.
+  // Bench base color preparation and archive OEX rail import have separate markers.
+  const ordinaryInstalledFurnishingsSelected = currentFurnishings && normalOexSelected &&
+    workspacePortalFinishSelected && currentImageThumbnailSelected && !hayesPreopenTerminalSelected;
+  const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected,ordinaryInstalledFurnishingsSelected);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
-  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
+  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected,currentFurnishings);
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected,workspaceFurnishingPublicationSelected,workspaceMaterialPublicationSelected,workspaceMaterialMultimapSelected,workspaceArtworkFramePreparationSelected,hayesOriginalSelected,hayesDispositionSelected,hayesReleaseSelected);
   await copyNativeFurnishings(furnishingsRelease?.root??source, platform, furnishingsRelease);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
+  // The launcher imports this module before it checks for a trace request.
+  await copy(join(source,'scripts/native-thumbnail-preview-trace.mjs'),join(platform,'scripts/native-thumbnail-preview-trace.mjs'));
   if(hayesSessionProbeSelected){const probe='scripts/native-hayes-session-probe.mjs';await command('/usr/bin/git',['ls-files','--error-unmatch','--',probe],{cwd:source,capture:true});const path=await checkedSource(join(source,probe),'file');await copy(path,join(platform,probe));if(await hash(path)!==await hash(join(platform,probe)))fail('NATIVE_PACKAGE_SOURCE_INVALID');}
   if(hayesDispositionProbeSelected){const probe='scripts/native-hayes-disposition-probe.mjs';await command('/usr/bin/git',['ls-files','--error-unmatch','--',probe],{cwd:source,capture:true});const path=await checkedSource(join(source,probe),'file');await copy(path,join(platform,probe));if(await hash(path)!==await hash(join(platform,probe)))fail('NATIVE_PACKAGE_SOURCE_INVALID');}
   if(hayesReleaseProbeSelected){const probe='scripts/native-hayes-release-probe.mjs';await command('/usr/bin/git',['ls-files','--error-unmatch','--',probe],{cwd:source,capture:true});const path=await checkedSource(join(source,probe),'file');await copy(path,join(platform,probe));if(await hash(path)!==await hash(join(platform,probe)))fail('NATIVE_PACKAGE_SOURCE_INVALID');}

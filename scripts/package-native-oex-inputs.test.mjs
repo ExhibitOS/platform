@@ -28,6 +28,24 @@ async function fixture(){
  await writeFile(join(source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${spec}`}}}}));
  return {temp,source,output,tracked:new Map([['database',new Set()],['vendor',new Set()]])};
 }
+test('ordinary current furnishings copies only the exact reviewed draft.38 archive',async t=>{
+ const f=await fixture();
+ t.after(()=>rm(f.temp,{recursive:true,force:true}));
+ const current='vendor/exhibitos-spec-0.1.0-draft.38.tgz';
+ const archive=await readFile(join(root,current));
+ await assert.rejects(copyFreshOexValidationFiles(f.source,f.output,f.tracked,false,false,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
+ await writeFile(join(f.source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':'file:vendor/exhibitos-spec-0.1.0-draft.37.tgz'}}}}));
+ await assert.rejects(copyFreshOexValidationFiles(f.source,f.output,f.tracked,false,false,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
+ await writeFile(join(f.source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${current}`}}}}));
+ await writeFile(join(f.source,current),archive);
+ await copyFreshOexValidationFiles(f.source,f.output,f.tracked,false,false,true);
+ assert.deepEqual(await readFile(join(f.output,current)),archive);
+ const altered=join(f.temp,'altered');
+ await mkdir(altered);
+ archive[0]^=1;
+ await writeFile(join(f.source,current),archive);
+ await assert.rejects(copyFreshOexValidationFiles(f.source,altered,f.tracked,false,false,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
+});
 test('includes locked spec in both modes and test migration only when explicitly requested',async()=>{
  const f=await fixture();try{
   await copyFreshOexValidationFiles(f.source,f.output,f.tracked,false);assert.deepEqual(await readFile(join(f.output,spec)),await readFile(join(f.source,spec)));await assert.rejects(readFile(join(f.output,migration)),{code:'ENOENT'});

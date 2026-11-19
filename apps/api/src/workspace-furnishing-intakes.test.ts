@@ -10,6 +10,8 @@ import {prepareBenchBaseColorInWorker,prepareInfoStandInWorker} from './frame-pr
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
 import {INSTALLED_FRAME_ID,installedFrameDescriptor,readInstalledFrameById,readInstalledFrameThumbnail,installedFrameThumbnail} from './installed-artwork-frame.ts';
+import * as furnishingAssets from './furnishing-assets.ts';
+import installedHosts from './installed-workspace-hosts.json' with {type:'json'};
 vi.mock('./installed-artwork-frame.ts',async importOriginal=>({
  ...await importOriginal<typeof import('./installed-artwork-frame.ts')>(),
  readInstalledFrameById:vi.fn(),
@@ -413,8 +415,10 @@ it('derives image contact only from approved primary PNG bytes and rechecks the 
  }finally{read.mockRestore();check.mockRestore();}
 });
 
-it('discovers both explicitly installed frames in order and keeps tenant registration separate',async()=>{
- const {installedFrameDescriptors}=await import('./installed-artwork-frame.ts'),f=fixture(true),descriptors=installedFrameDescriptors(),thin=descriptors.find(item=>item.id!==INSTALLED_FRAME_ID)!;
+it('discovers installed frames in order and keeps tenant registration separate',async()=>{
+ const {installedFrameDescriptors}=await import('./installed-artwork-frame.ts'),f=fixture(true),descriptors=installedFrameDescriptors();
+ const thin=descriptors.find(item=>item.id==='af88109b-27e2-4d10-a08c-3ddc0224451a')!;
+ const wheat=descriptors.find(item=>item.id==='4ddff48b-c2b2-5166-9e35-cd1c7aabb5b3')!;
  const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true},f.writer),read=vi.mocked(readInstalledFrameById);
  read.mockImplementation(async id=>{const d=descriptors.find(d=>d.id===id);return d?{bytes:Buffer.alloc(d.model.bytes),mime:d.model.mime,sha256:d.model.sha256}:undefined;});
  try{
@@ -427,6 +431,9 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
   expect(black).toHaveProperty('installedCatalog',true);
   expect(black).not.toHaveProperty('installedThumbnailProfile');
   expect(list.items.find(item=>item.id===thin.id)).toMatchObject({installedCatalog:true,installedThumbnailProfile:'installed-furnishing-thumbnail-v1'});
+  const installedWheat=list.items.find(item=>item.id===wheat.id);
+  expect(installedWheat).toMatchObject({installedCatalog:true,version:1,rightsAvailability:{display:true,download:true,export:true}});
+  expect(installedWheat).not.toHaveProperty('installedThumbnailProfile');
   const tenant=list.items.find(item=>item.id===registered.id);
   expect(tenant).not.toHaveProperty('installedCatalog');
   expect(tenant).not.toHaveProperty('installedThumbnailProfile');
@@ -436,14 +443,49 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
   expect((await service.list(f.client,f.session,Buffer.from(INSTALLED_FRAME_ID).toString('base64url'))).items.map(item=>item.id)).toEqual([thin.id]);
   expect((await service.list(f.client,f.session,Buffer.from(thin.id).toString('base64url'))).items).toEqual([]);
   expect(await service.readVersion(f.client,f.session,thin.id,1)).toEqual(thin);expect(await service.checkDisplay(f.client,f.session,thin.id,1)).toEqual(thin);
+  expect(await service.checkDisplay(f.client,f.session,wheat.id,1)).toMatchObject({fit:{version:1,sourceSha256:wheat.model.sha256,sourceBytes:3380,geometry:{profile:'straight-ring-v1',openingWidth:.94,openingHeight:.738,imagePlaneZ:-.012}}});
   expect((await service.model(f.client,f.session,thin.id,1,'export')).sha256).toBe(thin.model.sha256);
   await expect(service.readVersion(f.client,f.session,thin.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
+  await expect(service.readVersion(f.client,f.session,wheat.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
   read.mockResolvedValue(undefined);
   expect((await service.list(f.client,f.session)).items).toEqual([]);
   await expect(service.readVersion(f.client,f.session,thin.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
   expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing'))).toEqual([]);expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockReset();}
 });
+it('resolves installed rail and portal only for the live owner with their existing host capabilities',async()=>{
+ const f=fixture(true);
+ const owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,
+  workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const,workspacePortalFinish:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ const read=vi.spyOn(furnishingAssets,'readInstalledFurnishing').mockImplementation(async(path,bytes,hash)=>{
+  const entry=installedHosts.find(host=>host.path===path);
+  if(!entry||entry.descriptor.model.bytes!==bytes||entry.descriptor.model.sha256!==hash)throw Error('unexpected installed model');
+  return Buffer.alloc(bytes);
+ });
+ try{
+  const listed=await service.list(f.client,f.session);
+  expect(listed.items).toHaveLength(2);
+  for(const {descriptor} of installedHosts){
+   expect(listed.items).toContainEqual(expect.objectContaining({id:descriptor.id,version:1,kind:descriptor.kind,installedCatalog:true,
+    rightsAvailability:{display:true,download:true,export:true}}));
+   expect(await service.checkDisplay(f.client,f.session,descriptor.id,1)).toEqual(descriptor);
+   expect(await service.readVersion(f.client,f.session,descriptor.id,1)).toEqual(descriptor);
+   await expect(service.readVersion(f.client,f.session,descriptor.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
+   await expect(service.readVersion(f.client,{...f.session,userId:id(9)},descriptor.id,1)).rejects.toMatchObject({code:'FORBIDDEN'});
+   const declared=await service.readVersion(f.client,f.session,descriptor.id,1);
+   const bound={workspaceId:owner.workspaceId,tenantId:owner.tenantId,userId:owner.principalId,descriptor:declared};
+   expect((await service.publicationModel(f.client,bound)).sha256).toBe(descriptor.model.sha256);
+   await expect(service.publicationModel(f.client,{...bound,descriptor:{...declared,provenance:'Unreviewed'}}))
+    .rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+   const unavailable=new WorkspaceFurnishingIntakes(f.blobs,f.owner,f.writer);
+   await expect(unavailable.readVersion(f.client,f.session,descriptor.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
+  }
+  expect(f.query.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+  expect(f.blobs.put).not.toHaveBeenCalled();
+ }finally{read.mockRestore();}
+});
+
 it('authorizes immutable installed cards before and after reading, without registry or selection writes',async()=>{
  const f=fixture(true),id='af88109b-27e2-4d10-a08c-3ddc0224451a',thumbnail=installedFrameThumbnail(id)!,png=Buffer.alloc(5176),service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true},f.writer);
  vi.mocked(readInstalledFrameById).mockResolvedValue({bytes:Buffer.alloc(7892),mime:'model/gltf-binary',sha256:thumbnail.source.modelSha256});vi.mocked(readInstalledFrameThumbnail).mockResolvedValue({bytes:png,thumbnail});

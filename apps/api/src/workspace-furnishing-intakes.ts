@@ -14,7 +14,8 @@ import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation
 import {prepareBenchBaseColorInWorker,prepareFrameInWorker,prepareInfoStandInWorker} from './frame-preparation-process.ts';
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.ts';
-import {INSTALLED_FRAME_ID,installedFrameDescriptor,installedFrameDescriptors,installedFrameDescriptorFor,readInstalledFrameById,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
+import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
+import {installedFurnishingDescriptors,installedFurnishingDescriptorFor,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
 import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
 import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
@@ -194,7 +195,7 @@ export class WorkspaceFurnishingIntakes {
    [this.owner.workspaceId,s.tenantId,s.userId,after],
   );
   const candidates:(typeof result.rows[number]&{installedCatalog?:true})[]=[...result.rows];
-  if(this.supportsArtworkFrameModels())for(const descriptor of installedFrameDescriptors())if(descriptor.id>after.toLowerCase()&&await readInstalledFrameById(descriptor.id)){
+  for(const descriptor of installedFurnishingDescriptors())if(descriptor.id>after.toLowerCase()&&this.supportsInstalled(descriptor)&&await readInstalledFurnishingModel(descriptor.id)){
    candidates.push({id:descriptor.id,version:1,descriptor,installedCatalog:true});
    candidates.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:a.version-b.version);
   }
@@ -211,25 +212,34 @@ export class WorkspaceFurnishingIntakes {
    nextCursor:candidates.length>50&&last?Buffer.from(last.id).toString('base64url'):null,
   };
  }
- private async installedFrame(c:PoolClient,s:Session,version:number,id=INSTALLED_FRAME_ID){
+ private supportsInstalled(descriptor:WorkspaceFurnishingDescriptor){
+  switch(descriptor.kind){
+   case 'artwork-frame':return this.supportsArtworkFrameModels();
+   case 'ceiling-rail':return this.supportsCeilingRail();
+   case 'portal-finish':return this.supportsPortalFinish()&&this.supportsReusableFit();
+   default:return false;
+  }
+ }
+ private async installedModel(c:PoolClient,s:Session,version:number,descriptor:WorkspaceFurnishingDescriptor,purpose?:'display'|'export'){
   await this.checkOwner(c,s);
-  if(version!==1)throw new ApiError(400,'INVALID_INPUT');
-  const model=this.supportsArtworkFrameModels()?await readInstalledFrameById(id):undefined;
+  if(version!==descriptor.version)throw new ApiError(400,'INVALID_INPUT');
+  if(purpose&&!allowedRights(descriptor.rights,purpose))throw new ApiError(403,'RIGHTS_DENIED');
+  const model=this.supportsInstalled(descriptor)?await readInstalledFurnishingModel(descriptor.id):undefined;
   if(!model)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.writer?.assertLive();
   return model;
  }
  async installedThumbnail(c:PoolClient,s:Session,id:string,version:number){
-  await this.installedFrame(c,s,version,id);uuid(id);
-  const descriptor=installedFrameDescriptorFor(id)!;
-  if(!allowedRights(descriptor.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+  const descriptor=installedFrameDescriptorFor(id);
+  if(!descriptor){await this.checkOwner(c,s);throw new ApiError(404,'FURNISHING_NOT_FOUND');}
+  await this.installedModel(c,s,version,descriptor,'display');uuid(id);
   const result=await readInstalledFrameThumbnail(id);if(!result)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.checkOwner(c,s);return result;
  }
  private async version(c:PoolClient,s:Session,id:string,version:number){await this.checkOwner(c,s);uuid(id);if(!Number.isSafeInteger(version)||version!==1)throw new ApiError(400,'INVALID_INPUT');const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(result.rowCount!==1)throw new ApiError(404,'FURNISHING_NOT_FOUND');return result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string};}
  async readVersion(c:PoolClient,s:Session,id:string,version:number){
-  const installed=typeof id==='string'?installedFrameDescriptorFor(id):undefined;
-  if(installed){await this.installedFrame(c,s,version,id);return installed;}
+  const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
+  if(installed){await this.installedModel(c,s,version,installed);return installed;}
   return (await this.version(c,s,id,version)).descriptor;}
  /** Revalidate the registered owner, current display grant and original bytes.
   * A descriptor alone is not a display grant, even for an owner preview. */
@@ -257,7 +267,8 @@ export class WorkspaceFurnishingIntakes {
   await this.checkArtwork(c,s,artwork);await this.writer?.assertLive();return record;
  }
  async modelSource(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
-  if(typeof id==='string'&&installedFrameDescriptorFor(id)){const model=await this.installedFrame(c,s,version,id);return {sha256:model.sha256,mime:model.mime,bytes:model.bytes.length,read:async()=>model.bytes};}
+  const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
+  if(installed){const model=await this.installedModel(c,s,version,installed,purpose);return {sha256:model.sha256,mime:model.mime,bytes:model.bytes.length,read:async()=>model.bytes};}
   const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(!this.portableImportKey(s.tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256))throw new ApiError(409,'ASSET_INTEGRITY');const blobs=this.blobs;
   return {sha256:row.descriptor.model.sha256,mime:row.descriptor.model.mime,bytes:row.descriptor.model.bytes,read:async()=>{
    if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);
@@ -267,7 +278,8 @@ export class WorkspaceFurnishingIntakes {
   }};
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
-  if(typeof id==='string'&&installedFrameDescriptorFor(id))return this.installedFrame(c,s,version,id);
+  const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
+  if(installed)return this.installedModel(c,s,version,installed,purpose);
   const source=await this.modelSource(c,s,id,version,purpose);return {bytes:await source.read(),mime:source.mime,sha256:source.sha256};
  }
 
@@ -290,10 +302,11 @@ export class WorkspaceFurnishingIntakes {
   if(!this.writer||workspaceId!==this.owner.workspaceId||tenantId!==this.owner.tenantId||userId!==this.owner.principalId||!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
   uuid(descriptor.id);if(descriptor.version!==1)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-  const installed=installedFrameDescriptorFor(descriptor.id);
+  const installed=installedFurnishingDescriptorFor(descriptor.id);
   if(installed){
-   if(!this.supportsArtworkFrameModels()||!isDeepStrictEqual(descriptor,installed))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-   const model=await readInstalledFrameById(installed.id,signal);
+   if(!this.supportsInstalled(installed)||!isDeepStrictEqual(descriptor,installed)||
+      !allowedRights(installed.rights,'display')||!allowedRights(installed.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+   const model=await readInstalledFurnishingModel(installed.id,signal);
    if(!model)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
    await this.writer.assertLive();
    await this.owner.assertDatabase(c);

@@ -1,0 +1,219 @@
+[
+  {
+    "catalogId": "closing-straight-rail-6m",
+    "hostKind": "ceiling-rail",
+    "path": "assets/furnishings/exhibitos-authored-20261116/closing-straight-rail-6m/model.glb",
+    "descriptor": {
+      "kind": "ceiling-rail",
+      "name": "Closing Straight Rail 6m",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 2132,
+        "sha256": "dcf99d8d5568bd5eba2614028ca3bf545a86251c435af1614b851d873c104ae7"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "licenseId": "CC0-1.0",
+        "ownership": "owner",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "export": true,
+          "display": true,
+          "download": true,
+          "commercial": true
+        }
+      },
+      "fit": {
+        "version": 1,
+        "geometry": {
+          "max": [
+            3,
+            0,
+            0.021
+          ],
+          "min": [
+            -3,
+            -0.03,
+            -0.021
+          ],
+          "profile": "passive-ceiling-rail-v1"
+        },
+        "sourceBytes": 2132,
+        "sourceSha256": "dcf99d8d5568bd5eba2614028ca3bf545a86251c435af1614b851d873c104ae7"
+      },
+      "id": "92c555ea-e0e8-5ff5-9a41-695cf38394e2",
+      "version": 1,
+      "provenance": "ExhibitOS default furnishings, closing-straight-rail-6m v1. Unchanged ExhibitOS original."
+    },
+    "notice": {
+      "path": "assets/furnishings/exhibitos-authored-20261116/closing-straight-rail-6m/LICENSE-NOTICE.txt",
+      "bytes": 515,
+      "sha256": "dfd194ed132f9ceed55b6ae647669ce7b7a979c72bf5a1d86c7646714bbdb491"
+    }
+  },
+  {
+    "catalogId": "double-width-portal",
+    "hostKind": "opening",
+    "path": "assets/furnishings/user-authored-20261027/double-width-portal/model.glb",
+    "descriptor": {
+      "kind": "portal-finish",
+      "name": "Double-width portal",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 164044,
+        "sha256": "385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "licenseId": "CC0-1.0",
+        "ownership": "owner",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "export": true,
+          "display": true,
+          "download": true,
+          "commercial": true
+        }
+      },
+      "fit": {
+        "version": 1,
+        "geometry": {
+          "maxZ": 0.1,
+          "minZ": -0.1,
+          "parts": {
+            "back-head": {
+              "max": [
+                1.24,
+                2.64,
+                -0.1
+              ],
+              "min": [
+                -1.24,
+                2.6,
+                -0.106
+              ],
+              "node": 6
+            },
+            "back-left": {
+              "max": [
+                -1.2,
+                2.6,
+                -0.1
+              ],
+              "min": [
+                -1.24,
+                0,
+                -0.106
+              ],
+              "node": 2
+            },
+            "back-right": {
+              "max": [
+                1.24,
+                2.6,
+                -0.1
+              ],
+              "min": [
+                1.2,
+                0,
+                -0.106
+              ],
+              "node": 3
+            },
+            "front-head": {
+              "max": [
+                1.24,
+                2.64,
+                0.106
+              ],
+              "min": [
+                -1.24,
+                2.6,
+                0.1
+              ],
+              "node": 5
+            },
+            "front-left": {
+              "max": [
+                -1.2,
+                2.6,
+                0.106
+              ],
+              "min": [
+                -1.24,
+                0,
+                0.1
+              ],
+              "node": 0
+            },
+            "front-right": {
+              "max": [
+                1.24,
+                2.6,
+                0.106
+              ],
+              "min": [
+                1.2,
+                0,
+                0.1
+              ],
+              "node": 1
+            },
+            "reveal-head": {
+              "max": [
+                1.225,
+                2.625,
+                0.1
+              ],
+              "min": [
+                -1.225,
+                2.6,
+                -0.1
+              ],
+              "node": 4
+            },
+            "reveal-left": {
+              "max": [
+                -1.2,
+                2.6,
+                0.1
+              ],
+              "min": [
+                -1.225,
+                0,
+                -0.1
+              ],
+              "node": 7
+            },
+            "reveal-right": {
+              "max": [
+                1.225,
+                2.6,
+                0.1
+              ],
+              "min": [
+                1.2,
+                0,
+                -0.1
+              ],
+              "node": 8
+            }
+          },
+          "profile": "modular-portal-v1",
+          "openingWidth": 2.4,
+          "openingHeight": 2.6
+        },
+        "sourceBytes": 164044,
+        "sourceSha256": "385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b"
+      },
+      "id": "55eb21db-839d-587b-8960-edabfe61b572",
+      "version": 1,
+      "provenance": "ExhibitOS default furnishings, double-width-portal v1. Unchanged ExhibitOS original."
+    },
+    "notice": {
+      "path": "assets/furnishings/user-authored-20261027/double-width-portal/LICENSE-NOTICE.txt",
+      "bytes": 1570,
+      "sha256": "cec35a0e3c1ad0ff78f65bfecbb92315cd8a23b4041d0bbad987237dc7338f27"
+    }
+  }
+]

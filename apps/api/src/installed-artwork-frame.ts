@@ -34,8 +34,6 @@ export async function readInstalledFrameById(id:string,signal?:AbortSignal){
 export function matchingInstalledFrameDescriptor(value:WorkspaceFurnishingDescriptor,publicId?:string):WorkspaceFurnishingDescriptor|undefined{
  for(const frame of frames){const expected=structuredClone(frame.descriptor);if(publicId!==undefined)expected.id=publicId;if(isDeepStrictEqual(value,expected))return structuredClone(frame.descriptor);}
 }
-export function matchesInstalledFrame(value:WorkspaceFurnishingDescriptor,publicId?:string):boolean{return matchingInstalledFrameDescriptor(value,publicId)!==undefined;}
-
 /** Authored distribution metadata does not create a registered tenant candidate. */
 export function installedFrameThumbnail(id:string):InstalledFurnishingThumbnail|undefined{
  const frame=frames.find(frame=>frame.descriptor.id===id.toLowerCase());if(!frame?.thumbnail)return;

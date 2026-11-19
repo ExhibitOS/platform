@@ -6,10 +6,73 @@ import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/model.ts';
-import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
+import {newRoom,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
+
+it('proposes a fresh rectangular reciprocal door pair on only the authenticated ordinary saved head',async()=>{
+ const draft=newDraft(),left=draft.candidate.rooms[0]!;
+ const right=newRoom('Adjacent gallery',{width:11,height:4,depth:8},
+  {position:[(left.dimensions.width+11)/2,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
+ draft.candidate.rooms.push(right);
+ const leftSurfaces=whiteCubeSurfaces(left),rightSurfaces=whiteCubeSurfaces(right);
+ draft.candidate.surfaces=[...leftSurfaces,...rightSurfaces];
+ const leftWall=leftSurfaces.find(row=>row.type==='wall'&&row.transform.position[0]===left.dimensions.width/2)!;
+ const rightWall=rightSurfaces.find(row=>row.type==='wall'&&row.transform.position[0]===-right.dimensions.width/2)!;
+ const tenantId=randomUUID(),userId=randomUUID(),csrf='door-pair-csrf',token='a'.repeat(43);
+ const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),
+  csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
+ let revision=3,ownerUserId=userId;
+ const writes:string[]=[];
+ const client={query:async(sql:string)=>{
+  if(/^(INSERT|UPDATE|DELETE)/.test(sql))writes.push(sql);
+  if(sql.includes('SELECT s.*,m.role'))return {rows:[session],rowCount:1};
+  if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))
+   return {rows:[{id:draft.exhibitionId,revision,metadata:draft,studio_owner_user_id:ownerUserId}],rowCount:1};
+  return {rows:[],rowCount:0};
+ },release:()=>{}};
+ const pool={connect:async()=>client} as unknown as Pool;
+ const auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
+ const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
+ const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>true});
+ const url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`;
+ const headers={host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
+ const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID()};
+ const command={...binding,type:'add-connected-door-pair',dimensions:{width:2.4,height:3},
+  first:{surfaceId:leftWall.id,offset:[0,(3-left.dimensions.height)/2]},
+  second:{surfaceId:rightWall.id,offset:[0,(3-right.dimensions.height)/2]}};
+ const post=(request:unknown,match=etag(revision,draft))=>app.inject({method:'POST',url,headers:{...headers,'if-match':match},
+  payload:{expectedRevision:revision,request}});
+ try{
+  const original=structuredClone(draft.candidate),match=etag(revision,draft);
+  const advertised=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
+  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1'});
+  expect((await post(command,etag(revision-1,draft))).statusCode).toBe(412);
+  ownerUserId=randomUUID();
+  expect((await post(command)).statusCode).toBe(403);
+  ownerUserId=userId;
+  expect((await post({...command,second:{...command.second,surfaceId:leftWall.id}})).statusCode).toBe(422);
+  expect((await post({...command,second:{...command.second,offset:[.2,command.second.offset[1]]}})).statusCode).toBe(422);
+  expect((await post({...command,dimensions:{width:32,height:3}})).statusCode).toBe(422);
+  const response=await post(command);
+  expect(response.statusCode,response.body).toBe(200);
+  expect(response.headers.etag).toBe(match);
+  const proposal=response.json();
+  const [first,second]=proposal.openingIds;
+  expect(first).not.toBe(second);
+  expect(proposal.candidate).toEqual({...original,openings:[...original.openings,
+   {...command.first,id:first,type:'door',dimensions:command.dimensions,connectsToOpeningId:second},
+   {...command.second,id:second,type:'door',dimensions:command.dimensions,connectsToOpeningId:first}]});
+  expect((await post(command)).json()).toEqual(proposal);
+  expect(draft.candidate).toEqual(original);
+  revision++;
+  draft.candidate=proposal.candidate;
+  expect((await post({...command,requestId:randomUUID()},match)).statusCode).toBe(412);
+  expect((await post({...command,requestId:randomUUID()})).statusCode).toBe(422);
+  expect(writes).toEqual([]);
+ }finally{await app.close();}
+});
 
 it('proposes only a checked change to the current saved draft through the installed owner session',async()=>{
  const draft=newDraft(),tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43);

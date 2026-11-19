@@ -15,7 +15,7 @@ const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 test('1.19 checks and copies the issued bench, license and acquired source through the existing packager', {skip:!root}, async t=>{
   const source=await realpath(root);
-  await requireCurrentFurnishingsRelease(source);
+  await assert.rejects(requireCurrentFurnishingsRelease(source),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
   const release=await checkedDefaultFurnishingsRoot(source);
   assert.deepEqual(release,{root:source,commit,manifestSHA256});
   const scratch=await realpath(await mkdtemp(join(tmpdir(),'default119-')));
