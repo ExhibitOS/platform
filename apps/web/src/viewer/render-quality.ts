@@ -11,6 +11,34 @@ export function applyReferenceOutput(three:typeof THREE, renderer:THREE.WebGLRen
   renderer.toneMappingExposure=1;
 }
 
+const diffuseFloorHooks = new WeakMap<THREE.Material, {
+  compile: THREE.Material['onBeforeCompile'];
+  cacheKey: THREE.Material['customProgramCacheKey'];
+}>();
+
+export function hasDiffuseFloorReferenceEnvironmentHook(material:THREE.Material) {
+  const hook = diffuseFloorHooks.get(material);
+  return hook?.compile === material.onBeforeCompile && hook.cacheKey === material.customProgramCacheKey;
+}
+
+/** Keep diffuse room lighting on workspace floors without reflecting the
+ * synthetic reference room. The caller preserves explicitly authored reflection. */
+export function applyDiffuseFloorReferenceEnvironment(material:THREE.MeshStandardMaterial) {
+  const compile: THREE.Material['onBeforeCompile'] = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `
+      #ifdef USE_ENVMAP
+        vec3 beforeEnvironmentSpecular = reflectedLight.indirectSpecular;
+      #endif
+      #include <lights_fragment_end>
+      #ifdef USE_ENVMAP
+        reflectedLight.indirectSpecular = beforeEnvironmentSpecular;
+      #endif
+    `);
+  };
+  diffuseFloorHooks.set(material, {compile,cacheKey:material.customProgramCacheKey});
+  material.onBeforeCompile = compile;
+}
+
 export function environmentEstimate(size:64|128) {
   const pixels=3*Math.max(size,112)*4*size;
   return {retainedBytes:pixels*12,generationPeakBytes:pixels*20};

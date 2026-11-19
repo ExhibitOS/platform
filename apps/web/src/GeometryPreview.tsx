@@ -71,7 +71,7 @@ import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMa
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
-import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
+import {DEFAULT_REFERENCE_TONE,applyDiffuseFloorReferenceEnvironment,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey,localPose} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
@@ -759,7 +759,10 @@ export function GeometryPreview({
         const workspaceBinding=workspacePlan.targets.get(surface.id.toLowerCase());
         const floorBinding=surface.type==='floor'?floorFor(document,{roomId:surface.roomId,surfaceId:surface.id}):undefined;
         if(floorBinding){const looks=floorAppearance(floorBinding,surface.id);material.color.copy(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;if(!workspaceBinding)floorTextures.add(material,floorBinding);}
-        if(workspaceBinding)workspaceTextures?.add(material,workspaceBinding);
+        if(workspaceBinding){
+          if(surface.type==='floor'&&!spaceLighting) applyDiffuseFloorReferenceEnvironment(material);
+          workspaceTextures?.add(material,workspaceBinding);
+        }
         const surfaceBinding=workspaceBinding?undefined:surfaceTextureFor(document,surface.id);
         if(surfaceBinding){const looks=materialFor(document,surface.id);material.color.set(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;surfaceTextures.add(material,surfaceBinding);}
         owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
