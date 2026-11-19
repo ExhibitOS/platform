@@ -110,3 +110,8 @@ export function experienceFor(candidate:{extensions?:unknown}):ViewerExperience 
   const value=object(candidate.extensions)?candidate.extensions[EXPERIENCE_NAMESPACE]:undefined;
   return structuredClone((value as ViewerExperience|undefined)??{version:1,footsteps:[],voices:[],annotations:[],rooms:[],translations:[]});
 }
+
+export function experienceFootstepFor<T extends {surfaceId: string}>(experience: {footsteps: readonly T[]}, surfaceId?: string): T | undefined {
+  const key = surfaceId?.toLowerCase();
+  return key === undefined ? undefined : experience.footsteps.find(row => row.surfaceId.toLowerCase() === key);
+}
