@@ -94,3 +94,39 @@ The local command creates no workspace, profile, or CMS record. Wait for
 records exact input and PNG digests and estimated memory. The exclusive output
 directory is cleaned up on pre-commit failure. To cancel, send
 `{"cancel":true}` through the owner pipe or use the existing signal controls.
+
+## Internal verification with a live Viewer
+
+Use the approved local static publication export and its manifest SHA-256. With
+the development dependencies and workspace build prepared, run the loopback
+Viewer entry and open its printed URL in the browser under test.
+
+```sh
+node scripts/dev-live-viewer.mjs /absolute/static-export MANIFEST_SHA256
+```
+
+After the ordinary 3D entrance, explicitly select the quality to verify. Run
+the following call against the live canvas in the browser console or WebDriver.
+The eye and look-at are room-local meter coordinates. The look-at can point
+past a doorway. An omitted FOV keeps the current vertical field of view.
+
+```js
+const canvas = document.querySelector(
+  '.publication-live-stage[data-stage-ready="true"] canvas[data-navigation-state]',
+);
+const inspection = canvas.exhibitosInspectPose({
+  roomId: '66df16b1-18d7-425d-801a-8749ddb33a27',
+  eye: [-0.0932, 1.661, -1.5077],
+  lookAt: [0, 0.95, 2.6],
+  fov: 45,
+});
+inspection.observation;
+```
+
+`inspection.read()` returns the current applied pose, effective quality,
+workspace floor state and admitted and drawn placements as loading settles.
+Take the comparison only after the relevant artwork and floor maps are ready.
+A rejected pose reports its reason and leaves the current view in place.
+`inspection.exit()` restores ordinary controls and the previous camera.
+Exit before changing profiles, then repeat the same call. This development
+entry serves the pinned export on loopback and changes only the live view.
