@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {WORKSPACE_MATERIAL_NAMESPACE, type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
-import {experienceFor} from './experience.js';
+import {EXPERIENCE_NAMESPACE, experienceFor} from './experience.js';
 import {declareFootstepFamily} from './footstep-bank.js';
 import {FLOOR_NAMESPACE,floorFor,floorTargetKey,validateStudioFloors,type StudioFloors,floorMaterial,floorPresetDefaults,floorSoundFamily,type FloorBinding,type FloorPreset,type FloorTarget} from './floors.js';
 import type {PbrMaterial} from './pbr-material.js';
@@ -55,34 +55,50 @@ export function applyRecordedFloorCommand(document: Exhibition, command: Recorde
  if (!room || target.kind === 'room-base' && document.surfaces.some(row => row.roomId === room.id && row.type === 'floor'))
   throw Error('FLOOR_TARGET_INVALID');
  const workspace = document.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings | undefined;
- if (surface && workspace?.bindings.some(row => row.surfaceId === surface.id)) throw Error('FLOOR_RECORDING_UNASSIGNED');
+ const custom = surface && workspace?.bindings.some(row => row.surfaceId === surface.id);
+ if (custom && command.type === 'select-floor-material') throw Error('FLOOR_RECORDING_UNASSIGNED');
  if (!validateStudioFloors(document).valid) throw Error('FLOOR_SETTINGS_INVALID');
  const current = floorFor(document, {roomId: room.id, surfaceId: surface?.id});
- const legacy = experienceFor(document).footsteps.find(row => row.surfaceId === surface?.id);
+ const experience = experienceFor(document);
+ const legacy = experience.footsteps.find(row => row.surfaceId === surface?.id);
  const hasLegacyRecording = legacy?.assetId !== undefined || legacy?.bank !== undefined;
- let binding: FloorBinding;
- if (command.type === 'select-floor-material') {
+ const reset = command.type === 'reset-floor-sound';
+ const currentMaterial = !custom && current && (current.texturePack ? recordedStockPresets[current.texturePack.id] : current.preset);
+ let binding: FloorBinding | undefined;
+ if (!reset) {
   if (!['wood','marble','tile','carpet'].includes(command.preset)) throw Error('FLOOR_SETTINGS_INVALID');
   binding = createFloorPreset(target, command.preset);
   if (current?.sound) binding.sound = current.sound;
   else if (hasLegacyRecording) delete binding.sound;
- } else {
-  if (!current) throw Error('FLOOR_RECORDING_UNASSIGNED');
-  const currentMaterial = current.texturePack ? recordedStockPresets[current.texturePack.id] : current.preset;
-  if (!currentMaterial) throw Error('FLOOR_RECORDING_UNASSIGNED');
+ } else if (current && currentMaterial) {
   const materials = document.extensions?.['org.exhibitos.studio/materials'] as unknown as StudioMaterials | undefined;
   const legacyMaterial = surface && materials?.surfaces[surface.id];
   binding = applyFloorPreset(current, currentMaterial, ['sound'], legacyMaterial);
-  if (hasLegacyRecording) delete binding.sound;
+ } else if (current) {
+  binding = current;
+  delete binding.sound;
  }
  const next = structuredClone(document);
- const prior = next.extensions?.[FLOOR_NAMESPACE] as unknown as StudioFloors | undefined;
- const bindings = prior?.bindings ?? [];
- const index = bindings.findIndex(row => floorTargetKey(row.target) === floorTargetKey(target));
- if (index < 0) bindings.push(binding);
- else bindings[index] = binding;
- next.extensions = {...next.extensions, [FLOOR_NAMESPACE]: {version: 1, bindings} as unknown as NonNullable<Exhibition['extensions']>[string]};
- if (!hasLegacyRecording && binding.sound?.mode === 'material-default') declareFootstepFamily(next, binding.preset);
+ if (binding) {
+  const prior = next.extensions?.[FLOOR_NAMESPACE] as unknown as StudioFloors | undefined;
+  const bindings = prior?.bindings ?? [];
+  const index = bindings.findIndex(row => floorTargetKey(row.target) === floorTargetKey(target));
+  if (index < 0) bindings.push(binding);
+  else bindings[index] = binding;
+  next.extensions = {...next.extensions, [FLOOR_NAMESPACE]: {version: 1, bindings} as unknown as NonNullable<Exhibition['extensions']>[string]};
+ }
+ // Reset retires only this target's previous override. The approved media and
+ // prior revision remain in custody. Custom or unmapped materials stay silent.
+ if (reset && legacy && (!currentMaterial || hasLegacyRecording)) {
+  if (!currentMaterial) experience.footsteps = experience.footsteps.filter(row => row !== legacy);
+  else {
+   delete legacy.assetId;
+   delete legacy.bank;
+  }
+  next.extensions = {...next.extensions, [EXPERIENCE_NAMESPACE]: experience as unknown as NonNullable<Exhibition['extensions']>[string]};
+ }
+ if ((reset || !hasLegacyRecording) && binding?.sound?.mode === 'material-default')
+  declareFootstepFamily(next, binding.preset);
  if (!validateStudioFloors(next).valid) throw Error('FLOOR_SETTINGS_INVALID');
  return next;
 }

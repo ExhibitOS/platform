@@ -594,7 +594,7 @@ export class Publications {
         if(stage)for(const p of prepared)if(p.thumbnail)p.thumbnail={...p.thumbnail,bytes:await store(p.thumbnail.bytes as Buffer)};
         return { issues: errors, prepared, media, cover,furnishings,at,floorRecordings };
     }
-    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
+    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage):Promise<{status:string;etag:string;issues:PublicationIssue[];floorRecordings?:FloorRecordingStatus[]}> {
         try{
         const row = await this.studio.access(c, s, id);
         // Larger aggregates require private disk staging. Unsupported
