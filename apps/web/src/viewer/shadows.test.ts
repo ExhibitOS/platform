@@ -3,6 +3,7 @@ import {expect,test,vi} from 'vitest';
 import * as three from 'three';
 import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,directionalNormalBias,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
 import {AssetPeakBudget} from './loading';
+import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
   const room=new three.Group(),mesh=new three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
@@ -482,6 +483,28 @@ test('known nondeforming contact shading preserves bounded planar shadow policy'
   const h=setup();h.mesh.geometry=new three.PlaneGeometry(2,2);h.mesh.material.side=three.DoubleSide;
   const pass=installSupportContactShadows(three,[contactRow(h.room,h.mesh)],false,()=>{});pass.setView(contactView());h.pass.flush();
   expect(h.mesh.castShadow).toBe(true);expect(h.mesh.onBeforeShadow).not.toBe(three.Object3D.prototype.onBeforeShadow);pass.dispose();h.pass.dispose();
+});
+
+test('workspace floor environment shading keeps planar depth and contact shading',()=>{
+  const h=setup(),material=h.mesh.material;
+  h.mesh.geometry=new three.PlaneGeometry(2,2);material.side=three.DoubleSide;
+  applyDiffuseFloorReferenceEnvironment(material);
+  const floorHook=material.onBeforeCompile,key=material.customProgramCacheKey;
+  h.pass.flush();
+  expect(h.mesh.onBeforeShadow).not.toBe(three.Object3D.prototype.onBeforeShadow);
+  const contacts=installSupportContactShadows(three,[contactRow(h.room,h.mesh)],false,()=>{});
+  contacts.setView(contactView());
+  expect(material.userData.exhibitosSupportContact.exhibitosContactCount.value).toBe(1);
+  const shader={...three.ShaderLib.standard,uniforms:{}};
+  material.onBeforeCompile(shader as Parameters<three.Material['onBeforeCompile']>[0],h.renderer);
+  expect(shader.fragmentShader).toContain('beforeEnvironmentSpecular');
+  expect(shader.fragmentShader).toContain('contactStrength');
+  contacts.dispose();h.pass.dispose();
+  expect(material.onBeforeCompile).toBe(floorHook);
+  expect(material.customProgramCacheKey).toBe(key);
+  expect(hasDiffuseFloorReferenceEnvironmentHook(material)).toBe(true);
+  material.customProgramCacheKey=()=> 'unowned-key';
+  expect(hasDiffuseFloorReferenceEnvironmentHook(material)).toBe(false);
 });
 
 test('late descriptors are not consumed by earlier offscreen contacts and lifetime material ownership stays bounded',()=>{

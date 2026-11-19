@@ -3,6 +3,7 @@ import type * as THREE from 'three';
 import {selectShadowDependencies,shadowReceiverRegions} from './shadow-interest';
 import type {AssetPeakBudget} from './loading';
 import {hasCeilingFillMaterialHook} from './ceiling-fill';
+import {hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
@@ -101,7 +102,8 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const installPlanarDepth=(mesh:THREE.Mesh)=>{
     const material=mesh.material;
     if(Array.isArray(material)||material.shadowSide!==null||material instanceof three.ShaderMaterial||
-      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)&&!hasCeilingFillMaterialHook(material)||
+      material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)&&
+      !hasCeilingFillMaterialHook(material)&&!hasDiffuseFloorReferenceEnvironmentHook(material)||
       mesh instanceof three.SkinnedMesh||mesh instanceof three.InstancedMesh||('isBatchedMesh'in mesh&&mesh.isBatchedMesh)||('isInstancedBufferGeometry'in mesh.geometry&&mesh.geometry.isInstancedBufferGeometry)||
       mesh.customDepthMaterial||mesh.customDistanceMaterial||
       mesh.onBeforeShadow!==three.Object3D.prototype.onBeforeShadow||mesh.onAfterShadow!==three.Object3D.prototype.onAfterShadow||
@@ -386,7 +388,8 @@ export function installSupportContactShadows(three:typeof THREE,initialContacts:
   const install=(material:THREE.Material)=>{
     const prior=hooks.get(material);if(prior)return prior;
     if(hooks.size>=CONTACT_MATERIAL_LIMIT||!(material instanceof three.MeshStandardMaterial)||
-      !hasCeilingFillMaterialHook(material)&&(material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
+      !hasCeilingFillMaterialHook(material)&&!hasDiffuseFloorReferenceEnvironmentHook(material)&&
+      (material.onBeforeCompile!==three.Material.prototype.onBeforeCompile||
       material.customProgramCacheKey!==three.Material.prototype.customProgramCacheKey))return;
     const uniforms=makeUniforms(),before=material.onBeforeCompile,key=material.customProgramCacheKey;
     const baseKey=key.call(material),ceilingFill=hasCeilingFillMaterialHook(material);
