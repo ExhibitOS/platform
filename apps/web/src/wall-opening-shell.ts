@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import type { architecturalWallBoxes,WallFinish } from '@exhibitos/studio-contract';
+import {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE,type architecturalWallBoxes,type WallFinish,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {qualifiedModularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import type {Exhibition} from '@exhibitos/spec';
 
 type Point = readonly [number, number];
@@ -9,6 +10,24 @@ type Axis = 0 | 1;
 type Panel = { min: Point; max: Point };
 type Slab={left:number;right:number;bottom:number;top:number;minZ:number;maxZ:number};
 export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab};
+type SharedWallSpan=readonly [number,number];
+
+export function coincidentPortalSpans(document:Exhibition,coverage?:ReadonlyMap<string,readonly OpeningRevealCoverage[]>){
+ const result=new Map<string,SharedWallSpan>();
+ const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;
+ if(!workspace?.openingAttachments?.length||!validateWorkspaceFurnishings(document).valid)return result;
+ for(const attachment of workspace.openingAttachments){
+  const descriptor=workspace.furnishings.find(row=>row.id===attachment.furnishingId&&row.version===attachment.furnishingVersion);
+  const geometry=workspaceFitGeometry(descriptor);
+  if(geometry?.profile!=='modular-portal-v1')continue;
+  const pair=qualifiedModularPortalTarget(geometry,document,attachment.openingId,descriptor)?.coincidentPair;
+  if(!pair||coverage&&(coverage.get(pair.hostSurfaceId)?.length!==1||coverage.get(pair.peerSurfaceId)?.length!==1))continue;
+  result.set(pair.hostSurfaceId,pair.hostSpan);
+  result.set(pair.peerSurfaceId,pair.peerSpan);
+ }
+ return result;
+}
+
 
 /** Two explicitly connected slabs can overlap along the same reveal plane.
  * Draw their depth union once, on a deterministic world-normal side. Front/back
@@ -56,6 +75,18 @@ export function buriedPairedFinish(box:ReturnType<typeof architecturalWallBoxes>
  return coverage.some(({peer:p})=>x-width/2>=p.left-e&&x+width/2<=p.right+e&&y-height/2>=p.bottom-e&&y+height/2<=p.top+e&&z-depth/2>=p.minZ-e&&z+depth/2<=p.maxZ+e);
 }
 
+/** Keep the exposed portions of a back finish on either side of the join. */
+export function exposedFinishBoxes(box:ReturnType<typeof architecturalWallBoxes>[number],span?:SharedWallSpan){
+ if(!span||box.position[2]>=0)return [box];
+ const [x,y,z]=box.position,half=box.dimensions.width/2,left=x-half,right=x+half;
+ if(right<=span[0]+1e-9||left>=span[1]-1e-9)return [box];
+ const exposed:[number,number][]=[[left,Math.min(right,span[0])],[Math.max(left,span[1]),right]];
+ return exposed.flatMap(([a,b])=>{
+  const width=b-a;
+  return width>1e-9?[{...box,position:[(a+b)/2,y,z] as [number,number,number],dimensions:{...box.dimensions,width}}]:[];
+ });
+}
+
 function coverageForEdge([a,b]:Edge,coverage:readonly OpeningRevealCoverage[]){
  return coverage.find(r=>a[0]===b[0]?(a[0]===r.left||a[0]===r.right)&&Math.min(a[1],b[1])>=r.bottom&&Math.max(a[1],b[1])<=r.top:
   (a[1]===r.bottom||a[1]===r.top)&&Math.min(a[0],b[0])>=r.left&&Math.max(a[0],b[0])<=r.right);
@@ -87,14 +118,19 @@ function varyingAxis([from, to]: Edge): Axis {
 /** Render the exterior of the existing equal-depth wall panels. At a jamb,
  * neighboring panels subdivide the same edge at the head/sill breakpoints.
  * Collision still uses the original solids. */
-function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,coverage:readonly OpeningRevealCoverage[]=[],roomFacingOnly=false) {
+function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,coverage:readonly OpeningRevealCoverage[]=[],span?:SharedWallSpan) {
   const raw = boxes.map(({ position: [x, y], dimensions: { width, height } }): Panel => ({
     min: [x - width / 2, y - height / 2], max: [x + width / 2, y + height / 2],
   }));
-  const xs = canonicalCoordinates(raw.flatMap(p => [p.min[0], p.max[0]]));
+  const xs = canonicalCoordinates([...raw.flatMap(p => [p.min[0], p.max[0]]),...(span??[])]);
   const ys = canonicalCoordinates(raw.flatMap(p => [p.min[1], p.max[1]]));
-  const canonical = ([x, y]: Point): Point => [xs.get(x)!, ys.get(y)!];
-  const panels = raw.map(({ min, max }) => ({ min: canonical(min), max: canonical(max) }));
+  const shared=span&&coverage[0], spanEdges=span?.map(x=>xs.get(x)!);
+  const inSharedSpan=(x:number)=>!!shared&&x>=spanEdges![0]!&&x<=spanEdges![1]!;
+  const panels=raw.flatMap(({min,max})=>{
+    const left=xs.get(min[0])!,right=xs.get(max[0])!;
+    const split=[left,...(spanEdges?.filter(x=>x>left&&x<right)??[]),right];
+    return split.slice(1).map((x,i):Panel=>({min:[split[i]!,ys.get(min[1])!],max:[x,ys.get(max[1])!]}));
+  });
   const breaks = [new Map<number, Set<number>>(), new Map<number, Set<number>>()] as const;
   for (const panel of panels) {
     for (const edge of panelEdges(panel)) {
@@ -121,7 +157,7 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   for (const panel of panels) {
     const center: Point = [(panel.min[0] + panel.max[0]) / 2, (panel.min[1] + panel.max[1]) / 2];
     const front = vertex(center, halfDepth, 0, 0, 1);
-    const back = roomFacingOnly ? undefined : vertex(center, -halfDepth, 0, 0, -1);
+    const back = inSharedSpan(center[0]) ? undefined : vertex(center, -halfDepth, 0, 0, -1);
     for (const edge of panelEdges(panel)) {
       const axis = varyingAxis(edge), [from, to] = edge, fixed = from[1 - axis]!;
       const direction = Math.sign(to[axis] - from[axis]);
@@ -140,7 +176,13 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   // Only unmatched edges bound the outer wall or an opening reveal.
   for (const [a, b] of boundary.values()) {
     const reveal=coverageForEdge([a,b],coverage);
-    if(reveal?.omit||(roomFacingOnly&&coverage[0]?.omit))continue;
+    if(reveal?.omit)continue;
+    if(!reveal&&shared){
+      // One wall edge can end inside the other solid. The exterior union
+      // has no end cap there. Shared horizontal edges belong to one wall.
+      if(a[0]===b[0]&&a[0]>shared.peer.left+1e-6&&a[0]<shared.peer.right-1e-6)continue;
+      if(shared.omit&&inSharedSpan((a[0]+b[0])/2))continue;
+    }
     const minZ=reveal?.minZ??-halfDepth,maxZ=reveal?.maxZ??halfDepth;
     const nx = Math.sign(b[1] - a[1]), ny = Math.sign(a[0] - b[0]);
     const am = vertex(a, minZ, nx, ny, 0), bm = vertex(b, minZ, nx, ny, 0);
@@ -150,8 +192,8 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   return {positions,normals,indices};
 }
 
-export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>,coverage?:readonly OpeningRevealCoverage[],roomFacingOnly=false) {
-  const {positions,normals,indices}=wallOpeningShellData(boxes,coverage,roomFacingOnly);
+export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>,coverage?:readonly OpeningRevealCoverage[],span?:SharedWallSpan) {
+  const {positions,normals,indices}=wallOpeningShellData(boxes,coverage,span);
   return new three.BufferGeometry()
     .setAttribute('position', new three.Float32BufferAttribute(positions, 3))
     .setAttribute('normal', new three.Float32BufferAttribute(normals, 3))
@@ -159,7 +201,8 @@ export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof a
 }
 
 /** Count CPU and GPU positions, normals, optional metric UVs, and UInt32 indices. */
-export function wallOpeningShellReserve(boxes: ReturnType<typeof architecturalWallBoxes>, textured: boolean) {
-  const {positions,indices}=wallOpeningShellData(boxes);
+export function wallOpeningShellReserve(boxes: ReturnType<typeof architecturalWallBoxes>, textured: boolean,span?:SharedWallSpan) {
+  // Reserve both faces of the split panels, even when the admitted pair will omit one.
+  const {positions,indices}=wallOpeningShellData(boxes,[],span);
   return 2 * (positions.length / 3 * (textured ? 32 : 24) + indices.length * 4);
 }

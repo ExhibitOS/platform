@@ -1,13 +1,13 @@
 {
   "package": "@exhibitos/spec",
-  "packageVersion": "0.1.0-draft.37",
+  "packageVersion": "0.1.0-draft.38",
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
-  "file": "vendor/exhibitos-spec-0.1.0-draft.37.tgz",
-  "bytes": 236315,
-  "sha256": "264f9aca475d0e693b7a096ec1753ccfbaf4a8fae4a506e4c8415a992faac470",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.38.tgz",
+  "bytes": 236619,
+  "sha256": "df898ceec6053a9a6e12f512a86f85acc8d7bb15230cbf5510082263d0c49ddd",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "ed1e552b07d928653b7ce47f76f621462b1ac573",
+  "upstreamSourceCommit": "c7d5f619cc6e4ae80b1a54b4f3e2807edd268330",
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
     "originalSyntheticAssets": "CC0-1.0",
@@ -22,8 +22,8 @@
     "fixtures/rail-v11/linear-track.glb",
     "fixtures/rail-v11/LICENSE-NOTICE.txt"
   ],
-  "proposedTag": "spec-package-v0.1.0-draft.37",
-  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.37.tgz",
+  "proposedTag": "spec-package-v0.1.0-draft.38",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.38.tgz",
   "oexContractVersions": [
     "1.0.0-draft.1",
     "1.0.0-draft.2",

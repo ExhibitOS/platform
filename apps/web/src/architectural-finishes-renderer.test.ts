@@ -108,14 +108,17 @@ test('paired portal depth bias covers its finish without changing shared unrelat
 });
 
 
-test('coincident modular portal draws one face per room with paint only on its owning side',async()=>{
+test.each([{name:'equal walls',full:false},{name:'approved 10/11 m walls',full:true}])(
+ 'coincident modular portal retains exposed wall faces and paint on $name',async({full})=>{
  const d=newDraft().candidate,dimensions={width:4,height:4,depth:4};
- const host=newRoom('Plain',dimensions,{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
- const peer=newRoom('Painted',dimensions,{position:[0,0,-4],rotation:[0,0,0,1],scale:[1,1,1]});
+ const host=newRoom('Plain',full?{width:10,height:4,depth:10}:dimensions,
+  {position:full?[13,0,-7]:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
+ const peer=newRoom('Painted',full?{width:11,height:4,depth:4}:dimensions,
+  {position:full?[7.5,0,0]:[0,0,-4],rotation:[0,0,0,1],scale:[1,1,1]});
  d.rooms=[host,peer];d.lights=[];
- const a=whiteCubeSurfaces(host),b=whiteCubeSurfaces(peer),walls=[a[0]!,b[1]!];
+ const a=whiteCubeSurfaces(host),b=whiteCubeSurfaces(peer),walls=full?[a[1]!,b[0]!]:[a[0]!,b[1]!];
  d.surfaces=[...a,...b];
- const openings=walls.map(wall=>newDoor(wall.id,{width:2.4,height:3},[0,-.5]));
+ const openings=walls.map((wall,i)=>newDoor(wall.id,{width:2.4,height:3},[full?(i===0?2:3.5):0,-.5]));
  for(const [i,opening] of openings.entries()){
   delete opening.exterior;opening.connectsToOpeningId=openings[1-i]!.id;
  }
@@ -153,20 +156,36 @@ test('coincident modular portal draws one face per room with paint only on its o
   expect(d).toEqual(before);
   const structures=results.meshes.filter(mesh=>mesh.userData.architecturalFinish.kind==='structure');
   expect(structures).toHaveLength(2);
-  const normalZ=structures.map(mesh=>{
-   const n=mesh.geometry.getAttribute('normal');
-   return Array.from({length:n.count},(_,i)=>n.getZ(i));
-  });
-  expect(normalZ.every(normals=>normals.includes(1)&&!normals.includes(-1))).toBe(true);
-  expect(normalZ.filter(normals=>normals.includes(0))).toHaveLength(1);
+  let revealOwners=0;
+  for(const [side,mesh] of structures.entries()){
+   const g=mesh.geometry,p=g.getAttribute('position'),n=g.getAttribute('normal');
+   const points=Array.from({length:p.count},(_,i)=>({x:p.getX(i),nx:n.getX(i),nz:n.getZ(i)}));
+   expect(points.some(point=>point.nz===1)).toBe(true);
+   const rear=points.filter(point=>point.nz===-1).map(point=>point.x);
+   if(full){
+    const [min,max]=side===0?[-5,0]:[-5.5,.5];
+    expect(Math.min(...rear)).toBe(min);expect(Math.max(...rear)).toBe(max);
+    expect(points.some(point=>point.nx!==0&&point.x===(side===0?5:5.5))).toBe(false);
+   }else expect(rear).toEqual([]);
+   if(points.some(point=>point.nx!==0&&point.x===Math.fround(openings[side]!.offset[0]-1.2)))revealOwners++;
+  }
+  expect(revealOwners).toBe(1);
+  const actualBytes=structures.reduce((sum,mesh)=>sum+2*(mesh.geometry.getAttribute('position').count*24+mesh.geometry.index!.count*4),0);
+  expect(surfaceTexturePlan(d,512,1).geometryReserve).toBeGreaterThanOrEqual(actualBytes);
   const paint=results.meshes.filter(mesh=>mesh.userData.architecturalFinish.kind==='finish') as Three.InstancedMesh[];
   expect(paint).toHaveLength(1);expect(paint[0]!.parent).toBe(parents.get(walls[1]!.id));
-  const matrix=new Three.Matrix4(),position=new Three.Vector3();
+  const matrix=new Three.Matrix4(),position=new Three.Vector3(),scale=new Three.Vector3(),rotation=new Three.Quaternion();
+  let backTrim=0;
   for(let i=0;i<paint[0]!.count;i++){
-   paint[0]!.getMatrixAt(i,matrix);position.setFromMatrixPosition(matrix);
-   expect(position.z).toBeCloseTo(.061,6);
+   paint[0]!.getMatrixAt(i,matrix);matrix.decompose(position,rotation,scale);
+   expect(Math.abs(position.z)).toBeCloseTo(.061,6);
+   if(position.z<0){
+    backTrim++;expect(position.x+scale.x/2).toBeLessThanOrEqual(.5+1e-6);
+   }
   }
-  const from:[number,number,number]=[0,1.65,-1.45],to:[number,number,number]=[0,1.65,-2.55];
+  expect(backTrim>0).toBe(full);
+  const from:[number,number,number]=full?[11,1.65,-2.55]:[0,1.65,-1.45];
+  const to:[number,number,number]=full?[11,1.65,-1.45]:[0,1.65,-2.55];
   const navigation=await createNavigationController(d,{position:from});
   try{
    const first=navigation.qualifiedStandingEye(from),second=navigation.qualifiedStandingEye(to);
@@ -178,7 +197,7 @@ test('coincident modular portal draws one face per room with paint only on its o
  const inset=structuredClone(d);
  for(const [i,wall] of walls.entries()){
   const target=inset.surfaces.find(surface=>surface.id===wall.id)!;
-  target.transform.position[2]+=i===0?.01:-.01;
+  target.transform.position[2]+=((i===0)!==full)?.01:-.01;
   parents.get(wall.id)!.position.fromArray(target.transform.position);
  }
  const existing=installArchitecturalFinishes(Three,inset,parents,bases);
