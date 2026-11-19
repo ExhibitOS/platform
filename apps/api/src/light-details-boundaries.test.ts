@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE as N,lightDetailsFor,resizeRoomEnvelope,setLightDetails,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,ROOM_CEILING_FILL_DEFAULT_PROFILE,LIGHT_DETAILS_NAMESPACE as N,lightDetailsFor,resizeRoomEnvelope,setLightDetails,validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {newLight} from '../../web/src/placement/model.ts';
@@ -53,4 +53,20 @@ test.each([true,false])('authored shadow intent %s survives draft validation and
   expect(projected.lights[0]!.castsShadow).toBe(castsShadow);expect(validateStudioLightDetails(projected).valid).toBe(true);
  }
  expect(source).toEqual(before);
+});
+
+
+test('explicit product default power survives saved JSON, OEX and public projection',()=>{
+ const draft=newDraft(),room=draft.candidate.rooms[0]!;
+ const source=ensureOrdinaryRoomBaseLight(draft.candidate,room.id,undefined,ROOM_CEILING_FILL_DEFAULT_PROFILE);
+ const saved=JSON.parse(JSON.stringify(source)) as typeof source;
+ const binding=lightDetailsFor(source)[0]!;
+ expect(binding.ceilingFill).toEqual({version:1,brightness:.5,mode:'default'});
+ expect(validateDraft({...draft,candidate:saved}).valid).toBe(true);
+ expect(()=>checkOexProfile(saved)).not.toThrow();
+ for(const candidate of [saved,remapOex(saved).exhibition,projectPublication(saved,[],'2026-11-19T00:00:00.000Z').snapshot]){
+  expect(validateStudioLightDetails(candidate).valid).toBe(true);
+  expect(candidate.lights[0]).toEqual({...source.lights[0],id:candidate.lights[0]!.id,roomId:candidate.rooms[0]!.id});
+  expect(lightDetailsFor(candidate)[0]).toEqual({...binding,lightId:candidate.lights[0]!.id});
+ }
 });
