@@ -53,7 +53,7 @@ type PoseDependencies = {
   publication: Exhibition;
   currentFov: () => number;
   qualifiedStandingEye: (eye: Vec3) => Vec3 | undefined;
-  enter: () => (() => void) | undefined;
+  enter: () => ((resumeInput: boolean) => void) | undefined;
   draw: (pose: LivePose) => boolean;
   read: (pose: LivePose) => object;
 };
@@ -62,13 +62,13 @@ type PoseDependencies = {
 export function installLiveViewerInspection({
   canvas, publication, currentFov, qualifiedStandingEye, enter, draw, read,
 }: PoseDependencies) {
-  let restore: (() => void) | undefined;
+  let restore: ((resumeInput: boolean) => void) | undefined;
   let active: LivePose | undefined;
-  function stop() {
+  function stop(resumeInput = true) {
     const callback = restore;
     restore = undefined;
     active = undefined;
-    callback?.();
+    callback?.(resumeInput);
   }
   function inspect(request: unknown) {
     const checked = qualifyLiveViewerPose(publication, request, currentFov(), qualifiedStandingEye);
@@ -97,6 +97,6 @@ export function installLiveViewerInspection({
   target.exhibitosInspectPose = inspect;
   return () => {
     if (target.exhibitosInspectPose === inspect) delete target.exhibitosInspectPose;
-    stop();
+    stop(false);
   };
 }

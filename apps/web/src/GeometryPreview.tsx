@@ -1087,6 +1087,7 @@ export function GeometryPreview({
       const livePoseEnabled=import.meta.env&&import.meta.env.DEV&&import.meta.env.MODE==='live-viewer-pose'&&
         window.location.hostname==='127.0.0.1'&&!!publicSource&&immersive;
       let inspectionPose: LivePose|undefined;
+      let releaseLivePose = () => {};
       const inspectionDrawn=new Set<string>();
       const render = (restore=false) => {
         clearNativePose();
@@ -1444,6 +1445,7 @@ export function GeometryPreview({
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
+        releaseLivePose();
         if(immersive&&viewerBudget&&!seatedBenchRef.current&&!xrActive.current&&viewingStyleRef.current==='free')publicQualityView.current={scope:qualityScope,document,budget:viewerBudget,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:camera.position.clone().add(camera.getWorldDirection(new three.Vector3()).multiplyScalar(2)).toArray(),fov:authoredFov,walking:currentWalkMode.current.walking};
         else publicQualityView.current=null;
         if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,...(nativeSelectionRestartPending&&nativeVariantKey?{nativeRestore:{key:nativeVariantKey,up:camera.up.toArray() as [number,number,number],near:camera.near,far:camera.far,findBounds:selectedFindBounds?.snapshot()}}:{})};
@@ -1650,7 +1652,7 @@ export function GeometryPreview({
               if(livePoseEnabled){
                 const canvas=renderer.domElement, shell=canvas.closest<HTMLElement>('.publication-shell');
                 if(shell){
-                  const disposeInspection=installLiveViewerInspection({
+                  releaseLivePose=installLiveViewerInspection({
                     canvas,publication:document,currentFov:()=>camera.fov,qualifiedStandingEye:adapter.qualifiedStandingEye,
                     enter:()=>{
                       if(disposed||gpuLost||suspendedRef.current||xrActive.current||seatedBenchRef.current||
@@ -1659,21 +1661,24 @@ export function GeometryPreview({
                          canvas.closest('[hidden],[inert]'))return;
                       const resume=currentWalkMode.current.walking&&!currentWalkMode.current.paused;
                       const position=camera.position.clone(),orientation=camera.quaternion.clone(),target=controls.target.clone();
-                      const orbitEnabled=controls.enabled;
+                      const orbitEnabled=controls.enabled,fov=camera.fov;
+                      const restoreFocus=canvas.ownerDocument.activeElement===canvas;
                       adapter.actions.pause('settings');
                       controls.enabled=false;
                       shell.inert=true;
-                      return ()=>{
+                      return resumeInput=>{
                         inspectionPose=undefined;
                         shell.inert=false;
-                        if(disposed||gpuLost)return;
                         camera.position.copy(position);
                         camera.quaternion.copy(orientation);
                         controls.target.copy(target);
                         controls.enabled=orbitEnabled;
+                        camera.fov=fov;
+                        camera.updateProjectionMatrix();
+                        if(disposed||gpuLost||!resumeInput)return;
                         applyProjection();
                         render();
-                        if(resume)adapter.actions.start(()=>false);
+                        if(resume)adapter.actions.start(()=>restoreFocus);
                       };
                     },
                     draw:pose=>{inspectionPose=pose;return render();},
@@ -1706,7 +1711,6 @@ export function GeometryPreview({
                       };
                     },
                   });
-                  walkingRelease=()=>{disposeInspection();adapter.dispose();};
                 }
               }
               walkingActions.current = { ...adapter.actions,

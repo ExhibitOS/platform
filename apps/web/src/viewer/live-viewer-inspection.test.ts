@@ -48,3 +48,25 @@ test('an invalid request preserves the active view and exit restores its ordinar
   dispose();expect(restore).toHaveBeenCalledTimes(1);
   expect(canvas.exhibitosInspectPose).toBeUndefined();
 });
+
+test('abrupt release restores the ordinary camera for a rebuild without resuming input',()=>{
+  const {publication,request}=fixture();
+  const canvas={} as HTMLCanvasElement&{exhibitosInspectPose?:(value:unknown)=>unknown};
+  const normal:[Vec3,number]=[[0,1.661,0],49];
+  let current=normal;
+  const restore=vi.fn((resumeInput:boolean)=>{
+    expect(resumeInput).toBe(false);
+    current=normal;
+  });
+  const dispose=installLiveViewerInspection({
+    canvas,publication,currentFov:()=>current[1],qualifiedStandingEye:eye=>eye,
+    enter:()=>restore,draw:pose=>{current=[pose.eye,pose.fov];return true;},read:pose=>({eye:pose.eye}),
+  });
+  const active=canvas.exhibitosInspectPose?.({...request,fov:45}) as {read:()=>unknown};
+  expect(current).toEqual([[6,1.661,-8],45]);
+  dispose();
+  expect(current).toEqual(normal);
+  expect(restore).toHaveBeenCalledTimes(1);
+  expect(active.read()).toBeUndefined();
+  expect(canvas.exhibitosInspectPose).toBeUndefined();
+});
