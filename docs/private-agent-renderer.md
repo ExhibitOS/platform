@@ -44,8 +44,11 @@ the result preserves both identities. It does not infer source/export equivalenc
 The source save, native private publication snapshot and public API projection are
 three different identities. The retained `sourceDraft` must match the source hash
 and existing native copy delta. Private snapshot IDs match intent/completed only.
-For this thirteen-artwork output, fixed admitted producer `projectPublication` is
-replayed over exact unchanged source/public asset bytes and measured LOD metrics;
+The fixed admitted producer `projectPublication` is replayed over every source
+and public artwork, using exact asset bytes and measured LOD metrics. The counts
+must agree, and each artwork must match an unambiguous public asset. The existing
+publication-copy replay does not admit media assets or unsupported furnishings.
+Generated coarse PNGs require byte-identical producer replay and matching metrics;
 all projected non-ID content is exact and the typed identity mapping is injective.
 Prose and unknown UUID strings are never rewritten. Ambiguous/unsupported source
 assets fail explicitly. This is a narrow replay, not a new publication authority.
