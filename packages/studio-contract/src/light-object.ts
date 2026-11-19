@@ -10,11 +10,13 @@ import {applyFurnishingCommand,furnishingAsset,furnishingsFor,validateFurnishing
 import {lightDetailsFor,setLightDetails,setRoomBaseLightPlacement,setRoomCeilingFillBrightness,manualizeRoomBaseLight,sameLightPose,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,type ExhibitionLight,type LightDetails} from './light-details.js';
 import {lightAttachmentsFor,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,type LightAttachment} from './room-envelope.js';
 
+type LightFixtureVisual={catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose;trackAim?:TrackSpotAimBinding};
 export type LightObjectCommand=
+ |{type:'add-light-with-fixture';light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>;visual?:LightFixtureVisual}
  |{type:'set-light-object';lightId:string;light:Omit<ExhibitionLight,'id'>;settings:Omit<LightDetails,'lightId'>;attachment?:Omit<LightAttachment,'lightId'>|null}
  |{type:'set-room-base-light-placement';lightId:string;basePlacement:'auto'|'manual'}
  |{type:'set-room-ceiling-fill-brightness';lightId:string;brightness:number}
- |{type:'set-light-fixture';lightId:string;visual:null|{catalogId:FurnishingCatalogId;catalogVersion:1;pose:FurnishingPose;trackAim?:TrackSpotAimBinding}}
+ |{type:'set-light-fixture';lightId:string;visual:null|LightFixtureVisual}
  |{type:'duplicate-light-object';lightId:string}
  |{type:'remove-light-object';lightId:string};
 export interface LightObjectOptions {newLightId?:string;newAssetId?:string;verifiedBaseline?:Exhibition}
@@ -75,11 +77,42 @@ function settingsFor(document:Exhibition,id:string):Omit<LightDetails,'lightId'>
 }
 function lightFields(light:ExhibitionLight):Omit<ExhibitionLight,'id'>{const {id:_,...fields}=light;void _;return fields;}
 
+function addLightWithFixture(document:Exhibition,command:Extract<LightObjectCommand,{type:'add-light-with-fixture'}>,options:LightObjectOptions){
+ if(!closed(command,['type','light','settings'],['attachment','visual'])||!object(command.light)||!object(command.settings)||
+    Object.hasOwn(command.light,'id')||['lightId','purpose','basePlacement','ceilingFill','trackAim','angularProfile'].some(key=>Object.hasOwn(command.settings,key)))
+  return fail();
+ const {visual,settings,attachment}=command;
+ if(Object.hasOwn(command,'visual')&&!object(visual))return fail();
+ if(visual?settings.fixture!=='none':!['spot-can','disc','panel'].includes(settings.fixture))
+  return fail('LIGHT_FIXTURE_REQUIRED');
+ if(Object.hasOwn(command,'attachment')&&(!closed(attachment,['surfaceId','anchor','gap'])||visual?.trackAim))
+  return fail();
+ if(command.light.castsShadow&&command.light.type!=='spot'&&command.light.type!=='directional')
+  return fail();
+ const lightId=options.newLightId;
+ assertFreshId(document,lightId);
+ let next=structuredClone(document);
+ const light={...structuredClone(command.light),id:lightId!};
+ next.lights.push(light);
+ next=setLightDetails(next,light.id,lightFields(light),settings);
+ if(attachment)writeBindings(next,LIGHT_ATTACHMENT_NAMESPACE,[...lightAttachmentsFor(next),{...structuredClone(attachment),lightId:light.id}]);
+ if(visual){
+  return applyLightObjectCommand(next,{type:'set-light-fixture',lightId:light.id,visual},{...options,verifiedBaseline:document});
+ }
+ assertDocument(next);
+ assertRoomEnvelopeContentsAgainstBaseline(next,document,light.roomId);
+ const template=next.extensions?.[TEMPLATE_NAMESPACE];
+ if(object(template))template.modified=true;
+ return {candidate:next,lightId:light.id};
+}
+
 /** Atomic, detached candidate only. Caller admits the complete base document and
  * owns durable history/CAS. No legacy load reconciliation or namespace remap. */
 export function applyLightObjectCommand(document:Exhibition,command:LightObjectCommand,options:LightObjectOptions={}):{candidate:Exhibition;lightId:string}{
  assertDocument(document);
- if(!object(command)||!uuid(command.lightId))fail();
+ if(!object(command))fail();
+ if(command.type==='add-light-with-fixture')return addLightWithFixture(document,command,options);
+ if(!uuid(command.lightId))fail();
  const light=document.lights.find(v=>same(v.id,command.lightId));if(!light)return fail('LIGHT_OBJECT_REFERENCE');
  let next=structuredClone(document),lightId=light.id;
  switch(command.type){
