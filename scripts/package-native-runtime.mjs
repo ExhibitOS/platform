@@ -59,6 +59,8 @@ async function copyTrackedTree(name, destination, excluded = new Set()) {
 }
 const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.35.tgz';
 const OEX_SPEC_HASH='dc9b0f75ab735abe36c64fb34df3230f2564b295f744874943c735424114bc2b';
+const CURRENT_OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.36.tgz';
+const CURRENT_OEX_SPEC_HASH='5994f00848a009ff89da7bca5a9a14bb7bd3579f498798d2f742c2afbd5c4eda';
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
@@ -98,10 +100,13 @@ export async function copyModelPreparationSelectedFiles(sourceRoot,platformRoot,
 }
 /** Local validation only: lockfile dependency is included for every mode;
  * the supplemental isolated-test migration requires explicit opt-in. */
-export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation) {
+export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation, currentFurnishings = false) {
   const lock=JSON.parse(await readFile(join(sourceRoot,'package-lock.json'),'utf8'));
   const spec=lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
-  if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
+  if (currentFurnishings) {
+    if(spec!==`file:${CURRENT_OEX_SPEC_PATH}`)fail('NATIVE_PACKAGE_SOURCE_INVALID');
+    await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,CURRENT_OEX_SPEC_PATH,CURRENT_OEX_SPEC_HASH);
+  } else if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
   else if (requireOexSpec) fail('NATIVE_PACKAGE_SOURCE_INVALID');
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
 }
@@ -632,7 +637,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   const tracked = new Map();
   const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
-  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
+  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected,isDefaultRelease(furnishingsRelease,['1.21.0']));
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected,workspaceFurnishingPublicationSelected,workspaceMaterialPublicationSelected,workspaceMaterialMultimapSelected,workspaceArtworkFramePreparationSelected,hayesOriginalSelected,hayesDispositionSelected,hayesReleaseSelected);
   await copyNativeFurnishings(furnishingsRelease?.root??source, platform, furnishingsRelease);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
