@@ -4,10 +4,10 @@
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
   "file": "vendor/exhibitos-spec-0.1.0-draft.37.tgz",
-  "bytes": 236290,
-  "sha256": "baa639b8ff202d419e3d9666fdc4a2b903e228ba3cf4287f289d0890c61b2689",
+  "bytes": 236315,
+  "sha256": "264f9aca475d0e693b7a096ec1753ccfbaf4a8fae4a506e4c8415a992faac470",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "fd286d21ad12795772a2beab853557cd1bf29a07",
+  "upstreamSourceCommit": "ed1e552b07d928653b7ce47f76f621462b1ac573",
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
     "originalSyntheticAssets": "CC0-1.0",

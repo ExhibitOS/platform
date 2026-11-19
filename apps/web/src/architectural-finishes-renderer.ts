@@ -22,7 +22,7 @@ export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof 
  }
  return geometry.setAttribute('uv',new three.Float32BufferAttribute(uvs,2));
 }
-function coincidentPortalWalls(document:Exhibition){
+function coincidentPortalWalls(document:Exhibition,coverage:ReadonlyMap<string,readonly OpeningRevealCoverage[]>){
  const result=new Set<string>();
  const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;
  if(!workspace?.openingAttachments?.length||!validateWorkspaceFurnishings(document).valid)return result;
@@ -31,7 +31,8 @@ function coincidentPortalWalls(document:Exhibition){
   const geometry=workspaceFitGeometry(descriptor);
   if(geometry?.profile!=='modular-portal-v1')continue;
   const pair=qualifiedModularPortalTarget(geometry,document,attachment.openingId,descriptor)?.coincidentPair;
-  if(pair){result.add(pair.hostSurfaceId);result.add(pair.peerSurfaceId);}
+  if(!pair||coverage.get(pair.hostSurfaceId)?.length!==1||coverage.get(pair.peerSurfaceId)?.length!==1)continue;
+  result.add(pair.hostSurfaceId);result.add(pair.peerSurfaceId);
  }
  return result;
 }
@@ -40,7 +41,7 @@ function coincidentPortalWalls(document:Exhibition){
 export function installArchitecturalFinishes(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,baseMaterials:ReadonlyMap<string,Three.MeshStandardMaterial>,workspaceBindings?:ReadonlyMap<string,Pick<SurfaceTextureBinding,'repeatMeters'|'rotation'>>){
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
  const walls=wallFinishesFor(document),coverage=pairedOpeningRevealCoverage(three,document,surfaces,walls),geometry=walls.length?new three.BoxGeometry(1,1,1):undefined,materials=new Map<string,Three.MeshStandardMaterial>(),meshes:Three.Mesh[]=[],ownedGeometries:Three.BufferGeometry[]=[];
- const roomFacingWalls=coincidentPortalWalls(document);
+ const roomFacingWalls=coincidentPortalWalls(document,coverage);
  const records:{surfaceId:string;depth:number;preset:string;boxes:number;triangles:number;openingWidths:number[]}[]=[];let disposed=false;
  const dispose=()=>{if(disposed)return;disposed=true;for(const m of meshes){m.removeFromParent();if(m instanceof three.InstancedMesh)m.dispose();}geometry?.dispose();for(const g of ownedGeometries)g.dispose();for(const m of materials.values())m.dispose();materials.clear();};
  try{for(const wall of walls){const surface=document.surfaces.find(s=>s.id.toLowerCase()===wall.surfaceId.toLowerCase())!,parent=surfaces.get(wall.surfaceId.toLowerCase()),base=baseMaterials.get(wall.surfaceId.toLowerCase());if(!parent||!base)throw Error('ARCHITECTURAL_FINISH_REFERENCE');
