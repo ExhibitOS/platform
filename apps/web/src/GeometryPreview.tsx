@@ -81,7 +81,7 @@ import type {CameraInteractionMode} from './geometry/camera-mode';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
 import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
-import {hasAuthoredGalleryLighting,installLightDetails,installLightFixtureGate} from './light-details-renderer';
+import {galleryLightingFor,installLightDetails,installLightFixtureGate} from './light-details-renderer';
 import {installCeilingFillMask} from './viewer/ceiling-fill';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
@@ -105,7 +105,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, stagingHayesDetailBudget, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, BUDGET_GEOMETRY_PAIR_PROFILE, LOD_NAMESPACE, type DetailTier } from "@exhibitos/studio-contract";
+import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, BUDGET_GEOMETRY_PAIR_PROFILE, LOD_NAMESPACE, type DetailTier } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -608,7 +608,9 @@ export function GeometryPreview({
       const selectDisplayAsset=(art:Document['artworks'][number],distance:number,budget:DeviceBudget,preferCoarse=false)=>displayInventory(art,selectAssetVariant(art,distance,budget,preferCoarse));
       const resources=viewerBudget??resourceBudget;
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
-      const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
+      const lighting=galleryLightingFor(document);
+      const {spaceLighting,roomOnly,fallbackSun}=lighting;
+      const environmentReserve=roomOnly?0:environmentEstimate(compactQuality?64:128).generationPeakBytes;
       // Depth work has its own ceiling. A larger desktop color-scene admission
       // does not multiply dirty shadow work or create a DeviceBudget draw field.
       const depthDrawBudget=session&&!publicSource?384:256;
@@ -676,17 +678,15 @@ export function GeometryPreview({
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);owned.push(floorTextures,surfaceTextures);if(workspaceTextures)owned.push(workspaceTextures);
-      const spaceLighting=spaceLightingFor(document);
-      const hasAuthoredLighting = hasAuthoredGalleryLighting(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
-          spaceLighting?.baselineIntensity ?? (hasAuthoredLighting ? 0.4 : 2.5),
+          lighting.baselineIntensity,
         );
       scene.add(hemisphere);
       const sun = new three.DirectionalLight(
         0xffffff,
-        spaceLighting || hasAuthoredLighting ? 0 : 3,
+        fallbackSun ? 3 : 0,
       );
       const daylight=daylightFor(document);
       if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
@@ -1508,16 +1508,24 @@ export function GeometryPreview({
       );
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
-      environmentWork=installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
+      const reportRenderQuality=(environmentSize:number|'unavailable')=>{
+        renderer.domElement.dataset.renderQuality=JSON.stringify({
+          tone:referenceTone,exposure:1,profile:compactQuality?'compact':'desktop',
+          ...(environmentSize==='unavailable'?{environment:environmentSize}:{environmentSize,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve}),
+          assetBudgetBytes,
+        });
+      };
+      if(roomOnly)reportRenderQuality(0);
+      else environmentWork=installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
         if(!environment)return;
         if(disposed||gpuLost){environment.dispose();return;}
-        owned.push(environment);scene.environmentIntensity=spaceLighting?.reflectionIntensity ?? .45;
-        hemisphere.intensity=spaceLighting?.baselineIntensity ?? (hasAuthoredLighting ? .2 : .6);
-        if(!spaceLighting&&!daylight&&!hasAuthoredLighting)sun.intensity=2;
+        owned.push(environment);scene.environmentIntensity=lighting.reflectionIntensity;
+        hemisphere.intensity=lighting.environmentBaselineIntensity;
+        if(!daylight&&fallbackSun)sun.intensity=2;
         reportSpaceLighting();
-        renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
+        reportRenderQuality(environment.size);
         render();
-      }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
+      }).catch(()=>{if(!disposed)reportRenderQuality('unavailable');});
       orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]')&&viewingStyleRef.current==='free'; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {

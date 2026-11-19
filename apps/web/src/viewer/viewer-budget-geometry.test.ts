@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {fixtureURL} from '@exhibitos/spec';
 import {test,expect,vi,afterEach} from 'vitest';
 import * as three from 'three';
-import {applyLightObjectCommand,lightAttachmentPose,ceilingRailDerivedPose,ceilingRailAttachmentMatrix,WORKSPACE_FURNISHING_NAMESPACE,furnishingCatalogueEntry,resolveViewerBudgetPolicy,setViewerBudgetOverrides,evaluateViewerBudgetUsage} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureRoomBaseLight,lightAttachmentPose,ceilingRailDerivedPose,ceilingRailAttachmentMatrix,WORKSPACE_FURNISHING_NAMESPACE,furnishingCatalogueEntry,resolveViewerBudgetPolicy,setViewerBudgetOverrides,evaluateViewerBudgetUsage} from '@exhibitos/studio-contract';
 import {paintingWasherCandidate,lightId,assetId} from '../../../../packages/studio-contract/test-fixtures/wallwasher';
 import {validateDraft} from '../drafts/validator';
 import {newDraft} from '../drafts/example';
@@ -13,6 +13,7 @@ import {existingSceneCost} from '../workspace-furnishing/scene-cost';
 import {loadBudgetGeometry} from './viewer-budget-glb';
 import {DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from './loading';
 import {analyzeViewerBudgetGeometry} from './viewer-budget-geometry';
+import {environmentEstimate} from './render-quality';
 import {articulatedTrackFixture} from '../private-editor/articulated-track.test-fixture';
 const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllGlobals());
@@ -90,6 +91,23 @@ test('charges the planned two-map scenario and uses texture quality for compact 
  expect(single.wholeExhibition.shadowDepthTriangles).toBeGreaterThan(0);expect(dual.wholeExhibition.shadowDepthTriangles).toBe(single.wholeExhibition.shadowDepthTriangles!*2);expect(dual.wholeExhibition.residentBytes!-single.wholeExhibition.residentBytes!).toBe(2*1024*1024);expect(dual.wholeExhibition.transitionBytes!-single.wholeExhibition.transitionBytes!).toBe(2*1024*1024);
  const limited=setViewerBudgetOverrides(candidate,'standard',{admission:{residentBytes:single.wholeExhibition.residentBytes!+1024*1024}}),policy=resolveViewerBudgetPolicy(limited,'standard'),checked=await analyzeViewerBudgetGeometry({candidate:limited,profile:'standard',resolvedPolicy:policy,loadVerifiedAsset:async()=>body});expect(evaluateViewerBudgetUsage(policy,checked.wholeExhibition).admissionExceeded).toContain('residentBytes');
  const compactQuality=await analyzeViewerBudgetGeometry({candidate,profile:'standard',selectionBudget:{maxTriangles:100000,maxTextureSize:512},loadVerifiedAsset:async()=>body});expect(compactQuality.wholeExhibition).toMatchObject({shadowCasterTriangles:0,shadowDepthTriangles:0});expect(compactQuality.wholeExhibition.residentBytes).toBeLessThan(single.wholeExhibition.residentBytes!);
+});
+
+test('default room lighting drops only the synthetic environment reserve in both quality profiles',async()=>{
+ const draft=newDraft().candidate,roomId=draft.rooms[0]!.id;
+ const legacy=ensureRoomBaseLight(draft,roomId,undefined,.5);
+ const marked=applyLightObjectCommand(legacy,{
+  type:'set-room-ceiling-fill-brightness',lightId:legacy.lights[0]!.id,brightness:.5,mode:'default',
+ }).candidate;
+ const loadVerifiedAsset=vi.fn(async()=>{throw Error('NO_ASSET_EXPECTED');});
+ for(const [maxTextureSize,size] of [[2048,128],[512,64]] as const){
+  const settings={profile:'standard' as const,selectionBudget:{maxTriangles:100000,maxTextureSize},loadVerifiedAsset};
+  const previous=await analyzeViewerBudgetGeometry({...settings,candidate:legacy});
+  const next=await analyzeViewerBudgetGeometry({...settings,candidate:marked});
+  expect(previous.wholeExhibition.residentBytes!-next.wholeExhibition.residentBytes!).toBe(environmentEstimate(size).generationPeakBytes);
+  expect(next.wholeExhibition.colorDraws).toBe(previous.wholeExhibition.colorDraws);
+ }
+ expect(loadVerifiedAsset).not.toHaveBeenCalled();
 });
 
 test('constructs and disposes native control geometry without a DOM connection',async()=>{
