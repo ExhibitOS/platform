@@ -31,10 +31,11 @@ export async function localStaticPublicationSource({sourceDir,sourceManifestSha2
  const directories=new Set([...entries.keys()].flatMap(path=>{const parts=path.split('/');return parts.slice(0,-1).map((_,i)=>parts.slice(0,i+1).join('/'));}));
  let visited=0;async function walk(dir,prefix='',depth=0){if(cancelled())throw Error('REFRESH_CANCELLED');if(depth>32)fail();for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail();const path=prefix+item.name;if(item.isDirectory()){if(!directories.has(path))fail();await walk(join(dir,item.name),path+'/',depth+1);}else if(item.isFile()&&path==='static-export-manifest.json'){/* Checked separately above. */}else if(item.isFile()&&pending.delete(path)){/* Known manifest entry. */}else fail();}}
  await walk(root);if(pending.size)fail();
- for(const [path,entry] of entries){const bytes=await readRegular(root,path,entry.bytes,cancelled);if(bytes.length!==entry.bytes||digest(bytes)!==entry.sha256)fail();}
+ const read=async path=>{const entry=entries.get(path);if(!entry)fail();const bytes=await readRegular(root,path,entry.bytes,cancelled);if(bytes.length!==entry.bytes||digest(bytes)!==entry.sha256)fail();return bytes;};
+ for(const path of entries.keys())await read(path);
  const origin='https://local-static-publication.invalid';
- const fetch=async input=>{const url=new URL(input);if(url.origin!==origin||url.search||url.hash||!/^\/(?:static-publication-index\.json|data\/[a-f0-9]{64}\.(?:json|bin))$/.test(url.pathname))fail();const path=url.pathname.slice(1),entry=entries.get(path);if(!entry)fail();const bytes=await readRegular(root,path,entry.bytes,cancelled);if(bytes.length!==entry.bytes||digest(bytes)!==entry.sha256)fail();return new Response(bytes);};
- return {origin,fetch,entries};
+ const fetch=async input=>{const url=new URL(input);if(url.origin!==origin||url.search||url.hash||!/^\/(?:static-publication-index\.json|data\/[a-f0-9]{64}\.(?:json|bin))$/.test(url.pathname))fail();return new Response(await read(url.pathname.slice(1)));};
+ return {origin,fetch,entries,read};
 }
 
 // The retained private-editor export is recognized only by its complete known

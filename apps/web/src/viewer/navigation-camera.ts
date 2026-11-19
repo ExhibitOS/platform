@@ -5,7 +5,7 @@ import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { artifactPoint, presentationFor, benchesFor, benchSeat, type WorkspaceBenchVisual } from "@exhibitos/studio-contract";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
-import type { NavigationState } from "./navigation";
+import type { NavigationState, Vec3 } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
 import { teleportToViewpoint, viewpointPose } from "./navigation-teleport";
 import { createWalkingInput, type WalkingPauseReason } from "./navigation-input";
@@ -68,7 +68,7 @@ export async function createWalkingCamera({
   /** The embedding projection owner retains the authored FOV and applies its
    * existing responsive/user display policy before this visit renders. */
   onViewpointFov?: (fov:number) => void;
-}): Promise<{ actions: WalkingActions; dispose: () => void }> {
+}): Promise<{ actions: WalkingActions; qualifiedStandingEye: (eye: Vec3) => Vec3 | undefined; dispose: () => void }> {
   signal?.throwIfAborted();
   const { Euler, Vector3, Quaternion } = await import("three");
   signal?.throwIfAborted();
@@ -554,6 +554,7 @@ export async function createWalkingCamera({
   onMessage("정지 관람 중입니다. 걷기 시작을 선택하면 실제 충돌이 적용됩니다.");
   return {
     actions,
+    qualifiedStandingEye: eye => disposed ? undefined : controller.qualifiedStandingEye(eye),
     dispose: () => {
       if (disposed) return;
       disposed = true;seatTransition=undefined;

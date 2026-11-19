@@ -30,6 +30,7 @@ import {nativeOrdinaryInventory,nativeScenePressurePreferences,nativeScenePressu
 import {readNativeApprovedVariant} from './native-approved-variant-source';
 import {snapshotFurnishings} from './scene-snapshot-furnishings';
 import {inspectionCameraPose} from './scene-snapshot-camera';
+import {installLiveViewerInspection,type LivePose} from './viewer/live-viewer-inspection';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,authenticatedCatalogBenchSource,installPrivateCatalogBench,catalogOtherSources,authenticatedCatalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
 import "./viewer/input-surface.css";
@@ -1086,11 +1087,22 @@ export function GeometryPreview({
       const entranceVerifiedAssets=new Set<string>();
       let nativePoseEditorIdle=()=>false;
       const clearNativePose=()=>clearNativeCameraPose(renderer.domElement.dataset);
+      const livePoseEnabled=import.meta.env&&import.meta.env.MODE==='live-viewer-pose'&&
+        import.meta.env.EXHIBITOS_LOOPBACK_LIVE_POSE==='1'&&window.location.hostname==='127.0.0.1'&&!!publicSource&&immersive;
+      let inspectionPose: LivePose|undefined;
+      let releaseLivePose = () => {};
+      const inspectionDrawn=new Set<string>();
       const render = (restore=false) => {
         clearNativePose();
         syncSelectedFindBounds();
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
+        if(inspectionPose){
+          camera.position.fromArray(inspectionPose.eye);
+          camera.lookAt(...inspectionPose.target);
+          if(camera.fov!==inspectionPose.fov){camera.fov=inspectionPose.fov;camera.updateProjectionMatrix();}
+          inspectionDrawn.clear();
+        }
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
@@ -1436,6 +1448,7 @@ export function GeometryPreview({
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
+        releaseLivePose();
         if(immersive&&viewerBudget&&!seatedBenchRef.current&&!xrActive.current&&viewingStyleRef.current==='free')publicQualityView.current={scope:qualityScope,document,budget:viewerBudget,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:camera.position.clone().add(camera.getWorldDirection(new three.Vector3()).multiplyScalar(2)).toArray(),fov:authoredFov,walking:currentWalkMode.current.walking};
         else publicQualityView.current=null;
         if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,...(nativeSelectionRestartPending&&nativeVariantKey?{nativeRestore:{key:nativeVariantKey,up:camera.up.toArray() as [number,number,number],near:camera.near,far:camera.far,findBounds:selectedFindBounds?.snapshot()}}:{})};
@@ -1639,6 +1652,70 @@ export function GeometryPreview({
               // Media/user preferences can change while the physics module loads.
               adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
+              if(livePoseEnabled){
+                const canvas=renderer.domElement, shell=canvas.closest<HTMLElement>('.publication-shell');
+                if(shell){
+                  releaseLivePose=installLiveViewerInspection({
+                    canvas,publication:document,currentFov:()=>camera.fov,qualifiedStandingEye:adapter.qualifiedStandingEye,
+                    enter:()=>{
+                      if(disposed||gpuLost||suspendedRef.current||xrActive.current||seatedBenchRef.current||
+                         shell.inert||viewingStyleRef.current!=='free'||
+                         !canvas.closest('.publication-live-stage[data-stage-ready="true"]')||
+                         canvas.closest('[hidden],[inert]'))return;
+                      const resume=currentWalkMode.current.walking&&!currentWalkMode.current.paused;
+                      const position=camera.position.clone(),orientation=camera.quaternion.clone(),target=controls.target.clone();
+                      const orbitEnabled=controls.enabled,fov=camera.fov;
+                      const restoreFocus=canvas.ownerDocument.activeElement===canvas;
+                      adapter.actions.pause('settings');
+                      controls.enabled=false;
+                      shell.inert=true;
+                      return resumeInput=>{
+                        inspectionPose=undefined;
+                        shell.inert=false;
+                        camera.position.copy(position);
+                        camera.quaternion.copy(orientation);
+                        controls.target.copy(target);
+                        controls.enabled=orbitEnabled;
+                        camera.fov=fov;
+                        camera.updateProjectionMatrix();
+                        if(disposed||gpuLost||!resumeInput)return;
+                        applyProjection();
+                        render();
+                        if(resume)adapter.actions.start(()=>restoreFocus);
+                      };
+                    },
+                    draw:pose=>{inspectionPose=pose;return render();},
+                    read:pose=>{
+                      const parse=(value:string|undefined)=>value?JSON.parse(value):null;
+                      const state=parse(canvas.dataset.viewerState);
+                      const floor=parse(canvas.dataset.floorTextures);
+                      return {
+                        pose:{roomId:pose.roomId,eye:camera.position.toArray(),lookAt:pose.target,fov:camera.fov},
+                        effectiveProfile:compactQuality?'compact':'desktop',
+                        requestedProfile:shell.querySelector<HTMLSelectElement>('select[aria-label="화질"]')?.value??null,
+                        projection:parse(canvas.dataset.cameraProjection),
+                        renderQuality:parse(canvas.dataset.renderQuality),
+                        materials:{
+                          phase:parse(canvas.dataset.materialBudget)?.phase??null,
+                          floors:document.surfaces.filter(surface=>surface.roomId===pose.roomId&&surface.type==='floor').map(surface=>{
+                            const material=surfaceMaterials.get(surface.id.toLowerCase());
+                            const binding=workspacePlan.targets.get(surface.id.toLowerCase());
+                            const key=binding?binding.materialId+':'+binding.materialVersion:undefined;
+                            return {surfaceId:surface.id,
+                              budgetStatus:key?floor?.status?.[key]??null:null,
+                              colorMap:!!material?.map,normalMap:!!material?.normalMap,roughnessMap:!!material?.roughnessMap,
+                            };
+                          }),
+                          publishedFloorStatus:floor?.status??null,
+                        },
+                        admittedPlacementIds:state?.artifactPlacements?.map((placement:{placementId:string})=>placement.placementId)??null,
+                        drawnPlacementIds:[...inspectionDrawn],
+                        contextLost:renderer.getContext().isContextLost(),
+                      };
+                    },
+                  });
+                }
+              }
               walkingActions.current = { ...adapter.actions,
                   canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
@@ -2497,6 +2574,7 @@ export function GeometryPreview({
         let publicThumbnailTask:string|undefined;
         const cancelPublicThumbnail=()=>{if(publicThumbnailTask){scheduler.cancel(publicThumbnailTask);publicThumbnailTask=undefined;}};
         preserveQualityFrame=()=>{
+          if(inspectionPose)return;
           const live=renderer.domElement,stage=live.parentElement?.parentElement;
           if(!stage||gpuLost||!live.width||!live.height||qualityFrame.current)return;
           const visibleWorks=[...active.keys()].filter(id=>observedVisible.get(id)===true);
@@ -2796,13 +2874,16 @@ export function GeometryPreview({
                 if (group) {
                   group.clear();
                   const clone = object.clone(true);
-                  if (immersive && !galleryArtworkDrawn) clone.traverse(node => {
+                  if (livePoseEnabled || immersive && !galleryArtworkDrawn) clone.traverse(node => {
                     if (!(node instanceof three.Mesh)) return;
                     const afterRender = node.onAfterRender;
                     node.onAfterRender = (...args) => {
                       afterRender.apply(node,args);
-                      if (galleryArtworkDrawn) node.onAfterRender = afterRender;
-                      else if (args[2] === camera && args[1] === scene) artworkDrawnInFrame = true;
+                      if (galleryArtworkDrawn && !livePoseEnabled) node.onAfterRender = afterRender;
+                      else if (args[2] === camera && args[1] === scene) {
+                        artworkDrawnInFrame = true;
+                        if(inspectionPose)inspectionDrawn.add(p.id);
+                      }
                     };
                   });
                   group.add(clone);
