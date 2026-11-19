@@ -78,7 +78,7 @@ test('only the default area and physically supported luminaires are eligible to 
  const details=h.document.extensions!['org.exhibitos.studio/light-details'] as {lights:{lightId:string;fixture:string;purpose?:string}[]};
  details.lights.push({lightId:base,fixture:'none',purpose:'room-base'},{lightId:supplemental,fixture:'none',purpose:'room-supplemental-fill'},{lightId:point,fixture:'none',purpose:'room-base'});
  const bindings=[track,bad].map(hostId=>({hostKind:'light',hostId}));
- h.document.extensions!['org.exhibitos.studio/furnishing-visuals']={version:1,assets:[],bindings};
+ h.document.extensions!['org.exhibitos.studio/furnishing-visuals']={version:1,assets:[],bindings:[...bindings,null,{hostKind:'light',hostId:42}]};
  const gate=installLightFixtureGate(h.document,lights,builtIn.fixtures,new Set([track]),true);
  const report=(id:string)=>gate.records().find(item=>item.lightId===id);
  try{

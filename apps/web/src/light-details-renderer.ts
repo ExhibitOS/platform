@@ -27,7 +27,8 @@ export function installLightFixtureGate(
 ){
  const details=new Map(lightDetailsFor(document).map(entry=>[entry.lightId.toLowerCase(),entry]));
  const bindings=furnishingsFor(document)?.bindings;
- const declared=new Set((Array.isArray(bindings)?bindings:[]).filter(row=>row.hostKind==='light').map(row=>row.hostId.toLowerCase()));
+ const declared=new Set((Array.isArray(bindings)?bindings:[])
+   .filter(row=>row?.hostKind==='light'&&typeof row.hostId==='string').map(row=>row.hostId.toLowerCase()));
  const states=new Map<string,LightFixtureState>(document.lights.map(item=>{
   const key=item.id.toLowerCase(),light=lights.get(item.id)?.light;
   const defaultArea=item.type==='area'&&details.get(key)?.purpose==='room-base';
