@@ -11,6 +11,22 @@ export function applyReferenceOutput(three:typeof THREE, renderer:THREE.WebGLRen
   renderer.toneMappingExposure=1;
 }
 
+/** Keep diffuse room lighting on workspace floors without reflecting the
+ * synthetic reference room. The caller preserves explicitly authored reflection. */
+export function applyDiffuseFloorReferenceEnvironment(material:THREE.MeshStandardMaterial) {
+  material.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `
+      #ifdef USE_ENVMAP
+        vec3 beforeEnvironmentSpecular = reflectedLight.indirectSpecular;
+      #endif
+      #include <lights_fragment_end>
+      #ifdef USE_ENVMAP
+        reflectedLight.indirectSpecular = beforeEnvironmentSpecular;
+      #endif
+    `);
+  };
+}
+
 export function environmentEstimate(size:64|128) {
   const pixels=3*Math.max(size,112)*4*size;
   return {retainedBytes:pixels*12,generationPeakBytes:pixels*20};
