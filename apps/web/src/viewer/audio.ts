@@ -72,22 +72,6 @@ function readAudioPreferences(key:string):AudioPreferences {
   }catch{return {};}
 }
 const MAX_DECODED = 24 * 1024 * 1024;
-/** Each original, deterministic waveform is synthesized locally; no recordings or network assets. */
-export function footstepWave(material: FloorSound, rate: number): Float32Array {
-  const duration = material === "carpet" ? 0.09 : material === "stone" ? 0.19 : 0.14;
-  const samples = new Float32Array(Math.ceil(rate * duration));
-  let seed = 1729, low = 0;
-  for (let i = 0; i < samples.length; i++) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const noise = seed / 2147483648 - 1, t = i / rate;
-    low = low * 0.82 + noise * 0.18;
-    const attack = Math.min(1, t / 0.004);
-    const decay = Math.exp(-t * (material === "carpet" ? 65 : 35));
-    const tone = Math.sin(t * Math.PI * 2 * (material === "wood" ? 165 : material === "stone" ? 950 : 80));
-    samples[i] = attack * decay * (material === "carpet" ? low * 0.2 : material === "wood" ? low * 0.45 + tone * 0.35 : material === "stone" ? noise * 0.4 + tone * 0.2 : noise * 0.38 + low * 0.3);
-  }
-  return samples;
-}
 export function distanceGain(distance: number, radius: number): number {
   return !Number.isFinite(distance) || radius <= 0 ? 0 : Math.max(0, Math.min(1, 1 - distance / radius)) ** 2;
 }
@@ -145,7 +129,6 @@ export class ExhibitionAudio implements AudioApi {
   private pending = new Map<string, Promise<AudioBuffer>>();
   private pendingDecodePreparation = new Map<string, (bytes: number) => Promise<void>>();
   private explicitLoads = new Set<string>();
-  private steps = new Map<FloorSound, AudioBuffer>();
   private playing = new Set<AudioBufferSourceNode>();
   private stepSources = new Set<AudioBufferSourceNode>();
   private stepHistory:StepHistory={nextSide:"left"};
@@ -534,29 +517,27 @@ export class ExhibitionAudio implements AudioApi {
   private footstep() {
     if(!this.state.footstepsEnabled)return;
     const context = this.context!;
-    const resolved=this.resolvedSteps();if(resolved.kind==='none')return;
-    const recorded=resolved.kind==='builtin'||resolved.kind==='publication', bank=this.selectedStepBank();
-    const ids=bank?.id?[bank.id]:[];
-    // A recorded floor never substitutes a synthetic click while its verified
-    // buffer is pending or unavailable. StrideClock has consumed this step;
-    // only a later new displacement may play after decoding finishes.
-    if(recorded&&(!bank?.id||!this.buffers.has(bank.id))){
-      if(bank?.id&&!this.pending.has(bank.id)&&!this.pressureDeferredSteps.has(bank.id))this.preload();
+    const resolved = this.resolvedSteps();
+    if (resolved.kind !== 'builtin' && resolved.kind !== 'publication') return;
+    const bank = this.selectedStepBank();
+    if (!bank?.id) return;
+    const id = bank.id, buffer = this.buffers.get(id);
+    // A later stride can use a newly verified recording. This one stays silent.
+    if (!buffer) {
+      if (!this.pending.has(id) && !this.pressureDeferredSteps.has(id)) this.preload();
       return;
     }
     this.audible=true;this.updateMaster();this.applyRoomReverb();
-    const samples:VerifiedStepSample[]=ids.flatMap(assetId=>{
-      const b=this.buffers.get(assetId);if(!b)return [];
-      if(!Number.isFinite(b.duration)||b.duration<RECORDED_STEP_LIMITS.minClipSeconds||b.duration>RECORDED_STEP_LIMITS.maxClipSeconds){this.state.message=bank?.legacy?'기존에 지정한 긴 발소리는 지원되는 짧은 구간으로 재생합니다.':'일부 녹음 발소리의 길이를 지원하지 않습니다. 해당 걸음은 소리 없이 지나갑니다.';return [];}
-      return [{id:assetId,durationSeconds:b.duration,verified:true as const}];
-    });
+    const supported = Number.isFinite(buffer.duration) && buffer.duration >= RECORDED_STEP_LIMITS.minClipSeconds && buffer.duration <= RECORDED_STEP_LIMITS.maxClipSeconds;
+    const samples:VerifiedStepSample[] = supported ? [{id,durationSeconds:buffer.duration,verified:true}] : [];
+    if (!supported) this.state.message=bank.legacy?'기존에 지정한 긴 발소리는 지원되는 짧은 구간으로 재생합니다.':'일부 녹음 발소리의 길이를 지원하지 않습니다. 해당 걸음은 소리 없이 지나갑니다.';
     const decision=recordedStepPolicy(samples,{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:!this.background&&this.state.voice.status==='playing'},this.stepHistory,{selection:0,gain:Math.random(),rate:Math.random()});
-    if(!decision.play&&(decision.reason==='visitor-off'||decision.reason==='inaudible'))return;
-    let buffer=decision.play?this.buffers.get(decision.plan.sampleId):bank?.legacy&&bank.id?this.buffers.get(bank.id):undefined;
-    if(recorded&&!buffer){if(bank?.id){this.failedStepPreloads.add(bank.id);this.stepSession.failed(bank.key,bank.id);this.preload();}return;}
-    if (!buffer) {
-      buffer = this.steps.get(this.state.material);
-      if (!buffer) { const wave = footstepWave(this.state.material, context.sampleRate); buffer = context.createBuffer(1, wave.length, context.sampleRate); buffer.copyToChannel(new Float32Array(wave), 0); this.steps.set(this.state.material, buffer); }
+    if (!decision.play) {
+      if (decision.reason === 'visitor-off' || decision.reason === 'inaudible') return;
+      if (!bank.legacy) {
+        this.failedStepPreloads.add(id);this.stepSession.failed(bank.key,id);this.preload();
+        return;
+      }
     }
     // Only an explicitly authored, verified loaded short WAV enters the natural-tail path.
     // Legacy long custom WAVs retain their existing 0.2s cap; no automatic segmentation.
@@ -565,12 +546,12 @@ export class ExhibitionAudio implements AudioApi {
     for(const previous of [...this.stepSources])this.stop(previous);
     this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);this.reverbInputs.delete(gain);gain.disconnect();});
     try{
-      if(decision?.play){
+      if(decision.play){
         const plan=decision.plan,now=context.currentTime,peak=plan.peakGain*resolved.gain*(resolved.material==='concrete'?.85:1);source.playbackRate.value=plan.playbackRate;
         gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(peak,now+plan.fadeInSeconds);gain.gain.setValueAtTime(peak,now+plan.fadeOutStartSeconds);gain.gain.linearRampToValueAtTime(0,now+plan.wallDurationSeconds);
         source.start(0,plan.offsetSeconds,plan.mediaDurationSeconds);this.stepHistory=plan.nextHistory;
       }else source.start(0,0,Math.min(buffer.duration,.2));
-    }catch{this.stop(source);if(bank?.id){this.failedStepPreloads.add(bank.id);this.stepSession.failed(bank.key,bank.id);this.preload();}this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
+    }catch{this.stop(source);this.failedStepPreloads.add(id);this.stepSession.failed(bank.key,id);this.preload();this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
     this.state.footsteps++; this.emit();
   }
   private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) {
@@ -859,5 +840,5 @@ export class ExhibitionAudio implements AudioApi {
     try{source.start();}catch(error){this.stop(source);throw error;}
     this.audible=true;this.updateMaster();this.emit();
   }
-  dispose() { if(this.disposed)return; this.stopBgm(); this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.background?.disconnect(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
+  dispose() { if(this.disposed)return; this.stopBgm(); this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.voiceListeners.clear(); this.background?.disconnect(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
 }

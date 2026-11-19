@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test, vi, expect } from "vitest";
 import assert from "node:assert/strict";
-import { distanceGain, footstepWave, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
+import { distanceGain, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
 import type { NavigationState } from "./navigation.ts";
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {BUILTIN_STEP_BANKS} from './footstep-bank';
 const state=(x:number, extra:Partial<NavigationState>={}):NavigationState=>({eyePosition:[x,1.65,0],yaw:0,velocity:[1.3,0,0],grounded:true,steps:1,paused:false,blocked:false,recovered:false,...extra});
 test("distance attenuation is bounded, silence outside radius and invalid distances",()=>{assert.equal(distanceGain(0,3),1);assert.equal(distanceGain(1.5,3),0.25);assert.equal(distanceGain(3,3),0);assert.equal(distanceGain(4,3),0);assert.equal(distanceGain(NaN,3),0);assert.equal(distanceGain(1,0),0);});
-test("original four floor waveforms have bounded finite distinct energy and deterministic output",()=>{const waves=["wood","stone","concrete","carpet"].map(m=>footstepWave(m as "wood",48000));for(const wave of waves){assert.ok(wave.length<10000);assert.ok(wave.every(n=>Number.isFinite(n)&&Math.abs(n)<1));}assert.notDeepEqual(waves[0],waves[1]);assert.deepEqual(waves[0],footstepWave("wood",48000));const energy=(wave:Float32Array)=>wave.reduce((n,v)=>n+v*v,0);assert.ok(energy(waves[3]!)<energy(waves[0]!));});
 test("footsteps require actual grounded displacement; stationary collision and keyboard look cannot step",()=>{const clock=new StrideClock();assert.equal(clock.advance(state(0),true),false);for(let i=0;i<100;i++)assert.equal(clock.advance(state(0,{yaw:i,blocked:true}),true),false);for(let i=1;i<5;i++)assert.equal(clock.advance(state(i*.1),true),false);assert.equal(clock.advance(state(.6),true),true);assert.equal(clock.advance(state(.7,{grounded:false}),true),false);assert.equal(clock.advance(state(.8,{paused:true}),true),false);assert.equal(clock.advance(state(.9),false),false);});
 test("footstep teleports and recovery reset stride; pause prevents deferred step",()=>{const clock=new StrideClock();clock.advance(state(0),true);assert.equal(clock.advance(state(10),true),false);assert.equal(clock.advance(state(10.1,{recovered:true}),true),false);clock.advance(state(10.3),true);clock.reset();assert.equal(clock.advance(state(11),true),false);});
 function wav(seconds=1){const data=16000*seconds, buffer=new ArrayBuffer(44+data),view=new DataView(buffer);for(const [at,tag] of [[0,"RIFF"],[8,"WAVE"],[12,"fmt "],[36,"data"]] as const)for(let i=0;i<4;i++)view.setUint8(at+i,tag.charCodeAt(i));view.setUint32(4,buffer.byteLength-8,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,8000,true);view.setUint32(28,16000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,data,true);return buffer;}
@@ -134,26 +133,14 @@ test("publication availability validates the metadata JSON contract without requ
   } finally {vi.unstubAllGlobals();}
 });
 
-test("displacement-triggered footsteps cap long custom WAV playback and retain short original clip duration",()=>{
-  for(const custom of [true,false]){
-    const {id,runtime}=voiceRuntime();
-    const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;master:GainNode;convolver:ConvolverNode;experience:{footsteps:unknown[]};buffers:Map<string,AudioBuffer>;steps:Map<string,AudioBuffer>};
-    const calls:Array<[number?,number?,number?]>=[];
-    const node=()=>({connect:()=>node(),disconnect:()=>{}});
-    const parameter=()=>({setValueAtTime:()=>{}});
-    internal.context={state:"running",currentTime:0,listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},createGain:()=>({...node(),gain:{value:0}}),createBufferSource:()=>({...node(),start:(...args:[number?,number?,number?])=>{calls.push(args);}})} as unknown as AudioContext;
-    internal.master={gain:parameter()} as unknown as GainNode;
-    internal.convolver={} as ConvolverNode;
-    internal.state.enabled=true;
-    internal.experience.footsteps=[{surfaceId:id,material:"stone",...(custom?{assetId:id}:{})}];
-    const buffer={duration:custom?60:0.19,length:custom?2880000:9120,numberOfChannels:1} as AudioBuffer;
-    if(custom)internal.buffers.set(id,buffer);else internal.steps.set("stone",buffer);
-    runtime.footstepsEnabled(true);runtime.lifecycle(true);
-    runtime.update(state(0,{floorSurfaceId:id}));
-    for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{floorSurfaceId:id}));
-    assert.equal(runtime.snapshot().footsteps,1);
-    assert.deepEqual(calls,[[0,0,custom?0.2:0.19]]);
-  }
+test('displacement-triggered footsteps preserve the existing playback cap for a long custom WAV',()=>{
+  const f=preparedShortStep(60);
+  try {
+    f.runtime.lifecycle(true);
+    f.stride();
+    assert.equal(f.runtime.snapshot().footsteps,1);
+    assert.deepEqual(f.calls,[[0,0,.2]]);
+  } finally { f.runtime.dispose(); }
 });
 
 test("zone diagnostics follow actual gain at small changes and announce exact cross-room silence",()=>{
@@ -323,15 +310,26 @@ test('recorded step bank preloads only its selected clip and reuses it after a m
  }finally{runtime.dispose();random.mockRestore();}
 });
 
-test('a recorded floor stays silent while cold, then plays only new strides; explicit procedural floors retain their fallback',()=>{
+test('a recorded floor stays silent while cold and plays only new strides after loading',()=>{
  const f=preparedShortStep();f.internal.buffers.clear();f.runtime.lifecycle(true);
  f.stride();f.stride();assert.equal(f.calls.length,0);assert.equal(f.runtime.snapshot().footsteps,0);
  f.internal.buffers.set(f.id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
  assert.equal(f.calls.length,0);f.stride();assert.deepEqual(f.calls,[[0,0,.7]]);
  f.runtime.dispose();
- const procedural=preparedShortStep();procedural.internal.experience.footsteps=[{surfaceId:procedural.id,material:'wood'}];
- const legacy=procedural.runtime as unknown as {steps:Map<string,AudioBuffer>};legacy.steps.set('wood',{duration:.14} as AudioBuffer);
- procedural.runtime.lifecycle(true);procedural.stride();assert.deepEqual(procedural.calls,[[0,0,.14]]);procedural.runtime.dispose();
+});
+
+test('unassigned and material-only legacy floors stay silent during ordinary strides',()=>{
+ for (const hasMaterial of [false,true]) {
+  const f=preparedShortStep();
+  f.internal.experience.footsteps=hasMaterial?[{surfaceId:f.id,material:'stone'}]:[];
+  try {
+   f.runtime.lifecycle(true);
+   f.stride();
+   assert.equal(f.runtime.snapshot().footsteps,0);
+   assert.deepEqual(f.calls,[]);
+   assert.deepEqual(f.sources,[]);
+  } finally { f.runtime.dispose(); }
+ }
 });
 
 test('recorded load failures use one stable alternate and never retry or redraw on steps, mute or floor return',async()=>{
