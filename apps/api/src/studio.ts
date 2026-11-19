@@ -12,6 +12,7 @@ import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
 import {nativeLightObjectProposal,type LightObjectCommand} from './native-light-object-proposal.ts';
 import {prepareNativeSpotBeamFit,type NativeSpotBeamFitIntent} from './native-spot-beam-fit.ts';
+import {assertLightFixtureDelta} from './light-fixture-admission.ts';
 import {ordinaryWorkspaceBenchModelForwardDelta} from './workspace-bench-model-forward-delta.ts';
 import {ordinaryWorkspaceBenchVisualReplacementDelta} from './workspace-bench-visual-replacement-delta.ts';
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
@@ -57,6 +58,7 @@ export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
 export const NATIVE_SCENE_AUTHORING_PROPOSAL_PROFILE='saved-head-scene-v1';
 export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
+export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
 type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
@@ -344,6 +346,7 @@ export class Studio {
     const payloadHash = hash({ method: "POST", input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
+    if(!selectedGrant&&this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(undefined,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     const id = input.draft.exhibitionId;
@@ -446,7 +449,7 @@ export class Studio {
         result=nativeFrameImageFitProposal(draft.candidate,request,await service.frameImageFit(c,s,art));
       }
       else if(request.type==='add-plaque'||request.type==='set-plaque')result={candidate:applyPlaqueCommand(draft.candidate,request),plaqueId:request.plaque.id};
-      else if(operation.type==='set-room-base-light-placement'||operation.type==='set-room-ceiling-fill-brightness'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
+      else if(operation.type==='add-light-with-fixture'||operation.type==='set-room-base-light-placement'||operation.type==='set-room-ceiling-fill-brightness'||operation.type==='set-light-object'||operation.type==='set-light-fixture'||operation.type==='duplicate-light-object'||operation.type==='remove-light-object'||operation.type==='set-light-details'){
         let command:LightObjectCommand;
         if(operation.type==='set-light-object'&&'fitBeam' in operation){
           const {fitBeam,...normal}=operation;
@@ -460,7 +463,8 @@ export class Studio {
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){
-      const articulated=operation.type==='set-light-fixture'&&operation.visual?.catalogId==='museum-track-spot-articulated'
+      if(error instanceof Error&&error.message==='LIGHT_FIXTURE_REQUIRED')throw new ApiError(422,'LIGHT_FIXTURE_REQUIRED');
+      const articulated=(operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'
         ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
       const issue=error instanceof Error?error.cause:undefined;
       if(articulated&&issue&&typeof issue==='object'&&'code' in issue&&'remedy' in issue
@@ -487,6 +491,7 @@ export class Studio {
       if(latest.studio_owner_user_id!==s.userId||latest.revision!==expectedRevision||etag(latest.revision,latest.metadata)!==head)throw new ApiError(412,'REMOTE_CONFLICT');
     }
     checked({draft:{...draft,candidate:result.candidate} as Draft,requestId},budgetCommand&&!!row.nativeBounded);
+    await assertLightFixtureDelta(draft.candidate,result.candidate);
     return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result,...(beamFit?{beamFit}:{})}};
   }
 
@@ -582,6 +587,7 @@ export class Studio {
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);
     if(benchForwardDelta)await this.assertBenchModelForward(c,s,row.metadata,input.draft);
+    if(this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(row.metadata.candidate,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     // This row is the private active draft. Published snapshots and their

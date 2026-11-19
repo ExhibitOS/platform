@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
+import {sha256} from '@exhibitos/storage';
+import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
-import {addRoomSupplementalCeilingFill,applyFurnishingCommand,furnishingsFor,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,setLightDetails,validateFurnishings,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyFurnishingCommand,ensureOrdinaryRoomBaseLight,furnishingsFor,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,ROOM_CEILING_FILL_PROFILE,setLightDetails,validateFurnishings,validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {newLight} from '../../web/src/placement/model.ts';
 import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import type {NativeFixtureScope} from './native-fixture-proposal.ts';
 import {nativeLightObjectProposal} from './native-light-object-proposal.ts';
+import {assertLightFixtureDelta} from './light-fixture-admission.ts';
+import {buildApp} from './app.ts';
+import {etag} from './studio.ts';
 function fixture(){
  let candidate=newDraft().candidate;candidate.surfaces=whiteCubeSurfaces(candidate.rooms[0]!);
  const light=newLight(candidate.rooms[0]!.id,'spot');light.transform.position=[0,2,0];candidate.lights.push(light);
@@ -14,6 +19,57 @@ function fixture(){
  const scope:NativeFixtureScope={workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),exhibitionId:candidate.id,head:'saved-head',requestId:randomUUID(),epoch:randomUUID(),sequence:1};
  return {candidate,light,fields,scope};
 }
+
+it('advertises fixture-first only for the ready ordinary owner and proposes without writing the saved head', async () => {
+ const draft=newDraft(),before=structuredClone(draft),revision=3;
+ const tenantId=randomUUID(),userId=randomUUID(),csrf='fixture-first-csrf',token='a'.repeat(43);
+ const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),
+  csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
+ const writes:string[]=[];
+ const client={query:async(sql:string)=>{
+  if(/^(INSERT|UPDATE|DELETE)/.test(sql))writes.push(sql);
+  if(sql.includes('SELECT s.*,m.role'))return {rows:[session],rowCount:1};
+  if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))
+   return {rows:[{id:draft.exhibitionId,revision,metadata:draft,studio_owner_user_id:userId}],rowCount:1};
+  return {rows:[],rowCount:0};
+ },release:()=>{}};
+ const pool={connect:async()=>client} as unknown as Pool;
+ const auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
+ const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
+ let ready=true;
+ const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>ready});
+ const url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`;
+ const head=etag(revision,draft);
+ const headers={host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf,'if-match':head};
+ const {id:lightId,...light}=newLight(draft.candidate.rooms[0]!.id,'spot');
+ light.transform.position=[0,2,0];
+ const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID()};
+ const request={...binding,type:'add-light-with-fixture',light,settings:{fixture:'spot-can'}};
+ const propose=(payload:object,overrides:Record<string,string>={})=>app.inject({method:'POST',url,headers:{...headers,...overrides},payload});
+ const capability=()=>app.inject({method:'GET',url:'/api/v1/auth/session',headers});
+ try{
+  expect((await capability()).json().nativeFixtureFirstAuthoringProfile).toBe('saved-head-fixture-first-v1');
+  expect((await propose({expectedRevision:revision,request},{'x-csrf-token':''})).statusCode).toBe(403);
+  expect((await propose({expectedRevision:revision-1,request})).statusCode).toBe(412);
+  expect((await propose({expectedRevision:revision,request:{...request,principalId:randomUUID()}})).statusCode).toBe(403);
+  const missing=await propose({expectedRevision:revision,request:{...request,settings:{fixture:'none'}}});
+  expect(missing.statusCode).toBe(422);
+  expect(missing.body).toContain('LIGHT_FIXTURE_REQUIRED');
+  const reply=await propose({expectedRevision:revision,request});
+  expect(reply.statusCode,reply.body).toBe(200);
+  expect(reply.headers.etag).toBe(head);
+  const proposal=reply.json();
+  expect(proposal.lightId).not.toBe(lightId);
+  expect(proposal.candidate.lights).toEqual([...before.candidate.lights,{...light,id:proposal.lightId}]);
+  expect(lightDetailsFor(proposal.candidate)).toContainEqual({lightId:proposal.lightId,fixture:'spot-can'});
+  expect((await propose({expectedRevision:revision,request})).json()).toEqual(proposal);
+  ready=false;
+  expect((await capability()).json()).not.toHaveProperty('nativeFixtureFirstAuthoringProfile');
+  expect((await propose({expectedRevision:revision,request})).statusCode).toBe(503);
+  expect(writes).toEqual([]);
+  expect(draft).toEqual(before);
+ }finally{await app.close();}
+});
 it('returns the removed legacy point and an exact purpose-only fill promotion with deterministic saved-head recomputation',()=>{
  const f=fixture(),point=f.candidate.lights.find(row=>row.id===f.light.id)!;point.type='point';delete point.beamAngle;
  f.candidate.extensions={...f.candidate.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:[{lightId:point.id,fixture:'none',purpose:'room-base',range:10}]}};
@@ -53,4 +109,34 @@ it('changes authored shadow intent through the scoped typed light operation and 
  const enabled=nativeLightObjectProposal(f.candidate,command,f.scope);expect(enabled.candidate.lights[0]).toEqual({...before.lights[0],castsShadow:true});expect(f.candidate).toEqual(before);
  const disabled=nativeLightObjectProposal(enabled.candidate,{...command,light:{...f.fields,castsShadow:false}},f.scope);expect(disabled.candidate.lights[0]!.castsShadow).toBe(false);
  for(const invalid of ['true',1,null])expect(()=>nativeLightObjectProposal(f.candidate,{...command,light:{...f.fields,castsShadow:invalid as unknown as boolean}},f.scope)).toThrow();expect(f.candidate).toEqual(before);
+});
+
+it('creates one built-in or exact installed fixture atomically and preserves the room area path',async()=>{
+ const {candidate,fields,scope}=fixture(),original=structuredClone(candidate);
+ const command={type:'add-light-with-fixture' as const,light:{...fields,castsShadow:false},settings:{fixture:'spot-can' as const}};
+ const builtIn=nativeLightObjectProposal(candidate,command,scope);
+ expect(nativeLightObjectProposal(candidate,command,scope)).toEqual(builtIn);
+ expect(lightDetailsFor(builtIn.candidate).find(row=>row.lightId===builtIn.lightId)?.fixture).toBe('spot-can');
+ await expect(assertLightFixtureDelta(candidate,builtIn.candidate)).resolves.toBeUndefined();
+
+ const visual=nativeLightObjectProposal(candidate,{...command,settings:{fixture:'none'},
+  visual:{catalogId:'museum-track-spot',catalogVersion:1,pose:{position:[0,.15,.0755],yaw:0,scale:1}}},scope);
+ expect(furnishingsFor(visual.candidate)?.bindings).toEqual([expect.objectContaining({hostId:visual.lightId,hostKind:'light'})]);
+ await expect(assertLightFixtureDelta(candidate,visual.candidate)).resolves.toBeUndefined();
+ const detached=nativeLightObjectProposal(visual.candidate,{type:'set-light-fixture',lightId:visual.lightId,visual:null},scope);
+ await expect(assertLightFixtureDelta(visual.candidate,detached.candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ const removed=nativeLightObjectProposal(visual.candidate,{type:'remove-light-object',lightId:visual.lightId},scope);
+ await expect(assertLightFixtureDelta(visual.candidate,removed.candidate)).resolves.toBeUndefined();
+ expect(removed.candidate.lights).toEqual(candidate.lights);
+ expect(furnishingsFor(removed.candidate)).toBeUndefined();
+
+ expect(()=>nativeLightObjectProposal(candidate,{...command,settings:{fixture:'none'}},scope)).toThrow('LIGHT_FIXTURE_REQUIRED');
+ const duplicate=nativeLightObjectProposal(candidate,{type:'duplicate-light-object',lightId:candidate.lights[0]!.id},scope);
+ await expect(assertLightFixtureDelta(candidate,duplicate.candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ await expect(assertLightFixtureDelta(candidate,candidate)).resolves.toBeUndefined();
+ await expect(assertLightFixtureDelta(undefined,candidate)).rejects.toMatchObject({code:'LIGHT_FIXTURE_REQUIRED'});
+ const area=ensureOrdinaryRoomBaseLight(candidate,fields.roomId,randomUUID(),ROOM_CEILING_FILL_PROFILE);
+ expect(area.lights.at(-1)?.type).toBe('area');
+ await expect(assertLightFixtureDelta(candidate,area)).resolves.toBeUndefined();
+ expect(candidate).toEqual(original);
 });
