@@ -5,6 +5,7 @@ import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
 import {hasAuthoredGalleryLighting} from '../light-details-renderer';
 import {retireArtworkResources} from './artwork-ownership';
+import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 import {hasCeilingFillMaterialHook, installCeilingFillMask} from './ceiling-fill';
 import {hasSupportContactMaterialHook, installSupportContactShadows} from './shadows';
 
@@ -99,8 +100,9 @@ test('mask follows the visible area roster and releases a retired model material
   mesh.geometry.dispose();
 });
 
-test('ordinary scene retirement unwinds support contact before its ceiling-fill material hook', async () => {
+test('scene retirement unwinds support contact and ceiling fill back to the owned floor shader', async () => {
   const {camera, mask, material, mesh, room} = fixture();
+  applyDiffuseFloorReferenceEnvironment(material);
   const before = material.onBeforeCompile;
   mask.prepare(camera);
   const contacts = installSupportContactShadows(three, [{
@@ -111,10 +113,12 @@ test('ordinary scene retirement unwinds support contact before its ceiling-fill 
   const composed = fragment(material);
   expect(composed).toContain('exhibitosRoomFill');
   expect(composed).toContain('contactStrength');
+  expect(composed).toContain('beforeEnvironmentSpecular');
 
   await retireArtworkResources([{dispose: () => mask.dispose(contacts.dispose)}]);
   expect(hasSupportContactMaterialHook(material)).toBe(false);
   expect(hasCeilingFillMaterialHook(material)).toBe(false);
+  expect(hasDiffuseFloorReferenceEnvironmentHook(material)).toBe(true);
   expect(material.onBeforeCompile).toBe(before);
   expect(material.customProgramCacheKey).toBe(three.Material.prototype.customProgramCacheKey);
   mesh.geometry.dispose();
