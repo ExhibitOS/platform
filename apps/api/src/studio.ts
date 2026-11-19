@@ -434,7 +434,7 @@ export class Studio {
       else if(request.type==='select-floor-material'||request.type==='reset-floor-sound'){
         const candidate=applyRecordedFloorCommand(draft.candidate,request);
         const target=request.target;
-        const floor=recordedFloorScopes(candidate).find(scope=>target.kind==='surface'?scope.surfaceId===target.surfaceId:scope.roomId===target.roomId&&scope.surfaceId===undefined);
+        const floor=recordedFloorScopes(candidate).find(scope=>target.kind==='surface'?scope.surfaceId?.toLowerCase()===target.surfaceId.toLowerCase():scope.roomId.toLowerCase()===target.roomId.toLowerCase()&&scope.surfaceId===undefined);
         if(!floor)throw Error('FLOOR_TARGET_INVALID');
         result={candidate,...(floor.surfaceId&&{surfaceId:floor.surfaceId}),floorRecording:floorRecordingStatus(floor)};
       }

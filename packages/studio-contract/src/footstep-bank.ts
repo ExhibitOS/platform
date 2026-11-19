@@ -4,7 +4,7 @@ import {
   type FootstepFamily,
 } from '@exhibitos/spec/footstep-resources';
 import type {Exhibition} from '@exhibitos/spec';
-import {experienceFor, type ViewerExperience} from './experience.js';
+import {experienceFor, experienceFootstepFor, type ViewerExperience} from './experience.js';
 import {floorFor} from './floors.js';
 
 type FootstepBank = readonly [string, string, ...string[]];
@@ -69,13 +69,13 @@ export function resolveFootsteps(document: StepDocument, roomId: string | undefi
  * room-base only in rooms that have no authored floor surface. */
 export function recordedFloorScopes(document: Exhibition) {
   const families = new Set(declaredFamilies(document));
-  const authored = experienceFor(document).footsteps;
+  const experience = experienceFor(document);
   return document.rooms.flatMap(room => {
-    const surfaces = document.surfaces.filter(surface => surface.type === 'floor' && surface.roomId === room.id);
+    const surfaces = document.surfaces.filter(surface => surface.type === 'floor' && surface.roomId.toLowerCase() === room.id.toLowerCase());
     const targets = surfaces.length ? surfaces.map(surface => surface.id) : [undefined];
     return targets.map(surfaceId => ({
       roomId: room.id, surfaceId,
-      sound: resolveFloorSound(document, families, room.id, surfaceId, authored.find(row => row.surfaceId === surfaceId)),
+      sound: resolveFloorSound(document, families, room.id, surfaceId, experienceFootstepFor(experience, surfaceId)),
     }));
   });
 }

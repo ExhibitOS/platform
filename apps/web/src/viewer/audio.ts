@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { experienceFor, presentationFor, curationFor, curationDurationValid, freezeCanonical } from "@exhibitos/studio-contract";
+import { experienceFor, experienceFootstepFor, presentationFor, curationFor, curationDurationValid, freezeCanonical } from "@exhibitos/studio-contract";
 import type {PublicPublication} from "../publication-client";
 import type { NavigationState } from "./navigation";
 import { fetchVerifiedAsset } from "./loading";
@@ -189,12 +189,12 @@ export class ExhibitionAudio implements AudioApi {
   private experience: Experience;
   private curation: ReturnType<typeof curationFor>;
   private state: AudioState = { voice: {assetId:null,positionSeconds:0,durationSeconds:0,status:"stopped"}, zoneTransitions:false, zoneId:null, enabled: false, muted: false, volume: 0.5, suspended: true, context: "not-created", footsteps: 0, footstepsEnabled:false, reverbEnabled:false, material: "concrete", roomId: null, loaded: 0, decodedBytes: 0, requests: 0, active: 0, reverbSeconds: 0, zoneGain: 0, message: "소리는 선택해서 켭니다. 음성 설명은 소리 없이 읽을 수 있습니다." };
-  private resolvedSteps(){return resolveFootsteps(this.publication.exhibition,this.room,this.floor,this.experience.footsteps.find(f=>f.surfaceId===this.floor));}
+  private resolvedSteps(){return resolveFootsteps(this.publication.exhibition,this.room,this.floor,experienceFootstepFor(this.experience, this.floor));}
   private selectedStepBank() {
     if (!this.state.footstepsEnabled || !this.state.enabled) return;
     const resolved = this.resolvedSteps();
     if (resolved.kind !== 'builtin' && resolved.kind !== 'publication') return;
-    const ids = [...resolved.ids].sort(), entry = this.experience.footsteps.find(f=>f.surfaceId===this.floor);
+    const ids = [...resolved.ids].sort(), entry = experienceFootstepFor(this.experience, this.floor);
     const key = freezeCanonical({ publication: this.publication.publication.id, revision: this.publication.publication.revisionSha256,
       material: resolved.material, kind: resolved.kind, clips: ids.map(id=>({id,
         inventory: this.publication.exhibition.mediaAssets?.find(a=>a.id===id) ?? null,

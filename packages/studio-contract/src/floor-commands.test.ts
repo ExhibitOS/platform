@@ -3,7 +3,7 @@ import {describe,it,expect} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {recordedFloorScopes} from './footstep-bank.js';
-import {EXPERIENCE_NAMESPACE,experienceFor} from './experience.js';
+import {EXPERIENCE_NAMESPACE,experienceFor,validateViewerExperience} from './experience.js';
 import {applyRecordedFloorCommand,applyFloorPreset,createFloorPreset,resetFloorFields} from './floor-commands.js';
 import {FLOOR_NAMESPACE,floorFor,floorMaterial,type FloorBinding} from './floors.js';
 const target={kind:'room-base' as const,roomId:'11111111-1111-4111-8111-111111111111'};
@@ -74,9 +74,9 @@ describe('ordinary whole material and recorded reset',()=>{
   expect(recordedFloorScopes(next)[0]!.sound).toMatchObject({kind:'builtin',material:'tile'});
  });
  it('does not infer sound on a custom map or treat a dormant room base as active',()=>{
-  const source=select(doc(),'wood'),surfaceId='33333333-3333-4333-8333-333333333333';
+  const source=select(doc(),'wood'),surfaceId='abcdef12-3333-4333-8333-333333333333';
   source.surfaces.push({id:surfaceId,roomId,type:'floor'} as Exhibition['surfaces'][number]);
-  source.extensions!['org.exhibitos.studio/workspace-materials']={version:1,bindings:[{surfaceId}],materials:[]};
+  source.extensions!['org.exhibitos.studio/workspace-materials']={version:1,bindings:[{surfaceId:surfaceId.toUpperCase()}],materials:[]};
   expect(recordedFloorScopes(source)[0]!.sound.kind).toBe('unassigned');
   expect(()=>reset(source)).toThrow('FLOOR_TARGET_INVALID');
   expect(()=>applyRecordedFloorCommand(source,{type:'select-floor-material',target:{kind:'surface',surfaceId},preset:'tile'})).toThrow('FLOOR_RECORDING_UNASSIGNED');
@@ -89,16 +89,19 @@ describe('ordinary whole material and recorded reset',()=>{
   expect(experienceFor(source).footsteps).toEqual(experience.footsteps);
  });
  it('preserves an explicit experience recording on material choice and resets only that floor override',()=>{
-  const source=doc(),surfaceId='33333333-3333-4333-8333-333333333333',assetId='22222222-2222-4222-8222-222222222222';
+  const source=doc(),surfaceId='abcdef12-3333-4333-8333-333333333333',assetId='22222222-2222-4222-8222-222222222222';
   source.surfaces.push({id:surfaceId,roomId,type:'floor'} as Exhibition['surfaces'][number]);
-  const experience={...experienceFor(source),footsteps:[{surfaceId,assetId,material:'stone' as const}]};
+  const alias=surfaceId.toUpperCase();
+  source.mediaAssets.push({id:assetId,mime:'audio/wav'} as Exhibition['mediaAssets'][number]);
+  const experience={...experienceFor(source),footsteps:[{surfaceId:alias,assetId,material:'stone' as const}]};
   source.extensions![EXPERIENCE_NAMESPACE]=experience as unknown as NonNullable<Exhibition['extensions']>[string];
-  const surface={kind:'surface' as const,surfaceId};
+  expect(validateViewerExperience(source).valid).toBe(true);
+  const surface={kind:'surface' as const,surfaceId:alias};
   const selected=applyRecordedFloorCommand(source,{type:'select-floor-material',target:surface,preset:'wood'});
   expect(selected.extensions![EXPERIENCE_NAMESPACE]).toEqual(experience);
   expect(recordedFloorScopes(selected)[0]!.sound).toMatchObject({kind:'publication',ids:[assetId],material:'stone'});
   const restored=applyRecordedFloorCommand(selected,{type:'reset-floor-sound',target:surface});
-  expect(restored.extensions![EXPERIENCE_NAMESPACE]).toEqual({...experience,footsteps:[{surfaceId,material:'stone'}]});
+  expect(restored.extensions![EXPERIENCE_NAMESPACE]).toEqual({...experience,footsteps:[{surfaceId:alias,material:'stone'}]});
   expect(restored.mediaAssets).toEqual(source.mediaAssets);
   expect(selected.extensions![EXPERIENCE_NAMESPACE]).toEqual(experience);
   expect(recordedFloorScopes(restored)[0]!.sound).toMatchObject({kind:'builtin',material:'wood'});

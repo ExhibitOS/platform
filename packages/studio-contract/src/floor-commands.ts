@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {WORKSPACE_MATERIAL_NAMESPACE, type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
-import {EXPERIENCE_NAMESPACE, experienceFor} from './experience.js';
+import {EXPERIENCE_NAMESPACE, experienceFor, experienceFootstepFor} from './experience.js';
 import {declareFootstepFamily} from './footstep-bank.js';
 import {FLOOR_NAMESPACE,floorFor,floorTargetKey,validateStudioFloors,type StudioFloors,floorMaterial,floorPresetDefaults,floorSoundFamily,type FloorBinding,type FloorPreset,type FloorTarget} from './floors.js';
 import type {PbrMaterial} from './pbr-material.js';
@@ -50,24 +50,26 @@ export type RecordedFloorCommand =
  * Pre-existing explicit and mute choices keep their saved values on selection. */
 export function applyRecordedFloorCommand(document: Exhibition, command: RecordedFloorCommand): Exhibition {
  const target = command.target;
- const surface = target.kind === 'surface' ? document.surfaces.find(row => row.id === target.surfaceId && row.type === 'floor') : undefined;
- const room = document.rooms.find(row => row.id === (target.kind === 'room-base' ? target.roomId : surface?.roomId));
- if (!room || target.kind === 'room-base' && document.surfaces.some(row => row.roomId === room.id && row.type === 'floor'))
+ const surface = target.kind === 'surface' ? document.surfaces.find(row => row.type === 'floor' && row.id.toLowerCase() === target.surfaceId.toLowerCase()) : undefined;
+ const roomKey = (target.kind === 'room-base' ? target.roomId : surface?.roomId)?.toLowerCase();
+ const room = document.rooms.find(row => row.id.toLowerCase() === roomKey);
+ if (!room || target.kind === 'room-base' && document.surfaces.some(row => row.type === 'floor' && row.roomId.toLowerCase() === roomKey))
   throw Error('FLOOR_TARGET_INVALID');
  const workspace = document.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings | undefined;
- const custom = surface && workspace?.bindings.some(row => row.surfaceId === surface.id);
+ const custom = surface && workspace?.bindings.some(row => row.surfaceId.toLowerCase() === surface.id.toLowerCase());
  if (custom && command.type === 'select-floor-material') throw Error('FLOOR_RECORDING_UNASSIGNED');
  if (!validateStudioFloors(document).valid) throw Error('FLOOR_SETTINGS_INVALID');
  const current = floorFor(document, {roomId: room.id, surfaceId: surface?.id});
  const experience = experienceFor(document);
- const legacy = experience.footsteps.find(row => row.surfaceId === surface?.id);
+ const legacy = experienceFootstepFor(experience, surface?.id);
  const hasLegacyRecording = legacy?.assetId !== undefined || legacy?.bank !== undefined;
  const reset = command.type === 'reset-floor-sound';
  const currentMaterial = !custom && current && (current.texturePack ? recordedStockPresets[current.texturePack.id] : current.preset);
  let binding: FloorBinding | undefined;
  if (!reset) {
   if (!['wood','marble','tile','carpet'].includes(command.preset)) throw Error('FLOOR_SETTINGS_INVALID');
-  binding = createFloorPreset(target, command.preset);
+  const savedTarget = current?.target ?? (surface ? {kind:'surface', surfaceId:surface.id} : {kind:'room-base', roomId:room.id});
+  binding = createFloorPreset(savedTarget, command.preset);
   if (current?.sound) binding.sound = current.sound;
   else if (hasLegacyRecording) delete binding.sound;
  } else if (current && currentMaterial) {
