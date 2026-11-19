@@ -413,8 +413,10 @@ it('derives image contact only from approved primary PNG bytes and rechecks the 
  }finally{read.mockRestore();check.mockRestore();}
 });
 
-it('discovers both explicitly installed frames in order and keeps tenant registration separate',async()=>{
- const {installedFrameDescriptors}=await import('./installed-artwork-frame.ts'),f=fixture(true),descriptors=installedFrameDescriptors(),thin=descriptors.find(item=>item.id!==INSTALLED_FRAME_ID)!;
+it('discovers installed frames in order and keeps tenant registration separate',async()=>{
+ const {installedFrameDescriptors}=await import('./installed-artwork-frame.ts'),f=fixture(true),descriptors=installedFrameDescriptors();
+ const thin=descriptors.find(item=>item.id==='af88109b-27e2-4d10-a08c-3ddc0224451a')!;
+ const wheat=descriptors.find(item=>item.id==='4ddff48b-c2b2-5166-9e35-cd1c7aabb5b3')!;
  const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true},f.writer),read=vi.mocked(readInstalledFrameById);
  read.mockImplementation(async id=>{const d=descriptors.find(d=>d.id===id);return d?{bytes:Buffer.alloc(d.model.bytes),mime:d.model.mime,sha256:d.model.sha256}:undefined;});
  try{
@@ -427,6 +429,9 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
   expect(black).toHaveProperty('installedCatalog',true);
   expect(black).not.toHaveProperty('installedThumbnailProfile');
   expect(list.items.find(item=>item.id===thin.id)).toMatchObject({installedCatalog:true,installedThumbnailProfile:'installed-furnishing-thumbnail-v1'});
+  const installedWheat=list.items.find(item=>item.id===wheat.id);
+  expect(installedWheat).toMatchObject({installedCatalog:true,version:1,rightsAvailability:{display:true,download:true,export:true}});
+  expect(installedWheat).not.toHaveProperty('installedThumbnailProfile');
   const tenant=list.items.find(item=>item.id===registered.id);
   expect(tenant).not.toHaveProperty('installedCatalog');
   expect(tenant).not.toHaveProperty('installedThumbnailProfile');
@@ -436,8 +441,10 @@ it('discovers both explicitly installed frames in order and keeps tenant registr
   expect((await service.list(f.client,f.session,Buffer.from(INSTALLED_FRAME_ID).toString('base64url'))).items.map(item=>item.id)).toEqual([thin.id]);
   expect((await service.list(f.client,f.session,Buffer.from(thin.id).toString('base64url'))).items).toEqual([]);
   expect(await service.readVersion(f.client,f.session,thin.id,1)).toEqual(thin);expect(await service.checkDisplay(f.client,f.session,thin.id,1)).toEqual(thin);
+  expect(await service.checkDisplay(f.client,f.session,wheat.id,1)).toMatchObject({fit:{version:1,sourceSha256:wheat.model.sha256,sourceBytes:3380,geometry:{profile:'straight-ring-v1',openingWidth:.94,openingHeight:.738,imagePlaneZ:-.012}}});
   expect((await service.model(f.client,f.session,thin.id,1,'export')).sha256).toBe(thin.model.sha256);
   await expect(service.readVersion(f.client,f.session,thin.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
+  await expect(service.readVersion(f.client,f.session,wheat.id,2)).rejects.toMatchObject({code:'INVALID_INPUT'});
   read.mockResolvedValue(undefined);
   expect((await service.list(f.client,f.session)).items).toEqual([]);
   await expect(service.readVersion(f.client,f.session,thin.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});

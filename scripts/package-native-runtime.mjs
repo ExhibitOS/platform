@@ -148,6 +148,7 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Verify the selected release's exact models and notices before and after
 // copying. Workspace originals are installation sources for ordinary intake.
 const DEFAULT_FURNISHINGS_RELEASES={
+ '1.20.0':{commit:'addb2f3312209303f426d4ea687af183ccc279ce',manifestSHA256:'4bcb9616719bedaa2f3436630f9c499c2e2dad7538150b862fc7de84b43db147',bytes:29400},
   '1.19.0':{commit:'1c81844b8c7f545387fff4ade6823aee4b72eff7',manifestSHA256:'138b8307dba70f382f886c5c37b6396f1327b0b7311a202ec5d6932185743b08',bytes:27317},
   '1.18.0':{commit:'e9fc45d3bca70690922a9e92849e4ecd1c587a33',manifestSHA256:'83d9d1913850c310e63a1d5a77297ca8944da1fc9720cf017e3a9dad361b7e5a',bytes:25957},
   '1.17.0':{commit:'cc477089d9a0792a26563f9b618ecf6e962d2caf',manifestSHA256:'4751b398f8a1d6edd362004449655932fabfdd78de3500b74b29453b05d5475a',bytes:25051},
@@ -199,7 +200,8 @@ const DEFAULT_OAK_BENCH_ENTRY={
     runtimeManifestSHA256:'927367b6d36432b9c82eeb1f45b058b00d61a34f3ede8244f16f2a8d007ec132',
     registeredReceiptSHA256:'3bd188caeef7847d7def4f43c65731df609f3bfe90326e127e26d8885dcc47f4'},
 };
-const defaultFurnishingDirectory=id=>id===DEFAULT_OAK_BENCH_ID?'exhibitos-authored-20261117':[DEFAULT_DARK_TRACK_ID,DEFAULT_RECTANGLE_TRACK_ID,DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID].includes(id)?'exhibitos-authored-20261115':(id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID)?'exhibitos-authored-20261114':id===DEFAULT_REFINED_SCULPTURE_BENCH_ID?'exhibitos-authored-20261112':id===DEFAULT_COMPACT_STAND_ID||(id==='museum-wallwasher'||id==='museum-wallwasher-rear-relief')?'exhibitos-authored-20261111':Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
+const DEFAULT_WHEAT_FRAME_ID='wheat-matte-oak-frame';
+const defaultFurnishingDirectory=id=>id===DEFAULT_OAK_BENCH_ID?'exhibitos-authored-20261117':[DEFAULT_DARK_TRACK_ID,DEFAULT_RECTANGLE_TRACK_ID,DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID].includes(id)?'exhibitos-authored-20261115':(id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID)?'exhibitos-authored-20261114':id===DEFAULT_REFINED_SCULPTURE_BENCH_ID?'exhibitos-authored-20261112':id===DEFAULT_COMPACT_STAND_ID||(id==='museum-wallwasher'||id==='museum-wallwasher-rear-relief')?'exhibitos-authored-20261111':(id===DEFAULT_WHEAT_FRAME_ID||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id))?'exhibitos-authored-20261109':id===DEFAULT_SCULPTURE_BENCH_ID?'generated-20261110':
   Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)?'generated-20261109':'user-authored-20261027';
 const hasPreparedExitSign=version=>version==='1.4.0'||version==='1.5.0'||version==='1.6.0'||version==='1.7.0'||version==='1.8.0'||version==='1.9.0'||version==='1.10.0'||version==='1.11.0'||version==='1.12.0'||['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version);
 const DEFAULT_WORKSPACE_RELEASES=['1.2.0',...DEFAULT_EXIT_RELEASES];
@@ -209,7 +211,10 @@ const DEFAULT_EXIT_SIGN_SOURCE={
 };
 const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256);
 const DEFAULT_FRAME_ID='black-aluminum-frame';
-const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice);
+const wheatFrame=installedArtworkFrames.find(frame=>frame.catalogId===DEFAULT_WHEAT_FRAME_ID);
+const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice&&frame.catalogId!==DEFAULT_WHEAT_FRAME_ID);
+const articulatedReleases=['1.18.0','1.19.0','1.20.0'];
+const oakBenchReleases=['1.19.0','1.20.0'];
 const installedFrameEntry=frame=>({version:frame.descriptor.version,path:frame.path,mime:frame.descriptor.model.mime,bytes:frame.descriptor.model.bytes,sha256:frame.descriptor.model.sha256,rights:{licenseId:frame.descriptor.rights.licenseId,noticePath:frame.notice.path,noticeBytes:frame.notice.bytes,noticeSha256:frame.notice.sha256},preparation:{files:[...(frame.custodyFiles??[]),...(frame.thumbnail?[{path:frame.thumbnail.path,bytes:frame.thumbnail.png.bytes,sha256:frame.thumbnail.png.sha256}]:[])]},provenance:{sourceSha256:frame.descriptor.model.sha256,recipe:'original-v1'}});
 const DEFAULT_FRAME_ROOT='assets/furnishings/user-authored-20261027/black-aluminum-frame';
 const DEFAULT_FRAME_ENTRY={
@@ -230,10 +235,12 @@ async function readDefaultFurnishingsManifest(root){
   const match=Object.entries(DEFAULT_FURNISHINGS_RELEASES).find(([,release])=>release.manifestSHA256===digest&&release.bytes===bytes.length);
   if(!match)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const [bundleVersion,release]=match;
-  const articulatedBundle=['1.18.0','1.19.0'].includes(bundleVersion);
+  const articulatedBundle=articulatedReleases.includes(bundleVersion);
   const version=articulatedBundle?'1.17.0':bundleVersion;
   const manifest=JSON.parse(bytes.toString('utf8'));
-  const hosts={...DEFAULT_FURNISHINGS_HOSTS,...(bundleVersion==='1.19.0'?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
+  const hosts={...DEFAULT_FURNISHINGS_HOSTS,
+    ...(bundleVersion==='1.20.0'?{[DEFAULT_WHEAT_FRAME_ID]:'artwork-frame'}:{}),
+    ...(oakBenchReleases.includes(bundleVersion)?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
     ...(['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?Object.fromEntries(additionalInstalledFrames.map(frame=>[frame.catalogId,'artwork-frame'])):{}),
     ...(['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'recessed-downlight':'light'}:{}),
     ...(version!=='1.0.0'?{[DEFAULT_FRAME_ID]:'artwork-frame'}:{}),
@@ -252,6 +259,14 @@ async function readDefaultFurnishingsManifest(root){
     const id=item.catalogId;
     if(!Object.hasOwn(hosts,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
     seen.add(id);
+    if(id===DEFAULT_WHEAT_FRAME_ID){
+      const {descriptor,path,notice}=wheatFrame;
+      const expected={catalogId:id,catalogVersion:descriptor.version,name:descriptor.name,hostKind:descriptor.kind,
+        model:{path,...descriptor.model},rights:{licenseId:descriptor.rights.licenseId,notice},
+        provenance:{sourceSha256:descriptor.model.sha256,recipe:'original-v1'},workspaceFurnishing:descriptor};
+      if(!isDeepStrictEqual(item,expected))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+      continue;
+    }
     if(id===DEFAULT_OAK_BENCH_ID){if(!isDeepStrictEqual(item,DEFAULT_OAK_BENCH_ENTRY))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');continue;}
     if(id===DEFAULT_RECTANGLE_TRACK_ID){if(!isDeepStrictEqual(item,DEFAULT_RECTANGLE_TRACK_ENTRY))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');continue;}
     if(Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_CLEAR_HOOD_ID||id===DEFAULT_BENCH_V6_ID){
@@ -297,10 +312,10 @@ export async function checkedDefaultFurnishingsRoot(root){
   if(top!==root||commit!==release.commit)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   return {root:canonical,...release};
 }
-/** A new runtime must select the matched 1.19 release before any
+/** A new runtime must select the matched 1.20 release before any
  * build. Older release verification/copy remains available for immutable audits. */
 export async function requireCurrentFurnishingsRelease(root){
-  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.19.0']);
+  return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.20.0']);
 }
 export async function requireGpuModelPreparationFurnishingsRelease(root){
   return requirePinnedFurnishingsRelease(root,DEFAULT_FURNISHINGS_RELEASES['1.7.0']);
@@ -317,7 +332,7 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
   const functionalIds = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth','museum-wallwasher','museum-wallwasher-rear-relief','sculpture-bench-refined','recessed-downlight',DEFAULT_FIXED64_SPOT_ID,DEFAULT_ARTICULATED_SPOT_ID];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== functionalIds.length || functionalIds.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  const articulatedRelease=isDefaultRelease(release,['1.18.0','1.19.0']);
+  const articulatedRelease=isDefaultRelease(release,articulatedReleases);
   const inheritedRelease=articulatedRelease?DEFAULT_FURNISHINGS_RELEASES['1.17.0']:release;
   const ids=functionalIds.filter(id=>!release||(id===DEFAULT_ARTICULATED_SPOT_ID?articulatedRelease:id===DEFAULT_FIXED64_SPOT_ID?isDefaultRelease(inheritedRelease,['1.17.0']):id==='recessed-downlight'?isDefaultRelease(inheritedRelease,['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='sculpture-bench-refined'?isDefaultRelease(inheritedRelease,['1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='museum-wallwasher-rear-relief'?isDefaultRelease(inheritedRelease,['1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):id==='museum-wallwasher'?isDefaultRelease(inheritedRelease,['1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0']):true));
   const includesExitOriginals=isDefaultRelease(inheritedRelease,DEFAULT_EXIT_RELEASES);
@@ -327,7 +342,8 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   if(bundled&&bundled.release.manifestSHA256!==release.manifestSHA256)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   if(includesWorkspaceOriginals||release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.1.0'].manifestSHA256)ids.push(DEFAULT_FRAME_ID);
   if(bundled)ids.push(...Object.keys(DEFAULT_WORKSPACE_ORIGINALS));
-  if(bundled?.manifest.bundleVersion==='1.19.0')ids.push(DEFAULT_OAK_BENCH_ID);
+  if(oakBenchReleases.includes(bundled?.manifest.bundleVersion))ids.push(DEFAULT_OAK_BENCH_ID);
+  if(bundled?.manifest.bundleVersion==='1.20.0')ids.push(DEFAULT_WHEAT_FRAME_ID);
   if(['1.15.0','1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_BENCH_V6_ID);
   if(['1.16.0','1.17.0'].includes(inheritedVersion))ids.push(DEFAULT_DARK_TRACK_ID);
   if(inheritedVersion==='1.17.0')ids.push(DEFAULT_RECTANGLE_TRACK_ID);
@@ -342,7 +358,8 @@ export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
   for (const id of ids) {
     const exitOriginal=includesExitOriginals&&Object.hasOwn(DEFAULT_EXIT_ORIGINALS,id);
     const workspaceOriginal=bundled&&(id===DEFAULT_OAK_BENCH_ID||id===DEFAULT_RECTANGLE_TRACK_ID||id===DEFAULT_DARK_TRACK_ID||id===DEFAULT_BENCH_V6_ID||id===DEFAULT_CLEAR_HOOD_ID||id==='linear-track'||exitOriginal||Object.hasOwn(DEFAULT_WORKSPACE_ORIGINALS,id)||Object.hasOwn(DEFAULT_PORTAL_ORIGINALS,id)||id===DEFAULT_SCULPTURE_BENCH_ID||id===DEFAULT_REFINED_SCULPTURE_BENCH_ID||id===DEFAULT_COMPACT_STAND_ID)?bundled.manifest.assets.find(item=>item.catalogId===id):undefined;
-    const addedFrame=['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
+    const addedFrame=id===DEFAULT_WHEAT_FRAME_ID?wheatFrame:
+      ['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(inheritedVersion)?additionalInstalledFrames.find(frame=>frame.catalogId===id):undefined;
     const entry = addedFrame?installedFrameEntry(addedFrame):workspaceOriginal?{...workspaceOriginal.model,rights:{
       licenseId:workspaceOriginal.rights.licenseId,
       noticePath:workspaceOriginal.rights.notice.path,noticeBytes:workspaceOriginal.rights.notice.bytes,noticeSha256:workspaceOriginal.rights.notice.sha256,
