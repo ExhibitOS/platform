@@ -85,7 +85,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    const doc=candidate as unknown as Exhibition,opening=doc.openings.find(o=>o.id.toLowerCase()===openingAttachment.openingId.toLowerCase()),wall=doc.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase()&&s.roomId.toLowerCase()===options.roomId.toLowerCase());if(!opening||!wall)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const measured=workspaceFitGeometry(descriptor);
    const rectangular=measured?.profile==='rectangular-portal-v1'?qualifiedRectangularPortalTarget(measured,doc,opening.id):undefined;
-   const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id):undefined;
+   const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id,descriptor):undefined;
    if(measured?.profile==='rectangular-portal-v1'){
     if(!rectangular)throw Error('WORKSPACE_PLACEMENT_INVALID');
     fitRectangularPortal(three,visual,measured,rectangular);
