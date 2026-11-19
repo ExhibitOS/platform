@@ -80,7 +80,7 @@ import type {CameraInteractionMode} from './geometry/camera-mode';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
 import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
-import {hasAuthoredGalleryLighting,installLightDetails} from './light-details-renderer';
+import {hasAuthoredGalleryLighting,installLightDetails,installLightFixtureGate} from './light-details-renderer';
 import {installCeilingFillMask} from './viewer/ceiling-fill';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
@@ -608,7 +608,6 @@ export function GeometryPreview({
       const resources=viewerBudget??resourceBudget;
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
-      const authoredShadowCount=document.lights.filter(light=>light.castsShadow===true&&(light.type==='spot'||light.type==='directional')).length;
       // Depth work has its own ceiling. A larger desktop color-scene admission
       // does not multiply dirty shadow work or create a DeviceBudget draw field.
       const depthDrawBudget=session&&!publicSource?384:256;
@@ -873,6 +872,10 @@ export function GeometryPreview({
         }
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
+      const fixtureGate=installLightFixtureGate(document,scriptLights,lightDetails.fixtures,
+        new Set(otherFurnishings.filter(item=>item.binding.hostKind==='light').map(item=>item.binding.hostId.toLowerCase())),!!otherReserve);
+      const reportFixtureSupport=()=>{renderer.domElement.dataset.lightFixtureSupport=JSON.stringify(fixtureGate.records());};
+      reportFixtureSupport();
       const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
@@ -911,6 +914,7 @@ export function GeometryPreview({
         const item=document.lights.find(item=>scriptLights.get(item.id)?.light===light),room=item&&rooms.get(item.roomId.toLowerCase());
         return room&&item&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId}]:[];
       });
+      const authoredShadowCount=()=>shadowCandidates.filter(candidate=>candidate.authoredCastShadow&&candidate.light.visible).length;
       for(const room of rooms.values())shadowCandidates.push({light:sun,room});
       // Architecture is immutable for this renderer lifetime. A bounded whole
       // exhibition uses its world envelope, never camera or decoded-asset bounds.
@@ -1151,7 +1155,7 @@ export function GeometryPreview({
       let catalogBenchReady:(id:string)=>boolean=()=>false,catalogOtherReady:(kind:string,id:string)=>boolean=()=>false;
       let contactBench:{model:Object3D;hostId:string}|undefined;
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource,resources?.maxTextureSize??2048);owned.push(catalog);catalogBenchReady=catalog.ready;catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,sceneTriangleLimit(viewerBudget??nativeModelBudget,!!(session&&!publicSource&&ownerWorkspaceFurnishings)),()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights);catalogFurnishingCollisions=catalog.collisions;catalogOtherReady=catalog.ready;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,sceneTriangleLimit(viewerBudget??nativeModelBudget,!!(session&&!publicSource&&ownerWorkspaceFurnishings)),()=>{walkingActions.current?.refreshFurnishingCollisions?.();shadowPass.invalidate();render();},{scene,enabled:collisionEnabled},scriptLights,(id,status)=>{fixtureGate.settle(id,status);reportFixtureSupport();shadowPass.invalidate();});catalogFurnishingCollisions=catalog.collisions;catalogOtherReady=catalog.ready;owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -3817,7 +3821,7 @@ export function GeometryPreview({
           }catch{releaseContact();contactReceivers=undefined;renderer.domElement.dataset.supportContactShadows='unavailable';}
         };
         const updateOptionalShadowMaps=()=>{
-          if(compactQuality||authoredShadowCount<2||releaseExtraShadows||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled||!contactFurnishingsSettled)return;
+          if(compactQuality||authoredShadowCount()<2||releaseExtraShadows||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled||!contactFurnishingsSettled)return;
           if(pending.size||materialBudgetDeferred.size||residentMinimumWait.size||optionalResidentWaits.size||scheduler.stats().active||scheduler.stats().queued)return;
           // Off-room lazy assets need not all coexist before an idle map can
           // borrow bytes. Every currently required display still must be ready.
@@ -3825,7 +3829,7 @@ export function GeometryPreview({
           // Contact setup can reclaim encoded cache; complete it BEFORE borrowing
           // idle memory so an optional map never causes that reclamation.
           if(contactEligible&&contactReceivers?.length&&!contactShadows)return;
-          releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount,peak,Math.min(assetBudgetBytes,transitionBudgetBytes));
+          releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount(),peak,Math.min(assetBudgetBytes,transitionBudgetBytes));
           if(releaseExtraShadows)render();
         };
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();updateOptionalShadowMaps();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
@@ -3988,10 +3992,10 @@ export function GeometryPreview({
       // Native chosen inventories and furnishings have finished before borrowing
       // idle bytes. Any changed source/variant rebuild disposes this scene lease.
       void Promise.allSettled([materialWork,...catalogSettled]).then(()=>{
-        if(compactQuality||authoredShadowCount<2||disposed||gpuLost||unavailable||!floorSettled||!surfaceSettled)return;
+        if(compactQuality||authoredShadowCount()<2||disposed||gpuLost||unavailable||!floorSettled||!surfaceSettled)return;
         if(ownerFurnishings?.stats().failed)return;
         const ledger=ownerFurnishings?.ledger??new AssetPeakBudget(transitionBudgetBytes,()=>localResidentBytes+byteCache.stats().bytes);
-        releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount,ledger,Math.min(assetBudgetBytes,transitionBudgetBytes));
+        releaseExtraShadows=leaseOptionalShadowMaps(shadowPass,authoredShadowCount(),ledger,Math.min(assetBudgetBytes,transitionBudgetBytes));
         if(releaseExtraShadows)render();
       });
     };

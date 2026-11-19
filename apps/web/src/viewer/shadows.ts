@@ -187,12 +187,12 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     for(const room of sourceRoots)room.updateWorldMatrix(true,true);
     const previous=plans;
     // Explicit preferences are stable document inputs, never pass-owned Three flags.
-    const authored=candidates.filter(c=>c.authoredCastShadow===true);
+    const authored=candidates.filter(c=>c.authoredCastShadow===true&&c.light.visible);
     requestedSources=authored.length;sourceReports=[];
     const ordered=authored.length?authored:[...candidates.filter(c=>c.light instanceof three.DirectionalLight),...candidates.filter(c=>c.light instanceof three.SpotLight)];
     const next:Plan[]=[],seenLights=new Set<ShadowCandidate['light']>();
     for(const candidate of ordered){
-      if(candidate.light.intensity<=0||seenLights.has(candidate.light))continue;
+      if(!candidate.light.visible||candidate.light.intensity<=0||seenLights.has(candidate.light))continue;
       if(next.length>=(authored.length?mapCapacity:1))break;
       priorLight=candidate.light;priorAnchor=anchors.get(candidate.light)?.clone();
       if(!fit(candidate)||!capture)continue;

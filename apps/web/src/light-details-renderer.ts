@@ -2,7 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {coupleFixtureEmission} from './fixture-emission';
-import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
+import {furnishingsFor,lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
 
 /** Local defaults and contained fills do not select the exhibition-wide fallback. */
 export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
@@ -10,6 +10,50 @@ export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
     .filter(details => details.purpose === 'room-base' || details.ceilingFill)
     .map(details => details.lightId.toLowerCase()));
   return document.lights.some(light => !localLights.has(light.id.toLowerCase()));
+}
+
+type CatalogueLightFixture = 'pending'|'ready'|'invalid'|'budget-unavailable'|'model-failed';
+type LightFixtureState = {id:string;light:Three.Light|undefined;defaultArea:boolean;builtIn:boolean;catalogue:CatalogueLightFixture|null};
+
+/** Document luminaires emit only with their own admitted physical visual, or
+ * the room's explicit default area light. Visibility here is independent of
+ * the camera, artwork selection, and frustum culling. */
+export function installLightFixtureGate(
+ document: Exhibition,
+ lights: ReadonlyMap<string,{light:Three.Light}>,
+ builtInFixtures: ReadonlyMap<string,Three.Object3D[]>,
+ catalogueHosts: ReadonlySet<string>,
+ catalogueReserved: boolean,
+){
+ const details=new Map(lightDetailsFor(document).map(entry=>[entry.lightId.toLowerCase(),entry]));
+ const bindings=furnishingsFor(document)?.bindings;
+ const declared=new Set((Array.isArray(bindings)?bindings:[]).filter(row=>row.hostKind==='light').map(row=>row.hostId.toLowerCase()));
+ const states=new Map<string,LightFixtureState>(document.lights.map(item=>{
+  const key=item.id.toLowerCase(),light=lights.get(item.id)?.light;
+  const defaultArea=item.type==='area'&&details.get(key)?.purpose==='room-base';
+  const builtIn=builtInFixtures.get(key)?.some(group=>!!group.parent&&group.visible)??false;
+  const catalogue:CatalogueLightFixture|null=catalogueHosts.has(key)
+    ?(catalogueReserved?'pending':'budget-unavailable'):(declared.has(key)?'invalid':null);
+  return [key,{id:item.id,light,defaultArea,builtIn,catalogue}] as const;
+ }));
+ const refresh=(state:LightFixtureState)=>{
+  if(state.light)state.light.visible=state.defaultArea||state.builtIn||state.catalogue==='ready';
+ };
+ for(const state of states.values())refresh(state);
+ return {
+  settle(id:string,status:'ready'|'model-failed'){
+   const state=states.get(id.toLowerCase());
+   if(!state||!catalogueHosts.has(id.toLowerCase())||!catalogueReserved)return;
+   state.catalogue=status;
+   refresh(state);
+  },
+  records:()=>[...states.values()].map(state=>({
+   lightId:state.id,eligible:state.light?.visible??false,
+   support:state.defaultArea?'room-base-area':state.catalogue==='ready'?'catalogue':state.builtIn?'built-in':null,
+   catalogue:state.catalogue,
+   reason:state.light?.visible?null:state.catalogue??'absent',
+  })),
+ };
 }
 
 /** Opt-in bodies are simple non-shadow-casting visual geometry, not an optical model.

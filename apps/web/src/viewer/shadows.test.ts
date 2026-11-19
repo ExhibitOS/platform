@@ -139,6 +139,33 @@ test('an explicit authored spot owns the one map ahead of an automatic direction
   expect(spot.shadow.autoUpdate||h.renderer.shadowMap.autoUpdate).toBe(false);
   pass.flush();expect(reports).toHaveLength(1);pass.dispose();
 });
+test('an unsupported hidden luminaire never acquires a shadow map',()=>{
+ const h=setup();
+ h.pass.dispose();
+ const spot=new three.SpotLight(0xffffff,14,8,.65);
+ spot.position.set(0,3,3);
+ h.room.add(spot,spot.target);
+ const pass=installBoundedShadows(three,h.renderer,[
+  {room:h.room,light:h.light},
+  {room:h.room,light:spot,authoredCastShadow:true,sourceLightId:'fixture'},
+ ],false,SHADOW_RESERVE_BYTES,value=>h.reports.push(value));
+ try{
+  spot.visible=false;
+  pass.flush();
+  expect(spot.shadow.map).toBeNull();
+  expect(h.light.castShadow).toBe(true);
+  spot.visible=true;
+  pass.invalidate();
+  pass.flush();
+  expect(h.reports.at(-1)?.sourceLightId).toBe('fixture');
+  expect(spot.castShadow).toBe(true);
+  spot.visible=false;
+  pass.invalidate();
+  pass.flush();
+  expect(spot.castShadow).toBe(false);
+  expect(spot.shadow.map).toBeNull();
+ }finally{pass.dispose();}
+});
 test('an inactive explicit source does not silently substitute automatic room illumination',()=>{
   const h=setup();h.pass.dispose();
   const spot=new three.SpotLight();spot.position.set(0,4,0);h.room.add(spot,spot.target);
