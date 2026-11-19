@@ -125,8 +125,9 @@ it('retains admission and authority fences when a verified source is already sha
  const {source}=await input(),roomId=crypto.randomUUID(),room=new three.Group();let allowed=true;
  source.check.mockImplementation(async()=>{if(!allowed)throw Error('CATALOG_SCOPE_EXPIRED');});
  const items=Array.from({length:2},(_,i)=>({asset,binding:{hostKind:'light' as const,hostId:crypto.randomUUID(),assetId:asset.id,pose:{position:[0,.15,.0755] as [number,number,number],yaw:0,scale:1}},resolved:{source:entry,roomId,parent:identity,pose:identity,mountProfile:'museum-track-spot-fixed-head-v1' as const,wallwasher:resolved(i)},source}));
- const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{allowed=false;});
- try{expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','fallback']);expect(source.fetcher).toHaveBeenCalledOnce();expect(existingSceneCost(three,room)).toEqual({draws:7,triangles:4260});}finally{runtime.dispose();}
+ const fixtureStatus=vi.fn();
+ const runtime=installCatalogOtherVisuals(three,items,new Map([[roomId,room]]),new Map(),new Map(),new AbortController().signal,()=>false,100000,()=>{allowed=false;},undefined,undefined,fixtureStatus);
+ try{expect((await runtime.start()).map(row=>row.status)).toEqual(['ready','fallback']);expect(fixtureStatus.mock.calls).toEqual([[items[0]!.binding.hostId,'ready'],[items[1]!.binding.hostId,'model-failed']]);expect(source.fetcher).toHaveBeenCalledOnce();expect(existingSceneCost(three,room)).toEqual({draws:7,triangles:4260});}finally{runtime.dispose();}
  const next=await input(),original=await loadCatalogModel(three,entry,next.source,new AbortController().signal,()=>false,100000,FURNISHING_RESERVE_BYTES),owner=createTrackSpotRenderSource(three,original,asset);
  try{expect(()=>owner.instantiate(resolved(),0)).toThrow('CATALOG_BUDGET');expect(owner.sharedResident()).toBe(0);expect(original.model.children).toHaveLength(14);expect(original.model.parent).toBeNull();}finally{owner.dispose();}
 });

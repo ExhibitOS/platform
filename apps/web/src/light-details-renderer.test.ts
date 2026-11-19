@@ -4,7 +4,7 @@ import * as three from 'three';
 import {setLightDetails,resolveTrackSpotAiming} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {newLight} from './placement/model';
-import {installLightDetails} from './light-details-renderer';
+import {installLightDetails,installLightFixtureGate} from './light-details-renderer';
 import {articulatedTrackFixture} from './private-editor/articulated-track.test-fixture';
 function fixture(){
   const d=newDraft().candidate,l=newLight(d.rooms[0]!.id,'spot');l.transform.position=[0,2.4,1];l.color=[.2,.3,.4];d.lights=[l];const {id,...light}=l;
@@ -59,4 +59,40 @@ test('manual joint optics keep their resolved ray and invalid known intent never
  binding.aim={kind:'point',position:[-1,4,-1.2]};
  expect(()=>installLightDetails(three,document,rooms,lights,false)).toThrow();
  expect(spot.position).toEqual(position);expect(spot.target).toBe(target);expect(room.children).toEqual(children);
+});
+
+
+test('only the default area and physically supported luminaires are eligible to emit',()=>{
+ const h=fixture(),builtIn=installLightDetails(three,h.document,h.rooms,h.lights,false);
+ const roomId=h.document.rooms[0]!.id;
+ const lights=new Map<string,{light:three.Light}>(h.lights);
+ const add=(type:'area'|'spot'|'point',light:three.Light,targetRoom=roomId)=>{
+  const item=newLight(targetRoom,type);
+  h.document.lights.push(item);h.room.add(light);lights.set(item.id,{light});return item.id;
+ };
+ const base=add('area',new three.RectAreaLight()),supplemental=add('area',new three.RectAreaLight());
+ const legacyRoom={...structuredClone(h.document.rooms[0]!),id:crypto.randomUUID()};
+ h.document.rooms.push(legacyRoom);
+ const point=add('point',new three.PointLight(),legacyRoom.id),railOnly=add('spot',new three.SpotLight());
+ const track=add('spot',new three.SpotLight()),bad=add('spot',new three.SpotLight());
+ const details=h.document.extensions!['org.exhibitos.studio/light-details'] as {lights:{lightId:string;fixture:string;purpose?:string}[]};
+ details.lights.push({lightId:base,fixture:'none',purpose:'room-base'},{lightId:supplemental,fixture:'none',purpose:'room-supplemental-fill'},{lightId:point,fixture:'none',purpose:'room-base'});
+ const bindings=[track,bad].map(hostId=>({hostKind:'light',hostId}));
+ h.document.extensions!['org.exhibitos.studio/furnishing-visuals']={version:1,assets:[],bindings:[...bindings,null,{hostKind:'light',hostId:42}]};
+ const gate=installLightFixtureGate(h.document,lights,builtIn.fixtures,new Set([track]),true);
+ const report=(id:string)=>gate.records().find(item=>item.lightId===id);
+ try{
+  expect(report(base)).toMatchObject({eligible:true,support:'room-base-area'});
+  for(const id of [supplemental,point,railOnly])expect(report(id)).toMatchObject({eligible:false,reason:'absent'});
+  expect(report(bad)).toMatchObject({eligible:false,reason:'invalid'});
+  expect(report(track)).toMatchObject({eligible:false,reason:'pending'});
+  expect(report(h.document.lights[0]!.id)).toMatchObject({eligible:true,support:'built-in'});
+  // No camera or rendered-frame event is needed to retain fixture eligibility.
+  gate.settle(track,'ready');
+  expect(lights.get(track)?.light.visible).toBe(true);
+  expect(report(track)).toMatchObject({eligible:true,support:'catalogue'});
+  gate.settle(track,'model-failed');
+  expect(lights.get(track)?.light.visible).toBe(false);
+  expect(report(track)).toMatchObject({eligible:false,reason:'model-failed'});
+ }finally{builtIn.dispose();}
 });

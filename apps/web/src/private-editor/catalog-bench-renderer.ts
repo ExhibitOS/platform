@@ -94,7 +94,7 @@ function otherCatalogSources(document:Exhibition,sourceFor:(asset:CatalogAsset)=
   }catch{return [];}
  });
 }
-export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,collisionPolicy?:{scene:Three.Scene;enabled:(kind:'light'|'opening',id:string)=>boolean},lights?:ReadonlyMap<string,{light:Three.Light}>){
+export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<typeof catalogOtherSources>,rooms:ReadonlyMap<string,Three.Group>,fixtures:ReadonlyMap<string,Three.Object3D[]>,pedestals:ReadonlyMap<string,Three.Object3D[]>,signal:AbortSignal,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,collisionPolicy?:{scene:Three.Scene;enabled:(kind:'light'|'opening',id:string)=>boolean},lights?:ReadonlyMap<string,{light:Three.Light}>,fixtureSettled?:(id:string,status:'ready'|'model-failed')=>void){
  let disposed=false,remaining=FURNISHING_RESERVE_BYTES,triangles=0;const loaded:Awaited<ReturnType<typeof loadCatalogModel>>[]=[],hidden:{object:Three.Object3D;visible:boolean}[]=[],mounted=new Map<string,Three.Object3D>();
  const trackSources=new Map<string,ReturnType<typeof createTrackSpotRenderSource>>();
  const collisions=new Map<string,MountedFurnishingCollision>();
@@ -102,7 +102,7 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
  const start=async()=>{const results:{kind:string;id:string;status:string}[]=[];for(const item of items){
   if(disposed||signal.aborted||unavailable())break;
   const {binding,resolved}=item,room=rooms.get(resolved.roomId.toLowerCase()),fallback=binding.hostKind==='light'?fixtures.get(binding.hostId.toLowerCase()):binding.hostKind==='pedestal'?pedestals.get(binding.hostId.toLowerCase()):[];
-  if(!room||(binding.hostKind==='pedestal'&&!fallback?.length)){results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});continue;}
+  if(!room||(binding.hostKind==='pedestal'&&!fallback?.length)){if(binding.hostKind==='light')fixtureSettled?.(binding.hostId,'model-failed');results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});continue;}
   let visual:Awaited<ReturnType<typeof loadCatalogModel>>|undefined;const previous=(fallback??[]).map(object=>({object,visible:object.visible})),collisionId=binding.hostKind+':'+binding.hostId.toLowerCase();
   try{
    const wallwasher='wallwasher' in resolved?resolved.wallwasher:undefined,articulated='articulated' in resolved?resolved.articulated:undefined,mountProfile='mountProfile' in resolved?resolved.mountProfile:undefined;
@@ -145,8 +145,10 @@ export function installCatalogOtherVisuals(three:typeof Three,items:ReturnType<t
     const collision=mountedFurnishingCollision(three,collisionId,visual.model,collisionPolicy.scene,()=>disposed||signal.aborted||unavailable());
     if(collision)collisions.set(collisionId,collision);
    }
-   for(const h of previous)h.object.visible=false;changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);mounted.set(collisionId,visual.model);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});
-  }catch{collisions.delete(collisionId);for(const h of previous)h.object.visible=h.visible;visual?.dispose();results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});}
+   for(const h of previous)h.object.visible=false;
+   if(binding.hostKind==='light')fixtureSettled?.(binding.hostId,'ready');
+   changed();if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');remaining-=visual.resident;triangles+=visual.triangles;loaded.push(visual);mounted.set(collisionId,visual.model);hidden.push(...previous);results.push({kind:binding.hostKind,id:binding.hostId,status:'ready'});
+  }catch{collisions.delete(collisionId);for(const h of previous)h.object.visible=h.visible;visual?.dispose();if(binding.hostKind==='light'&&!disposed&&!signal.aborted&&!unavailable())fixtureSettled?.(binding.hostId,'model-failed');results.push({kind:binding.hostKind,id:binding.hostId,status:'fallback'});}
  }return results;};return {start,dispose,collisions,ready:(kind:string,id:string)=>{
   const model=mounted.get(kind+':'+id.toLowerCase());if(disposed||!model?.parent)return false;
   for(let node:Three.Object3D|null=model;node;node=node.parent)if(!node.visible)return false;
