@@ -393,8 +393,8 @@ test('verified in-flight step decoding is reused across mute and tab return, and
  }
 });
 
-async function verifiedStepFixture(){
- const f=preparedShortStep(),sample=BUILTIN_STEP_BANKS.wood[0],other=BUILTIN_STEP_BANKS.wood[1];
+async function verifiedStepFixture(sampleIndex:0|1=0){
+ const f=preparedShortStep(),sample=BUILTIN_STEP_BANKS.wood[sampleIndex],other=BUILTIN_STEP_BANKS.wood[1-sampleIndex]!;
  const audio=f.runtime as unknown as {setRoom:(id:string)=>void;pending:Map<string,Promise<AudioBuffer>>;loadQueue:Promise<unknown>;load:(id:string)=>Promise<AudioBuffer>;track:(source:AudioBufferSourceNode)=>void};
  const files=new Map<string,Uint8Array>(await Promise.all([sample,other].map(async id=>[id,await readFile(new URL(`../../public/footstep-samples/v1/${id}.wav`,import.meta.url))] as const)));
  const doc=f.internal.publication.exhibition;doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
@@ -421,6 +421,61 @@ test('a queued step cancelled by mute or tab hiding resumes the same selection o
    f.stride();assert.deepEqual(f.calls,[[0,0,.43]]);
   }finally{release();f.runtime.dispose();}
  }
+});
+test('room narration preloads retain the selected wood recording beside active BGM', async () => {
+ const f = await verifiedStepFixture(1);
+ const publication = f.internal.publication, doc = publication.exhibition;
+ const nextRoom = 'next-room';
+ doc.rooms.push({id:nextRoom} as typeof doc.rooms[number]);
+
+ // Match the first two r208 narration sizes with synthetic PCM and a mock decoder.
+ const voices = [20.304, 29.472].map((duration, index) => ({
+  assetId: `22222222-2222-4222-8222-22222222222${index}`,
+  roomId: index === 0 ? nextRoom : 'room',
+  bytes: wav(duration),
+ }));
+ doc.placements = voices.map(({assetId,roomId}) => ({id:assetId,roomId})) as typeof doc.placements;
+ doc.mediaAssets = voices.map(({assetId,bytes}) => ({
+  id:assetId, mime:'audio/wav', bytes:bytes.byteLength,
+  sha256:createHash('sha256').update(new Uint8Array(bytes)).digest('hex'),
+ })) as typeof doc.mediaAssets;
+ publication.assets = voices.map(({assetId}) => ({
+  assetId, mime:'audio/wav', url:`/api/v1/publications/${publication.publication.id}/assets/${assetId}`,
+ }));
+ const experience = f.runtime as unknown as {experience:{voices:Array<{assetId:string;placementId:string}>}};
+ experience.experience.voices = voices.map(({assetId}) => ({assetId,placementId:assetId}));
+ const local = publication.local!, fetchRecording = local.fetcher!;
+ const narrationRequests:string[] = [];
+ local.fetcher = async (input, init) => {
+  const voice = voices.find(({assetId}) => String(input).endsWith(`/${assetId}`));
+  if (!voice) return fetchRecording(input,init);
+  narrationRequests.push(voice.assetId);
+  return new Response(voice.bytes, {headers:{
+   'content-type':'audio/wav', 'x-exhibitos-publication-revision':publication.publication.revisionSha256,
+  }});
+ };
+ f.internal.context.decodeAudioData = async bytes => {
+  const pcm = verifyPcmWav(bytes);
+  return {...f.small(),duration:pcm.duration,length:Math.round(pcm.duration*48000)} as AudioBuffer;
+ };
+ const bgm = {duration:43.2,length:2073600,numberOfChannels:2} as AudioBuffer;
+ f.internal.buffers.set('active-bgm',bgm);
+ f.audio.track({buffer:bgm,disconnect:()=>{},stop:()=>{}} as unknown as AudioBufferSourceNode);
+ try {
+  f.internal.state.enabled = false;
+  f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));
+  f.internal.state.enabled = true;
+  await f.begin();
+  await f.audio.loadQueue;
+  assert.deepEqual(narrationRequests,voices.map(({assetId}) => assetId));
+  assert.equal(f.internal.buffers.get('active-bgm'),bgm);
+  assert.equal(f.internal.buffers.has(voices[1]!.assetId),true);
+  f.stride();
+  assert.deepEqual(f.calls,[[0,0,.43]]);
+  assert.equal(f.runtime.snapshot().footsteps,1);
+  assert.equal(f.requests(),1);
+  assert.ok(f.runtime.snapshot().decodedBytes <= 24*1024*1024);
+ } finally { f.runtime.dispose(); }
 });
 test('actual cache eviction is followed by one same-choice reload on a new stride, never synthetic playback',async()=>{
  const f=await verifiedStepFixture();

@@ -628,10 +628,10 @@ export class ExhibitionAudio implements AudioApi {
       this.state.message='일부 소리가 없거나 검증되지 않았습니다. 글 설명과 걷기는 유지되며, 준비되지 않은 녹음 발소리는 재생하지 않습니다.';this.emit();
     }).finally(()=>{if(!this.preloadTargets().includes(id))this.preload();});
   }
-  private admitDecodedBytes(bytes:number){
+  private admitDecodedBytes(bytes:number, retainedStepId?:string){
     if(!Number.isFinite(bytes)||bytes>MAX_DECODED)throw Error('AUDIO_CACHE_LIMIT');
     while(bytes+[...this.buffers.values()].reduce((total,buffer)=>total+buffer.length*buffer.numberOfChannels*4,0)>MAX_DECODED){
-      const key=[...this.buffers.keys()].find(key=>![...this.playing].some(source=>source.buffer===this.buffers.get(key)));
+      const key=[...this.buffers.keys()].find(key=>key!==retainedStepId&&![...this.playing].some(source=>source.buffer===this.buffers.get(key)));
       if(!key)throw Error('AUDIO_CACHE_PRESSURE');
       this.buffers.delete(key);
     }
@@ -666,6 +666,11 @@ export class ExhibitionAudio implements AudioApi {
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const pcm=verifyPcmWav(bytes);
       if(!curationDurationValid(this.publication.exhibition,id,pcm.duration))throw Error("AUDIO_TRANSCRIPT_DURATION_MISMATCH");
+      // Background preloads must leave the current recording ready for the next stride.
+      // Explicit playback can still reclaim its cache space when needed.
+      const admit = (decodedBytes:number) => this.admitDecodedBytes(
+        decodedBytes, preload && !this.explicitLoads.has(id) ? this.selectedStepBank()?.id : undefined,
+      );
       const prepareDecode = this.pendingDecodePreparation.get(id);
       if (prepareDecode || this.experience.rooms.some(room => room.bgm?.assetId.toLowerCase() === id.toLowerCase())) {
         const decodedBytes = Math.ceil(pcm.duration * this.context.sampleRate) * pcm.channels * 4;
@@ -674,17 +679,17 @@ export class ExhibitionAudio implements AudioApi {
             await prepareDecode(decodedBytes);
           } catch (error) {
             if (beforeDecode || !(error instanceof Error) || error.message !== 'AUDIO_CANCELLED') throw error;
-            this.admitDecodedBytes(decodedBytes);
+            admit(decodedBytes);
           }
         } else {
           // A shared asset can reach decoding before room playback joins the load.
-          this.admitDecodedBytes(decodedBytes);
+          admit(decodedBytes);
         }
       }
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
-      this.admitDecodedBytes(buffer.length*buffer.numberOfChannels*4);
+      admit(buffer.length*buffer.numberOfChannels*4);
       this.buffers.set(id, buffer); this.emit(); return buffer;
     }).finally(()=>{this.pending.delete(id);this.pendingDecodePreparation.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
