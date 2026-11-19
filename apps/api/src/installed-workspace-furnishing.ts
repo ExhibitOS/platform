@@ -5,9 +5,21 @@ import {
  installedFrameDescriptors,installedFrameDescriptorFor,matchingInstalledFrameDescriptor,readInstalledFrameById,
 } from './installed-artwork-frame.ts';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
+import authoredFrames from './installed-artwork-frames.json' with {type:'json'};
 import authoredHosts from './installed-workspace-hosts.json' with {type:'json'};
 
-const hosts=authoredHosts as unknown as readonly {path:string;descriptor:WorkspaceFurnishingDescriptor}[];
+import type {DefaultCatalogueFile} from './default-catalogue-update-plan.ts';
+
+type Installed = {catalogId:string;path:string;descriptor:WorkspaceFurnishingDescriptor;notice?:DefaultCatalogueFile};
+const hosts=authoredHosts as unknown as readonly Installed[];
+const frames=authoredFrames as unknown as readonly Installed[];
+
+export function installedFurnishingCatalogueFile(descriptor:WorkspaceFurnishingDescriptor){
+ const entry=[...frames,...hosts].find(item=>isDeepStrictEqual(item.descriptor,descriptor));
+ if(!entry)return;
+ const {bytes,sha256}=descriptor.model;
+ return {catalogId:entry.catalogId, file:{path:entry.path,bytes,sha256},notice:entry.notice};
+}
 
 export function installedFurnishingDescriptors():WorkspaceFurnishingDescriptor[]{
  return [...installedFrameDescriptors(),...hosts.map(item=>structuredClone(item.descriptor))];
