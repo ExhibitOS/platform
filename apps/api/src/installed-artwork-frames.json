@@ -101,5 +101,49 @@
         "renderRequestId": "0d02fc63-52ed-43a1-846e-a87b11edef8d"
       }
     }
+  },
+  {
+    "catalogId": "wheat-matte-oak-frame",
+    "path": "assets/furnishings/exhibitos-authored-20261109/wheat-matte-oak-frame/model.glb",
+    "descriptor": {
+      "id": "4ddff48b-c2b2-5166-9e35-cd1c7aabb5b3",
+      "version": 1,
+      "kind": "artwork-frame",
+      "name": "Wheat Matte Oak Frame",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 3380,
+        "sha256": "a96b4942c2cd10b25fe1b33001443e1824fc125bc258f28a68547d38d8c54362"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "ownership": "owner",
+        "licenseId": "CC0-1.0",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "display": true,
+          "download": true,
+          "export": true,
+          "commercial": true
+        }
+      },
+      "provenance": "ExhibitOS default furnishings, wheat-matte-oak-frame v1. Original fixed-fit frame for Wheat Field with Cypresses.",
+      "fit": {
+        "version": 1,
+        "sourceSha256": "a96b4942c2cd10b25fe1b33001443e1824fc125bc258f28a68547d38d8c54362",
+        "sourceBytes": 3380,
+        "geometry": {
+          "profile": "straight-ring-v1",
+          "openingWidth": 0.94,
+          "openingHeight": 0.738,
+          "imagePlaneZ": -0.012
+        }
+      }
+    },
+    "notice": {
+      "path": "assets/furnishings/exhibitos-authored-20261109/wheat-matte-oak-frame/LICENSE-NOTICE.txt",
+      "bytes": 580,
+      "sha256": "c9d8e0a394a5922f018b4d376fe575c499462d18216740b31bab1642617d077c"
+    }
   }
 ]

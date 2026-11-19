@@ -6,6 +6,8 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {furnishingAsset,furnishingCatalogueEntry,type FurnishingAsset} from '@exhibitos/studio-contract';
 import {ApiError} from './api-error.ts';
+import authoredHosts from './installed-workspace-hosts.json' with {type:'json'};
+const installedHostPaths=new Set(authoredHosts.flatMap(host=>[host.path,host.notice.path]));
 /** Only compile-time catalogue paths are read. Caller-supplied roots, filenames,
  * URLs and symlink components never reach a filesystem read. */
 export async function readFurnishingBytes(asset:Pick<FurnishingAsset,'id'|'catalogId'|'catalogVersion'|'bytes'|'sha256'>,role:'model'|'notice'='model',signal?:AbortSignal){
@@ -22,7 +24,7 @@ export async function readFurnishingBytes(asset:Pick<FurnishingAsset,'id'|'catal
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal):Promise<Buffer>;
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal:AbortSignal|undefined,optional:true):Promise<Buffer|undefined>;
 export async function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal,optional=false):Promise<Buffer|undefined>{
- if(!/^assets\/furnishings\/(?:user-authored-20261027\/[a-z-]+|exhibitos-authored-20261111\/museum-wallwasher(?:-rear-relief)?|exhibitos-authored-20261112\/sculpture-bench-refined)\/(model\.glb|LICENSE-NOTICE\.txt)$/.test(relative)&&relative!=='assets/furnishings/user-authored-20261027/thin-brass-frame/thumbnail.png'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-fixed-64p1/model.glb'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-fixed-64p1/LICENSE-NOTICE.txt'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-articulated/model.glb'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-articulated/LICENSE-NOTICE.txt')throw new ApiError(404,'FURNISHING_UNAVAILABLE');
+ if(!installedHostPaths.has(relative)&&!/^assets\/furnishings\/(?:user-authored-20261027\/[a-z-]+|exhibitos-authored-20261111\/museum-wallwasher(?:-rear-relief)?|exhibitos-authored-20261112\/sculpture-bench-refined)\/(model\.glb|LICENSE-NOTICE\.txt)$/.test(relative)&&relative!=='assets/furnishings/exhibitos-authored-20261109/wheat-matte-oak-frame/model.glb'&&relative!=='assets/furnishings/exhibitos-authored-20261109/wheat-matte-oak-frame/LICENSE-NOTICE.txt'&&relative!=='assets/furnishings/user-authored-20261027/thin-brass-frame/thumbnail.png'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-fixed-64p1/model.glb'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-fixed-64p1/LICENSE-NOTICE.txt'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-articulated/model.glb'&&relative!=='assets/furnishings/exhibitos-authored-20261115/museum-track-spot-articulated/LICENSE-NOTICE.txt')throw new ApiError(404,'FURNISHING_UNAVAILABLE');
  let directory=fileURLToPath(new URL('../../../',import.meta.url));
  try{
   for(const part of relative.split('/').slice(0,-1)){signal?.throwIfAborted();directory=join(directory,part);const stat=await lstat(directory);if(stat.isSymbolicLink()||!stat.isDirectory())throw Error('UNSAFE_SOURCE');}
