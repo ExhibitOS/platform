@@ -10,7 +10,7 @@ import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {reconstructNativeOriginalExport} from './native-original-export-plan.ts';
-import {bindNativeDetailContext,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
+import {bindNativeDetailContext,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -58,6 +58,12 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
    expect(Object.isFrozen(scoped.selectedHead)).toBe(true);
    const publicFinishes={...cannon,scope:OCCUPIED_PUBLIC_FINISH_SCOPE};
    expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,publicFinishes).selectedHead).toEqual(publicFinishes);
+   const postWheat={revision:OCCUPIED_POST_WHEAT_REVISION,etag:OCCUPIED_POST_WHEAT_ETAG};
+   for(const scope of [OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_CANNON_SCOPE]){
+    const marker={...postWheat,scope,projectionIdentity:cannon.projectionIdentity};
+    expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,marker).selectedHead).toEqual(marker);
+   }
+   expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,postWheat)).toThrow('NATIVE_DETAIL_CONFIGURATION');
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');
    for(const invalid of [
     {...cannon,revision:OCCUPIED_SELECTED_OUTPUT_REVISION}, {...cannon,etag:match},

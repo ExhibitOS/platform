@@ -19,7 +19,8 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_SELECTED_FINISH_ETAG,
+  OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
+  OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
   requiresOccupiedSelectedHead, type NativeDetailContext,
 } from './native-detail-context.ts';
@@ -102,12 +103,15 @@ export async function loadSelectedNativeRelease(
   match: string, image: NativeOriginalPublication['originalImage'], selectedHead?: NativeDetailContext['selectedHead'],
 ): Promise<SelectedNativeRelease> {
   if (row.studio_owner_user_id !== s.userId) throw new ApiError(403, 'FORBIDDEN');
-  const visualFinishes = row.revision === OCCUPIED_SELECTED_FINISH_REVISION;
+  const postWheat = row.revision === OCCUPIED_POST_WHEAT_REVISION;
+  const visualFinishes = postWheat || row.revision === OCCUPIED_SELECTED_FINISH_REVISION;
   const defaultLighting = requiresOccupiedSelectedHead(row.revision);
   if (defaultLighting && !selectedHead) return unavailable();
-  if ((visualFinishes && match !== OCCUPIED_SELECTED_FINISH_ETAG) ||
+  const finishMatch = postWheat ? OCCUPIED_POST_WHEAT_ETAG : OCCUPIED_SELECTED_FINISH_ETAG;
+  if ((visualFinishes && match !== finishMatch) ||
       (selectedHead && (row.revision !== selectedHead.revision || match !== selectedHead.etag)))
     throw new ApiError(412, 'REMOTE_CONFLICT');
+  if (postWheat && !selectedHead?.scope) return unavailable();
   const captionStands = row.revision === captionStandsRevision || defaultLighting;
   if ((!captionStands && row.revision !== currentRevision) || etag(row.revision, row.metadata) !== match ||
       (!defaultLighting && releaseFingerprint(match) !== (captionStands ? captionStandsHeadFingerprint : currentHeadFingerprint)))
@@ -155,11 +159,19 @@ export async function loadSelectedNativeRelease(
   if (!lightingHead || lightingHead.exhibitionId !== exhibitionId ||
       (visualFinishes && etag(OCCUPIED_SELECTED_OUTPUT_REVISION, lightingHead) !== lightingETag))
     return unavailable();
+  // The current owner and ETag still govern export. The authenticated full r217
+  // head adds the unrelated Wheat attachment; preserve the exact r216 inputs to
+  // both scoped projections instead of carrying its subsequent authoring into either scene.
+  const finishHead = postWheat ? await savedRevision(OCCUPIED_SELECTED_FINISH_REVISION) : row.metadata;
+  if (!finishHead || (postWheat && (finishHead.exhibitionId !== exhibitionId ||
+      etag(OCCUPIED_SELECTED_FINISH_REVISION, finishHead) !== OCCUPIED_SELECTED_FINISH_ETAG)))
+    return unavailable();
+
   if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE) {
     // Replay the retained public projection. The full r215 draft is used only
     // to prove that the exact authenticated r216 authoring delta is the five saved textures.
     if (captionIdentity !== approvedPublicCaptionIdentity) return unavailable();
-    const publicFinishes = projectSelectedVisualFinishes(withStands, lightingHead, row.metadata);
+    const publicFinishes = projectSelectedVisualFinishes(withStands, lightingHead, finishHead);
     return bindScopedSelection(selected, publicFinishes, fingerprintCanonical([captionIdentity, approvedPublicBody]), match, selectedHead);
   }
 
@@ -169,14 +181,14 @@ export async function loadSelectedNativeRelease(
   ])).digest('hex')}`;
   if (!visualFinishes) return {...selected, candidate: withLighting, projectionIdentity: lightingIdentity};
 
-  const withFinishes = projectSelectedVisualFinishes(withLighting, lightingHead, row.metadata);
+  const withFinishes = projectSelectedVisualFinishes(withLighting, lightingHead, finishHead);
   const finishIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
-    SELECTED_NATIVE_RELEASE, lightingIdentity, 'seven-visual-finishes-v1', match, withFinishes,
+    SELECTED_NATIVE_RELEASE, lightingIdentity, 'seven-visual-finishes-v1', OCCUPIED_SELECTED_FINISH_ETAG, withFinishes,
   ])}`;
   if (!selectedHead?.scope) return {...selected, candidate: withFinishes, projectionIdentity: finishIdentity};
   if (selectedHead.scope !== OCCUPIED_CANNON_SCOPE) return unavailable();
 
-  const candidateWithCannon = projectSelectedCannon(withFinishes, row.metadata.candidate);
+  const candidateWithCannon = projectSelectedCannon(withFinishes, finishHead.candidate);
   return bindScopedSelection(selected, candidateWithCannon, finishIdentity, match, selectedHead);
 }
 
