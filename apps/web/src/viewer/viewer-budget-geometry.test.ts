@@ -14,6 +14,7 @@ import {loadBudgetGeometry} from './viewer-budget-glb';
 import {DEVICE_BUDGETS,workspaceFurnishingModelPreflight} from './loading';
 import {analyzeViewerBudgetGeometry} from './viewer-budget-geometry';
 import {environmentEstimate} from './render-quality';
+import {COMPACT_SHADOW_RESERVE_BYTES} from './shadows';
 import {articulatedTrackFixture} from '../private-editor/articulated-track.test-fixture';
 const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 afterEach(()=>vi.unstubAllGlobals());
@@ -90,7 +91,13 @@ test('charges the planned two-map scenario and uses texture quality for compact 
  candidate.lights=[light(-1)];const single=await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:async()=>body});candidate.lights.push(light(1));const dual=await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:async()=>body});
  expect(single.wholeExhibition.shadowDepthTriangles).toBeGreaterThan(0);expect(dual.wholeExhibition.shadowDepthTriangles).toBe(single.wholeExhibition.shadowDepthTriangles!*2);expect(dual.wholeExhibition.residentBytes!-single.wholeExhibition.residentBytes!).toBe(2*1024*1024);expect(dual.wholeExhibition.transitionBytes!-single.wholeExhibition.transitionBytes!).toBe(2*1024*1024);
  const limited=setViewerBudgetOverrides(candidate,'standard',{admission:{residentBytes:single.wholeExhibition.residentBytes!+1024*1024}}),policy=resolveViewerBudgetPolicy(limited,'standard'),checked=await analyzeViewerBudgetGeometry({candidate:limited,profile:'standard',resolvedPolicy:policy,loadVerifiedAsset:async()=>body});expect(evaluateViewerBudgetUsage(policy,checked.wholeExhibition).admissionExceeded).toContain('residentBytes');
- const compactQuality=await analyzeViewerBudgetGeometry({candidate,profile:'standard',selectionBudget:{maxTriangles:100000,maxTextureSize:512},loadVerifiedAsset:async()=>body});expect(compactQuality.wholeExhibition).toMatchObject({shadowCasterTriangles:0,shadowDepthTriangles:0});expect(compactQuality.wholeExhibition.residentBytes).toBeLessThan(single.wholeExhibition.residentBytes!);
+ const compactQuality=await analyzeViewerBudgetGeometry({candidate,profile:'standard',selectionBudget:{maxTriangles:100000,maxTextureSize:512},loadVerifiedAsset:async()=>body});expect(compactQuality.wholeExhibition.shadowDepthTriangles).toBe(single.wholeExhibition.shadowDepthTriangles);expect(compactQuality.wholeExhibition.residentBytes).toBeLessThan(single.wholeExhibition.residentBytes!);
+ const compactOff=structuredClone(candidate);
+ for(const spot of compactOff.lights)spot.castsShadow=false;
+ const unlit=await analyzeViewerBudgetGeometry({candidate:compactOff,profile:'standard',selectionBudget:{maxTriangles:100000,maxTextureSize:512},loadVerifiedAsset:async()=>body});
+ expect(unlit.wholeExhibition).toMatchObject({shadowCasterTriangles:0,shadowDepthTriangles:0});
+ expect(compactQuality.wholeExhibition.residentBytes!-unlit.wholeExhibition.residentBytes!).toBe(COMPACT_SHADOW_RESERVE_BYTES);
+ expect(compactQuality.wholeExhibition.transitionBytes!-unlit.wholeExhibition.transitionBytes!).toBe(COMPACT_SHADOW_RESERVE_BYTES);
 });
 
 test('default room lighting drops only the synthetic environment reserve in both quality profiles',async()=>{
