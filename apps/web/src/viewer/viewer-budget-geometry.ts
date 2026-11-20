@@ -182,7 +182,9 @@ export async function analyzeViewerBudgetGeometry(input:ViewerBudgetGeometryInpu
    const renderer={shadowMap:{enabled:false,autoUpdate:true,type:three.PCFShadowMap}} as unknown as three.WebGLRenderer;
    const pass=installBoundedShadows(three,renderer,candidates,compactQuality,compactQuality?compactShadowReserve:2*SHADOW_RESERVE_BYTES,value=>{shadow=value;},fixed,profile==='native'?384:256,{shadowCasterTriangles:Number.MAX_SAFE_INTEGER,shadowDepthTriangles:Number.MAX_SAFE_INTEGER});owned.push(pass);pass.flush();
   }
-  const cost=existingSceneCost(three,scene),geometry=geometryBytes(scene),complete=unknown.length===0&&memoryComplete&&!(shadow?.omittedCasters||shadow?.deferredSources);
+  const viewDependentShadows=compactQuality?sculptureRooms.size>1:sculptureRooms.size>0;
+  const cost=existingSceneCost(three,scene),geometry=geometryBytes(scene),complete=unknown.length===0&&memoryComplete&&!viewDependentShadows&&!(shadow?.omittedCasters||shadow?.deferredSources);
+  if(viewDependentShadows)assumptions.push('Shadow depth values sample one source set. Viewer room and camera changes can select other sources with different depth costs.');
   if(catalogResident>4*1024*1024){memoryComplete=false;assumptions.push('Catalogue-other source/node demand exceeds the independent 4 MiB renderer suballocation; inspect fixture contributors before runtime use.');}
   assumptions.push(`Selected per-model allowance ${budget.maxTriangles} triangles / ${budget.maxTextureSize}px (${input.selectionBudget?'explicit runtime selection':'profile default'}); no device performance guarantee.`,
    'Whole-exhibition geometry includes hidden authored objects and retained procedural fallbacks; it is not a current-view draw count.',

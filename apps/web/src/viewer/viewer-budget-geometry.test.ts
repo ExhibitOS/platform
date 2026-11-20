@@ -100,6 +100,30 @@ test('charges the planned two-map scenario and uses texture quality for compact 
  expect(compactQuality.wholeExhibition.transitionBytes!-unlit.wholeExhibition.transitionBytes!).toBe(COMPACT_SHADOW_RESERVE_BYTES);
 });
 
+
+test('a sampled narrow sculpture spot does not certify the wider Detailed fallback',async()=>{
+ const body=await sculpture(),candidate=newDraft().candidate,art=syntheticArtwork();
+ art.assets[0]!.bytes=body.length;art.assets[0]!.sha256=digest(body);
+ candidate.artworks=[art];
+ const roomId=candidate.rooms[0]!.id;
+ const target=newPlacement(art,roomId);
+ target.transform.position=[0,.5,0];
+ candidate.placements=[target];
+ for(const x of [-3,3]){
+  const extra=newPlacement(art,roomId);extra.transform.position=[x,.5,0];candidate.placements.push(extra);
+ }
+ const spot={id:crypto.randomUUID(),roomId,type:'spot' as const,targetPlacementId:target.id,
+  transform:{position:[0,3.8,3] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],scale:[1,1,1] as [number,number,number]},
+  color:[1,1,1] as [number,number,number],intensity:40,unit:'candela' as const,beamAngle:1.8,castsShadow:false};
+ candidate.lights=[spot];
+ const fallback=await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:async()=>body});
+ candidate.lights.push({...spot,id:crypto.randomUUID(),beamAngle:.22,castsShadow:true});
+ const scoped=await analyzeViewerBudgetGeometry({candidate,profile:'standard',loadVerifiedAsset:async()=>body});
+ expect(scoped.wholeExhibition.shadowDepthTriangles).toBeLessThan(fallback.wholeExhibition.shadowDepthTriangles!);
+ expect(scoped.wholeExhibition.complete).toBe(false);
+ expect(scoped.assumptions).toContain('Shadow depth values sample one source set. Viewer room and camera changes can select other sources with different depth costs.');
+});
+
 test('default room lighting drops only the synthetic environment reserve in both quality profiles',async()=>{
  const draft=newDraft().candidate,roomId=draft.rooms[0]!.id;
  const legacy=ensureRoomBaseLight(draft,roomId,undefined,.5);
