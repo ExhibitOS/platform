@@ -19,7 +19,8 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  OCCUPIED_CANNON_SCOPE, OCCUPIED_SELECTED_FINISH_ETAG, OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
+  OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_SELECTED_FINISH_ETAG,
+  OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
   requiresOccupiedSelectedHead, type NativeDetailContext,
 } from './native-detail-context.ts';
 import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
@@ -35,6 +36,8 @@ const captionStandsRevision = 210;
 const cannonId = 'f8802a33-ccfc-4633-9369-37142e290d8e';
 const cannonCommitment = '3d5c8a4f2e97984fa967a5bf47ba84b77a6d713ba36c017ff51fbac6371fdab7';
 const acceptedSevenFinishesScene = '88fe9a946639467be77772c0b444b1f57e913bb77411c16c86de6fc1fe91cf4c';
+const approvedPublicCaptionIdentity = 'v1:08b75309a86fbb928e887aa63188d2b88ed31af1bdc54308256fc6e4d41c95d8';
+const approvedPublicBody = '342e80dcf6ec9126a18239c4b1c9d95050b30e2ed980e9c4d9b65815428aa818';
 const occupiedLightingETag = '"studio-r215-4c96569af0cca07ee52acaa281e6b9c486962efb10f4d2955afa799e859fbeed"';
 const captionStandsHeadFingerprint = '2a7c53715e9658cb2dd3266f1a12401432d49d27c283ba349e7415b97d5b8671';
 const acceptedGreekScene = '19df6f29ed2887f73898209e6848f9a25970e67fbf8983798a420eac78e3172f';
@@ -152,6 +155,14 @@ export async function loadSelectedNativeRelease(
   if (!lightingHead || lightingHead.exhibitionId !== exhibitionId ||
       (visualFinishes && etag(OCCUPIED_SELECTED_OUTPUT_REVISION, lightingHead) !== lightingETag))
     return unavailable();
+  if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE) {
+    // Replay the retained public projection. The full r215 draft is used only
+    // to prove that the exact authenticated r216 authoring delta is the five saved textures.
+    if (captionIdentity !== approvedPublicCaptionIdentity) return unavailable();
+    const publicFinishes = projectSelectedVisualFinishes(withStands, lightingHead, row.metadata);
+    return bindScopedSelection(selected, publicFinishes, fingerprintCanonical([captionIdentity, approvedPublicBody]), match, selectedHead);
+  }
+
   const withLighting = projectSelectedRoomLighting(withStands, captionHead, lightingHead);
   const lightingIdentity: SelectedProjectionIdentity = `v1:${createHash('sha256').update(freezeCanonical([
     SELECTED_NATIVE_RELEASE, captionIdentity, 'room-ceiling-fill-default-v1', lightingETag, withLighting,
@@ -166,11 +177,17 @@ export async function loadSelectedNativeRelease(
   if (selectedHead.scope !== OCCUPIED_CANNON_SCOPE) return unavailable();
 
   const candidateWithCannon = projectSelectedCannon(withFinishes, row.metadata.candidate);
-  const cannonIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
-    SELECTED_NATIVE_RELEASE, finishIdentity, OCCUPIED_CANNON_SCOPE, match, candidateWithCannon,
+  return bindScopedSelection(selected, candidateWithCannon, finishIdentity, match, selectedHead);
+}
+
+type ScopedSelectedHead = Extract<NonNullable<NativeDetailContext['selectedHead']>, {scope: string}>;
+function bindScopedSelection(selected: ReturnType<typeof composeSelectedScene>, candidate: Exhibition,
+  predecessor: string, match: string, head: ScopedSelectedHead): SelectedNativeRelease {
+  const projectionIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
+    SELECTED_NATIVE_RELEASE, predecessor, head.scope, match, candidate,
   ])}`;
-  if (cannonIdentity !== selectedHead.projectionIdentity) return unavailable();
-  return {...selected, candidate: candidateWithCannon, projectionIdentity: cannonIdentity};
+  if (projectionIdentity !== head.projectionIdentity) return unavailable();
+  return {...selected, candidate, projectionIdentity};
 }
 
 const fingerprintCanonical = (value: unknown) => createHash('sha256').update(freezeCanonical(value)).digest('hex');

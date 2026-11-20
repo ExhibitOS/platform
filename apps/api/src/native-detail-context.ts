@@ -5,9 +5,11 @@ export const OCCUPIED_SELECTED_OUTPUT_REVISION = 215;
 export const OCCUPIED_SELECTED_FINISH_REVISION = 216;
 export const OCCUPIED_SELECTED_FINISH_ETAG = '"studio-r216-81122b38783da0ef3c22b571ff941074d02d6f43a8ffc8417d9bfe0877d285ea"';
 export const OCCUPIED_CANNON_SCOPE = 'transition-cannon-v1';
+export const OCCUPIED_PUBLIC_FINISH_SCOPE = 'public-seven-visual-finishes-v1';
+type OccupiedSelectionScope = typeof OCCUPIED_CANNON_SCOPE | typeof OCCUPIED_PUBLIC_FINISH_SCOPE;
 type SelectedSavedHead =
  | {revision:typeof OCCUPIED_SELECTED_OUTPUT_REVISION | typeof OCCUPIED_SELECTED_FINISH_REVISION;etag:string;scope?:never;projectionIdentity?:never}
- | {revision:typeof OCCUPIED_SELECTED_FINISH_REVISION;etag:string;scope:typeof OCCUPIED_CANNON_SCOPE;projectionIdentity:`v1:${string}`};
+ | {revision:typeof OCCUPIED_SELECTED_FINISH_REVISION;etag:string;scope:OccupiedSelectionScope;projectionIdentity:`v1:${string}`};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
  return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION;
 }
@@ -20,7 +22,7 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
  const keys=Object.keys(head).sort().join(',');
  if(keys==='etag,projectionIdentity,revision,scope'){
   return head.revision===OCCUPIED_SELECTED_FINISH_REVISION&&head.etag===OCCUPIED_SELECTED_FINISH_ETAG&&
-   head.scope===OCCUPIED_CANNON_SCOPE&&typeof head.projectionIdentity==='string'&&/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity);
+   (head.scope===OCCUPIED_CANNON_SCOPE||head.scope===OCCUPIED_PUBLIC_FINISH_SCOPE)&&typeof head.projectionIdentity==='string'&&/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity);
  }
  if(keys!=='etag,revision'||typeof head.etag!=='string')return false;
  return head.revision===OCCUPIED_SELECTED_FINISH_REVISION

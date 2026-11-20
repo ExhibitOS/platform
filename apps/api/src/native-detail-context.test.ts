@@ -10,7 +10,7 @@ import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {reconstructNativeOriginalExport} from './native-original-export-plan.ts';
-import {bindNativeDetailContext,OCCUPIED_CANNON_SCOPE,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
+import {bindNativeDetailContext,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -56,10 +56,13 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
    const scoped=bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,cannon);
    expect(scoped.selectedHead).toEqual(cannon);
    expect(Object.isFrozen(scoped.selectedHead)).toBe(true);
+   const publicFinishes={...cannon,scope:OCCUPIED_PUBLIC_FINISH_SCOPE};
+   expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,publicFinishes).selectedHead).toEqual(publicFinishes);
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');
    for(const invalid of [
     {...cannon,revision:OCCUPIED_SELECTED_OUTPUT_REVISION}, {...cannon,etag:match},
     {...cannon,scope:'transition-two-spots-v1'}, {...cannon,projectionIdentity:undefined},
+    {...publicFinishes,scope:'seven-visual-finishes-v1'}, {...publicFinishes,revision:217},
     {...cannon,projectionIdentity:'v1:bad'}, {...cannon,allowHayes:true},
    ])expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
   }
