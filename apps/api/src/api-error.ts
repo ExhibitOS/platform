@@ -8,3 +8,11 @@ export class NativeTrackSpotAimProposalError extends ApiError {
   this.message=`${reason}: ${remedy}`;
  }
 }
+
+/** A reference already checked against the current authenticated workspace. */
+export class WorkspaceFurnishingReferenceError extends ApiError {
+ constructor(status:number,code:string,id:string,version:number,reason:string){
+  super(status,code);
+  this.message=`Furnishing ${id} (version ${version}): ${reason}`;
+ }
+}

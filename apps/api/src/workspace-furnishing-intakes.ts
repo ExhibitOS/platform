@@ -15,6 +15,7 @@ import {prepareBenchBaseColorInWorker,prepareFrameInWorker,prepareInfoStandInWor
 import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.ts';
 import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
+import {WorkspaceFurnishingReferenceError} from './api-error.ts';
 import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
 import type {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
 import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
@@ -227,6 +228,7 @@ export class WorkspaceFurnishingIntakes {
   switch(descriptor.kind){
    case 'artwork-frame':return this.supportsArtworkFrameModels();
    case 'ceiling-rail':return this.supportsCeilingRail();
+   case 'info-stand':return this.supportsRoomVisual();
    case 'portal-finish':return this.supportsPortalFinish()&&this.supportsReusableFit();
    default:return false;
   }
@@ -246,8 +248,13 @@ export class WorkspaceFurnishingIntakes {
   await this.checkOwner(c,s);
   if(version!==descriptor.version)throw new ApiError(400,'INVALID_INPUT');
   if(purpose&&!allowedRights(descriptor.rights,purpose))throw new ApiError(403,'RIGHTS_DENIED');
-  const model=this.supportsInstalled(descriptor)?await this.installedBytes(c,descriptor,discover):undefined;
-  if(!model)throw new ApiError(404,'FURNISHING_NOT_FOUND');
+  if(!this.supportsInstalled(descriptor))throw new WorkspaceFurnishingReferenceError(404,'FURNISHING_NOT_FOUND',descriptor.id,version,'This installed version is unavailable in the workspace.');
+  const model=await this.installedBytes(c,descriptor,discover).catch(error=>{
+   if(error instanceof ApiError&&['FURNISHING_INTEGRITY','DEFAULT_CATALOGUE_INTEGRITY'].includes(error.code))
+    throw new WorkspaceFurnishingReferenceError(error.status,error.code,descriptor.id,version,'The installed model or its license notice failed verification.');
+   throw error;
+  });
+  if(!model)throw new WorkspaceFurnishingReferenceError(404,'FURNISHING_NOT_FOUND',descriptor.id,version,'The installed model or its license notice is missing.');
   await this.writer?.assertLive();
   return model;
  }
@@ -265,7 +272,7 @@ export class WorkspaceFurnishingIntakes {
   const result=await readInstalledFrameThumbnail(id);if(!result)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.checkOwner(c,s);return result;
  }
- private async version(c:PoolClient,s:Session,id:string,version:number){await this.checkOwner(c,s);uuid(id);if(!Number.isSafeInteger(version)||version!==1)throw new ApiError(400,'INVALID_INPUT');const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(result.rowCount!==1)throw new ApiError(404,'FURNISHING_NOT_FOUND');return result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string};}
+ private async version(c:PoolClient,s:Session,id:string,version:number){await this.checkOwner(c,s);uuid(id);if(!Number.isSafeInteger(version)||version!==1)throw new ApiError(400,'INVALID_INPUT');const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(result.rowCount!==1)throw new WorkspaceFurnishingReferenceError(404,'FURNISHING_NOT_FOUND',id,version,'This version is not installed or registered in the workspace.');return result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string};}
  async readVersion(c:PoolClient,s:Session,id:string,version:number){
   const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
   if(installed){await this.installedModel(c,s,version,installed);return installed;}
