@@ -72,7 +72,7 @@ import {registerSelectedNativeOexUploadSlot,type NativeBoundedUploadSlot} from '
 import {registerSelectedStudioPutGate,runSelectedStudioPut,type SelectedStudioPutSlot} from './native-selected-studio-put.ts';
 import {registerNativeBoundedOexExport} from './native-bounded-oex-export.ts';
 import {registerNativeDetailHttp} from './native-detail-http.ts';
-import {isIssuedNativeDetailContext,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
+import {isIssuedNativeDetailContext,requiresOccupiedSelectedHead} from './native-detail-context.ts';
 import {isIssuedNativeHayesCaller} from './native-hayes-caller.ts';
 import {isHayesReleaseContext} from './hayes-original-attempt.ts';
 import {readHayesTerminal,requireHayesTerminalContext} from './hayes-preopen-terminal.ts';
@@ -506,7 +506,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     let selected:SelectedNativeRelease|undefined, assertNarrationTime:(()=>void)|undefined;
     if(releaseSelection){
      const row=await studio.access(c,s,p.id);
-     if(row.revision===OCCUPIED_SELECTED_OUTPUT_REVISION&&!detailContext?.selectedHead)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+     if(requiresOccupiedSelectedHead(row.revision)&&!detailContext?.selectedHead)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
      selected=await loadSelectedNativeRelease(c,s,p.id,row,match!,originalImage,detailContext?.selectedHead);
      assertNarrationTime=await selectedNarrationRights(c,s,p.id,selected);
     }

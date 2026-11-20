@@ -18,7 +18,11 @@ import {installedFurnishingDescriptorFor} from './installed-workspace-furnishing
 import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
-import {OCCUPIED_SELECTED_OUTPUT_REVISION, type NativeDetailContext} from './native-detail-context.ts';
+import {
+  OCCUPIED_SELECTED_FINISH_ETAG, OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
+  requiresOccupiedSelectedHead, type NativeDetailContext,
+} from './native-detail-context.ts';
+import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
 
 // Keep the persisted selection mode stable across exact-head corrections.
 export const SELECTED_NATIVE_RELEASE = 'r125-approved-r201-v1';
@@ -28,6 +32,7 @@ const currentRevision = 209;
 const baselineHeadFingerprint = '6a72a23fee8814e9b17803d07c915a5b9119a7c8089dfd96f545df30ad8f2739';
 const currentHeadFingerprint = '9f65016cf75b3a6a38b5b15f85031fe62003d1e28b90d2b31101dbf42852e21d';
 const captionStandsRevision = 210;
+const occupiedLightingETag = '"studio-r215-4c96569af0cca07ee52acaa281e6b9c486962efb10f4d2955afa799e859fbeed"';
 const captionStandsHeadFingerprint = '2a7c53715e9658cb2dd3266f1a12401432d49d27c283ba349e7415b97d5b8671';
 const acceptedGreekScene = '19df6f29ed2887f73898209e6848f9a25970e67fbf8983798a420eac78e3172f';
 const captionStandsCommitment = '12b89f7f3562f84e864581078fbf81342982e943fa33ee124bdc8a6d1b42435d';
@@ -91,9 +96,11 @@ export async function loadSelectedNativeRelease(
   match: string, image: NativeOriginalPublication['originalImage'], selectedHead?: NativeDetailContext['selectedHead'],
 ): Promise<SelectedNativeRelease> {
   if (row.studio_owner_user_id !== s.userId) throw new ApiError(403, 'FORBIDDEN');
-  const defaultLighting = row.revision === OCCUPIED_SELECTED_OUTPUT_REVISION;
+  const visualFinishes = row.revision === OCCUPIED_SELECTED_FINISH_REVISION;
+  const defaultLighting = requiresOccupiedSelectedHead(row.revision);
   if (defaultLighting && !selectedHead) return unavailable();
-  if (selectedHead && (row.revision !== selectedHead.revision || match !== selectedHead.etag))
+  if ((visualFinishes && match !== OCCUPIED_SELECTED_FINISH_ETAG) ||
+      (selectedHead && (row.revision !== selectedHead.revision || match !== selectedHead.etag)))
     throw new ApiError(412, 'REMOTE_CONFLICT');
   const captionStands = row.revision === captionStandsRevision || defaultLighting;
   if ((!captionStands && row.revision !== currentRevision) || etag(row.revision, row.metadata) !== match ||
@@ -137,11 +144,22 @@ export async function loadSelectedNativeRelease(
   ])).digest('hex')}`;
   if (!defaultLighting) return {...selected, candidate: withStands, projectionIdentity: captionIdentity};
 
-  const successor = projectSelectedRoomLighting(withStands, captionHead, row.metadata);
+  const lightingHead = visualFinishes ? await savedRevision(OCCUPIED_SELECTED_OUTPUT_REVISION) : row.metadata;
+  const lightingETag = visualFinishes ? occupiedLightingETag : match;
+  if (!lightingHead || lightingHead.exhibitionId !== exhibitionId ||
+      (visualFinishes && etag(OCCUPIED_SELECTED_OUTPUT_REVISION, lightingHead) !== lightingETag))
+    return unavailable();
+  const withLighting = projectSelectedRoomLighting(withStands, captionHead, lightingHead);
+  const lightingIdentity: SelectedProjectionIdentity = `v1:${createHash('sha256').update(freezeCanonical([
+    SELECTED_NATIVE_RELEASE, captionIdentity, 'room-ceiling-fill-default-v1', lightingETag, withLighting,
+  ])).digest('hex')}`;
+  if (!visualFinishes) return {...selected, candidate: withLighting, projectionIdentity: lightingIdentity};
+
+  const successor = projectSelectedVisualFinishes(withLighting, lightingHead, row.metadata);
   return {
     ...selected, candidate: successor,
     projectionIdentity: `v1:${createHash('sha256').update(freezeCanonical([
-      SELECTED_NATIVE_RELEASE, captionIdentity, 'room-ceiling-fill-default-v1', match, successor,
+      SELECTED_NATIVE_RELEASE, lightingIdentity, 'seven-visual-finishes-v1', match, successor,
     ])).digest('hex')}`,
   };
 }

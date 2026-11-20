@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
-import {bindNativeDetailContext,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
+import {bindNativeDetailContext,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -20,10 +20,11 @@ it('rejects unissued owner and detail context objects before mounting any route'
 });
 
 
-it.skipIf(!(process.getuid?.()))('requires the occupied pin before selecting the authenticated r215 head and refuses a pin without original services',async()=>{
+it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIED_SELECTED_FINISH_REVISION])(
+ 'requires an occupied pin for authenticated r%i and original services before issuing its route',async(revision)=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-selected-head-')));
  const workspaceId=randomUUID(),tenantId=randomUUID(),userId=randomUUID(),exhibitionId=randomUUID();
- const csrf='test-csrf',token='a'.repeat(43),revision=OCCUPIED_SELECTED_OUTPUT_REVISION;
+ const csrf='test-csrf',token='a'.repeat(43);
  const session={id:randomUUID(),tenant_id:tenantId,user_id:userId,role:'admin',csrf_hash:createHash('sha256').update(csrf).digest('hex'),csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
  const client={query:async(sql:string)=>{
   if(sql.includes('pg_control_system()'))return {rows:[{system_id:'1',database_oid:'2'}],rowCount:1};
@@ -41,7 +42,9 @@ it.skipIf(!(process.getuid?.()))('requires the occupied pin before selecting the
   const nativeExportWorkspace=await bindNativeLocalExportWorkspace(client as unknown as PoolClient,{workspaceId,tenantId,principalId:userId,ownerUid:process.getuid!(),blobRoot:root});
   const signal=new AbortController().signal, runtimeGeneration=randomUUID();
   const common={pool,auth,blobs:new FileBlobStore(root),nativeExportWorkspace};
-  const pinned=bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,{revision,etag:match});
+  const finish=revision===OCCUPIED_SELECTED_FINISH_REVISION;
+  if(finish)expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,{revision,etag:match})).toThrow('NATIVE_DETAIL_CONFIGURATION');
+  const pinned=bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,{revision,etag:finish?OCCUPIED_SELECTED_FINISH_ETAG:match});
   expect(()=>buildApp({...common,nativeDetailContext:pinned})).toThrow('NATIVE_DETAIL_CONFIGURATION');
 
   const nativeOexWorkspace={workspaceId,tenantId,principalId:userId,assertCatalog:async()=>{},assertDatabase:async()=>{},assertRecord:async()=>{}};
