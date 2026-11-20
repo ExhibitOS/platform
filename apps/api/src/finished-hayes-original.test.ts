@@ -11,19 +11,28 @@ import {etag} from './studio.ts';
 import {prepareRequiredModelOriginals,persistRequiredModelOriginal,readBoundModelOriginal} from './required-model-original-binding.ts';
 import {revisionHash} from '@exhibitos/spec';
 import {createNativeOriginalPublication} from './native-original-publication.ts';
+import type {NativeDetailContext} from './native-detail-context.ts';
+import {modelReceiptDigest} from './model-preparation-intent.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {syntheticArtwork} from '../../web/src/placement/model.ts';
 import {FINISHED_HAYES_ORIGINAL_PROFILE,resolveFinishedHayesCandidate,approveFinishedHayesOriginal,readFinishedHayesOriginalApproval,readApprovedFinishedHayesOriginal,type FinishedHayesOriginalApproval} from './finished-hayes-original.ts';
 
 // Isolate the new source adapter. The existing canonical release verifier,
 // disposition parser and GLB inspector retain their independent tests.
-const seams=vi.hoisted(()=>({released:vi.fn(),issued:vi.fn(),parse:vi.fn(),match:vi.fn(),inspect:vi.fn()}));
+const seams=vi.hoisted(()=>({released:vi.fn(),issued:vi.fn(),parse:vi.fn(),match:vi.fn(),inspect:vi.fn(),occupiedBinding:undefined as string|undefined}));
 vi.mock('@exhibitos/storage',async actual=>({...await actual<typeof import('@exhibitos/storage')>(),confirmedHayesReleaseBindings:seams.released}));
 vi.mock('./hayes-original-attempt.ts',async actual=>({...await actual<typeof import('./hayes-original-attempt.ts')>(),isHayesReleaseContext:seams.issued}));
 vi.mock('./hayes-disposition-receipt.ts',()=>({parseHayesDispositionReceipt:seams.parse,matchHayesDispositionReceipt:seams.match}));
 vi.mock('./native-detail-context.ts',async actual=>({...await actual<typeof import('./native-detail-context.ts')>(),isIssuedNativeDetailContext:()=>true}));
+vi.mock('./model-preparation-intent.ts',async actual=>{
+ const real=await actual<typeof import('./model-preparation-intent.ts')>();
+ return {...real,modelReceiptDigest(value:unknown){
+  const digest=real.modelReceiptDigest(value);
+  return digest===seams.occupiedBinding?'4c98b2cf37830d9bd9629e360a388fc24a7c0fca25db14153258a11f4b6e17cd':digest;
+ }};
+});
 vi.mock('./adopted-model-detail-report.ts',()=>({inspectAdoptedModelDetail:seams.inspect}));
-beforeEach(()=>{vi.clearAllMocks();seams.issued.mockReturnValue(true);});
+beforeEach(()=>{vi.clearAllMocks();seams.issued.mockReturnValue(true);seams.occupiedBinding=undefined;});
 
 function setup(){
  const s={id:randomUUID(),expiresAt:'2099-01-01T00:00:00Z',tenantId:randomUUID(),userId:randomUUID(),role:'admin'} as Session;
@@ -59,6 +68,7 @@ function setup(){
   else if(sql.startsWith('SELECT p.snapshot,p.revision_sha256'))rows=[publication];
   else if(sql.startsWith('SELECT 1 FROM exhibitions'))rows=[{exists:1}];
   else if(sql.startsWith('SELECT id FROM import_jobs'))rows=classification?[{id:jobId}]:[];
+  else if(sql.startsWith('SELECT * FROM import_jobs')&&args[0]===s.tenantId&&args[1]===jobId&&args[2]===s.userId&&args[3]===art.id&&job.state==='approved')rows=[job];
   else if(sql.includes('FROM hayes_native_releases r'))rows=[release];
   else if(sql.includes('SELECT a.*,r.metadata AS rights'))rows=[original,display];
   else if(sql.startsWith('SELECT metadata FROM asset_derivatives')&&sql.includes('AND id=$2'))rows=[{metadata:derivative}];
@@ -91,6 +101,41 @@ it('issues once, independently reads back, and revalidates bytes before a public
  expect(await f.status()).toEqual(approved);expect(await f.approve()).toEqual(approved);expect(f.grants).toHaveLength(1);expect(seams.inspect).toHaveBeenCalledTimes(1);
  const read=await readApprovedFinishedHayesOriginal(f.c,f.s,f.draft.exhibitionId,f.input,f.studio,f.cms,f.imports,f.blobs,new AbortController().signal);
  expect(read.bytes).toEqual(f.originalBytes);read.bytes.fill(0);
+});
+it('reads only the already approved, exact occupied selected Hayes source with intake disabled',async()=>{
+ const f=setup();
+ f.exhibition.revision=215;
+ const {workspaceId,tenantId,principalId}=f.owner,exhibitionId=f.draft.exhibitionId;
+ const signal=new AbortController().signal;
+ const context={owner:f.owner,selectedHead:{revision:215,etag:etag(215,f.draft)},live:()=>true,signal} as unknown as NativeDetailContext;
+ seams.occupiedBinding=modelReceiptDigest({workspaceId,tenantId,principalId,exhibitionId,input:f.input});
+ const read=(input=f.input,authority?:NativeDetailContext)=>readApprovedFinishedHayesOriginal(
+  f.c,f.s,exhibitionId,input,f.studio,f.cms,f.imports,f.blobs,signal,authority);
+ seams.issued.mockReturnValue(false);
+ await expect(prepareRequiredModelOriginals(f.c,f.s,{workspaceId,exhibitionId,publicationId:randomUUID()},[],[],new Set(),
+  {studio:f.studio,cms:f.cms,imports:f.imports,blobs:f.blobs,context},signal))
+  .rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ await expect(read(f.input,context)).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ seams.issued.mockReturnValue(true);
+ expect((await f.approve()).approved).toBe(true);
+ seams.issued.mockReturnValue(false);
+ vi.mocked(f.imports.access).mockClear();
+ await expect(read()).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ const historical=await read(f.input,context);
+ expect(historical.bytes).toEqual(f.originalBytes);historical.bytes.fill(0);
+ expect(f.imports.access).not.toHaveBeenCalled();
+ await expect(read({...f.input,receiptSha256:'0'.repeat(64)},context)).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ await expect(read(f.input,{...context,owner:{...context.owner,workspaceId:randomUUID()}}))
+  .rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ await expect(read(f.input,{...context,selectedHead:{revision:215,etag:etag(215,{...f.draft,editVersion:f.draft.editVersion+1})}}))
+  .rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ Object.assign(f.job,{gpu_preparation:{conflicting:true}});
+ await expect(read(f.input,context)).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ Object.assign(f.job,{gpu_preparation:null});
+ vi.mocked(f.blobs.getBounded!).mockResolvedValueOnce(Buffer.alloc(f.originalBytes.length,3));
+ await expect(read(f.input,context)).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ await expect(f.approve()).rejects.toMatchObject({code:'FINISHED_HAYES_ORIGINAL_UNAVAILABLE'});
+ expect(f.grants).toHaveLength(1);
 });
 it.each(['release','canonical','match','derivative','source-state','display-state','rights','head','receipt','owner'] as const)('refuses %s evidence without issuing a grant or falling through',async problem=>{
  const f=setup();

@@ -12,6 +12,7 @@ import {allowedRights} from './rights.ts';
 import {modelReceiptDigest} from './model-preparation-intent.ts';
 import {inspectAdoptedModelDetail} from './adopted-model-detail-report.ts';
 import {NativeDetailDrainUncertain} from './native-detail-drain.ts';
+import {isIssuedNativeDetailContext,type NativeDetailContext} from './native-detail-context.ts';
 import {etag,type Studio} from './studio.ts';
 
 export const FINISHED_HAYES_ORIGINAL_PROFILE='finished-hayes-custody-v1';
@@ -27,6 +28,13 @@ export interface FinishedHayesOriginalApproval {
  completionFrameSha256:string;
 }
 const unavailable=():never=>{throw new ApiError(409,'FINISHED_HAYES_ORIGINAL_UNAVAILABLE');};
+// The occupied r215 export may read this one existing owner/exhibition/release binding.
+const occupiedSelectedBinding='4c98b2cf37830d9bd9629e360a388fc24a7c0fca25db14153258a11f4b6e17cd';
+export function matchesOccupiedFinishedHayesBinding(context:NativeDetailContext,s:Session,exhibitionId:string,input:unknown){
+ const {workspaceId,tenantId,principalId}=context.owner;
+ return isIssuedNativeDetailContext(context)&&!!context.selectedHead&&context.live()&&tenantId===s.tenantId&&principalId===s.userId&&
+  !!input&&typeof input==='object'&&modelReceiptDigest({workspaceId,tenantId,principalId,exhibitionId,input})===occupiedSelectedBinding;
+}
 const digest=/^[a-f0-9]{64}$/;
 const mime='model/gltf-binary' as const;
 const inputKeys=['kind','artworkId','artworkRevision','importJobId','attemptId','receiptId','receiptSha256','completionFrameSha256'];
@@ -53,13 +61,17 @@ export async function resolveFinishedHayesCandidate(c:PoolClient,s:Session,artwo
  return {...imports.view(source.job),finishedHayesCustody:source.custody};
 }
 
-async function resolveFinishedHayesSource(c:PoolClient,s:Session,artworkId:string,revision:number,jobId:string,cms:Cms,imports:Imports){
+async function resolveFinishedHayesSource(c:PoolClient,s:Session,artworkId:string,revision:number,jobId:string,cms:Cms,imports:Imports,
+ historical?:NativeDetailContext){
  const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
- if(!isHayesReleaseContext(owner))return unavailable();
+ if(historical ? owner.workspaceId!==historical.owner.workspaceId : !isHayesReleaseContext(owner))return unavailable();
  await owner.assertDatabase(c);
  const current=await cms.ownArtwork(c,s,artworkId),{artwork}=await cms.studioArtwork(c,s,artworkId);
- const job=await imports.access(c,s,jobId);
- if(current.revision!==revision||current.approved_revision!==revision||artwork.revision!==revision||artwork.artworkType!=='sculpture'||
+ // The selected historical reader has no intake capability. Read only the existing approved row for this owner and artwork.
+ const job=historical?(await c.query(`SELECT * FROM import_jobs
+  WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND artwork_id=$4 AND state='approved' FOR SHARE`,
+  [s.tenantId,jobId,s.userId,artworkId])).rows[0]:await imports.access(c,s,jobId);
+ if(!job||job.gpu_preparation!=null||current.revision!==revision||current.approved_revision!==revision||artwork.revision!==revision||artwork.artworkType!=='sculpture'||
     current.approved_asset_id!==artwork.primaryAssetId||job.user_id!==s.userId||job.artwork_id!==artworkId||
     job.state!=='approved'||job.asset_id!==artwork.primaryAssetId||!job.hayes_attempt_id||!job.hayes_disposition_id||
     !isDeepStrictEqual(job.rights,artwork.rights))return unavailable();
@@ -120,13 +132,16 @@ async function resolveFinishedHayesSource(c:PoolClient,s:Session,artworkId:strin
  return {owner,job,artwork,custody};
 }
 
-async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:FinishedHayesOriginalApproval,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal?:AbortSignal,match?:string){
+async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:FinishedHayesOriginalApproval,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal?:AbortSignal,match?:string,
+ historical?:NativeDetailContext){
  checkedInput(input);uuid(exhibitionId);signal?.throwIfAborted();
+ if(historical&&!matchesOccupiedFinishedHayesBinding(historical,s,exhibitionId,input))return unavailable();
  const exhibition=await studio.access(c,s,exhibitionId);
  if(exhibition.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
  const head={revision:exhibition.revision,etag:etag(exhibition.revision,exhibition.metadata)};
  if(match!==undefined&&match!==head.etag)throw new ApiError(412,'REMOTE_CONFLICT');
- const source=await resolveFinishedHayesSource(c,s,input.artworkId,input.artworkRevision,input.importJobId,cms,imports);
+ if(historical&&(head.revision!==historical.selectedHead?.revision||head.etag!==historical.selectedHead?.etag))return unavailable();
+ const source=await resolveFinishedHayesSource(c,s,input.artworkId,input.artworkRevision,input.importJobId,cms,imports,historical);
  const {custody}=source;
  if(!isDeepStrictEqual(custody.release,{attemptId:input.attemptId,receiptId:input.receiptId,receiptSha256:input.receiptSha256,completionFrameSha256:input.completionFrameSha256})||
     !exhibition.metadata.candidate.artworks.some((artwork:unknown)=>isDeepStrictEqual(artwork,source.artwork)))return unavailable();
@@ -140,7 +155,9 @@ async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:Fi
   bytes=Buffer.from(await blobs.getBounded(source.job.object_key,custody.original.bytes,signal));
   display=Buffer.from(await blobs.getBounded(source.job.approved_key,custody.display.bytes,signal));
   if(bytes.length!==custody.original.bytes||sha256(bytes)!==custody.original.sha256||display.length!==custody.display.bytes||sha256(display)!==custody.display.sha256)return unavailable();
-  signal?.throwIfAborted();await source.owner.assertDatabase(c);returned=true;return {grant,bytes,head,custody};
+  signal?.throwIfAborted();await source.owner.assertDatabase(c);
+  if(historical&&!historical.live())return unavailable();
+  returned=true;return {grant,bytes,head,custody};
  }catch(error){
   if(error instanceof Error&&'code' in error&&error.code==='BLOB_CLEANUP_UNCERTAIN')throw new NativeDetailDrainUncertain();
   throw error;
@@ -177,8 +194,8 @@ export async function readFinishedHayesOriginalApproval(c:PoolClient,s:Session,e
   return {version:1,approved:!!grant,exhibitionId,...source.head,custody:source.custody,approvalSha256:grant?modelReceiptDigest(grant):null};
  }finally{source.bytes.fill(0);}
 }
-export async function readApprovedFinishedHayesOriginal(c:PoolClient,s:Session,exhibitionId:string,input:FinishedHayesOriginalApproval,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal:AbortSignal){
- const source=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs,signal);let returned=false;
+export async function readApprovedFinishedHayesOriginal(c:PoolClient,s:Session,exhibitionId:string,input:FinishedHayesOriginalApproval,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal:AbortSignal,context?:NativeDetailContext){
+ const source=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs,signal,undefined,context?.selectedHead?context:undefined);let returned=false;
  try{
   await c.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,0))',[lockKey(s,input)]);
   const grant=verifiedGrant(await storedGrants(c,s,source.grant),source.grant);signal.throwIfAborted();returned=true;return {grant,bytes:source.bytes};

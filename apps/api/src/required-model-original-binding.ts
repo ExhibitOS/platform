@@ -6,12 +6,13 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import type {Artwork} from '@exhibitos/spec';
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,freezeCanonical,verifiedParsedDetailQuality,type DetailCandidate} from '@exhibitos/studio-contract';
 import {ApiError,type Session} from './auth.ts';
-import {FINISHED_HAYES_ORIGINAL_PROFILE,finishedHayesOriginalGrantKind,readApprovedFinishedHayesOriginal,type FinishedHayesOriginalApproval} from './finished-hayes-original.ts';
+import {FINISHED_HAYES_ORIGINAL_PROFILE,finishedHayesOriginalGrantKind,matchesOccupiedFinishedHayesBinding,readApprovedFinishedHayesOriginal,type FinishedHayesOriginalApproval} from './finished-hayes-original.ts';
 import {requiredModelOriginalGrantKind,readApprovedRequiredModelOriginal,type RequiredModelOriginalApproval} from './required-model-original.ts';
 import type {Cms} from './cms.ts';
 import {readBoundAdoptedModelOriginal} from './adopted-model-original-binding.ts';
 import {detailSourceCommitment,newDetailSourceNonce} from './detail-source-commitment.ts';
 import type {Imports} from './imports.ts';
+import type {NativeDetailContext} from './native-detail-context.ts';
 import type {OriginalArtworkIdentity} from './native-original-publication.ts';
 import type {Studio} from './studio.ts';
 
@@ -22,7 +23,7 @@ const finishedHayesKind='native-finished-hayes-detail-binding';
 type SourceApproval=RequiredModelOriginalApproval|FinishedHayesOriginalApproval;
 const bindingKind=(input:SourceApproval)=>input.kind===FINISHED_HAYES_ORIGINAL_PROFILE?finishedHayesKind:kind;
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
-type Dependencies={studio:Studio;cms:Cms;imports:Imports;blobs:BlobStore};
+type Dependencies={studio:Studio;cms:Cms;imports:Imports;blobs:BlobStore;context?:NativeDetailContext};
 type Scope={workspaceId:string;exhibitionId:string;publicationId:string};
 type RequiredSource=Awaited<ReturnType<typeof readSource>>;
 type ModelItem={input:SourceApproval;publicArtworkId:string;publicArtworkRevisionId:string;candidate:DetailCandidate;nonce:string;grant:RequiredSource['grant']};
@@ -35,7 +36,7 @@ export async function hasRequiredModelOriginalApproval(c:PoolClient,s:Session,wo
 
 const readSource=async(c:PoolClient,s:Session,scope:Scope,input:SourceApproval,deps:Dependencies,signal:AbortSignal)=>{
  const source=input.kind===FINISHED_HAYES_ORIGINAL_PROFILE
-  ?await readApprovedFinishedHayesOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal)
+  ?await readApprovedFinishedHayesOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal,deps.context)
   :await readApprovedRequiredModelOriginal(c,s,scope.exhibitionId,input,deps.studio,deps.cms,deps.imports,deps.blobs,signal);
  if(source.grant.workspaceId!==scope.workspaceId||source.grant.tenantId!==s.tenantId||source.grant.principalId!==s.userId||
     source.grant.exhibitionId!==scope.exhibitionId){source.bytes.fill(0);return unavailable();}
@@ -54,6 +55,11 @@ export async function prepareRequiredModelOriginals(c:PoolClient,s:Session,scope
    AND metadata->>'workspaceId'=$3 AND metadata->>'principalId'=$4 AND metadata->>'exhibitionId'=$5
    AND metadata->>'artworkRevisionId'=ANY($6::text[]) ORDER BY id LIMIT 17`,
   [s.tenantId,requiredModelOriginalGrantKind,scope.workspaceId,s.userId,scope.exhibitionId,models.map(model=>model.artworkRevisionId),finishedHayesOriginalGrantKind])).rows;
+ if(deps.context?.selectedHead){
+  const context=deps.context;
+  const expected=grants.filter(row=>row.metadata?.kind===finishedHayesOriginalGrantKind&&matchesOccupiedFinishedHayesBinding(context,s,scope.exhibitionId,row.metadata.input));
+  if(expected.length!==1)throw new ApiError(409,'FINISHED_HAYES_ORIGINAL_UNAVAILABLE');
+ }
  const items:ModelItem[]=[];
  const seen=new Set<string>();
  for(const row of grants){
