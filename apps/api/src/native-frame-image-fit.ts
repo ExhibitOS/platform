@@ -80,6 +80,6 @@ export function requiresMeasuredFrameAttachmentFit(before:Exhibition,after:Exhib
  return (proposed?.frameAttachments??[]).some(row=>{
   if(row.imageFit||!measuredFrame(proposed?.furnishings.find(item=>item.id===row.furnishingId)))return false;
   const old=previous?.frameAttachments?.find(item=>item.placementId===row.placementId);
-  return !old||old.furnishingId!==row.furnishingId||old.furnishingVersion!==row.furnishingVersion||old.modelSha256!==row.modelSha256;
+  return !old||old.imageFit!==undefined||old.furnishingId!==row.furnishingId||old.furnishingVersion!==row.furnishingVersion||old.modelSha256!==row.modelSha256;
  });
 }

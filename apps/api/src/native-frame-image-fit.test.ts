@@ -168,4 +168,10 @@ it('replaces a portrait frame with one fitted candidate and one ordinary CAS wri
  const written=await studio.put(client,session,row.id,input,match);
  expect(written).toEqual({revision:3,etag:etag(3,input.draft),draft:input.draft});
  expect(query.mock.calls.filter(([sql])=>String(sql).startsWith('UPDATE exhibitions'))).toHaveLength(1);
+
+ const reopened={...row,metadata:written.draft,revision:written.revision};
+ vi.mocked(studio.access).mockResolvedValue(reopened as never);
+ const stripped={draft:{...input.draft,editVersion:input.draft.editVersion+1,candidate:withoutFit},requestId:randomUUID()};
+ await expect(studio.put(client,session,row.id,stripped,written.etag)).rejects.toMatchObject({code:'FRAME_IMAGE_FIT_REQUIRED'});
+ expect(query.mock.calls.filter(([sql])=>String(sql).startsWith('UPDATE exhibitions'))).toHaveLength(1);
 });
