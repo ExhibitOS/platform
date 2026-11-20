@@ -161,6 +161,28 @@ test('ceiling return tracks only the visible marked fill and its verified unders
   expect(shader.uniforms[uniform]!.value).toBe(.06);
   actual.dispose();
 
+  const local = setSpaceLighting(marked, {version: 1, baselineIntensity: 0, reflectionIntensity: 0, mode: 'room-local'});
+  const localMask = install(local);
+  expect(shaderFor(underside).uniforms[uniform]!.value).toBe(.06);
+  localMask.dispose();
+
+  const manual = applyLightObjectCommand(local, {type: 'set-room-base-light-placement', lightId: area!.id, basePlacement: 'manual'}).candidate;
+  const off = applyLightObjectCommand(local, {type: 'set-room-ceiling-fill-brightness', lightId: area!.id, brightness: 0}).candidate;
+  expect(off.lights[0]!.intensity).toBe(0);
+  expect(manual.lights[0]!.intensity).toBe(area!.intensity);
+  for (const value of [manual, off]) {
+    expect(galleryLightingFor(value)).toMatchObject({
+      roomOnly: true, fallbackSun: false, baselineIntensity: 0, environmentBaselineIntensity: 0, reflectionIntensity: 0,
+    });
+    emitter.intensity = value.lights[0]!.intensity;
+    const mask = install(value);
+    expect(shaderFor(underside).uniforms[uniform]).toBeUndefined();
+    // Tagged direct emitters retain the same room mesh and doorway receiver mask.
+    expect(fragment(floor)).toContain('exhibitosRoomFill');
+    expect(shaderFor(foreign).uniforms[uniform]).toBeUndefined();
+    mask.dispose();
+  }
+
   const explicit = setSpaceLighting(marked, {version: 1, baselineIntensity: .2, reflectionIntensity: .1});
   const wrongCeiling = structuredClone(marked);
   wrongCeiling.surfaces[0]!.transform.position[1] -= .1;

@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {fixtureURL} from '@exhibitos/spec';
 import {test,expect,vi,afterEach} from 'vitest';
 import * as three from 'three';
-import {applyLightObjectCommand,ensureRoomBaseLight,lightAttachmentPose,ceilingRailDerivedPose,ceilingRailAttachmentMatrix,WORKSPACE_FURNISHING_NAMESPACE,furnishingCatalogueEntry,resolveViewerBudgetPolicy,setViewerBudgetOverrides,evaluateViewerBudgetUsage} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand,ensureRoomBaseLight,lightAttachmentPose,ceilingRailDerivedPose,ceilingRailAttachmentMatrix,WORKSPACE_FURNISHING_NAMESPACE,furnishingCatalogueEntry,resolveViewerBudgetPolicy,setViewerBudgetOverrides,evaluateViewerBudgetUsage,setSpaceLighting} from '@exhibitos/studio-contract';
 import {paintingWasherCandidate,lightId,assetId} from '../../../../packages/studio-contract/test-fixtures/wallwasher';
 import {validateDraft} from '../drafts/validator';
 import {newDraft} from '../drafts/example';
@@ -137,6 +137,31 @@ test('default room lighting drops only the synthetic environment reserve in both
   const next=await analyzeViewerBudgetGeometry({...settings,candidate:marked});
   expect(previous.wholeExhibition.residentBytes!-next.wholeExhibition.residentBytes!).toBe(environmentEstimate(size).generationPeakBytes);
   expect(next.wholeExhibition.colorDraws).toBe(previous.wholeExhibition.colorDraws);
+ }
+ expect(loadVerifiedAsset).not.toHaveBeenCalled();
+});
+
+test('persisted room-local lighting keeps the environment reserve at zero with the last fill Manual or Off',async()=>{
+ const draft=newDraft().candidate,roomId=draft.rooms[0]!.id;
+ const base=ensureRoomBaseLight(draft,roomId,undefined,.5,'default');
+ const lightId=base.lights[0]!.id;
+ const local=applyLightObjectCommand(base,{
+  type:'set-room-ceiling-fill-brightness',lightId,brightness:.5,mode:'default',spaceLightingMode:'room-local',
+ }).candidate;
+ expect(local.lights).toEqual(base.lights);
+ const manual=applyLightObjectCommand(local,{type:'set-room-base-light-placement',lightId,basePlacement:'manual'}).candidate;
+ const off=applyLightObjectCommand(local,{type:'set-room-ceiling-fill-brightness',lightId,brightness:0}).candidate;
+ const loadVerifiedAsset=vi.fn(async()=>{throw Error('NO_ASSET_EXPECTED');});
+ for(const [maxTextureSize,size] of [[2048,128],[512,64]] as const){
+  const settings={profile:'standard' as const,selectionBudget:{maxTriangles:100000,maxTextureSize},loadVerifiedAsset};
+  for(const candidate of [manual, off]){
+   const legacyZero=setSpaceLighting(candidate,{version:1,baselineIntensity:0,reflectionIntensity:0});
+   const previous=await analyzeViewerBudgetGeometry({...settings,candidate:legacyZero});
+   const next=await analyzeViewerBudgetGeometry({...settings,candidate});
+   expect(previous.wholeExhibition.residentBytes!-next.wholeExhibition.residentBytes!).toBe(environmentEstimate(size).generationPeakBytes);
+   expect(previous.wholeExhibition.transitionBytes!-next.wholeExhibition.transitionBytes!).toBe(environmentEstimate(size).generationPeakBytes);
+   expect(next.wholeExhibition.colorDraws).toBe(previous.wholeExhibition.colorDraws);
+  }
  }
  expect(loadVerifiedAsset).not.toHaveBeenCalled();
 });
