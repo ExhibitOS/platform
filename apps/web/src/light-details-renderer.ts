@@ -16,7 +16,7 @@ export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
  * remain owned by the authored lighting paths. */
 export function galleryLightingFor(document: Exhibition) {
   const spaceLighting=spaceLightingFor(document);
-  const roomOnly=!spaceLighting&&hasDefaultRoomLighting(document);
+  const roomOnly=spaceLighting?.mode==='room-local'||(!spaceLighting&&hasDefaultRoomLighting(document));
   const hasAuthoredLighting=hasAuthoredGalleryLighting(document);
   const fallbackSun=!spaceLighting&&!roomOnly&&!hasAuthoredLighting;
   return {
