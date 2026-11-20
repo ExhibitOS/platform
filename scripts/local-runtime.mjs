@@ -56,7 +56,7 @@ import {
   planOfficialRoomLightingCheckpoint,
 } from './native-official-room-lighting-checkpoint.mjs';
 
-import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES,WHEAT_SELECTED_SCOPE} from "@exhibitos/studio-contract";
+import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES,selectedScopeRequiresWheatNotice} from "@exhibitos/studio-contract";
 
 const MAX_BODY = 65 * 1024 * 1024;
 // Native execution has no container port mapping. Bind both listeners to
@@ -688,7 +688,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
         const pin=await readFile(new URL('./occupied-selected-output.json',import.meta.url));
         if(pin.length>512||!pinnedPayload.hasExact(selectedHeadPath,createHash('sha256').update(pin).digest('hex'),pin.length))throw Error('NATIVE_DETAIL_CONFIGURATION');
         selectedHead=JSON.parse(pin.toString('utf8'));
-        if(pin.length>256&&selectedHead?.scope!==WHEAT_SELECTED_SCOPE)throw Error('NATIVE_DETAIL_CONFIGURATION');
+        if(pin.length>256&&!selectedScopeRequiresWheatNotice(selectedHead?.scope))throw Error('NATIVE_DETAIL_CONFIGURATION');
       }
       nativeDetailContext=bindNativeDetailContext(nativeExportWorkspace,privateOwner.runtimeGeneration,ownerAbort.signal,isOwnerAvailable,selectedHead);
     }

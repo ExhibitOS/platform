@@ -14,7 +14,7 @@ import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,FLOOR_TEXTUR
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
-import {selectedWheatNotice,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
+import {selectedScopeRequiresWheatNotice,selectedWheatNotice} from '@exhibitos/studio-contract';
 import {publicWorkspaceFurnishingRights} from '../apps/web/src/workspace-furnishing/public-rights.mjs';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
 import {parseStaticJson} from '../apps/web/src/static-json.mjs';
@@ -68,7 +68,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
    if(error.code==='ENOENT')return undefined;
    throw error;
   });
-  wheatRequired=!!marker&&JSON.parse(marker).scope===WHEAT_SELECTED_SCOPE;
+  wheatRequired=!!marker&&selectedScopeRequiresWheatNotice(JSON.parse(marker).scope);
  }
  const wheatNotice=selectedWheatNotice(raw.exhibition,declaredNotices,wheatRequired);
  if(wheatNotice)furnishingNotices.push(wheatNotice);

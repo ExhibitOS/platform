@@ -10,18 +10,21 @@ import {installedFurnishingCatalogueFile,installedFurnishingDescriptorFor,readIn
 import type {NativeDetailContext} from './native-detail-context.ts';
 
 type WheatHead = Extract<NonNullable<NativeDetailContext['selectedHead']>,{scope:typeof WHEAT_SELECTED_SCOPE}>;
+type Predecessor = Pick<WheatHead,'predecessorPublicationId'|'predecessorRevisionSha256'|'revision'|'etag'>;
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
 const furnishings=(scene:Exhibition)=>scene.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;
 
-export async function assertAcceptedWheatPredecessor(c:PoolClient,s:Session,exhibitionId:string,head:WheatHead,
- selection:string,projectionIdentity:string){
+export async function assertAcceptedSelectedPredecessor(c:PoolClient,s:Session,exhibitionId:string,head:Predecessor,
+ selection:string,projectionIdentity:string,scope?:typeof WHEAT_SELECTED_SCOPE){
+ const scopeClause=scope===undefined?'':" AND r.response->>'scope'=$10";
  const row=(await c.query(`SELECT 1 FROM studio_publications p
   JOIN publication_states st ON st.publication_id=p.id AND st.status='published'
   JOIN studio_requests r ON (r.tenant_id,r.user_id,r.exhibition_id)=(p.tenant_id,p.created_by,p.exhibition_id)
   WHERE p.tenant_id=$1 AND p.created_by=$2 AND p.exhibition_id=$3 AND p.id=$4 AND p.revision_sha256=$5
    AND p.draft_revision=$6 AND r.response->>'publicationId'=p.id::text AND r.response->>'head'=$7
-   AND r.response->>'releaseSelection'=$8 AND r.response->>'projectionIdentity'=$9`,
- [s.tenantId,s.userId,exhibitionId,head.predecessorPublicationId,head.predecessorRevisionSha256,head.revision,head.etag,selection,projectionIdentity])).rows[0];
+   AND r.response->>'releaseSelection'=$8 AND r.response->>'projectionIdentity'=$9${scopeClause}`,
+ [s.tenantId,s.userId,exhibitionId,head.predecessorPublicationId,head.predecessorRevisionSha256,head.revision,head.etag,selection,projectionIdentity,
+  ...(scope===undefined?[]:[scope])])).rows[0];
  if(!row)return unavailable();
 }
 

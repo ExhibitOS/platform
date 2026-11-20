@@ -6,12 +6,12 @@ import {join} from 'node:path';
 import {expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
-import {WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
+import {PAINTING_BENCH_SELECTED_SCOPE,selectedScopeRequiresWheatNotice,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {reconstructNativeOriginalExport} from './native-original-export-plan.ts';
-import {bindNativeDetailContext,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
+import {ACCEPTED_WHEAT_PREDECESSOR,bindNativeDetailContext,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -71,6 +71,17 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
    for(const invalid of [{...wheat,predecessorPublicationId:undefined},{...wheat,predecessorRevisionSha256:'bad'},
     {...wheat,revision:OCCUPIED_SELECTED_FINISH_REVISION,etag:OCCUPIED_SELECTED_FINISH_ETAG},
     {...wheat,scope:OCCUPIED_PUBLIC_FINISH_SCOPE}]){
+    expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
+   }
+   const paintingBench={revision:OCCUPIED_PAINTING_BENCH_REVISION,etag:OCCUPIED_PAINTING_BENCH_ETAG,
+    scope:PAINTING_BENCH_SELECTED_SCOPE,projectionIdentity:cannon.projectionIdentity,
+    predecessorPublicationId:ACCEPTED_WHEAT_PREDECESSOR.publicationId,predecessorRevisionSha256:ACCEPTED_WHEAT_PREDECESSOR.revisionSha256};
+   expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,paintingBench).selectedHead).toEqual(paintingBench);
+   expect(selectedScopeRequiresWheatNotice(paintingBench.scope)).toBe(true);
+   expect(selectedScopeRequiresWheatNotice(publicFinishes.scope)).toBe(false);
+   for(const invalid of [{...paintingBench,revision:217},{...paintingBench,etag:wheat.etag},
+    {...paintingBench,predecessorPublicationId:wheat.predecessorPublicationId},{...paintingBench,predecessorRevisionSha256:'f'.repeat(64)},
+    {...paintingBench,scope:WHEAT_SELECTED_SCOPE},{...paintingBench,extra:true}]){
     expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
    }
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');

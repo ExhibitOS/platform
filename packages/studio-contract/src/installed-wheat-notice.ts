@@ -3,6 +3,11 @@ import {freezeCanonical} from './freeze.js';
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
 export const WHEAT_SELECTED_SCOPE = 'installed-wheat-frame-v1';
+export const PAINTING_BENCH_SELECTED_SCOPE = 'painting-bench-after-wheat-v1';
+
+export function selectedScopeRequiresWheatNotice(scope:unknown):boolean {
+ return scope===WHEAT_SELECTED_SCOPE||scope===PAINTING_BENCH_SELECTED_SCOPE;
+}
 export const WHEAT_FRAME_ID = '4ddff48b-c2b2-5166-9e35-cd1c7aabb5b3';
 export const WHEAT_FRAME_MODEL_SHA256 = 'a96b4942c2cd10b25fe1b33001443e1824fc125bc258f28a68547d38d8c54362';
 export const WHEAT_FRAME_MODEL_BYTES = 3380;

@@ -12,7 +12,7 @@ import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from '.
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
 import {matchesInstalledFurnishing} from './installed-workspace-furnishing.ts';
 import {readSelectedWheatNotice} from './native-selected-wheat.ts';
-import {OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION} from './native-detail-context.ts';
+import {OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION} from './native-detail-context.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -30,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {installedWheatNoticeFor,WHEAT_FRAME_ID,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -834,11 +834,14 @@ export class Publications {
     }
     private async selectedWheatNotice(c:PoolClient,row:PublicationRow,workspace:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>){
         const known=installedWheatNoticeFor(row.snapshot);
-        if(!known||row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const paintingBench=row.draft_revision===OCCUPIED_PAINTING_BENCH_REVISION;
+        if(!known||!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const scope=paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
+        const head=paintingBench?OCCUPIED_PAINTING_BENCH_ETAG:OCCUPIED_POST_WHEAT_ETAG;
         const receipt=(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
           AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6
           AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
-        [row.tenant_id,row.created_by,row.exhibition_id,row.id,WHEAT_SELECTED_SCOPE,SELECTED_NATIVE_RELEASE,OCCUPIED_POST_WHEAT_ETAG])).rows[0];
+        [row.tenant_id,row.created_by,row.exhibition_id,row.id,scope,SELECTED_NATIVE_RELEASE,head])).rows[0];
         if(!receipt)return;
         if(!workspace.some(item=>item.publicId===known.assetId&&item.sourceDescriptor.id===WHEAT_FRAME_ID))
             throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
