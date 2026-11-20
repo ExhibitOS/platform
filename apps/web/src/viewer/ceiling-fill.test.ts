@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {applyLightObjectCommand,ensureRoomBaseLight,LIGHT_DETAILS_NAMESPACE,setSpaceLighting} from '@exhibitos/studio-contract';
+import {applyLightObjectCommand, ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE, setSpaceLighting, validateStudioLightDetails} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
@@ -107,6 +107,71 @@ function shaderFor(material: three.Material) {
   return shader;
 }
 const fragment = (material: three.Material) => shaderFor(material).fragmentShader;
+
+test('ceiling return tracks only the visible marked fill and its verified underside material', () => {
+  const {camera, document, lights, material: floor, mesh, room, scene, rooms, mask: priorMask} = fixture();
+  priorMask.dispose();
+  const marked = structuredClone(document);
+  const sourceRoom = marked.rooms[0]!;
+  const foreignRoom = {...sourceRoom, id: crypto.randomUUID()};
+  marked.rooms.push(foreignRoom);
+  const [area] = marked.lights;
+  const detail = (marked.extensions![LIGHT_DETAILS_NAMESPACE] as {lights: Array<{ceilingFill: {mode?: string}}>}).lights[0]!;
+  detail.ceilingFill.mode = 'default';
+  area!.intensity *= 5;
+  const ceiling = {
+    id: crypto.randomUUID(), roomId: sourceRoom.id, type: 'ceiling' as const,
+    dimensions: {width: sourceRoom.dimensions.width, height: sourceRoom.dimensions.depth},
+    transform: {position: [0, sourceRoom.dimensions.height, 0], rotation: [Math.SQRT1_2, 0, 0, Math.SQRT1_2], scale: [1, 1, 1]},
+  } satisfies (typeof marked.surfaces)[number];
+  const foreignCeiling = {...ceiling, id: crypto.randomUUID(), roomId: foreignRoom.id};
+  marked.surfaces = [ceiling, foreignCeiling];
+  expect(validateStudioLightDetails(marked).valid).toBe(true);
+
+  const underside = new three.MeshStandardMaterial(), foreign = new three.MeshStandardMaterial();
+  room.add(new three.Mesh(mesh.geometry, underside), new three.Mesh(mesh.geometry, foreign));
+  const ceilingMaterials = new Map([[ceiling.id, underside], [foreignCeiling.id, foreign]]);
+  const emitter = lights.get(area!.id)!.light;
+  const uniform = 'exhibitosCeilingIrradiance';
+  function install(doc: typeof marked) {
+    const surfaces = galleryLightingFor(doc).roomOnly ? ceilingMaterials : undefined;
+    const mask = installCeilingFillMask(three, doc, scene, rooms, lights, surfaces)!;
+    mask.prepare(camera);
+    return mask;
+  }
+
+  const actual = install(marked);
+  const shader = shaderFor(underside);
+  expect(shader.fragmentShader).toContain('if (gl_FrontFacing)');
+  expect(shader.fragmentShader).toContain('reflectedLight.indirectDiffuse += vec3(exhibitosCeilingIrradiance)');
+  expect(shader.uniforms[uniform]!.value).toBe(.12);
+  for (const material of [floor, foreign]) {
+    expect(shaderFor(material).uniforms[uniform]).toBeUndefined();
+    expect(fragment(material)).toContain('exhibitosRoomFill');
+  }
+  emitter.intensity = 10;
+  actual.prepare(camera);
+  expect(shader.uniforms[uniform]!.value).toBe(.3);
+  room.visible = false;
+  actual.prepare(camera);
+  expect(shader.uniforms[uniform]!.value).toBe(0);
+  room.visible = true;
+  emitter.intensity = .5;
+  actual.prepare(camera);
+  expect(shader.uniforms[uniform]!.value).toBe(.06);
+  actual.dispose();
+
+  const explicit = setSpaceLighting(marked, {version: 1, baselineIntensity: .2, reflectionIntensity: .1});
+  const wrongCeiling = structuredClone(marked);
+  wrongCeiling.surfaces[0]!.transform.position[1] -= .1;
+  for (const value of [document, explicit, wrongCeiling]) {
+    const mask = install(value);
+    expect(shaderFor(underside).uniforms[uniform]).toBeUndefined();
+    mask.dispose();
+  }
+  mesh.geometry.dispose();
+  [floor, underside, foreign].forEach(material => material.dispose());
+});
 
 test('mask follows the visible area roster and releases a retired model material', () => {
   const {camera, mask, material, mesh, untaggedArea} = fixture();
