@@ -3,10 +3,12 @@ import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE, setSpaceLighting, validate
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
+import {syntheticArtwork} from '../placement/model';
 import {galleryLightingFor, hasAuthoredGalleryLighting} from '../light-details-renderer';
 import {retireArtworkResources} from './artwork-ownership';
 import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 import {hasCeilingFillMaterialHook, installCeilingFillMask} from './ceiling-fill';
+import {isLocalDiffuseReceiverTrial,resolveLocalDiffuseReceivers} from './local-diffuse-receiver-trial';
 import {hasSupportContactMaterialHook, installSupportContactShadows} from './shadows';
 
 function fixture(supplemental = false) {
@@ -177,6 +179,66 @@ test('ceiling return tracks only the visible marked fill and its verified unders
   }
   mesh.geometry.dispose();
   [floor, underside, foreign].forEach(material => material.dispose());
+});
+
+test('local receiving trial binds one exact wall and one uniquely placed ordinary image to their own marked fill', () => {
+  const {camera, document, lights, material: floor, mesh, room, scene, rooms, mask: priorMask} = fixture();
+  priorMask.dispose();
+  const owner = document.rooms[0]!;
+  const outside = {...owner, id: crypto.randomUUID()};
+  document.rooms.push(outside);
+  const [area] = document.lights;
+  const detail = (document.extensions![LIGHT_DETAILS_NAMESPACE] as {lights: Array<{ceilingFill: {mode?: string}}>}).lights[0]!;
+  detail.ceilingFill.mode = 'default';
+  area!.intensity *= 5;
+  const wall = {
+    id: crypto.randomUUID(), roomId: owner.id, type:'wall' as const,
+    dimensions: {width: owner.dimensions.width, height: owner.dimensions.height},
+    transform:{position:[0,2,-owner.dimensions.depth/2],rotation:[0,0,0,1],scale:[1,1,1]},
+  } satisfies (typeof document.surfaces)[number];
+  const outsideWall = {...wall,id:crypto.randomUUID(),roomId:outside.id};
+  document.surfaces = [wall,outsideWall];
+  const image = syntheticArtwork('image'), artworkRevisionId = image.revisionId;
+  document.artworks.push(image);
+  const placement = {id:crypto.randomUUID(),roomId:owner.id,artworkRevisionId,transform:wall.transform,assetId:image.primaryAssetId};
+  document.placements.push(placement);
+  const trial = {
+    publicationId:crypto.randomUUID(),revisionSha256:'1'.repeat(64),indexSha256:'2'.repeat(64),
+    wallId:wall.id,placementId:placement.id,
+  };
+  expect(isLocalDiffuseReceiverTrial(trial)).toBe(true);
+  expect(isLocalDiffuseReceiverTrial({...trial,unsealed:true})).toBe(false);
+  expect(resolveLocalDiffuseReceivers(document,{...trial,indexSha256:undefined},trial)).toBeUndefined();
+  expect(resolveLocalDiffuseReceivers(document,{...trial,revisionSha256:'3'.repeat(64)},trial)).toBeUndefined();
+  expect(resolveLocalDiffuseReceivers(document,trial,{...trial,wallId:outsideWall.id})).toBeUndefined();
+  const repeated = {...document,placements:[placement,{...placement,id:crypto.randomUUID()}]};
+  expect(resolveLocalDiffuseReceivers(repeated,trial,trial)).toBeUndefined();
+  const selection = resolveLocalDiffuseReceivers(document,trial,trial);
+  expect(selection).toEqual({wallId:wall.id,artworkRevisionId,fillLightId:area!.id});
+
+  const wallMaterial = new three.MeshStandardMaterial(), artwork = new three.MeshStandardMaterial();
+  const foreign = new three.MeshStandardMaterial(), neighbor = new three.MeshStandardMaterial();
+  for (const material of [wallMaterial,artwork,foreign,neighbor]) room.add(new three.Mesh(mesh.geometry,material));
+  const surfaceMaterials = new Map([[wall.id,wallMaterial],[outsideWall.id,foreign]]);
+  const mask = installCeilingFillMask(three,document,scene,rooms,lights,surfaceMaterials,selection)!;
+  mask.bindTrialImage(artworkRevisionId,artwork);
+  mask.bindTrialImage(crypto.randomUUID(),neighbor);
+  mask.prepare(camera);
+  const wallShader = shaderFor(wallMaterial), artworkShader = shaderFor(artwork);
+  const returnUniform = 'exhibitosCeilingIrradiance';
+  const roomReturn = wallShader.uniforms[returnUniform]!;
+  expect(wallShader.fragmentShader).toContain('gl_FrontFacing && dot(exhibitosReceiverInward');
+  expect(wallShader.uniforms.exhibitosReceiverInward?.value.toArray()).toEqual([0,0,1]);
+  expect(artworkShader.fragmentShader).toContain('if (gl_FrontFacing)');
+  expect(artworkShader.uniforms[returnUniform]).toBe(roomReturn);
+  expect(roomReturn.value).toBe(.12);
+  for (const material of [floor,foreign,neighbor]) expect(shaderFor(material).uniforms[returnUniform]).toBeUndefined();
+  lights.get(area!.id)!.light.visible = false;
+  mask.prepare(camera);
+  expect(roomReturn.value).toBe(0);
+  mask.dispose();
+  mesh.geometry.dispose();
+  [floor,wallMaterial,artwork,foreign,neighbor].forEach(material=>material.dispose());
 });
 
 test('mask follows the visible area roster and releases a retired model material', () => {

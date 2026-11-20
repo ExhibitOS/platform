@@ -82,6 +82,7 @@ import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/priv
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {galleryLightingFor,installLightDetails} from './light-details-renderer';
 import {installCeilingFillMask} from './viewer/ceiling-fill';
+import {configuredLocalDiffuseReceiverTrial,resolveLocalDiffuseReceivers} from './viewer/local-diffuse-receiver-trial';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
 import {benchesFor,experienceFor,furnishingWalkingCollisionLookup,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
@@ -876,7 +877,12 @@ export function GeometryPreview({
         }
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
-      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined);
+      const receiverTrial=roomOnly&&publicSource&&window.location.hostname==='127.0.0.1'
+        ? resolveLocalDiffuseReceivers(document,{
+          publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,
+          indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256,
+        },configuredLocalDiffuseReceiverTrial()) : undefined;
+      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined,receiverTrial);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();
@@ -1939,6 +1945,7 @@ export function GeometryPreview({
               side: three.DoubleSide,
               roughness:1,metalness:0,
             });
+            ceilingFill?.bindTrialImage(artwork.revisionId,material);
             resources.push(geometry, material);
             object = new three.Mesh(geometry, material);
             decodeBackingReleased=true;

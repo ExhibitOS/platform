@@ -3,14 +3,15 @@ import type {Exhibition} from '@exhibitos/spec';
 import {alignedDoorPair, lightDetailsFor, roomCeilingFillDimensions, type LightDetails} from '@exhibitos/studio-contract';
 import type * as Three from 'three';
 import {createUpperAngularLighting} from './upper-angular-lighting';
+import type {LocalDiffuseReceivers} from './local-diffuse-receiver-trial';
 
 const passageMetres = .5;
 const boundaryTolerance = .002;
 const allowedWallInset = .01;
 const lightChunk = '#include <lights_fragment_begin>';
 const lightEnd = '#include <lights_fragment_end>';
-// Low ceiling-only diffuse return, qualified at 12% of emitter intensity in
-// the receiver fixture. Cap irradiance so small, bright panels cannot dominate.
+// Low diffuse return, qualified at 12% of emitter intensity in the receiver
+// fixture. Cap irradiance so small, bright panels cannot dominate.
 const ceilingReturnFraction = .12;
 const ceilingReturnLimit = .3;
 const directAreaCall = 'RE_Direct_RectArea( rectAreaLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
@@ -109,6 +110,7 @@ export function installCeilingFillMask(
   rooms: ReadonlyMap<string, Three.Group>,
   lights: ReadonlyMap<string, {light: Three.Light}>,
   roomOnlySurfaceMaterials?: ReadonlyMap<string, Three.MeshStandardMaterial>,
+  localReceivers?: LocalDiffuseReceivers,
 ) {
   const details = lightDetailsFor(doc);
   const tagged = new Map(details.filter(entry => entry.ceilingFill).map(entry => [entry.lightId.toLowerCase(), entry]));
@@ -124,7 +126,9 @@ export function installCeilingFillMask(
   if (!tagged.size && !upperAngular) return;
   scene.updateMatrixWorld(true);
   const byObject = new Map<Three.RectAreaLight, string>();
-  const ceilingReturns = new Map<Three.Material, {light: Three.RectAreaLight; irradiance: {value: number}}>();
+  const diffuseReceivers = new WeakMap<Three.Material, {irradiance: {value: number}; inward?: Three.Vector3}>();
+  const returnLights = new Map<Three.RectAreaLight, {value: number}>();
+  let trialIrradiance: {value: number} | undefined;
   for (const item of doc.lights) {
     const detail = tagged.get(item.id.toLowerCase());
     if (!detail) continue;
@@ -137,15 +141,31 @@ export function installCeilingFillMask(
         detail.basePlacement !== 'auto' || detail.ceilingFill?.mode !== 'default') continue;
       const ceiling = doc.surfaces.find(surface => surface.type === 'ceiling' && surface.roomId.toLowerCase() === room.id.toLowerCase());
       const material = ceiling && roomOnlySurfaceMaterials.get(ceiling.id.toLowerCase());
-      if (!material) continue;
+      if (!material && item.id.toLowerCase() !== localReceivers?.fillLightId) continue;
       try {
-        // Uses the same unambiguous, room-sized, downward-facing envelope
-        // check as automatic fill admission.
+        // Same unambiguous, room-sized, downward-facing envelope check
+        // used by automatic fill admission.
         roomCeilingFillDimensions(doc, room.id);
-        ceilingReturns.set(material, {light, irradiance: {value: 0}});
       } catch {
-        // Unverified envelope faces receive no return.
+        continue;
       }
+      const irradiance = {value: 0};
+      if (material) {
+        returnLights.set(light, irradiance);
+        diffuseReceivers.set(material, {irradiance});
+      }
+      if (item.id.toLowerCase() !== localReceivers?.fillLightId) continue;
+      const wall = doc.surfaces.find(surface => surface.id.toLowerCase() === localReceivers.wallId &&
+        surface.type === 'wall' && surface.roomId.toLowerCase() === room.id.toLowerCase());
+      const wallMaterial = wall && roomOnlySurfaceMaterials.get(wall.id.toLowerCase());
+      if (!wall || !wallMaterial) continue;
+      const inward = new three.Vector3(0, 0, 1).applyQuaternion(new three.Quaternion().fromArray(wall.transform.rotation));
+      const toInterior = new three.Vector3(0, room.dimensions.height / 2, 0).sub(new three.Vector3(...wall.transform.position));
+      if (inward.dot(toInterior) <= 0) continue;
+      inward.transformDirection(group.matrixWorld);
+      returnLights.set(light, irradiance);
+      diffuseReceivers.set(wallMaterial, {irradiance, inward});
+      trialIrradiance = irradiance;
     }
   }
 
@@ -171,9 +191,9 @@ export function installCeilingFillMask(
         }
       }
     });
-    if (ceilingReturns.size) {
+    if (returnLights.size) {
       const visible = new Set(order);
-      for (const {light, irradiance} of ceilingReturns.values()) {
+      for (const [light, irradiance] of returnLights) {
         irradiance.value = visible.has(light) && Number.isFinite(light.intensity)
           ? Math.min(ceilingReturnLimit, Math.max(0, light.intensity * ceilingReturnFraction)) : 0;
       }
@@ -204,7 +224,7 @@ export function installCeilingFillMask(
       if (materials.has(material)) continue;
       const before = material.onBeforeCompile, key = material.customProgramCacheKey;
       const baseKey = key.call(material);
-      const ceilingReturn = ceilingReturns.get(material);
+      const diffuseReturn = diffuseReceivers.get(material);
       const hook: Three.Material['onBeforeCompile'] = (shader, renderer) => {
         before.call(material, shader, renderer);
         // Three retains one uniform dictionary per material, even when
@@ -214,15 +234,21 @@ export function installCeilingFillMask(
           shader.fragmentShader = upperAngular.definitions + '\n' + shader.fragmentShader;
         }
         shader.fragmentShader = definitions + '\n' + shader.fragmentShader.replace(lightChunk, injectedLighting);
-        if (ceilingReturn) {
-          shader.uniforms.exhibitosCeilingIrradiance = ceilingReturn.irradiance;
-          shader.fragmentShader = 'uniform float exhibitosCeilingIrradiance;\n' + shader.fragmentShader.replace(lightEnd, `${lightEnd}
-            if (gl_FrontFacing) {
+        if (diffuseReturn) {
+          shader.uniforms.exhibitosCeilingIrradiance = diffuseReturn.irradiance;
+          const interior = diffuseReturn.inward
+            ? ' && dot(exhibitosReceiverInward, (vec4(nonPerturbedNormal, 0.0) * viewMatrix).xyz) > .99' : '';
+          if (diffuseReturn.inward) shader.uniforms.exhibitosReceiverInward = {value: diffuseReturn.inward};
+          shader.fragmentShader = 'uniform float exhibitosCeilingIrradiance;\n' +
+            (diffuseReturn.inward ? 'uniform vec3 exhibitosReceiverInward;\n' : '') +
+            shader.fragmentShader.replace(lightEnd, `${lightEnd}
+            if (gl_FrontFacing${interior}) {
               reflectedLight.indirectDiffuse += vec3(exhibitosCeilingIrradiance) * BRDF_Lambert(material.diffuseContribution);
             }`);
         }
       };
-      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey + (ceilingReturn ? '|diffuse-underside' : '');
+      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey +
+        (diffuseReturn?.inward ? '|diffuse-interior-wall' : diffuseReturn ? '|diffuse-underside' : '');
       material.onBeforeCompile = hook;
       material.customProgramCacheKey = ownedKey;
       const retire = () => {
@@ -253,5 +279,10 @@ export function installCeilingFillMask(
       for (const retire of materials.values()) retire();
     }
   };
-  return {prepare, dispose, hasUpperAngular: !!upperAngular};
+  const bindTrialImage = (artworkRevisionId: string, material: Three.MeshStandardMaterial) => {
+    if (trialIrradiance && artworkRevisionId.toLowerCase() === localReceivers?.artworkRevisionId) {
+      diffuseReceivers.set(material, {irradiance: trialIrradiance});
+    }
+  };
+  return {prepare, dispose, bindTrialImage, hasUpperAngular: !!upperAngular};
 }

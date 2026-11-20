@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {execFileSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
+import {isLocalDiffuseReceiverTrial} from "./src/viewer/local-diffuse-receiver-trial";
 // Native publication packaging selects its existing Viewer entry explicitly.
 // Without the producer option, the public Viewer + Studio demo stays unchanged.
 const target = process.env.EXHIBITOS_STATIC_TARGET;
@@ -21,5 +22,10 @@ try {
   if(process.versions.node==="24.21.0"&&process.env.npm_config_user_agent?.startsWith("npm/11.19.0 ")&&process.argv.includes("build")&&/^[a-f0-9]{40}$/.test(commit)&&/^[a-f0-9]{40}$/.test(tree)&&!changes){sourceCommit=commit;sourceTree=tree;}
 } catch { /* A source-less or modified build has no verified commit identity. */ }
 const lockSha256=createHash("sha256").update(readFileSync(fileURLToPath(new URL("../../package-lock.json", import.meta.url)))).digest("hex");
-const buildId=sourceCommit&&sourceTree?createHash("sha256").update(JSON.stringify({sourceCommit,sourceTree,lockSha256,packageVersion,target:target??"default",privateEditor:process.env.EXHIBITOS_PRIVATE_EDITOR==="1",...(stagingDiagnostics?{stagingDiagnostics:true}:{})})).digest("hex"):null;
-export default defineConfig({define:{__EXHIBITOS_STAGING_DIAGNOSTICS__:JSON.stringify(stagingDiagnostics),__EXHIBITOS_VIEWER_BUILD_ID__:JSON.stringify(buildId),__EXHIBITOS_VIEWER_PACKAGE_VERSION__:JSON.stringify(packageVersion),__EXHIBITOS_VIEWER_SOURCE_COMMIT__:JSON.stringify(sourceCommit)},plugins:[react(),{name:"viewer-build-identity",transformIndexHtml:{order:"pre",handler:()=>[{tag:"meta",attrs:{name:"exhibitos-viewer-build-id",content:buildId??""},injectTo:"head"}]}}],build:{outDir:"dist-static",rollupOptions:{input:target === "viewer" && process.env.EXHIBITOS_PRIVATE_EDITOR !== "1" ? ["static.html"] : ["static.html","static-studio.html"]}}});
+const receiverInputPath=process.env.EXHIBITOS_LOCAL_RECEIVER_TRIAL_INPUT;
+const receiverInput=receiverInputPath===undefined?undefined:readFileSync(receiverInputPath);
+const receiverTrial:unknown=receiverInput===undefined?undefined:JSON.parse(receiverInput.toString('utf8'));
+if(receiverInput && (target!=='viewer'||!sourceCommit||!isLocalDiffuseReceiverTrial(receiverTrial)))throw Error('LOCAL_RECEIVER_TRIAL_INPUT_INVALID');
+const receiverTrialSha256=receiverInput?createHash('sha256').update(receiverInput).digest('hex'):undefined;
+const buildId=sourceCommit&&sourceTree?createHash("sha256").update(JSON.stringify({sourceCommit,sourceTree,lockSha256,packageVersion,target:target??"default",privateEditor:process.env.EXHIBITOS_PRIVATE_EDITOR==="1",...(stagingDiagnostics?{stagingDiagnostics:true}:{}),...(receiverTrialSha256?{receiverTrialSha256}:{})})).digest("hex"):null;
+export default defineConfig({define:{__EXHIBITOS_LOCAL_DIFFUSE_RECEIVER_TRIAL__:JSON.stringify(receiverTrial)??"undefined",__EXHIBITOS_STAGING_DIAGNOSTICS__:JSON.stringify(stagingDiagnostics),__EXHIBITOS_VIEWER_BUILD_ID__:JSON.stringify(buildId),__EXHIBITOS_VIEWER_PACKAGE_VERSION__:JSON.stringify(packageVersion),__EXHIBITOS_VIEWER_SOURCE_COMMIT__:JSON.stringify(sourceCommit)},plugins:[react(),{name:"viewer-build-identity",transformIndexHtml:{order:"pre",handler:()=>[{tag:"meta",attrs:{name:"exhibitos-viewer-build-id",content:buildId??""},injectTo:"head"}]}}],build:{outDir:"dist-static",rollupOptions:{input:target === "viewer" && process.env.EXHIBITOS_PRIVATE_EDITOR !== "1" ? ["static.html"] : ["static.html","static-studio.html"]}}});
