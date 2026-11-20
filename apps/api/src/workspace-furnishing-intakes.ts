@@ -242,14 +242,21 @@ export class WorkspaceFurnishingIntakes {
   }
   return readInstalledFurnishingModel(descriptor.id,signal);
  }
- private async installedModel(c:PoolClient,s:Session,version:number,descriptor:WorkspaceFurnishingDescriptor,purpose?:'display'|'export'){
+ private async installedModel(c:PoolClient,s:Session,version:number,descriptor:WorkspaceFurnishingDescriptor,purpose?:'display'|'export',discover=false){
   await this.checkOwner(c,s);
   if(version!==descriptor.version)throw new ApiError(400,'INVALID_INPUT');
   if(purpose&&!allowedRights(descriptor.rights,purpose))throw new ApiError(403,'RIGHTS_DENIED');
-  const model=this.supportsInstalled(descriptor)?await this.installedBytes(c,descriptor):undefined;
+  const model=this.supportsInstalled(descriptor)?await this.installedBytes(c,descriptor,discover):undefined;
   if(!model)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   await this.writer?.assertLive();
   return model;
+ }
+ /** Newly placed stock may only use a model the current catalogue offers. */
+ async checkActiveStockCeilingRail(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
+  if(!this.defaultCatalogue||!this.supportsCeilingRail())throw new ApiError(403,'FORBIDDEN');
+  const stock=installedFurnishingDescriptorFor(descriptor.id);
+  if(stock?.kind!=='ceiling-rail'||!isDeepStrictEqual(stock,descriptor))throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
+  await this.installedModel(c,s,descriptor.version,stock,'display',true);
  }
  async installedThumbnail(c:PoolClient,s:Session,id:string,version:number){
   const descriptor=installedFrameDescriptorFor(id);
