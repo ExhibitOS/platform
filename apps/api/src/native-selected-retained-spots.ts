@@ -29,6 +29,12 @@ const paintingSpots = [
   ['78eec554-cbc6-4caa-964e-eb347ec8881a', '1ce80a85f7553641b605f2f7c40362002be85bb67f2caf8a502f31143682aeab'],
 ] as const;
 
+const heldPaintingSpots = new Set([
+  'ee573097-28ba-490f-9392-ae7a5ac98467', // Apples
+  'b791642f-f817-4c56-a926-53d315d7ab55', // Sunrise
+]);
+const acceptedPaintingSpots = paintingSpots.filter(([id]) => !heldPaintingSpots.has(id));
+
 const unavailable = (): never => { throw new ApiError(409, 'NATIVE_DETAIL_UNAVAILABLE'); };
 const commitment = (value: unknown) => createHash('sha256').update(freezeCanonical(value)).digest('hex');
 
@@ -59,7 +65,9 @@ function railBinding(scene: Exhibition) {
 
 /** Replay only the reviewed rows. The selected-output caller must first bind the
  * exact live saved draft and acknowledged predecessor to its owner and receipts. */
-export function projectSelectedRetainedSpots(selected: Exhibition, saved: Exhibition, includeOldArrow: boolean): Exhibition {
+export function projectSelectedRetainedSpots(selected: Exhibition, saved: Exhibition, selection: boolean | 'accepted-seven'): Exhibition {
+  const spots = selection === 'accepted-seven' ? acceptedPaintingSpots : paintingSpots;
+  const includeOldArrow = selection !== false;
   if (!isDeepStrictEqual(railBinding(selected), railBinding(saved))) return unavailable();
   if (selected.lights.some(row => row.type === 'point')) return unavailable();
   unique(selected.lights, row => row.id === '78edc3a0-2f16-43c1-bb2d-fd5e53bafa37' && row.type === 'spot');
@@ -83,7 +91,7 @@ export function projectSelectedRetainedSpots(selected: Exhibition, saved: Exhibi
       return unavailable();
   }
 
-  for (const [id, expected] of paintingSpots) {
+  for (const [id, expected] of spots) {
     const light = unique(saved.lights, row => row.id === id);
     const detail = unique(savedDetails, row => row.lightId === id);
     const binding = unique(savedFixtures.bindings, row => row.hostKind === 'light' && row.hostId === id);
@@ -125,6 +133,6 @@ export function projectSelectedRetainedSpots(selected: Exhibition, saved: Exhibi
     ...(includeOldArrow ? {[LIGHT_ATTACHMENT_NAMESPACE]: {version: 1, lights: attachments} as unknown as NonNullable<Exhibition['extensions']>[string]} : {}),
   };
   if (!validateStudioLightDetails(next).valid || !validateLightAttachments(next).valid || !validateFurnishings(next).valid ||
-      paintingSpots.some(([id]) => !resolveTrackSpotAiming(next, id).reachable)) return unavailable();
+      spots.some(([id]) => !resolveTrackSpotAiming(next, id).reachable)) return unavailable();
   return next;
 }

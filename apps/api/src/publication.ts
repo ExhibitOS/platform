@@ -30,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {CLOSING_LIGHTS_SELECTED_SCOPE,installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE,CLOSING_LIGHTS_SELECTED_SCOPE,installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -851,7 +851,8 @@ export class Publications {
           AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
         [row.tenant_id,row.created_by,row.exhibition_id,row.id,scope,SELECTED_NATIVE_RELEASE,head])).rows[0];
         if(!await receiptFor(scope)&&
-            !(repair&&head===ACCEPTED_WHEAT_FIT_PREDECESSOR.etag&&(await receiptFor(CLOSING_LIGHTS_SELECTED_SCOPE)||await receiptFor(RETAINED_SPOTS_SELECTED_SCOPE))))return;
+            !(repair&&head===ACCEPTED_WHEAT_FIT_PREDECESSOR.etag&&(await receiptFor(CLOSING_LIGHTS_SELECTED_SCOPE)||
+              await receiptFor(RETAINED_SPOTS_SELECTED_SCOPE)||await receiptFor(ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE))))return;
         if(!workspace.some(item=>item.publicId===known.assetId&&item.sourceDescriptor.id===WHEAT_FRAME_ID))
             throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
         try{return {descriptor:known,bytes:await readSelectedWheatNotice()};}

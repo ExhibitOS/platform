@@ -10,7 +10,7 @@ import {
   freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
-  CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
+  ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE, CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
 } from '@exhibitos/studio-contract';
 import {ApiError, type Session} from './auth.ts';
 import {Audio, audioMedia} from './audio.ts';
@@ -98,7 +98,8 @@ type ApprovedBrassFrames = readonly [string, string];
 type ApprovedFootsteps = {paintingTarget: string; entranceTarget: string; commitment: string};
 export type SelectedProjectionIdentity = `v1:${string}`;
 type WheatNoticeScope = typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE |
-  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE;
+  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE |
+  typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;
 export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: WheatNoticeScope};
 const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
   fingerprint([SELECTED_NATIVE_RELEASE, 'footstep-target-v1', role, id]);
@@ -123,7 +124,8 @@ export async function loadSelectedNativeRelease(
     throw new ApiError(412, 'REMOTE_CONFLICT');
   if (postWheat && !selectedHead?.scope) return unavailable();
   if (paintingBench && selectedHead?.scope !== PAINTING_BENCH_SELECTED_SCOPE) return unavailable();
-  const retainedSpots = selectedHead?.scope === RETAINED_SPOTS_SELECTED_SCOPE;
+  const acceptedSeven = selectedHead?.scope === ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;
+  const retainedSpots = acceptedSeven || selectedHead?.scope === RETAINED_SPOTS_SELECTED_SCOPE;
   const closing = retainedSpots || selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
   if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE && !closing) return unavailable();
   if (closing && (!wheatImageFit || match !== ACCEPTED_WHEAT_FIT_PREDECESSOR.etag))
@@ -235,9 +237,10 @@ export async function loadSelectedNativeRelease(
               SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
             const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
               deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
-            const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate, true);
+            const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate,
+              acceptedSeven ? 'accepted-seven' : true);
             return {...bindScopedSelection(selected, withRetainedSpots, retainedPredecessor, match, selectedHead),
-              wheatScope: RETAINED_SPOTS_SELECTED_SCOPE};
+              wheatScope: acceptedSeven ? ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE : RETAINED_SPOTS_SELECTED_SCOPE};
           }
           return {...bindScopedSelection(selected, withClosing, closingPredecessor, match, selectedHead),
             wheatScope: CLOSING_LIGHTS_SELECTED_SCOPE};
