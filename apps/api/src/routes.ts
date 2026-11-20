@@ -79,7 +79,7 @@ import {readHayesTerminal,requireHayesTerminalContext} from './hayes-preopen-ter
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
-import {NativeTrackSpotAimProposalError} from './api-error.ts';
+import {NativeTrackSpotAimProposalError,WorkspaceFurnishingReferenceError} from './api-error.ts';
 import type { Pool, PoolClient } from 'pg';
 export interface NativeThumbnailPreviewTrace {
  apiIngress(request:import('node:http').IncomingMessage):void;
@@ -110,7 +110,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const framework=error as {validation?:unknown;statusCode?:number};
   const status=error instanceof ApiError ? error.status : framework.validation || framework.statusCode===400 ? 400 : framework.statusCode===413 ? 413 : framework.statusCode===415 ? 415 : 500;
   const code=error instanceof ApiError ? error.code : status===400?'INVALID_INPUT':status===413?'BODY_TOO_LARGE':status===415?'UNSUPPORTED_MEDIA_TYPE':'INTERNAL_ERROR';
-  const message=error instanceof NativeTrackSpotAimProposalError?error.message:code;
+  const message=error instanceof NativeTrackSpotAimProposalError||error instanceof WorkspaceFurnishingReferenceError?error.message:code;
   return reply.code(status).send({code,message,fieldErrors:[],requestId:request.id});
  });
  const str={type:'string'}, id={type:'string',format:'uuid'};

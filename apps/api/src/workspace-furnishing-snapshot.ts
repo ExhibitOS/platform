@@ -4,6 +4,7 @@ import type {Artwork,Exhibition} from '@exhibitos/spec';
 import {benchesFor,isBuiltInGalleryStool,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {PoolClient} from 'pg';
 import {ApiError,type Session} from './auth.ts';
+import {WorkspaceFurnishingReferenceError} from './api-error.ts';
 import {allowedRights} from './rights.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 /** A scene descriptor is never workspace ownership or a live rights grant. */
@@ -17,8 +18,12 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
  if(snapshot.version===6&&!service.supportsPortalFinish())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===5&&!service.supportsArtworkFrameModels())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===4&&!service.supportsArtworkFrame())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
- for(const furnishing of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).furnishings){const registered=await service.readVersion(c,s,furnishing.id,furnishing.version);if(!isDeepStrictEqual(registered,furnishing))throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');}
- for(const furnishing of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).furnishings)if(!allowedRights(furnishing.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');
+ for(const furnishing of snapshot.furnishings){
+  const registered=await service.readVersion(c,s,furnishing.id,furnishing.version);
+  if(!isDeepStrictEqual(registered,furnishing))throw new WorkspaceFurnishingReferenceError(409,'FURNISHING_VERSION_MISMATCH',furnishing.id,furnishing.version,'The reference does not match the installed or registered version.');
+ }
+ for(const furnishing of snapshot.furnishings)if(!allowedRights(furnishing.rights,'display'))
+  throw new WorkspaceFurnishingReferenceError(403,'DISPLAY_PERMISSION_REQUIRED',furnishing.id,furnishing.version,'The furnishing does not have a current display grant.');
  const checkedBenchModels=new Set<string>();
  for(const bench of benchesFor(candidate as Pick<Exhibition,'extensions'>)){
   if(!bench.workspaceVisual)continue;
