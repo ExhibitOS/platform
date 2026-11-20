@@ -676,12 +676,23 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const isOwnerAvailable=()=>runtimeReady&&!ownerStopped&&!!ownerChannel?.isOpen(),deferredStartup=[];
     if(hayesOriginalCapability&&!occupiedPackage&&!currentRailSelected){if(!nativeOexWorkspace||!hayesChannel?.isOpen()||!pinnedPayload||!writerLease)throw Error('HAYES_OWNER_UNAVAILABLE');nativeHayesCaller=createNativeHayesCaller({owner:nativeOexWorkspace,auth:new Auth(pool),blobs,channel:hayesChannel,runtimeGeneration:privateHayes.runtimeGeneration,nativeOwnerId:privateHayes.nativeOwnerId,runtimeManifestSha256:privateHayes.runtimeManifestSha256,signal:hayesAbort.signal,...(privateProbe?{onClaimCommitted:privateProbe.onClaimCommitted,onProbePhase:privateProbe.onProbePhase}:{}),assertLive:async()=>{if(!isOwnerAvailable()||!hayesChannel?.isOpen()||!pinnedPayload||hayesAbort.signal.aborted)throw Error('HAYES_OWNER_UNAVAILABLE');await writerLease.assertLive();await pinnedPayload.verify();if(!isOwnerAvailable()||!hayesChannel?.isOpen()||!pinnedPayload||hayesAbort.signal.aborted)throw Error('HAYES_OWNER_UNAVAILABLE');}});}
     let nativeDetailContext;
+    const selectedHeadPath='platform/scripts/occupied-selected-output.json';
+    const hasSelectedHead=pinnedPayload?.hasPath(selectedHeadPath);
     if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&furnishingMode&&!selectedPhase&&privateOwner&&nativeExportWorkspace&&await hasNativeDetailCapability(fileURLToPath(new URL('./native-detail-static-export-capability-v1.json',import.meta.url)))){
       const marker='platform/scripts/native-detail-static-export-capability-v1.json';
       if(!ordinaryAdmission||!writerLease||!pinnedPayload||!pinnedPayload.hasRegular('platform/apps/api/dist/private-wheat-candidate-pin.js')||!pinnedPayload.hasRegular(marker)||!pinnedPayload.hasExact(marker,'9663e0fb346c78ebbd1b9e883bbd2400a1b968368d101102f0e0285c8e7deaef',Buffer.byteLength(NATIVE_DETAIL_CAPABILITY))||!hasNativeDetailRequiredFiles(pinnedPayload))throw Error('NATIVE_DETAIL_CONFIGURATION');
       await pinnedPayload.verify();await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
-      nativeDetailContext=bindNativeDetailContext(nativeExportWorkspace,privateOwner.runtimeGeneration,ownerAbort.signal,isOwnerAvailable);
+      let selectedHead;
+      if(occupiedPackage||hasSelectedHead){
+        if(!occupiedPackage||!hasSelectedHead||!pinnedPayload.hasRegular(selectedHeadPath))throw Error('NATIVE_DETAIL_CONFIGURATION');
+        const pin=await readFile(new URL('./occupied-selected-output.json',import.meta.url));
+        if(pin.length>256||!pinnedPayload.hasExact(selectedHeadPath,createHash('sha256').update(pin).digest('hex'),pin.length))throw Error('NATIVE_DETAIL_CONFIGURATION');
+        selectedHead=JSON.parse(pin.toString('utf8'));
+        if(!selectedHead||Object.keys(selectedHead).sort().join(',')!=='etag,revision')throw Error('NATIVE_DETAIL_CONFIGURATION');
+      }
+      nativeDetailContext=bindNativeDetailContext(nativeExportWorkspace,privateOwner.runtimeGeneration,ownerAbort.signal,isOwnerAvailable,selectedHead);
     }
+    if(hasSelectedHead&&!nativeDetailContext)throw Error('NATIVE_DETAIL_CONFIGURATION');
     let requiredModelWorkerActive=false;
     const modelPreparationExecution=modelPreparationCapability&&!selectedPhase?createNativeModelPreparationExecution(blobs,nativeOexWorkspace,writerLease,()=>requiredModelWorkerActive&&isOwnerAvailable()):undefined;
     if(gpuModelPreparationCapability){

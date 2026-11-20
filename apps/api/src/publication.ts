@@ -55,7 +55,7 @@ import { validateExhibition, revisionHash, type Artwork, type Exhibition } from 
 import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_GEOMETRY_PAIR_PROFILE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag, insertStudioReceipt } from "./studio.ts";
-import {assertSelectedOriginals, selectedNarrationRights, SELECTED_NATIVE_RELEASE, type NativeReleaseSelection, type SelectedNativeRelease} from './native-selected-release.ts';
+import {assertSelectedOriginals, selectedNarrationRights, SELECTED_NATIVE_RELEASE, type NativeReleaseSelection, type SelectedNativeRelease, type SelectedProjectionIdentity} from './native-selected-release.ts';
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
 import { qualifyApprovedTexturedPair, qualifyApprovedCompactGeometryPair, qualifyApprovedNearGeometryPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
@@ -340,10 +340,12 @@ export interface PublicationSource {
     resource?(id:string,sha256:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
     furnishingNotice?(id:string,assetId:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
 }
-function publicationRequestHash(id:string,requestId:string,match:string,detailMode:boolean,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection){
+function publicationRequestHash(id:string,requestId:string,match:string,detailMode:boolean,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection,projectionIdentity?:SelectedProjectionIdentity){
     const image=detail?.originalImage;
+    if(projectionIdentity!==undefined&&(!detailMode||!releaseSelection||!/^v1:[a-f0-9]{64}$/.test(projectionIdentity)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
     return sha256(Buffer.from(JSON.stringify({id,requestId,match,...(detailMode?{detailProfile:'native-original-v1'}:{}),
         ...(releaseSelection?{releaseSelection}:{}),
+        ...(projectionIdentity===undefined?{}:{projectionIdentity}),
         ...(image?{originalImage:{artworkId:image.artworkId,artworkRevision:image.artworkRevision,importJobId:image.importJobId}}:{})})));
 }
 
@@ -625,9 +627,9 @@ export class Publications {
         if(row.revision_sha256!==revisionSha256)throw new ApiError(412,'VIEWER_BUDGET_ANALYSIS_STALE');
     }
     /** Authenticated exact-request lookup; never adopts or retires a stage. */
-    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection){
+    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false,detail?:NativeOriginalPublication,releaseSelection?:NativeReleaseSelection,projectionIdentity?:SelectedProjectionIdentity){
         uuid(requestId);await this.studio.access(c,s,id);
-        const payloadHash=publicationRequestHash(id,requestId,match,detailMode,detail,releaseSelection);
+        const payloadHash=publicationRequestHash(id,requestId,match,detailMode,detail,releaseSelection,projectionIdentity);
         const receipt=(await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3",[s.tenantId,s.userId,requestId])).rows[0];
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
         const existing=await this.owned(c,s,receipt.publication_id);
@@ -639,11 +641,11 @@ export class Publications {
         try{
         uuid(requestId);
         if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
-        const releaseSelection=selected?SELECTED_NATIVE_RELEASE:undefined;
+        const releaseSelection=selected?SELECTED_NATIVE_RELEASE:undefined,projectionIdentity=selected?.projectionIdentity;
         if(selected&&!detail)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
         if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.assertDetailMode(!!detail,releaseSelection);
         if(detail)await detail.assertLive(c,s);
-        const row = await this.studio.access(c, s, id), payloadHash = publicationRequestHash(id,requestId,match,!!detail,detail,releaseSelection);
+        const row = await this.studio.access(c, s, id), payloadHash = publicationRequestHash(id,requestId,match,!!detail,detail,releaseSelection,projectionIdentity);
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
         if (receipt) {
             if (receipt.payload_sha256 !== payloadHash)
@@ -665,8 +667,9 @@ export class Publications {
           WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3
           AND EXISTS(SELECT 1 FROM studio_requests r
             WHERE (r.tenant_id,r.user_id,r.exhibition_id)=(p.tenant_id,p.created_by,p.exhibition_id)
-            AND r.response->>'releaseSelection'=$4 AND r.response->>'publicationId'=p.id::text)=$5::boolean
-          ORDER BY p.published_at DESC,p.id DESC LIMIT 1`,[s.tenantId,id,row.revision,SELECTED_NATIVE_RELEASE,!!selected])).rows[0];
+            AND r.response->>'releaseSelection'=$4 AND r.response->>'publicationId'=p.id::text
+            AND (NOT $5::boolean OR (r.response->>'projectionIdentity') IS NOT DISTINCT FROM $6::text))=$5::boolean
+          ORDER BY p.published_at DESC,p.id DESC LIMIT 1`,[s.tenantId,id,row.revision,SELECTED_NATIVE_RELEASE,!!selected,projectionIdentity??null])).rows[0];
         // A new original-inclusive publication request may observe a newly
         // selected CMS thumbnail without any saved-draft edit. Keep exact
         // request replay and withdrawn-version behavior, but project a fresh
@@ -729,6 +732,7 @@ export class Publications {
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         if(releaseSelection)await insertStudioReceipt(c,[s.tenantId,s.userId,requestId,payloadHash,id,{
             releaseSelection,publicationId,head:match,
+            ...(projectionIdentity===undefined?{}:{projectionIdentity}),
         }]);
         await this.event(c, s, publicationId, "published");
         const publishedRow={tenant_id:s.tenantId,created_by:s.userId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};

@@ -227,6 +227,7 @@ export class WorkspaceFurnishingIntakes {
   switch(descriptor.kind){
    case 'artwork-frame':return this.supportsArtworkFrameModels();
    case 'ceiling-rail':return this.supportsCeilingRail();
+   case 'info-stand':return this.supportsRoomVisual();
    case 'portal-finish':return this.supportsPortalFinish()&&this.supportsReusableFit();
    default:return false;
   }

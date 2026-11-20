@@ -36,7 +36,7 @@ it('records a new request for an already published saved revision without reacti
  const query=vi.fn().mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:[published]}).mockResolvedValueOnce({rows:[]});
  const result=await new Publications({} as Pool).publish({query} as unknown as PoolClient,session,exhibition,requestId,etag(2,metadata));
  expect(result).toMatchObject({publicationId:publication,status:'unpublished'});
- expect(query.mock.calls[1]![1]).toEqual([tenant,exhibition,2,SELECTED_NATIVE_RELEASE,false]);
+ expect(query.mock.calls[1]![1]).toEqual([tenant,exhibition,2,SELECTED_NATIVE_RELEASE,false,null]);
  expect(query.mock.calls[1]![0]).toContain("r.response->>'releaseSelection'=$4");
  expect(query.mock.calls[2]![0]).toContain('INSERT INTO publication_requests');
  expect(query.mock.calls.some(([sql])=>/UPDATE publication_states|INSERT INTO studio_publications/.test(sql))).toBe(false);
@@ -79,5 +79,29 @@ it('requires the same selection on a committed original publication request', as
  expect(verifyExisting).not.toHaveBeenCalled();
  await expect(publications.existingRequest(c, session, exhibition, requestId, match, true, detail, SELECTED_NATIVE_RELEASE))
   .resolves.toMatchObject({publicationId: publication});
+ expect(verifyExisting).toHaveBeenCalledOnce();
+});
+
+
+it('binds selected original request replay to the exact projected scene', async () => {
+ const match = '"saved-source"', projectionIdentity = `v1:${'a'.repeat(64)}` as const;
+ const originalImage = {artworkId: exhibition, artworkRevision: 1, importJobId: requestId};
+ const payload = createHash('sha256').update(JSON.stringify({
+  id: exhibition, requestId, match, detailProfile: 'native-original-v1',
+  releaseSelection: SELECTED_NATIVE_RELEASE, projectionIdentity, originalImage,
+ })).digest('hex');
+ vi.spyOn(Studio.prototype, 'access').mockResolvedValue({revision: 215, metadata: {}} as never);
+ const verifyExisting = vi.fn();
+ const detail = {originalImage, verifyExisting} as unknown as NativeOriginalPublication;
+ const query = vi.fn(async (sql: string) => sql.includes('FROM publication_requests')
+  ? {rows: [{payload_sha256: payload, publication_id: publication}]}
+  : {rows: [{...published, status: 'published'}]});
+ const c = {query} as unknown as PoolClient, publications = new Publications({} as Pool);
+ const replay = (identity?: `v1:${string}`) => publications.existingRequest(c, session, exhibition,
+  requestId, match, true, detail, SELECTED_NATIVE_RELEASE, identity);
+ await expect(replay()).rejects.toMatchObject({code: 'REQUEST_CONFLICT'});
+ await expect(replay(`v1:${'b'.repeat(64)}`)).rejects.toMatchObject({code: 'REQUEST_CONFLICT'});
+ expect(verifyExisting).not.toHaveBeenCalled();
+ await expect(replay(projectionIdentity)).resolves.toMatchObject({publicationId: publication});
  expect(verifyExisting).toHaveBeenCalledOnce();
 });

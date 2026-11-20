@@ -86,9 +86,10 @@ export interface NativeThumbnailPreviewTrace {
  apiAuthorized(request:import('node:http').IncomingMessage,session:Session):void;
  apiHeadersReady(request:import('node:http').IncomingMessage,status:number):void;
 }
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,nativeDetailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations,selectedWorkspaceRail?:WorkspaceFurnishingIntakes,thumbnailPreviewTrace?:NativeThumbnailPreviewTrace) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>,detailContext?:import('./native-detail-context.ts').NativeDetailContext,nativeHayesCaller?:import('./native-hayes-caller.ts').NativeHayesCaller,modelPreparationExecution?:ModelPreparationExecution,gpuModelPreparations?:GpuModelPreparations,selectedWorkspaceRail?:WorkspaceFurnishingIntakes,thumbnailPreviewTrace?:NativeThumbnailPreviewTrace) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
- if(nativeDetailContext&&(!isIssuedNativeDetailContext(nativeDetailContext)||nativeDetailContext.owner!==nativeExportWorkspace||!(store instanceof FileBlobStore)||!nativeDetailContext.owner.matchesBlobRoot?.(store.root)||input.mode!=='local'||freshOexTest))throw Error('NATIVE_DETAIL_CONFIGURATION');
+ if(detailContext&&(!isIssuedNativeDetailContext(detailContext)||detailContext.owner!==nativeExportWorkspace||!(store instanceof FileBlobStore)||!detailContext.owner.matchesBlobRoot?.(store.root)||input.mode!=='local'||freshOexTest))throw Error('NATIVE_DETAIL_CONFIGURATION');
+ const nativeDetailContext=detailContext?.selectedHead?undefined:detailContext;
  if(nativeHayesCaller&&(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.matchesBlobRoot?.(store.root)||typeof runtimeAvailable!=='function'||!isIssuedNativeHayesCaller(nativeHayesCaller,nativeOexWorkspace,store)))throw Error('HAYES_OWNER_CONFIGURATION');
  if(selectedWorkspaceMaterial&&(!(selectedWorkspaceMaterial instanceof WorkspaceMaterialIntakes)||!freshOexTest||input.mode!=='local'||workspaceMaterial||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.workspaceMaterials||!selectedWorkspaceMaterial.matchesBinding(nativeOexWorkspace,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
  if(selectedWorkspaceRail&&(!(selectedWorkspaceRail instanceof WorkspaceFurnishingIntakes)||!freshOexTest||input.mode!=='local'||workspaceFurnishing||selectedWorkspaceMaterial||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.workspaceCurrentRail||!selectedWorkspaceRail.matchesBinding(nativeOexWorkspace,store)||!selectedWorkspaceRail.supportsCeilingRail()))throw Error('WORKSPACE_FURNISHING_CONFIGURATION');
@@ -369,7 +370,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(freezes&&!freshOexTest){if(deferredStartup)deferredStartup.push(async()=>{await freezes.recover();});app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');if(!deferredStartup)await freezes.recover();});}
  const oex=store?new Oex(pool,store,nativeOexWorkspace,workspaceMaterial,workspaceFurnishing):null;
  if(nativeExportWorkspace&&store instanceof FileBlobStore&&oex)registerNativeBoundedOexExport(app,{auth,config:input,context:nativeExportWorkspace,blobRoot:store.root,oex,guard:(req,mutate)=>guarded(req,mutate),token});
- if(nativeDetailContext&&store instanceof FileBlobStore)registerNativeDetailHttp(app,{auth,context:nativeDetailContext,guard:(req,mutate)=>guarded(req,mutate),token,...(nativeOexWorkspace?{original:{studio,cms:new Cms(store),imports:new Imports(pool,store,nativeOexWorkspace,modelPreparationExecution),blobs:store}}:{})});
+ if(detailContext&&store instanceof FileBlobStore)registerNativeDetailHttp(app,{auth,context:detailContext,guard:(req,mutate)=>guarded(req,mutate),token,...(nativeOexWorkspace?{original:{studio,cms:new Cms(store),imports:new Imports(pool,store,nativeOexWorkspace,modelPreparationExecution),blobs:store}}:{})});
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
  app.post(`${sp}/:id/oex/export`,{schema:{body:object({})}},call(true,async(c,s,req,reply)=>{const bytes=await requireOex().export(c,s,jobId(req),requiredMatch(req.headers['if-match']));return reply.header('content-type','application/vnd.exhibitos.oex+zip').header('content-disposition','attachment; filename="exhibition.oex"').send(bytes);}));
@@ -482,8 +483,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const profile=req.headers['x-exhibitos-publication-profile'];if(profile!==undefined&&profile!=='bounded-local-v1'&&profile!=='native-original-v1')throw new ApiError(400,'INVALID_INPUT');
   const detailMode=profile==='native-original-v1';
   const {originalImage,releaseSelection}=mutate?req.body as {originalImage?:OriginalStaticApprovalInput;releaseSelection?:NativeReleaseSelection}:{};
-  if((originalImage||releaseSelection)&&!detailMode)throw new ApiError(400,'INVALID_INPUT');if(detailMode&&(!mutate||!nativeDetailContext||!nativeOexWorkspace||!(store instanceof FileBlobStore)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+  if((originalImage||releaseSelection)&&!detailMode)throw new ApiError(400,'INVALID_INPUT');if(detailMode&&(!mutate||!detailContext||!nativeOexWorkspace||!(store instanceof FileBlobStore)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+  if(detailMode&&detailContext?.selectedHead&&(!originalImage||releaseSelection!==SELECTED_NATIVE_RELEASE))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
   const match=mutate||profile!==undefined?requiredMatch(req.headers['if-match']):undefined;
+  if(detailMode&&detailContext?.selectedHead&&match!==detailContext.selectedHead.etag)throw new ApiError(412,'REMOTE_CONFLICT');
   if(profile===undefined)return call(mutate,async(c,s,_request,response)=>{if(!mutate)return publications.ready(c,s,p.id);const result=await publications.publish(c,s,p.id,requestId!,match!);response.code(201);return result;})(req,reply);
   if(closingPublications)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
   let operation:NativeLocalPublicationStage|undefined,committed=false;const cancelled=new AbortController();
@@ -495,18 +498,19 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     // Readiness can populate derivative caches. Follow the existing auth →
     // maintenance lock order so backups cannot snapshot midway through it.
     if(!mutate)await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-    if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}
+    if(detailMode){cancelled.signal.throwIfAborted();if(!detailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}
     await nativeExportWorkspace.assertDatabase(c);
     if(detailMode)cancelled.signal.throwIfAborted();
-    if(detailMode&&!originalImage&&!hasQualifiedOriginalImageModel(nativeDetailContext,s,p.id)&&!await hasAdoptedModelOriginalApproval(c,s,nativeDetailContext!.owner.workspaceId,p.id)&&!await hasRequiredModelOriginalApproval(c,s,nativeDetailContext!.owner.workspaceId,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
-    const producer=detailMode?createNativeOriginalPublication({context:nativeDetailContext!,studio,cms,imports:importer(),blobs:store,operationSignal:cancelled.signal,originalImage}):undefined;
+    if(detailMode&&!originalImage&&!hasQualifiedOriginalImageModel(detailContext,s,p.id)&&!await hasAdoptedModelOriginalApproval(c,s,detailContext!.owner.workspaceId,p.id)&&!await hasRequiredModelOriginalApproval(c,s,detailContext!.owner.workspaceId,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+    const producer=detailMode?createNativeOriginalPublication({context:detailContext!,studio,cms,imports:importer(),blobs:store,operationSignal:cancelled.signal,originalImage}):undefined;
     let selected:SelectedNativeRelease|undefined, assertNarrationTime:(()=>void)|undefined;
     if(releaseSelection){
      const row=await studio.access(c,s,p.id);
+     if(detailContext?.selectedHead&&row.revision!==detailContext.selectedHead.revision)throw new ApiError(412,'REMOTE_CONFLICT');
      selected=await loadSelectedNativeRelease(c,s,p.id,row,match!,originalImage);
      assertNarrationTime=await selectedNarrationRights(c,s,p.id,selected);
     }
-    if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode,producer,releaseSelection);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');assertNarrationTime?.();return existing;}}
+    if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode,producer,releaseSelection,selected?.projectionIdentity);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!detailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');assertNarrationTime?.();return existing;}}
     {
      const row=await studio.access(c,s,p.id),current=etag(row.revision,row.metadata);if(match&&match!==current)throw new ApiError(412,'REMOTE_CONFLICT');
      await producer?.assertImageSelection(c,s,p.id);
