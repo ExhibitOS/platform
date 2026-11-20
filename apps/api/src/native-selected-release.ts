@@ -10,7 +10,7 @@ import {
   freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
-  PAINTING_BENCH_SELECTED_SCOPE, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
+  CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
 } from '@exhibitos/studio-contract';
 import {ApiError, type Session} from './auth.ts';
 import {Audio, audioMedia} from './audio.ts';
@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
+  ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
   OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
   OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
@@ -28,6 +28,7 @@ import {
 import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
 import {ACCEPTED_PUBLIC_WHEAT_MANIFEST,assertAcceptedSelectedPredecessor,projectSelectedWheatFrame,projectSelectedWheatImageFit} from './native-selected-wheat.ts';
 import {projectSelectedPaintingBench} from './native-selected-painting-bench.ts';
+import {projectSelectedClosingFixtures} from './native-selected-closing-fixtures.ts';
 
 // Keep the persisted selection mode stable across exact-head corrections.
 export const SELECTED_NATIVE_RELEASE = 'r125-approved-r201-v1';
@@ -95,7 +96,9 @@ type SavedHead = {revision: number; metadata: Draft; studio_owner_user_id: strin
 type ApprovedBrassFrames = readonly [string, string];
 type ApprovedFootsteps = {paintingTarget: string; entranceTarget: string; commitment: string};
 export type SelectedProjectionIdentity = `v1:${string}`;
-export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE | typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE};
+type WheatNoticeScope = typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE |
+  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE;
+export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: WheatNoticeScope};
 const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
   fingerprint([SELECTED_NATIVE_RELEASE, 'footstep-target-v1', role, id]);
 
@@ -119,7 +122,10 @@ export async function loadSelectedNativeRelease(
     throw new ApiError(412, 'REMOTE_CONFLICT');
   if (postWheat && !selectedHead?.scope) return unavailable();
   if (paintingBench && selectedHead?.scope !== PAINTING_BENCH_SELECTED_SCOPE) return unavailable();
-  if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE) return unavailable();
+  if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE &&
+      selectedHead?.scope !== CLOSING_LIGHTS_SELECTED_SCOPE) return unavailable();
+  if (selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE && (!wheatImageFit || match !== ACCEPTED_WHEAT_FIT_PREDECESSOR.etag))
+    throw new ApiError(412, 'REMOTE_CONFLICT');
   const captionStands = row.revision === captionStandsRevision || defaultLighting;
   if ((!captionStands && row.revision !== currentRevision) || etag(row.revision, row.metadata) !== match ||
       (!defaultLighting && releaseFingerprint(match) !== (captionStands ? captionStandsHeadFingerprint : currentHeadFingerprint)))
@@ -175,8 +181,7 @@ export async function loadSelectedNativeRelease(
       etag(OCCUPIED_SELECTED_FINISH_REVISION, finishHead) !== OCCUPIED_SELECTED_FINISH_ETAG)))
     return unavailable();
 
-  if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE || selectedHead?.scope === WHEAT_SELECTED_SCOPE ||
-      selectedHead?.scope === PAINTING_BENCH_SELECTED_SCOPE || selectedHead?.scope === WHEAT_IMAGE_FIT_SELECTED_SCOPE) {
+  if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE || selectedScopeRequiresWheatNotice(selectedHead?.scope)) {
     // Replay the retained public projection. The full r215 draft is used only
     // to prove that the exact authenticated r216 authoring delta is the five saved textures.
     if (captionIdentity !== approvedPublicCaptionIdentity) return unavailable();
@@ -184,19 +189,23 @@ export async function loadSelectedNativeRelease(
     const publicPredecessor = fingerprintCanonical([captionIdentity, approvedPublicBody]);
     if (selectedHead.scope === OCCUPIED_PUBLIC_FINISH_SCOPE)
       return bindScopedSelection(selected, publicFinishes, publicPredecessor, match, selectedHead);
-    if (selectedHead.scope === PAINTING_BENCH_SELECTED_SCOPE || selectedHead.scope === WHEAT_IMAGE_FIT_SELECTED_SCOPE) {
-      const repair = selectedHead.scope === WHEAT_IMAGE_FIT_SELECTED_SCOPE;
-      if ((repair ? !wheatImageFit : !paintingBench) || selectedHead.predecessorPublicationId !== ACCEPTED_WHEAT_PREDECESSOR.publicationId ||
-          selectedHead.predecessorRevisionSha256 !== ACCEPTED_WHEAT_PREDECESSOR.revisionSha256) return unavailable();
+    if (selectedHead.scope !== WHEAT_SELECTED_SCOPE) {
+      const closing = selectedHead.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
+      const repair = selectedHead.scope !== PAINTING_BENCH_SELECTED_SCOPE;
+      const pin = closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
+      if ((repair ? !wheatImageFit : !paintingBench) || selectedHead.predecessorPublicationId !== pin.publicationId ||
+          selectedHead.predecessorRevisionSha256 !== pin.revisionSha256) return unavailable();
       const wheatHead = await savedRevision(OCCUPIED_POST_WHEAT_REVISION);
       if (!wheatHead || wheatHead.exhibitionId !== exhibitionId ||
           etag(OCCUPIED_POST_WHEAT_REVISION, wheatHead) !== OCCUPIED_POST_WHEAT_ETAG) return unavailable();
       await assertAcceptedSelectedPredecessor(c, s, exhibitionId, {
-        ...selectedHead, revision: OCCUPIED_POST_WHEAT_REVISION, etag: OCCUPIED_POST_WHEAT_ETAG,
+        predecessorPublicationId: ACCEPTED_WHEAT_PREDECESSOR.publicationId,
+        predecessorRevisionSha256: ACCEPTED_WHEAT_PREDECESSOR.revisionSha256,
+        revision: OCCUPIED_POST_WHEAT_REVISION, etag: OCCUPIED_POST_WHEAT_ETAG,
       }, SELECTED_NATIVE_RELEASE, ACCEPTED_WHEAT_PREDECESSOR.projectionIdentity, WHEAT_SELECTED_SCOPE);
       const withWheat = await projectSelectedWheatFrame(publicFinishes, finishHead.candidate, wheatHead.candidate);
       const predecessor = fingerprintCanonical([ACCEPTED_WHEAT_PREDECESSOR.projectionIdentity,
-        selectedHead.predecessorPublicationId, selectedHead.predecessorRevisionSha256,
+        ACCEPTED_WHEAT_PREDECESSOR.publicationId, ACCEPTED_WHEAT_PREDECESSOR.revisionSha256,
         ...(repair ? [ACCEPTED_PUBLIC_WHEAT_MANIFEST] : [])]);
       if (repair) {
         const benchHead = await savedRevision(OCCUPIED_PAINTING_BENCH_REVISION);
@@ -206,6 +215,17 @@ export async function loadSelectedNativeRelease(
             !isDeepStrictEqual({...row.metadata, candidate: benchHead.candidate,
               editVersion: benchHead.editVersion, updatedAt: benchHead.updatedAt}, benchHead)) return unavailable();
         const candidate = projectSelectedWheatImageFit(withWheat, benchHead.candidate, row.metadata.candidate);
+        if (selectedHead.scope === CLOSING_LIGHTS_SELECTED_SCOPE) {
+          const accepted = ACCEPTED_WHEAT_FIT_PREDECESSOR;
+          const fitIdentity = scopedProjectionIdentity(candidate, predecessor, match, WHEAT_IMAGE_FIT_SELECTED_SCOPE);
+          if (fitIdentity !== accepted.projectionIdentity) return unavailable();
+          await assertAcceptedSelectedPredecessor(c, s, exhibitionId, selectedHead,
+            SELECTED_NATIVE_RELEASE, fitIdentity, WHEAT_IMAGE_FIT_SELECTED_SCOPE);
+          const closingPredecessor = fingerprintCanonical([fitIdentity, accepted.publicationId, accepted.revisionSha256,
+            accepted.publicManifestSha256, accepted.deliveryReceiptSha256]);
+          const withClosing = projectSelectedClosingFixtures(candidate, row.metadata.candidate);
+          return {...bindScopedSelection(selected, withClosing, closingPredecessor, match, selectedHead), wheatScope: selectedHead.scope};
+        }
         return {...bindScopedSelection(selected, candidate, predecessor, match, selectedHead), wheatScope: WHEAT_IMAGE_FIT_SELECTED_SCOPE};
       }
       const candidate = await projectSelectedPaintingBench(withWheat, wheatHead.candidate, row.metadata.candidate);

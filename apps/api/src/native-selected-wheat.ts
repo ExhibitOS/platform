@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
 import type {Exhibition} from '@exhibitos/spec';
-import {freezeCanonical,validateWorkspaceFurnishings,WHEAT_FRAME_ID,WHEAT_FRAME_MODEL_SHA256,WHEAT_SELECTED_SCOPE,WHEAT_STOCK_NOTICE,
+import {freezeCanonical,validateWorkspaceFurnishings,WHEAT_FRAME_ID,WHEAT_FRAME_MODEL_SHA256,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WHEAT_STOCK_NOTICE,
  WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {ApiError,type Session} from './auth.ts';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
@@ -21,7 +21,7 @@ const exactImageFit={
 } as const;
 
 type WheatHead = Extract<NonNullable<NativeDetailContext['selectedHead']>,{scope:typeof WHEAT_SELECTED_SCOPE}>;
-type Predecessor = Pick<WheatHead,'predecessorPublicationId'|'predecessorRevisionSha256'|'revision'|'etag'>;
+type Predecessor = Pick<WheatHead,'predecessorPublicationId'|'predecessorRevisionSha256'|'etag'> & {revision:number};
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
 const furnishings=(scene:Exhibition)=>scene.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;
 
@@ -38,7 +38,7 @@ export function projectSelectedWheatImageFit(selected:Exhibition,before:Exhibiti
 }
 
 export async function assertAcceptedSelectedPredecessor(c:PoolClient,s:Session,exhibitionId:string,head:Predecessor,
- selection:string,projectionIdentity:string,scope?:typeof WHEAT_SELECTED_SCOPE){
+ selection:string,projectionIdentity:string,scope?:typeof WHEAT_SELECTED_SCOPE|typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE){
  const scopeClause=scope===undefined?'':" AND r.response->>'scope'=$10";
  const row=(await c.query(`SELECT 1 FROM studio_publications p
   JOIN publication_states st ON st.publication_id=p.id AND st.status='published'

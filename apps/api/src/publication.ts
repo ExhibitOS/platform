@@ -12,7 +12,7 @@ import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from '.
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
 import {matchesInstalledFurnishing} from './installed-workspace-furnishing.ts';
 import {readSelectedWheatNotice} from './native-selected-wheat.ts';
-import {OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
+import {ACCEPTED_WHEAT_FIT_PREDECESSOR,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -30,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {CLOSING_LIGHTS_SELECTED_SCOPE,installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -846,11 +846,12 @@ export class Publications {
             if(!saved||saved.exhibitionId!==row.exhibition_id)return;
             head=etag(row.draft_revision,saved);
         }
-        const receipt=(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
+        const receiptFor=async (scope:string)=>(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
           AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6
           AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
         [row.tenant_id,row.created_by,row.exhibition_id,row.id,scope,SELECTED_NATIVE_RELEASE,head])).rows[0];
-        if(!receipt)return;
+        if(!await receiptFor(scope)&&
+            !(repair&&head===ACCEPTED_WHEAT_FIT_PREDECESSOR.etag&&await receiptFor(CLOSING_LIGHTS_SELECTED_SCOPE)))return;
         if(!workspace.some(item=>item.publicId===known.assetId&&item.sourceDescriptor.id===WHEAT_FRAME_ID))
             throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
         try{return {descriptor:known,bytes:await readSelectedWheatNotice()};}
