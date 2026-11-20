@@ -30,7 +30,9 @@ describe('approved material footsteps',()=>{
   const legacy={surfaces:[],extensions:{'org.exhibitos.viewer/footstep-resources':{version:1,families:['concrete']}}} as unknown as PublicPublication['exhibition'];
   expect(resolveFootsteps(legacy,room,surface,{surfaceId:surface,material:'concrete'})).toEqual({kind:'builtin',ids:BUILTIN_STEP_BANKS.concrete,gain:1,material:'concrete'});
   expect(resolveFootsteps(legacy,room,surface,{surfaceId:surface,material:'wood',assetId:'custom'})).toEqual({kind:'publication',ids:['custom'],gain:1,material:'wood'});
+  const unlinked=doc('wood');delete unlinked.extensions!['org.exhibitos.viewer/footstep-resources'];
+  expect(resolveFootsteps(unlinked,room,surface,undefined)).toEqual({kind:'none',gain:0,material:'wood'});
   const old={surfaces:[],extensions:{}} as unknown as PublicPublication['exhibition'];
-  expect(resolveFootsteps(old,room,surface,{surfaceId:surface,material:'concrete'})).toEqual({kind:'procedural',gain:1,material:'concrete'});
+  expect(resolveFootsteps(old,room,surface,{surfaceId:surface,material:'concrete'})).toEqual({kind:'none',gain:0,material:'concrete'});
  });
 });

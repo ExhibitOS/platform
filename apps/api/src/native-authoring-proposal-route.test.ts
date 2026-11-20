@@ -188,6 +188,16 @@ it('proposes only a checked change to the current saved draft through the instal
   const explicitReply=await post({...selectDefault,request:selectExplicit},{'if-match':etag(revision,draft)});
   expect(explicitReply.statusCode,explicitReply.body).toBe(200);
   expect(explicitReply.json().candidate).toEqual(fill);
+  draft.candidate=before.candidate;
+  const floor=before.candidate.surfaces.find(row=>row.type==='floor')!;
+  const floorTarget={kind:'surface',surfaceId:floor.id};
+  const floorRequest={...payload,request:{...binding,type:'select-floor-material',target:floorTarget,preset:'tile'}};
+  const floorReply=await post(floorRequest);
+  expect(floorReply.statusCode,floorReply.body).toBe(200);
+  expect(floorReply.json().floorRecording).toMatchObject({surfaceId:floor.id,roomId,state:'recorded',source:'stock',material:'tile'});
+  expect(floorReply.json().candidate.extensions['org.exhibitos.viewer/footstep-resources']).toEqual({version:1,families:['tile']});
+  expect(floorReply.json().candidate.extensions['org.exhibitos.studio/floors'].bindings[0]).toMatchObject({target:floorTarget,sound:{mode:'material-default',gain:1}});
+  expect((await post({...floorRequest,request:{...floorRequest.request,preset:'stone'}})).statusCode).toBe(400);
   const basePoint=ensureRoomBaseLight(before.candidate,roomId);
   const basePointLight=basePoint.lights.at(-1)!;
   expect(lightDetailsFor(basePoint).at(-1)?.basePlacement).toBe('auto');

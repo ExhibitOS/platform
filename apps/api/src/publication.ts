@@ -30,7 +30,7 @@ import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
-import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
+import {FLOOR_NAMESPACE,floorRecordingStatus,recordedFloorScopes,type FloorRecordingStatus,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
@@ -365,6 +365,7 @@ export class Publications {
         let furnishings:PreparedFurnishing[]=[];
         let cover:PreparedCover|undefined;
         let totalBytes = 0;
+        const floorRecordings:FloorRecordingStatus[]=[];
         const at = new Date().toISOString();
         const hasWorkspaceMaterials=!!candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE);
         if(hasWorkspaceMaterials&&(!this.workspaceMaterial||!this.furnishingOwner?.workspaceMaterialPublication||!this.workspaceMaterial.matchesBinding(this.furnishingOwner,this.blobs)))errors.push(issue('WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material publication is not available.','Use the owner-bound material publication runtime.'));
@@ -380,7 +381,24 @@ export class Publications {
         if (candidate.artworks.length > 64)
             errors.push(issue("PUBLICATION_LIMIT", "/candidate/artworks", "At most 64 artworks per bounded publication.", "Split the exhibition into smaller publication drafts."));
         if (errors.length)
-            return { issues: errors, prepared, media, cover,furnishings,at };
+            return { issues: errors, prepared, media, cover,furnishings,at,floorRecordings };
+        const recordedFloors=recordedFloorScopes(candidate);
+        const floorStatuses=new Map(recordedFloors.map(scope=>[scope,floorRecordingStatus(scope)]));
+        floorRecordings.push(...floorStatuses.values());
+        const floorIssue=(code:string,scope:typeof recordedFloors[number],message:string)=>{
+            const room=candidate.rooms.find(row=>row.id===scope.roomId)!;
+            const status=floorStatuses.get(scope)!;
+            status.state='missing';
+            status.issueCode??=code;
+            const index=scope.surfaceId===undefined?-1:candidate.surfaces.findIndex(row=>row.id===scope.surfaceId);
+            return issue(code,index<0?`/candidate/rooms/${candidate.rooms.indexOf(room)}`:`/candidate/surfaces/${index}`,
+                `${room.name} (${scope.sound.material}): ${message}`,
+                'Open the room floor settings, restore the approved recording or choose another sound, and save.');
+        };
+        for(const scope of recordedFloors){
+            if(scope.sound.kind==='unlinked-default')errors.push(floorIssue('FLOOR_RECORDING_UNLINKED',scope,'The saved default sound has no declared recording.'));
+        }
+        if(errors.length)return {issues:errors,prepared,media,cover,furnishings,at,floorRecordings};
         if(hasWorkspaceMaterials){try{
             const inventory=workspaceMaterialOutputInventory(candidate);if(!workspaceMaterialPublicationWithinBudget(inventory))throw new ApiError(422,'PUBLICATION_LIMIT');for(const resource of inventory){checkpoint?.();const map=await workspaceMaterialOutputBytes(c,s,candidate,this.workspaceMaterial,resource,'export');totalBytes+=map.bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
         }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_MATERIAL_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material source, current rights or map bytes are unavailable.','Restore the registered source and display/export grants.'));}}
@@ -402,7 +420,14 @@ export class Publications {
                 if(!this.blobs)throw new ApiError(409,'FOOTSTEP_RESOURCE_UNAVAILABLE');
                 const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,exhibitionId,resource);
                 totalBytes+=bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');
-            }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact registered resource before publication.'));}
+            }catch(error){
+                checkpoint?.();
+                const code=error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE';
+                const linked=recordedFloors.filter(({sound})=>sound.kind==='builtin'&&(resource.family==='shared'||resource.family===sound.material));
+                if(linked.length){
+                    for(const scope of linked)errors.push(floorIssue(code,scope,`The approved ${resource.role==='notice'?'recording attribution':'recording'} is unavailable (${resource.sha256.slice(0,12)}).`));
+                }else errors.push(issue(code,'/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact approved recording bytes and attribution.'));
+            }
         }
         const watermark=watermarkFor(candidate),displayWatermark=watermark.mode==='embedded'?{...watermark,text:watermarkLabel(candidate)}:watermark;
         for(const [i,asset] of candidate.mediaAssets.entries()) {
@@ -414,7 +439,16 @@ export class Publications {
                 if(!curationDurationValid(candidate,asset.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,"CURATION_AUDIO_DURATION");totalBytes+=bytes.length;
                 if(totalBytes>budget)throw new ApiError(422,"PUBLICATION_LIMIT");
                 media.push({source:asset,bytes:await store(bytes)});
-            }catch(error){checkpoint?.();if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:"AUDIO_UNAVAILABLE",`/candidate/mediaAssets/${i}`,"Current approved audio, bytes or display rights unavailable.","Upload and approve exact PCM16 WAV for this exhibition; correct current rights or restore its availability."));}
+            }catch(error){
+                checkpoint?.();
+                if(error instanceof PublicationStageError)throw error;
+                const code=error instanceof ApiError?error.code:'AUDIO_UNAVAILABLE';
+                const assetKey=asset.id.toLowerCase();
+                const linked=recordedFloors.filter(({sound})=>sound.kind==='publication'&&sound.ids.some(id=>id.toLowerCase()===assetKey));
+                if(linked.length){
+                    for(const scope of linked)errors.push(floorIssue(code,scope,`The approved floor recording ${code==='AUDIO_RIGHTS_DENIED'?'rights':'bytes or descriptor'} are unavailable (${asset.sha256.slice(0,12)}).`));
+                }else errors.push(issue(code,`/candidate/mediaAssets/${i}`,'Current approved audio, bytes or display rights unavailable.','Restore the exact approved audio and current permissions.'));
+            }
         }
         const still=spaceStillFor(candidate);
         if(still){try{
@@ -559,16 +593,16 @@ export class Publications {
         }
         checkpoint?.();admitOptionalThumbnails(prepared,totalBytes,budget);
         if(stage)for(const p of prepared)if(p.thumbnail)p.thumbnail={...p.thumbnail,bytes:await store(p.thumbnail.bytes as Buffer)};
-        return { issues: errors, prepared, media, cover,furnishings,at };
+        return { issues: errors, prepared, media, cover,furnishings,at,floorRecordings };
     }
-    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
+    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage):Promise<{status:string;etag:string;issues:PublicationIssue[];floorRecordings?:FloorRecordingStatus[]}> {
         try{
         const row = await this.studio.access(c, s, id);
         // Larger aggregates require private disk staging. Unsupported
         // unlink/disk conditions retain the existing <=64MiB memory path.
         const prepare=async(stage?:ReadinessStage,budget=67108864)=>{
          const report=await this.prepare(c,s,row.metadata.candidate,id,stage,budget);
-         return { status: report.issues.length ? "BLOCKED" : "READY", etag: etag(row.revision, row.metadata), issues: report.issues };
+         return { status: report.issues.length ? "BLOCKED" : "READY", etag: etag(row.revision, row.metadata), issues: report.issues, floorRecordings: report.floorRecordings };
         };
         const complete=async(result:Awaited<ReturnType<typeof prepare>>)=>{
          if(!result.issues.length){try{await recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs);}catch(error){if(!(error instanceof ApiError))throw error;result.issues.push(issue(error.code,'/candidate','Source approval or display grant changed during preparation.','Refresh the current approved sources before retrying publication.'));result.status='BLOCKED';}}
