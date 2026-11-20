@@ -4,6 +4,7 @@ import {resolveTrackSpotAiming} from './track-spot-aiming-resolver.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {freezeCanonical} from './freeze.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
+import {ensureRoomLocalSpaceLighting} from './space-lighting.js';
 import {artifactBounds,artifactCorners} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
 import {deriveRoomCeilingFill,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS,type RoomCeilingFill} from './room-ceiling-fill.js';
@@ -16,9 +17,10 @@ export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as
 export const ROOM_CEILING_FILL_PROFILE='room-ceiling-fill-v1' as const;
 export {ROOM_CEILING_FILL_INITIAL_BRIGHTNESS};
 export const ROOM_CEILING_FILL_DEFAULT_PROFILE='room-ceiling-fill-default-v1' as const;
-export type RoomCeilingFillProfile=typeof ROOM_CEILING_FILL_PROFILE|typeof ROOM_CEILING_FILL_DEFAULT_PROFILE;
+export const ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE='room-ceiling-fill-room-local-v1' as const;
+export type RoomCeilingFillProfile=typeof ROOM_CEILING_FILL_PROFILE|typeof ROOM_CEILING_FILL_DEFAULT_PROFILE|typeof ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE;
 export function isRoomCeilingFillProfile(profile:unknown):profile is RoomCeilingFillProfile {
- return profile===ROOM_CEILING_FILL_PROFILE||profile===ROOM_CEILING_FILL_DEFAULT_PROFILE;
+ return profile===ROOM_CEILING_FILL_PROFILE||profile===ROOM_CEILING_FILL_DEFAULT_PROFILE||profile===ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE;
 }
 export const ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE='room-supplemental-ceiling-fill-v1' as const;
 export const LIGHT_DETAILS_NAMESPACE='org.exhibitos.studio/light-details';
@@ -242,9 +244,11 @@ export function ensureRoomBaseLight(document:Exhibition,roomId:string,newLightId
 /** The negotiated default creates only a qualified area. The incumbent profile retains its point fallback. */
 export function ensureOrdinaryRoomBaseLight(document:Exhibition,roomId:string,newLightId?:string,ceilingFillProfile?:RoomCeilingFillProfile):Exhibition {
   if(!isRoomCeilingFillProfile(ceilingFillProfile)||roomBaseLight(document,roomId))return ensureRoomBaseLight(document,roomId,newLightId);
+  const usesDefault=ceilingFillProfile!==ROOM_CEILING_FILL_PROFILE;
   try{deriveRoomCeilingFill(roomCeilingFillDimensions(document,roomId),0);}
-  catch{return ceilingFillProfile===ROOM_CEILING_FILL_DEFAULT_PROFILE?document:ensureRoomBaseLight(document,roomId,newLightId);}
-  return ensureRoomBaseLight(document,roomId,newLightId,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS,ceilingFillProfile===ROOM_CEILING_FILL_DEFAULT_PROFILE?'default':undefined);
+  catch{return usesDefault?document:ensureRoomBaseLight(document,roomId,newLightId);}
+  const next=ensureRoomBaseLight(document,roomId,newLightId,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS,usesDefault?'default':undefined);
+  return ceilingFillProfile===ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE?ensureRoomLocalSpaceLighting(next):next;
 }
 /** Local room-space cutoff covers the farthest corner up to the existing50m limit.
  * Room rotation/translation/scale remain the owning room's transform. */

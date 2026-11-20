@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {addRoomSupplementalCeilingFill,applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_DEFAULT_PROFILE,ROOM_CEILING_FILL_PROFILE,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,applyLightObjectCommand,ensureOrdinaryRoomBaseLight,ensureRoomBaseLight,lightDetailsFor,LIGHT_DETAILS_NAMESPACE,reflowRoomBaseLight,resizeRoomEnvelope,ROOM_CEILING_FILL_DEFAULT_PROFILE,ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,spaceLightingFor,setLightDetails,type LightDetails} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {applyGeometryCommand,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {ordinaryRoomBaseLightDelta} from './room-base-light-delta.ts';
@@ -14,10 +14,11 @@ it('admits one atomic new room and its canonical auto base; rejects a missing ba
  const missing=change(before,d=>d.candidate.rooms.push(room));expect(ordinaryRoomBaseLightDelta(before,missing)).toBe(false);
  const mixed=structuredClone(after);mixed.candidate.title='unrelated';expect(ordinaryRoomBaseLightDelta(before,mixed)).toBe(false);
 });
-it.each([ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_DEFAULT_PROFILE])('replays %s creation and rejects a different initial brightness',profile=>{
+it.each([ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_DEFAULT_PROFILE,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE])('replays %s creation and rejects a different initial brightness',profile=>{
  const before=withBase(),room={...structuredClone(before.candidate.rooms[0]!),id:crypto.randomUUID()};
  const added=change(before,d=>{d.candidate.rooms.push(room);d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,room.id,undefined,profile);});
  expect(ordinaryRoomBaseLightDelta(before,added)).toBe(true);
+ expect(spaceLightingFor(added.candidate)?.mode).toBe(profile===ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE?'room-local':undefined);
  expect(added.candidate.lights[0]).toEqual(before.candidate.lights[0]);
  const missing=newDraft(),roomId=missing.candidate.rooms[0]!.id;
  const ensured=change(missing,d=>{d.candidate=ensureOrdinaryRoomBaseLight(d.candidate,roomId,undefined,profile);});
@@ -129,4 +130,20 @@ it('replays only an exact supplemental add or removal and rejects a changed lega
  const changed=structuredClone(added);
  changed.candidate.lights[0]!.intensity++;
  expect(ordinaryRoomBaseLightDelta(before,changed)).toBe(false);
+});
+
+
+it.each([0,.25])('replays room-local opt-in on a later room without changing the first fill at %s',brightness=>{
+ const before=newDraft(),first=before.candidate.rooms[0]!;
+ const second={...structuredClone(first),id:crypto.randomUUID(),name:'second'};
+ before.candidate.rooms.push(second);
+ before.candidate=ensureRoomBaseLight(before.candidate,first.id,undefined,brightness);
+ before.candidate=ensureOrdinaryRoomBaseLight(before.candidate,second.id,undefined,ROOM_CEILING_FILL_DEFAULT_PROFILE);
+ const last=before.candidate.lights[1]!;
+ const next=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-ceiling-fill-brightness',
+  lightId:last.id,brightness:.5,mode:'default',spaceLightingMode:'room-local'}).candidate;});
+ expect(next.candidate.lights).toEqual(before.candidate.lights);
+ expect(lightDetailsFor(next.candidate)).toEqual(lightDetailsFor(before.candidate));
+ expect(spaceLightingFor(next.candidate)?.mode).toBe('room-local');
+ expect(ordinaryRoomBaseLightDelta(before,next)).toBe(true);
 });
