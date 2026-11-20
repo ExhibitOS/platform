@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  OCCUPIED_SELECTED_FINISH_ETAG, OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
+  OCCUPIED_CANNON_SCOPE, OCCUPIED_SELECTED_FINISH_ETAG, OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
   requiresOccupiedSelectedHead, type NativeDetailContext,
 } from './native-detail-context.ts';
 import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
@@ -32,6 +32,9 @@ const currentRevision = 209;
 const baselineHeadFingerprint = '6a72a23fee8814e9b17803d07c915a5b9119a7c8089dfd96f545df30ad8f2739';
 const currentHeadFingerprint = '9f65016cf75b3a6a38b5b15f85031fe62003d1e28b90d2b31101dbf42852e21d';
 const captionStandsRevision = 210;
+const cannonId = 'f8802a33-ccfc-4633-9369-37142e290d8e';
+const cannonCommitment = '3d5c8a4f2e97984fa967a5bf47ba84b77a6d713ba36c017ff51fbac6371fdab7';
+const acceptedSevenFinishesScene = '88fe9a946639467be77772c0b444b1f57e913bb77411c16c86de6fc1fe91cf4c';
 const occupiedLightingETag = '"studio-r215-4c96569af0cca07ee52acaa281e6b9c486962efb10f4d2955afa799e859fbeed"';
 const captionStandsHeadFingerprint = '2a7c53715e9658cb2dd3266f1a12401432d49d27c283ba349e7415b97d5b8671';
 const acceptedGreekScene = '19df6f29ed2887f73898209e6848f9a25970e67fbf8983798a420eac78e3172f';
@@ -155,13 +158,45 @@ export async function loadSelectedNativeRelease(
   ])).digest('hex')}`;
   if (!visualFinishes) return {...selected, candidate: withLighting, projectionIdentity: lightingIdentity};
 
-  const successor = projectSelectedVisualFinishes(withLighting, lightingHead, row.metadata);
-  return {
-    ...selected, candidate: successor,
-    projectionIdentity: `v1:${createHash('sha256').update(freezeCanonical([
-      SELECTED_NATIVE_RELEASE, lightingIdentity, 'seven-visual-finishes-v1', match, successor,
-    ])).digest('hex')}`,
-  };
+  const withFinishes = projectSelectedVisualFinishes(withLighting, lightingHead, row.metadata);
+  const finishIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
+    SELECTED_NATIVE_RELEASE, lightingIdentity, 'seven-visual-finishes-v1', match, withFinishes,
+  ])}`;
+  if (!selectedHead?.scope) return {...selected, candidate: withFinishes, projectionIdentity: finishIdentity};
+  if (selectedHead.scope !== OCCUPIED_CANNON_SCOPE) return unavailable();
+
+  const candidateWithCannon = projectSelectedCannon(withFinishes, row.metadata.candidate);
+  const cannonIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
+    SELECTED_NATIVE_RELEASE, finishIdentity, OCCUPIED_CANNON_SCOPE, match, candidateWithCannon,
+  ])}`;
+  if (cannonIdentity !== selectedHead.projectionIdentity) return unavailable();
+  return {...selected, candidate: candidateWithCannon, projectionIdentity: cannonIdentity};
+}
+
+const fingerprintCanonical = (value: unknown) => createHash('sha256').update(freezeCanonical(value)).digest('hex');
+
+/** Append the one existing saved Cannon spot to the accepted seven-finish scene. */
+export function projectSelectedCannon(selected: Exhibition, saved: Exhibition): Exhibition {
+  if (fingerprintCanonical(selected) !== acceptedSevenFinishesScene) return unavailable();
+
+  const lights = saved.lights.filter(row => row.id === cannonId);
+  const byLight = (row: {lightId: string}) => row.lightId === cannonId;
+  const details = lightDetailsFor(saved).filter(byLight);
+  const attachments = lightAttachmentsFor(saved).filter(byLight);
+  const [light] = lights, [detail] = details, [attachment] = attachments;
+  if (lights.length !== 1 || details.length !== 1 || attachments.length !== 1 ||
+      !light || light.type !== 'spot' || !detail || !attachment ||
+      fingerprintCanonical([light, detail, attachment]) !== cannonCommitment ||
+      furnishingsFor(saved)?.bindings.some(row => row.hostKind === 'light' && row.hostId === cannonId))
+    return unavailable();
+
+  const target = selected.placements.find(row => row.id === light.targetPlacementId);
+  const ceiling = selected.surfaces.find(row => row.id === attachment.surfaceId);
+  if (!target || target.roomId !== light.roomId || !ceiling || ceiling.type !== 'ceiling' || ceiling.roomId !== light.roomId ||
+      !isDeepStrictEqual(target, saved.placements.find(row => row.id === target.id)) ||
+      !isDeepStrictEqual(ceiling, saved.surfaces.find(row => row.id === ceiling.id)))
+    return unavailable();
+  return appendSelectedCeilingSpot(selected, light, detail, attachment);
 }
 
 /** Replay only the product default on the five same room bases. The loader
@@ -281,12 +316,17 @@ function projectSelectedGreekSpot(pointRetired: Exhibition, current: Exhibition)
       pointRetired.lights.filter(row => row.type === 'area').length !== 5 ||
       pointRetired.lights.filter(row => row.type === 'spot').length !== 5 ||
       details.some(byLight) || attachments.some(byLight)) return unavailable();
-  const next = structuredClone(pointRetired);
+  return appendSelectedCeilingSpot(pointRetired, light, detail, attachment);
+}
+
+function appendSelectedCeilingSpot(selected: Exhibition, light: Exhibition['lights'][number],
+  detail: ReturnType<typeof lightDetailsFor>[number], attachment: ReturnType<typeof lightAttachmentsFor>[number]): Exhibition {
+  const next = structuredClone(selected);
   next.lights.push(structuredClone(light));
   next.extensions = {
     ...next.extensions,
-    [LIGHT_DETAILS_NAMESPACE]: {version: 1, lights: [...details, structuredClone(detail)]} as unknown as NonNullable<Exhibition['extensions']>[string],
-    [LIGHT_ATTACHMENT_NAMESPACE]: {version: 1, lights: [...attachments, structuredClone(attachment)]} as unknown as NonNullable<Exhibition['extensions']>[string],
+    [LIGHT_DETAILS_NAMESPACE]: {version: 1, lights: [...lightDetailsFor(selected), structuredClone(detail)]} as unknown as NonNullable<Exhibition['extensions']>[string],
+    [LIGHT_ATTACHMENT_NAMESPACE]: {version: 1, lights: [...lightAttachmentsFor(selected), structuredClone(attachment)]} as unknown as NonNullable<Exhibition['extensions']>[string],
   };
   if (!validateStudioLightDetails(next).valid || !validateLightAttachments(next).valid) return unavailable();
   return next;

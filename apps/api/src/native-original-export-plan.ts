@@ -34,13 +34,14 @@ export async function reconstructNativeOriginalExport(c:PoolClient,s:Session,pub
  const row=(await c.query("SELECT p.exhibition_id,p.snapshot,p.revision_sha256,st.status,e.studio_owner_user_id FROM studio_publications p JOIN publication_states st ON st.publication_id=p.id JOIN exhibitions e ON (e.tenant_id,e.id)=(p.tenant_id,p.exhibition_id) WHERE p.tenant_id=$1 AND p.id=$2 AND e.deleted_at IS NULL",[s.tenantId,publicationId])).rows[0] as {exhibition_id:string;snapshot:Exhibition;revision_sha256:string;status:string;studio_owner_user_id:string}|undefined;
  if(!row||row.status!=='published'||row.studio_owner_user_id!==s.userId||row.revision_sha256!==revision||revisionHash(row.snapshot)!==revision||!Array.isArray(row.snapshot.artworks))return unavailable();
  if(context.selectedHead){
-  const {revision:headRevision,etag}=context.selectedHead;
+  const {revision:headRevision,etag,projectionIdentity}=context.selectedHead;
   const receipt=(await c.query(`SELECT 1 FROM studio_requests r JOIN studio_publications p
    ON (p.tenant_id,p.created_by,p.exhibition_id)=(r.tenant_id,r.user_id,r.exhibition_id)
    WHERE r.tenant_id=$1 AND r.user_id=$2 AND p.id=$3 AND p.draft_revision=$4
    AND r.response->>'releaseSelection'=$5 AND r.response->>'head'=$6
-   AND r.response->>'publicationId'=p.id::text AND r.response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
-   [s.tenantId,s.userId,publicationId,headRevision,SELECTED_NATIVE_RELEASE,etag])).rows[0];
+   AND r.response->>'publicationId'=p.id::text AND r.response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'
+   AND ($7::text IS NULL OR r.response->>'projectionIdentity'=$7)`,
+   [s.tenantId,s.userId,publicationId,headRevision,SELECTED_NATIVE_RELEASE,etag,projectionIdentity??null])).rows[0];
   if(!receipt)return unavailable();
  }
  const normal=(await c.query('SELECT id FROM publication_assets WHERE tenant_id=$1 AND publication_id=$2 UNION ALL SELECT id FROM publication_media WHERE tenant_id=$1 AND publication_id=$2 UNION ALL SELECT id FROM publication_cover_images WHERE tenant_id=$1 AND publication_id=$2',[s.tenantId,publicationId])).rows;
