@@ -14,6 +14,7 @@ import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,FLOOR_TEXTUR
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
+import {selectedWheatNotice,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {publicWorkspaceFurnishingRights} from '../apps/web/src/workspace-furnishing/public-rights.mjs';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
 import {parseStaticJson} from '../apps/web/src/static-json.mjs';
@@ -61,6 +62,18 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  if(privateEditor&&rightsSources.some(a=>a.rights.licenseId!=="CC0-1.0"||!a.rights.permissions.display||!a.rights.permissions.export))fail("STATIC_PRIVATE_EDITOR_RIGHTS",publicationId);
  if(!validateFurnishings(raw.exhibition).valid)fail('STATIC_FURNISHING_INVALID','publication.json');
  const furnishingAssets=furnishingsFor(raw.exhibition)?.assets??[],furnishingNotices=packageFurnishingNoticeManifest(raw.exhibition),declaredNotices=raw.furnishingNotices;
+ let wheatRequired=false;
+ if(directStage&&detail){
+  const marker=await readFile(new URL('./occupied-selected-output.json',import.meta.url)).catch(error=>{
+   if(error.code==='ENOENT')return undefined;
+   throw error;
+  });
+  wheatRequired=!!marker&&JSON.parse(marker).scope===WHEAT_SELECTED_SCOPE;
+ }
+ const wheatNotice=selectedWheatNotice(raw.exhibition,declaredNotices,wheatRequired);
+ if(wheatNotice)furnishingNotices.push(wheatNotice);
+ if(furnishingNotices.length>8||new Set(furnishingNotices.map(item=>item.assetId)).size!==furnishingNotices.length)
+  fail('STATIC_FURNISHING_INVENTORY','publication.json');
  if(furnishingNotices.length){if(!Array.isArray(declaredNotices)||declaredNotices.length!==furnishingNotices.length||new Set(declaredNotices.map(x=>x.assetId)).size!==furnishingNotices.length||furnishingNotices.some(item=>!declaredNotices.some(x=>Object.keys(x).sort().join(',')==='assetId,bytes,mime,sha256,url'&&x.assetId===item.assetId&&x.sha256===item.sha256&&x.bytes===item.bytes&&x.mime===item.mime&&x.url===`/api/v1/publications/${publicationId}/furnishing-notices/${item.assetId}`)))fail('STATIC_FURNISHING_INVENTORY','publication.json');}else if(declaredNotices!==undefined)fail('STATIC_FURNISHING_INVENTORY','publication.json');
  const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets,...(still?[still]:[]),...furnishingAssets,...workspaceAssets,...materialAssets],byId=new Map();
  for(const asset of inventory){if(!safeStaticPath(asset.path))fail("STATIC_ASSET_PATH",asset.path);const prior=byId.get(asset.id);if(prior&&JSON.stringify(prior)!==JSON.stringify(asset))fail("STATIC_ASSET_ALIAS",asset.path);byId.set(asset.id,asset);}

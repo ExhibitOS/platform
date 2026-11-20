@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
+import {WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
@@ -64,6 +65,14 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
     expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,marker).selectedHead).toEqual(marker);
    }
    expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,postWheat)).toThrow('NATIVE_DETAIL_CONFIGURATION');
+   const wheat={...postWheat,scope:WHEAT_SELECTED_SCOPE,projectionIdentity:cannon.projectionIdentity,
+    predecessorPublicationId:randomUUID(),predecessorRevisionSha256:'f'.repeat(64)};
+   expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,wheat).selectedHead).toEqual(wheat);
+   for(const invalid of [{...wheat,predecessorPublicationId:undefined},{...wheat,predecessorRevisionSha256:'bad'},
+    {...wheat,revision:OCCUPIED_SELECTED_FINISH_REVISION,etag:OCCUPIED_SELECTED_FINISH_ETAG},
+    {...wheat,scope:OCCUPIED_PUBLIC_FINISH_SCOPE}]){
+    expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
+   }
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');
    for(const invalid of [
     {...cannon,revision:OCCUPIED_SELECTED_OUTPUT_REVISION}, {...cannon,etag:match},

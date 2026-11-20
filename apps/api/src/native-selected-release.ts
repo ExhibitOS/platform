@@ -10,7 +10,7 @@ import {
   freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
-  WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
+  WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
 } from '@exhibitos/studio-contract';
 import {ApiError, type Session} from './auth.ts';
 import {Audio, audioMedia} from './audio.ts';
@@ -25,6 +25,7 @@ import {
   requiresOccupiedSelectedHead, type NativeDetailContext,
 } from './native-detail-context.ts';
 import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
+import {assertAcceptedWheatPredecessor,projectSelectedWheatFrame} from './native-selected-wheat.ts';
 
 // Keep the persisted selection mode stable across exact-head corrections.
 export const SELECTED_NATIVE_RELEASE = 'r125-approved-r201-v1';
@@ -92,7 +93,7 @@ type SavedHead = {revision: number; metadata: Draft; studio_owner_user_id: strin
 type ApprovedBrassFrames = readonly [string, string];
 type ApprovedFootsteps = {paintingTarget: string; entranceTarget: string; commitment: string};
 export type SelectedProjectionIdentity = `v1:${string}`;
-export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity};
+export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: typeof WHEAT_SELECTED_SCOPE};
 const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
   fingerprint([SELECTED_NATIVE_RELEASE, 'footstep-target-v1', role, id]);
 
@@ -167,12 +168,20 @@ export async function loadSelectedNativeRelease(
       etag(OCCUPIED_SELECTED_FINISH_REVISION, finishHead) !== OCCUPIED_SELECTED_FINISH_ETAG)))
     return unavailable();
 
-  if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE) {
+  if (selectedHead?.scope === OCCUPIED_PUBLIC_FINISH_SCOPE || selectedHead?.scope === WHEAT_SELECTED_SCOPE) {
     // Replay the retained public projection. The full r215 draft is used only
     // to prove that the exact authenticated r216 authoring delta is the five saved textures.
     if (captionIdentity !== approvedPublicCaptionIdentity) return unavailable();
     const publicFinishes = projectSelectedVisualFinishes(withStands, lightingHead, finishHead);
-    return bindScopedSelection(selected, publicFinishes, fingerprintCanonical([captionIdentity, approvedPublicBody]), match, selectedHead);
+    const publicPredecessor = fingerprintCanonical([captionIdentity, approvedPublicBody]);
+    if (selectedHead.scope === OCCUPIED_PUBLIC_FINISH_SCOPE)
+      return bindScopedSelection(selected, publicFinishes, publicPredecessor, match, selectedHead);
+    if (selectedHead.scope !== WHEAT_SELECTED_SCOPE || !postWheat) return unavailable();
+    const approvedProjection = scopedProjectionIdentity(publicFinishes, publicPredecessor, match, OCCUPIED_PUBLIC_FINISH_SCOPE);
+    await assertAcceptedWheatPredecessor(c, s, exhibitionId, selectedHead, SELECTED_NATIVE_RELEASE, approvedProjection);
+    const withWheat = await projectSelectedWheatFrame(publicFinishes, finishHead.candidate, row.metadata.candidate);
+    const predecessor = fingerprintCanonical([approvedProjection, selectedHead.predecessorPublicationId, selectedHead.predecessorRevisionSha256]);
+    return {...bindScopedSelection(selected, withWheat, predecessor, match, selectedHead), wheatScope: WHEAT_SELECTED_SCOPE};
   }
 
   const withLighting = projectSelectedRoomLighting(withStands, captionHead, lightingHead);
@@ -195,11 +204,13 @@ export async function loadSelectedNativeRelease(
 type ScopedSelectedHead = Extract<NonNullable<NativeDetailContext['selectedHead']>, {scope: string}>;
 function bindScopedSelection(selected: ReturnType<typeof composeSelectedScene>, candidate: Exhibition,
   predecessor: string, match: string, head: ScopedSelectedHead): SelectedNativeRelease {
-  const projectionIdentity: SelectedProjectionIdentity = `v1:${fingerprintCanonical([
-    SELECTED_NATIVE_RELEASE, predecessor, head.scope, match, candidate,
-  ])}`;
+  const projectionIdentity = scopedProjectionIdentity(candidate, predecessor, match, head.scope);
   if (projectionIdentity !== head.projectionIdentity) return unavailable();
   return {...selected, candidate, projectionIdentity};
+}
+
+function scopedProjectionIdentity(candidate: Exhibition, predecessor: string, match: string, scope: ScopedSelectedHead['scope']): SelectedProjectionIdentity {
+  return `v1:${fingerprintCanonical([SELECTED_NATIVE_RELEASE, predecessor, scope, match, candidate])}`;
 }
 
 const fingerprintCanonical = (value: unknown) => createHash('sha256').update(freezeCanonical(value)).digest('hex');

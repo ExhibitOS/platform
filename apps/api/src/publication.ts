@@ -11,6 +11,8 @@ import {publicResourcesFor} from '../../web/src/workspace-material-resources.mjs
 import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from './workspace-material-publication.ts';
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
 import {matchesInstalledFurnishing} from './installed-workspace-furnishing.ts';
+import {readSelectedWheatNotice} from './native-selected-wheat.ts';
+import {OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION} from './native-detail-context.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -28,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {installedWheatNoticeFor,WHEAT_FRAME_ID,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -733,6 +735,7 @@ export class Publications {
         if(releaseSelection)await insertStudioReceipt(c,[s.tenantId,s.userId,requestId,payloadHash,id,{
             releaseSelection,publicationId,head:match,
             ...(projectionIdentity===undefined?{}:{projectionIdentity}),
+            ...(selected?.wheatScope===undefined?{}:{scope:selected.wheatScope}),
         }]);
         await this.event(c, s, publicationId, "published");
         const publishedRow={tenant_id:s.tenantId,created_by:s.userId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
@@ -829,16 +832,34 @@ export class Publications {
             return {authorized:true,publicationId:id,assetId,revisionSha256:row.revision_sha256};
         });
     }
+    private async selectedWheatNotice(c:PoolClient,row:PublicationRow,workspace:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>){
+        const known=installedWheatNoticeFor(row.snapshot);
+        if(!known||row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const receipt=(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
+          AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6
+          AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
+        [row.tenant_id,row.created_by,row.exhibition_id,row.id,WHEAT_SELECTED_SCOPE,SELECTED_NATIVE_RELEASE,OCCUPIED_POST_WHEAT_ETAG])).rows[0];
+        if(!receipt)return;
+        if(!workspace.some(item=>item.publicId===known.assetId&&item.sourceDescriptor.id===WHEAT_FRAME_ID))
+            throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+        try{return {descriptor:known,bytes:await readSelectedWheatNotice()};}
+        catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+    }
     async furnishingNotice(id:string,assetId:string){
         uuid(id);uuid(assetId);
         return transaction(this.pool,async c=>{
             await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
             const row=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1',[id])).rows[0] as PublicationRow|undefined;
             if(!row||row.status!=='published')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-            const {furnishings}=await this.gate(c,row),selected=furnishings.find(p=>p.source.id===assetId);
-            if(!selected)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-            if(!(await this.gate(c,row)).furnishings.some(p=>p.source.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-            return {bytes:selected.notice,mime:'text/plain; charset=utf-8',revisionSha256:row.revision_sha256};
+            const {furnishings,workspaceFurnishings}=await this.gate(c,row),selected=furnishings.find(p=>p.source.id===assetId);
+            if(selected){
+                if(!(await this.gate(c,row)).furnishings.some(p=>p.source.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+                return {bytes:selected.notice,mime:'text/plain; charset=utf-8',revisionSha256:row.revision_sha256};
+            }
+            const wheat=await this.selectedWheatNotice(c,row,workspaceFurnishings);
+            if(!wheat||wheat.descriptor.assetId!==assetId)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            await this.gate(c,row);
+            return {bytes:wheat.bytes,mime:wheat.descriptor.mime,revisionSha256:row.revision_sha256};
         });
     }
     async resource(id:string,hash:string){
@@ -915,8 +936,18 @@ export class Publications {
                 if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
             }
             const resources=publicResourcesFor(row.snapshot);
+            const noticeUrl=(assetId:string)=>`/api/v1/publications/${row.id}/furnishing-notices/${assetId}`;
+            const notices=furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,
+                bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:noticeUrl(p.source.id)}));
+            const wheat=await this.selectedWheatNotice(c,row,workspaceFurnishings);
+            if(wheat){
+                const {assetId,sha256,bytes,mime}=wheat.descriptor;
+                if(notices.length>=8||notices.some(notice=>notice.assetId===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+                notices.push({assetId,sha256,bytes,mime,url:noticeUrl(assetId)});
+                projectionFence();
+            }
             captureFence?.(projectionFence);
-            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
+            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(notices.length?{furnishingNotices:notices}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
     }
     async anonymous(id: string, assetId?: string) {
         uuid(id);

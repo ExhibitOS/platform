@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {isIssuedNativeLocalExport,type NativeLocalExportContext} from './native-oex-provenance.ts';
 
 export const OCCUPIED_SELECTED_OUTPUT_REVISION = 215;
@@ -10,8 +11,10 @@ export const OCCUPIED_CANNON_SCOPE = 'transition-cannon-v1';
 export const OCCUPIED_PUBLIC_FINISH_SCOPE = 'public-seven-visual-finishes-v1';
 type OccupiedSelectionScope = typeof OCCUPIED_CANNON_SCOPE | typeof OCCUPIED_PUBLIC_FINISH_SCOPE;
 type SelectedSavedHead =
- | {revision:typeof OCCUPIED_SELECTED_OUTPUT_REVISION | typeof OCCUPIED_SELECTED_FINISH_REVISION;etag:string;scope?:never;projectionIdentity?:never}
- | {revision:typeof OCCUPIED_SELECTED_FINISH_REVISION | typeof OCCUPIED_POST_WHEAT_REVISION;etag:string;scope:OccupiedSelectionScope;projectionIdentity:`v1:${string}`};
+ | {revision:typeof OCCUPIED_SELECTED_OUTPUT_REVISION | typeof OCCUPIED_SELECTED_FINISH_REVISION;etag:string;scope?:never;projectionIdentity?:never;predecessorPublicationId?:never;predecessorRevisionSha256?:never}
+ | {revision:typeof OCCUPIED_SELECTED_FINISH_REVISION | typeof OCCUPIED_POST_WHEAT_REVISION;etag:string;scope:OccupiedSelectionScope;projectionIdentity:`v1:${string}`;predecessorPublicationId?:never;predecessorRevisionSha256?:never}
+ | {revision:typeof OCCUPIED_POST_WHEAT_REVISION;etag:string;scope:typeof WHEAT_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    predecessorPublicationId:string;predecessorRevisionSha256:string};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
  return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION;
 }
@@ -22,6 +25,12 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
  if(!input||typeof input!=='object'||Array.isArray(input))return false;
  const head=input as Record<string,unknown>;
  const keys=Object.keys(head).sort().join(',');
+ if(keys==='etag,predecessorPublicationId,predecessorRevisionSha256,projectionIdentity,revision,scope'){
+  return head.revision===OCCUPIED_POST_WHEAT_REVISION&&head.etag===OCCUPIED_POST_WHEAT_ETAG&&
+   head.scope===WHEAT_SELECTED_SCOPE&&typeof head.projectionIdentity==='string'&&/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity)&&
+   typeof head.predecessorPublicationId==='string'&&uuid.test(head.predecessorPublicationId)&&
+   typeof head.predecessorRevisionSha256==='string'&&/^[a-f0-9]{64}$/.test(head.predecessorRevisionSha256);
+ }
  if(keys==='etag,projectionIdentity,revision,scope'){
   const admitted=(head.revision===OCCUPIED_SELECTED_FINISH_REVISION&&head.etag===OCCUPIED_SELECTED_FINISH_ETAG)||
    (head.revision===OCCUPIED_POST_WHEAT_REVISION&&head.etag===OCCUPIED_POST_WHEAT_ETAG);

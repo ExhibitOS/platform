@@ -357,7 +357,7 @@ async function isolatedBenchExporter(t){
  const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
  await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
  for(const name of ['oex-profile.js','cover-validation.js','api-error.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
- await copyFile(new URL('../apps/api/dist/furnishing-assets.js',import.meta.url),join(api,'furnishing-assets.js'));
+ for(const name of ['furnishing-assets.js','installed-workspace-hosts.json'])await copyFile(new URL('../apps/api/dist/'+name,import.meta.url),join(api,name));
  const web=join(code,'apps/web/src');await mkdir(join(web,'workspace-furnishing'),{recursive:true});for(const name of ['static-json.mjs','cover-variant-descriptor.mjs','workspace-material-resources.mjs','workspace-material-batch.mjs','workspace-material-public-rights.mjs','workspace-furnishing/public-rights.mjs'])await copyFile(new URL('../apps/web/src/'+name,import.meta.url),join(web,name));
  await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
  const entry=furnishingCatalogueEntry('backless-oak-bench');
@@ -438,4 +438,56 @@ test('workspace multimap uses verified public resources and survives static Page
  const source=createPagesPublicationSource({origin:'https://synthetic.pages.dev',publicationId:fixture.id,revisionSha256:result.revisionSha256,indexSha256:result.indexSha256,fetch:async url=>{try{return new Response(await readFile(join(result.output,url.pathname)));}catch{return new Response(null,{status:404});}}});for(const bytes of aux)assert.deepEqual((await source.resource(fixture.id,sha(bytes))).bytes,bytes);
  const all=[colorBytes,...aux],records=['color','normal','roughness'].map((role,i)=>({materialId:id,version:1,role,sha256:sha(all[i]),bytes:all[i].length})),header=Buffer.from(JSON.stringify({version:1,records})),prefix=Buffer.alloc(4);prefix.writeUInt32BE(header.length);fixture.raw.materialMapBatch={url:`/api/v1/publications/${fixture.id}/material-maps`};let batches=0,individual=0;const previous=options.fetcher;options.fetcher=async(input,init)=>{const path=new URL(input).pathname;if(path===fixture.raw.materialMapBatch.url){batches++;return new Response(Buffer.concat([prefix,header,...all]),{headers:{'content-type':'application/vnd.exhibitos.material-maps-v1','x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256,'x-exhibitos-material-batch':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}});}if(path.endsWith('/assets/'+id)||aux.some(bytes=>path.endsWith('/resources/'+sha(bytes))))individual++;return previous(input,init);};
  const batched=await exportStaticPublication({...options,output:join(directory,'batched')});assert.equal(batches,1);assert.equal(individual,0);const batchIndex=JSON.parse(await readFile(join(batched.output,'static-publication-index.json')));assert.equal(batchIndex.assets.find(value=>value.assetId===id).sha256,sha(colorBytes));assert.deepEqual(batchIndex.resources.map(value=>value.sha256).sort(),aux.map(sha).sort());
+});
+
+const wheatFixtureRoot=process.env.EXHIBITOS_TEST_INSTALLED_WHEAT_ROOT;
+test('the exact installed Wheat notice uses the existing static notice inventory',{skip:!wheatFixtureRoot},async t=>{
+ const {fixture,options,directory}=await setup(t),{raw,id,fetcher}=fixture;
+ const {installedFurnishingCatalogueFile,installedFurnishingDescriptorFor}=await import('../apps/api/dist/installed-workspace-furnishing.js');
+ const {selectedWheatNotice,WHEAT_FRAME_ID,WORKSPACE_FURNISHING_NAMESPACE}=await import('@exhibitos/studio-contract');
+ const descriptor=installedFurnishingDescriptorFor(WHEAT_FRAME_ID);
+ const stock=installedFurnishingCatalogueFile(descriptor);
+ const model=await readFile(join(wheatFixtureRoot,stock.file.path));
+ const notice=await readFile(join(wheatFixtureRoot,stock.notice.path));
+ const scene=raw.exhibition,art=scene.artworks.find(row=>row.artworkType==='image');
+ const target=scene.placements.find(row=>row.artworkRevisionId===art.revisionId);
+ art.dimensions={width:.934,height:.732};
+ scene.extensions[WORKSPACE_FURNISHING_NAMESPACE]={version:11,furnishings:[descriptor],placements:[],openingAttachments:[],ceilingAttachments:[],
+  frameAttachments:[{placementId:target.id,artworkRevisionId:art.revisionId,assetId:target.assetId,
+   furnishingId:descriptor.id,furnishingVersion:1,modelSha256:descriptor.model.sha256}]};
+ raw.publication.revisionSha256=revisionHash(scene);
+ const assetUrl=`/api/v1/publications/${id}/assets/${descriptor.id}`;
+ const noticeUrl=`/api/v1/publications/${id}/furnishing-notices/${descriptor.id}`;
+ raw.assets.push({assetId:descriptor.id,mime:descriptor.model.mime,url:assetUrl});
+ const declared={assetId:descriptor.id,bytes:notice.length,sha256:sha(notice),mime:'text/plain; charset=utf-8',url:noticeUrl};
+ let noticeBytes=notice;
+ options.fetcher=async (url,...args)=>{
+  const path=new URL(url).pathname;
+  const resource=path===assetUrl?{bytes:model,mime:descriptor.model.mime}:path===noticeUrl?{bytes:noticeBytes,mime:declared.mime}:undefined;
+  return resource?new Response(resource.bytes,{headers:{'content-type':resource.mime,'x-exhibitos-publication-revision':raw.publication.revisionSha256}}):fetcher(url,...args);
+ };
+
+ assert.equal(selectedWheatNotice(scene,undefined),undefined);
+ assert.throws(()=>selectedWheatNotice({extensions:{}},undefined,true),/WHEAT_STOCK_NOTICE_UNAVAILABLE/);
+ assert.deepEqual(selectedWheatNotice(scene,undefined,true),{
+  assetId:descriptor.id,bytes:declared.bytes,sha256:declared.sha256,mime:declared.mime,
+  path:'resources/workspace-furnishing/wheat-matte-oak-frame/LICENSE-NOTICE.txt',
+  artifactPath:'workspace-furnishing/wheat-matte-oak-frame/LICENSE-NOTICE.txt',
+ });
+ const legacy=await exportStaticPublication({...options,output:join(directory,'legacy-no-wheat-notice')});
+ const legacyIndex=JSON.parse(await readFile(join(legacy.output,'static-publication-index.json')));
+ assert.equal(legacyIndex.furnishingNotices,undefined);
+
+ raw.furnishingNotices=[declared];
+ const result=await exportStaticPublication(options);
+ const index=JSON.parse(await readFile(join(result.output,'static-publication-index.json')));
+ assert.deepEqual(index.furnishingNotices,[{assetId:descriptor.id,path:`data/${declared.sha256}.bin`,
+  bytes:declared.bytes,sha256:declared.sha256,mime:declared.mime}]);
+ assert.deepEqual(await readFile(join(result.output,index.furnishingNotices[0].path)),notice);
+ noticeBytes=Buffer.alloc(notice.length,42);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'altered-notice')}),/STATIC_FURNISHING_HASH/);
+ await assert.rejects(lstat(join(directory,'altered-notice')),{code:'ENOENT'});
+ noticeBytes=notice;
+ raw.furnishingNotices=[{...declared,assetId:randomUUID()}];
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'unrelated-notice')}),/STATIC_FURNISHING_INVENTORY/);
 });

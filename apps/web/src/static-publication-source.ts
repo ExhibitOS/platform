@@ -6,7 +6,7 @@ import { retainsCopyInventory,retainedWheatCopyFiles } from './private-editor/pr
 import { isSupportedPreviousWheatV4 } from './private-editor/previous-wheat-v4.mjs';
 import type { PublicPublication,DetailAccess, PublicationAssetFetcher } from "./publication-client";
 import {DetailAccessFailure} from './detail-access-failure';
-import { freezeCanonical,validateFurnishings,furnishingsFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality,type WorkspaceFurnishings,type DetailCandidate } from "@exhibitos/studio-contract";
+import { freezeCanonical,selectedWheatNotice,WHEAT_FRAME_MODEL_BYTES,WHEAT_FRAME_MODEL_SHA256,validateFurnishings,furnishingsFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality,type WorkspaceFurnishings,type DetailCandidate } from "@exhibitos/studio-contract";
 import { newDraft } from "./drafts/example";
 import { validateExhibition } from "./drafts/exhibition-validation.mjs";
 import { validateDraft } from "./drafts/validator";
@@ -112,6 +112,13 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
  if(value.coverVariants&&!validateCoverVariantDescriptor(value))delete value.coverVariants;
  const resources=index.resources??[];if(resources.length!==(value.resources?.length??0)||new Set(resources.map(r=>r.sha256)).size!==resources.length||resources.some(r=>!r||Object.keys(r).sort().join(',')!=='bytes,mime,path,sha256'||r.path!==`data/${r.sha256}.bin`||!value.resources?.some(v=>v.sha256===r.sha256&&v.bytes===r.bytes&&v.mime===r.mime))||Boolean(resources.length)!==(index.version===2||(index.version===3||index.version===4)&&!!value.resources?.length))throw Error('STATIC_RESOURCES');
  const furniture=furnishingsFor(value.exhibition)?.assets??[],expectedNotices=packageFurnishingNoticeManifest(value.exhibition),notices=index.furnishingNotices??[];
+ const wheatNotice=selectedWheatNotice(value.exhibition,value.furnishingNotices);
+ if(wheatNotice){
+  if(!value.assets.some(a=>a.assetId===wheatNotice.assetId&&a.mime==='model/gltf-binary')||
+   !index.assets.some(a=>a.assetId===wheatNotice.assetId&&a.mime==='model/gltf-binary'&&a.bytes===WHEAT_FRAME_MODEL_BYTES&&a.sha256===WHEAT_FRAME_MODEL_SHA256))
+   throw Error('STATIC_FURNISHING');
+  expectedNotices.push(wheatNotice);
+ }
  if(index.version!==4&&(index.version===3)!==Boolean(expectedNotices.length)||notices.length!==expectedNotices.length||(value.furnishingNotices?.length??0)!==expectedNotices.length||new Set(notices.map(n=>n.assetId)).size!==notices.length||furniture.some(a=>!value.assets.some(e=>e.assetId===a.id&&e.mime===a.mime)||!index.assets.some(e=>e.assetId===a.id&&e.bytes===a.bytes&&e.sha256===a.sha256&&e.mime===a.mime))||notices.some(n=>{const expected=expectedNotices.find(e=>e.assetId===n.assetId),declared=value.furnishingNotices?.find(e=>e.assetId===n.assetId);return !expected||!declared||Object.keys(n).sort().join(',')!=='assetId,bytes,mime,path,sha256'||n.path!==`data/${n.sha256}.bin`||n.bytes!==expected.bytes||n.sha256!==expected.sha256||n.mime!==expected.mime||Object.keys(declared).sort().join(',')!=='assetId,bytes,mime,sha256,url'||declared.url!==`/api/v1/publications/${value.publication.id}/furnishing-notices/${expected.assetId}`||declared.bytes!==n.bytes||declared.sha256!==n.sha256||declared.mime!==n.mime;}))throw Error('STATIC_FURNISHING');
  const suppliedDescriptors=(value as PublicPublication&{detailAssets?:DetailDescriptor[]}).detailAssets;
  const descriptors=suppliedDescriptors===undefined?undefined:structuredClone(suppliedDescriptors);
