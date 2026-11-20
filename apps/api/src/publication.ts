@@ -12,7 +12,7 @@ import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from '.
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
 import {matchesInstalledFurnishing} from './installed-workspace-furnishing.ts';
 import {readSelectedWheatNotice} from './native-selected-wheat.ts';
-import {OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION} from './native-detail-context.ts';
+import {OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -30,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -56,7 +56,7 @@ import {entranceFor} from '@exhibitos/studio-contract';
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
 import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_GEOMETRY_PAIR_PROFILE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
-import { Studio, etag, insertStudioReceipt } from "./studio.ts";
+import { Studio, etag, insertStudioReceipt, type Draft } from "./studio.ts";
 import {assertSelectedOriginals, selectedNarrationRights, SELECTED_NATIVE_RELEASE, type NativeReleaseSelection, type SelectedNativeRelease, type SelectedProjectionIdentity} from './native-selected-release.ts';
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
@@ -835,9 +835,17 @@ export class Publications {
     private async selectedWheatNotice(c:PoolClient,row:PublicationRow,workspace:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>){
         const known=installedWheatNoticeFor(row.snapshot);
         const paintingBench=row.draft_revision===OCCUPIED_PAINTING_BENCH_REVISION;
-        if(!known||!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
-        const scope=paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
-        const head=paintingBench?OCCUPIED_PAINTING_BENCH_ETAG:OCCUPIED_POST_WHEAT_ETAG;
+        const repair=row.draft_revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
+        if(!known||!repair&&!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const scope=repair?WHEAT_IMAGE_FIT_SELECTED_SCOPE:paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
+        let head:string=paintingBench?OCCUPIED_PAINTING_BENCH_ETAG:OCCUPIED_POST_WHEAT_ETAG;
+        if(repair){
+            const saved=(await c.query<{snapshot:Draft}>(
+                'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
+                [row.tenant_id,row.exhibition_id,row.draft_revision])).rows[0]?.snapshot;
+            if(!saved||saved.exhibitionId!==row.exhibition_id)return;
+            head=etag(row.draft_revision,saved);
+        }
         const receipt=(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
           AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6
           AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,

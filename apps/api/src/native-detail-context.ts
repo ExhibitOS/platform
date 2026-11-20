@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {PAINTING_BENCH_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
+import {PAINTING_BENCH_SELECTED_SCOPE,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {isIssuedNativeLocalExport,type NativeLocalExportContext} from './native-oex-provenance.ts';
 
 export const OCCUPIED_SELECTED_OUTPUT_REVISION = 215;
@@ -9,6 +9,8 @@ export const OCCUPIED_POST_WHEAT_REVISION = 217;
 export const OCCUPIED_POST_WHEAT_ETAG = '"studio-r217-c9dffec48380e5d63977bc15c264b4b7760fe1da65661799ef9cdc5ad8c6d756"';
 export const OCCUPIED_PAINTING_BENCH_REVISION = 218;
 export const OCCUPIED_PAINTING_BENCH_ETAG = '"studio-r218-ea370957db37cfb1016cb296eb3843d2585de0cb4bb42b885f91ffdabcfa074e"';
+// The repair is one ordinary Save after the authenticated retained authoring head.
+export const WHEAT_IMAGE_FIT_SUCCESSOR_REVISION = OCCUPIED_PAINTING_BENCH_REVISION + 1;
 export const ACCEPTED_WHEAT_PREDECESSOR = Object.freeze({
  publicationId:'0d5c1b2b-5322-43b1-b210-0f5b41570ceb',
  revisionSha256:'05930af4189ccf984d037da524919e863471ec2fe06d3a6ebec9e3cd4d6c937e',
@@ -23,9 +25,11 @@ type SelectedSavedHead =
  | {revision:typeof OCCUPIED_POST_WHEAT_REVISION;etag:string;scope:typeof WHEAT_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string}
  | {revision:typeof OCCUPIED_PAINTING_BENCH_REVISION;etag:string;scope:typeof PAINTING_BENCH_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    predecessorPublicationId:string;predecessorRevisionSha256:string}
+ | {revision:typeof WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;etag:string;scope:typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
- return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION;
+ return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
 }
 export interface NativeDetailContext {readonly owner:NativeLocalExportContext;readonly runtimeGeneration:string;readonly signal:AbortSignal;readonly selectedHead?:Readonly<SelectedSavedHead>;live():boolean}
 const issued=new WeakSet<NativeDetailContext>();
@@ -36,6 +40,11 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
  const keys=Object.keys(head).sort().join(',');
  if(keys==='etag,predecessorPublicationId,predecessorRevisionSha256,projectionIdentity,revision,scope'){
   if(typeof head.projectionIdentity!=='string'||!/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity))return false;
+  if(head.scope===WHEAT_IMAGE_FIT_SELECTED_SCOPE)
+   return head.revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION&&typeof head.etag==='string'&&
+    new RegExp(`^"studio-r${WHEAT_IMAGE_FIT_SUCCESSOR_REVISION}-[a-f0-9]{64}"$`).test(head.etag)&&
+    head.predecessorPublicationId===ACCEPTED_WHEAT_PREDECESSOR.publicationId&&
+    head.predecessorRevisionSha256===ACCEPTED_WHEAT_PREDECESSOR.revisionSha256;
   if(head.scope===PAINTING_BENCH_SELECTED_SCOPE)
    return head.revision===OCCUPIED_PAINTING_BENCH_REVISION&&head.etag===OCCUPIED_PAINTING_BENCH_ETAG&&
     head.predecessorPublicationId===ACCEPTED_WHEAT_PREDECESSOR.publicationId&&
