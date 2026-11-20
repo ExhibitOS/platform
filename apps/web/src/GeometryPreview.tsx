@@ -880,7 +880,7 @@ export function GeometryPreview({
         new Set(otherFurnishings.filter(item=>item.binding.hostKind==='light').map(item=>item.binding.hostId.toLowerCase())),!!otherReserve);
       const reportFixtureSupport=()=>{renderer.domElement.dataset.lightFixtureSupport=JSON.stringify(fixtureGate.records());};
       reportFixtureSupport();
-      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights);
+      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();
