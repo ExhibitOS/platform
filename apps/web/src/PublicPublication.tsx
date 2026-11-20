@@ -5,7 +5,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, useMemo, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, artworkPlaqueCaptionFor, creationYearFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor, experienceFor, type ViewerExitDoor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, artworkPlaqueCaptionFor, creationYearFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor, experienceFor, selectedWheatNotice, type ViewerExitDoor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 import { ViewerDiagnosticExport } from "./ViewerDiagnosticExport";
@@ -517,7 +517,48 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>
+      <WheatFrameNotice publication={publication} />
       <p>공개 revision {publication.publication.revisionSha256}</p></>}
     </div></div>
   </dialog>;
+}
+
+function WheatFrameNotice({ publication }: { publication: PublicResponse }) {
+  const local = publication.local;
+  const selected = selectedWheatNotice(publication.exhibition, publication.furnishingNotices);
+  const notice = selected && publication.furnishingNotices?.find(row => row.assetId === selected.assetId);
+  const [result, setResult] = useState<{ source: PublicResponse; text: string | null }>();
+  const source = local?.kind === "static" && local.verifiedIndexSha256 ? local : undefined;
+
+  useEffect(() => {
+    if (!source || !notice) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]);
+    const readNotice = async () => {
+      try {
+        // The static fetcher binds this declaration to the scoped file and verifies its hash.
+        const response = await source.fetcher(notice.url, { signal });
+        const bytes = await response.arrayBuffer();
+        if (!response.ok || bytes.byteLength !== notice.bytes ||
+          response.headers.get("content-type") !== notice.mime ||
+          response.headers.get("x-exhibitos-publication-revision") !== publication.publication.revisionSha256) {
+          throw Error("WHEAT_NOTICE_RESPONSE");
+        }
+        signal.throwIfAborted();
+        setResult({ source: publication, text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
+      } catch {
+        if (!controller.signal.aborted) setResult({ source: publication, text: null });
+      }
+    };
+    void readNotice();
+    return () => controller.abort();
+  }, [source, notice, publication]);
+
+  if (!source || !notice) return null;
+  const text = result?.source === publication ? result.text : undefined;
+  return <>
+    <h3>Wheat 액자 라이선스 고지</h3>
+    {typeof text === "string" ? <p className="detail-text">{text}</p> :
+      <p role="status">{text === null ? "액자 고지를 읽을 수 없습니다." : "액자 고지를 확인하고 있어요."}</p>}
+  </>;
 }
