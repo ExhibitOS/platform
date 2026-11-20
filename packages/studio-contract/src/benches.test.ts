@@ -32,3 +32,23 @@ test('fresh viewpoint creation is atomic; shared viewpoints and unknown namespac
   expect(()=>applyBenchCommand(d,{type:'set-bench',bench:bench(),viewpoint:{id:view,name:'Overwrite',roomId:room,position:[0,1.15,0],target:[0,1,-2],fov:50}})).toThrow('BENCH_REFERENCE');
   const removed=applyBenchCommand(next,{type:'remove-bench',benchId:nextBench.id});expect(removed.extensions![P]).toEqual(next.extensions![P]);expect(benchesFor(removed)).toHaveLength(1);
 });
+test('a seat target-height update keeps each saved identity and changes one coordinate',()=>{
+  const source=fixture(),retained=structuredClone(source),expected=structuredClone(source);
+  const presentation=expected.extensions![P] as unknown as {viewpoints:{target:number[]}[]};
+  presentation.viewpoints[0]!.target[1]=1.3;
+  const command={type:'set-bench-viewpoint-target-height' as const,benchId:id.toUpperCase(),viewpointId:view,targetY:1.3};
+  expect(applyBenchCommand(source,command)).toEqual(expected);
+  expect(source).toEqual(retained);
+  expect(applyBenchCommand(source,{...command,targetY:1})).toEqual(source);
+});
+test('a seat target-height update refuses out-of-scope, shared or invalid coordinates',()=>{
+  const source=fixture(),command={type:'set-bench-viewpoint-target-height' as const,benchId:id,viewpointId:view,targetY:1.3};
+  for(const changed of [{...command,benchId:room},{...command,viewpointId:room},{...command,position:[0,1.5,0]}]){
+    expect(()=>applyBenchCommand(source,changed)).toThrow('BENCH_REFERENCE');
+  }
+  for(const targetY of [-.01,3.01,Infinity,NaN]){
+    expect(()=>applyBenchCommand(source,{...command,targetY})).toThrow('BENCH_TARGET_HEIGHT_INVALID');
+  }
+  const shared=applyBenchCommand(source,{type:'add-bench',bench:{...bench(),id:crypto.randomUUID()}});
+  expect(()=>applyBenchCommand(shared,command)).toThrow('BENCH_REFERENCE');
+});

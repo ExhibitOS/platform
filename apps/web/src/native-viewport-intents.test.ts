@@ -102,7 +102,7 @@ it('a frame change fences a late light result and its finally releases the pendi
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejection;
  expect(()=>s.vm.placement({...s.begin,sequence:2})).toThrow('PLACEMENT_RENDERER_NOT_READY');expect(s.frame.draft.candidate.lights[0]!.intensity).toBe(100);
 });
-function benchRequest(s:Awaited<ReturnType<typeof sample>>):BenchInspectorRequest{
+function benchRequest(s:Awaited<ReturnType<typeof sample>>):Extract<BenchInspectorRequest,{bench:unknown}>{
  const roomId=s.frame.draft.candidate.rooms[0]!.id,viewpointId=crypto.randomUUID();
  return {version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'add-bench',bench:{id:crypto.randomUUID(),name:'Bench',roomId,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:1.5,depth:.6,height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId,position:[0,1.15,0],target:[0,1,-2],fov:50}};
 }
@@ -111,13 +111,57 @@ it('wired bench intent excludes placement/light/ordinary changes, authenticates 
  s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.benchInspector(request);
  expect(()=>s.vm.placement(s.begin)).toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');await expect(s.vm.lightInspector(s.request)).rejects.toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');
  await expect(s.vm.benchInspector({...request,requestId:crypto.randomUUID()})).rejects.toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');
- resolve(s.session());const reply=await pending;expect(reply).toMatchObject({requestId:request.requestId,benchId:request.type==='remove-bench'?request.benchId:request.bench.id});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame.draft.candidate.extensions?.['org.exhibitos.studio/benches']).toBeUndefined();expect(s.accepted.capabilities).toContain('bench-inspector-v1');
+ resolve(s.session());const reply=await pending;expect(reply).toMatchObject({requestId:request.requestId,benchId:request.bench.id});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame.draft.candidate.extensions?.['org.exhibitos.studio/benches']).toBeUndefined();expect(s.accepted.capabilities).toContain('bench-inspector-v1');
  expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');await expect(s.vm.benchInspector(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
 });
 it('late bench results are rejected after a new frame and release the optional intent',async()=>{
  const s=await sample(),request=benchRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.benchInspector(request),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });
+async function seatedSample(){
+ const s=await sample(),create=benchRequest(s);
+ const reply=await s.vm.benchInspector(create);
+ const frame={...s.frame,sequence:2,draft:{...s.frame.draft,candidate:reply.candidate}};
+ const ack=await s.vm.accept(frame);
+ const request:BenchInspectorRequest={version:1,epoch:frame.epoch,sequence:frame.sequence,
+  tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),
+  type:'set-bench-viewpoint-target-height',benchId:create.bench.id,viewpointId:create.bench.viewpointId,targetY:1.3};
+ s.fetcher.mockClear();
+ return {...s,frame,ack,request};
+}
+it('the ordinary authenticated bench responder edits only the linked view target height',async()=>{
+ const s=await seatedSample(),before=structuredClone(s.frame.draft.candidate),expected=structuredClone(before);
+ const presentation=expected.extensions!['org.exhibitos.studio/presentation'] as unknown as {viewpoints:{target:number[]}[]};
+ presentation.viewpoints[0]!.target[1]=1.3;
+ expect(s.ack.capabilities).toEqual(expect.arrayContaining(['bench-inspector-v1','bench-viewpoint-target-height-v1']));
+ const reply=await s.vm.benchInspector(s.request);
+ expect(reply).toEqual({version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,
+  principalId:s.frame.principalId,requestId:s.request.requestId,benchId:s.request.benchId,candidate:expected});
+ expect(s.fetcher.mock.calls.map(([url])=>url)).toEqual(['/api/v1/auth/session','/api/v1/auth/session']);
+ expect(s.frame.draft.candidate).toEqual(before);
+ await expect(s.vm.benchInspector(s.request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+ const disabled=await s.vm.accept({...s.frame,sequence:3,disabled:true});
+ expect(disabled.capabilities).not.toContain('bench-viewpoint-target-height-v1');
+});
+it('the new seat responder rejects foreign, stale and out-of-scope requests and fences late replies',async()=>{
+ const s=await seatedSample();
+ const request=(change={})=>({...s.request,requestId:crypto.randomUUID(),...change});
+ for(const change of [{sequence:1},{principalId:crypto.randomUUID()},{target:[0,1.3,-2]},{targetY:'1.3'}]){
+  await expect(s.vm.benchInspector(request(change))).rejects.toThrow();
+ }
+ expect(s.fetcher).not.toHaveBeenCalled();
+ await expect(s.vm.benchInspector(request({viewpointId:crypto.randomUUID()}))).rejects.toThrow('BENCH_REFERENCE');
+ await expect(s.vm.benchInspector(request({targetY:999}))).rejects.toThrow('BENCH_TARGET_HEIGHT_INVALID');
+ s.fetcher.mockImplementationOnce(async()=>Response.json({tenantId:s.frame.tenantId,userId:crypto.randomUUID(),role:'admin'}));
+ await expect(s.vm.benchInspector(request())).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ let resolve!:(response:Response)=>void;
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+ const pending=s.vm.benchInspector(request()),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ await s.vm.accept({...s.frame,sequence:3});
+ resolve(s.session());
+ await rejected;
+});
+
 function detailsRequest(s:Awaited<ReturnType<typeof sample>>):LightDetailsRequest{return {...s.request,type:'set-light-details',settings:{fixture:'none'}};}
 it('light details wired pending intent excludes legacy light, bench, placement and ordinary edits, with authenticated exact reply',async()=>{
  const s=await sample(),request=detailsRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightDetails(request);

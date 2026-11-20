@@ -128,9 +128,34 @@ export function remapStudioBenches(value: StudioBenches, ids: ReadonlyMap<string
   return { version:1, benches:value.benches.map(b => ({...structuredClone(b),id:map(b.id),roomId:map(b.roomId),viewpointId:map(b.viewpointId),...(b.workspaceVisual?{workspaceVisual:{...b.workspaceVisual,placementId:map(b.workspaceVisual.placementId)}}:{})})) };
 }
 
-export type BenchCommand = {type:'add-bench'|'set-bench';bench:StudioBench;viewpoint?:StudioCamera & {id:string;name:string}}|{type:'remove-bench';benchId:string};
+type BenchViewpointTargetHeightCommand = {type:'set-bench-viewpoint-target-height';benchId:string;viewpointId:string;targetY:number};
+export type BenchCommand = {type:'add-bench'|'set-bench';bench:StudioBench;viewpoint?:StudioCamera & {id:string;name:string}}
+  |{type:'remove-bench';benchId:string}|BenchViewpointTargetHeightCommand;
+
+function setBenchViewpointTargetHeight(candidate:Exhibition,command:BenchViewpointTargetHeightCommand):Exhibition {
+  if (!object(command) || !closed(command,['type','benchId','viewpointId','targetY']) ||
+      !uuid(command.benchId) || !uuid(command.viewpointId)) throw Error('BENCH_REFERENCE');
+  if (!validateStudioBenches(candidate).valid || !validateStudioPresentation(candidate).valid) throw Error('BENCH_INVALID');
+  const linked=benchesFor(candidate).filter(bench=>equal(bench.viewpointId,command.viewpointId));
+  const bench=linked[0];
+  if (linked.length!==1 || !bench || !equal(bench.id,command.benchId)) throw Error('BENCH_REFERENCE');
+
+  const room=candidate.rooms.find(room=>equal(room.id,bench.roomId));
+  const presentation=presentationFor(candidate);
+  const viewpoint=presentation.viewpoints.find(view=>equal(view.id,bench.viewpointId));
+  if (!room || !viewpoint || !equal(viewpoint.roomId,room.id)) throw Error('BENCH_REFERENCE');
+  if (!finite(command.targetY,0,room.dimensions.height)) throw Error('BENCH_TARGET_HEIGHT_INVALID');
+
+  const next=structuredClone(candidate);
+  viewpoint.target[1]=command.targetY;
+  next.extensions![PRESENTATION_NAMESPACE]=presentation as unknown as NonNullable<Exhibition['extensions']>[string];
+  if (!validateStudioPresentation(next).valid) throw Error('BENCH_INVALID');
+  return next;
+}
+
 /** Pure candidate edit; caller owns full draft validation, auth, revision and history. */
 export function applyBenchCommand(candidate: Exhibition, command: BenchCommand): Exhibition {
+  if (command.type==='set-bench-viewpoint-target-height') return setBenchViewpointTargetHeight(candidate,command);
   const next=structuredClone(candidate), benches=benchesFor(next);
   if (command.type!=='remove-bench') {
     const index=benches.findIndex(b=>equal(b.id,command.bench.id));

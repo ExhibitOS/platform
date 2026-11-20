@@ -5,6 +5,8 @@ import {catalogBinding} from '../apps/web/src/native-catalog-protocol';
 import type {BenchInspectorRequest} from '../apps/web/src/native-bench-inspector';
 import type {NativeViewportFrame} from '../apps/web/src/native-viewport-protocol';
 export function benchProposal(frame:NativeViewportFrame,request:BenchInspectorRequest){
- frame=checkedFrame(frame);const candidate=nativeBenchInspectorCandidate(frame,request);
+ frame=checkedFrame(frame);
+ if(request?.type==='set-bench-viewpoint-target-height')throw Error('BENCH_INSPECTOR_REQUEST_INVALID');
+ const candidate=nativeBenchInspectorCandidate(frame,request);
  return {...catalogBinding(request),benchId:request.type==='remove-bench'?request.benchId:request.bench.id,candidate};
 }

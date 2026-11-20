@@ -33,7 +33,7 @@ import {installNativePlacementPreview} from './native-placement-renderer';
 import {NATIVE_CATALOG_DROP_CAPABILITY,checkedCatalogDropRequest,type CatalogDropReply} from './native-catalog-drop';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {NATIVE_LIGHT_INSPECTOR_CAPABILITY,checkedLightInspectorRequest,nativeLightInspectorCandidate,type LightInspectorRequest} from './native-light-inspector';
-import {NATIVE_BENCH_INSPECTOR_CAPABILITY,checkedBenchInspectorRequest,nativeBenchInspectorCandidate,type BenchInspectorRequest} from './native-bench-inspector';
+import {NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_BENCH_VIEWPOINT_TARGET_HEIGHT_CAPABILITY,checkedBenchInspectorRequest,nativeBenchInspectorCandidate,type BenchInspectorRequest} from './native-bench-inspector';
 import {NATIVE_LIGHT_DETAILS_CAPABILITY,checkedLightDetailsRequest,nativeLightDetailsCandidate,type LightDetailsRequest} from './native-light-details';
 import {NATIVE_SPACE_SETTINGS_CAPABILITY,checkedSpaceSettingsRequest,nativeSpaceSettingsCandidate,type SpaceSettingsRequest} from './native-space-settings';
 import {NATIVE_VIEWING_PLAN_CAPABILITY,checkedViewingPlanRequest,nativeViewingPlanCandidate,type ViewingPlanRequest} from './native-viewing-plan';
@@ -266,6 +266,7 @@ window.exhibitosViewport={
   const capabilities:string[]=needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:
    frame.disabled||frame.presentation==='plan'?[...NATIVE_CAPABILITIES]:[...NATIVE_CAPABILITIES,NATIVE_CATALOG_DROP_CAPABILITY];
   capabilities.push(NATIVE_RESOURCE_USAGE_CAPABILITY);
+  if(!needsAuthority&&!frame.disabled)capabilities.push(NATIVE_BENCH_VIEWPOINT_TARGET_HEIGHT_CAPABILITY);
   if(!frame.disabled&&frame.presentation!=='plan'&&!currentReadOnly&&session.nativeRenderedArtworkThumbnailProfile===RENDERED_ARTWORK_THUMBNAIL_PROFILE){
    capabilities.push(RENDERED_ARTWORK_THUMBNAIL_PROFILE);
    if(isThumbnailPreviewTracePage(window.location))capabilities.push(ARTWORK_THUMBNAIL_PREVIEW_TRACE_CAPABILITY);
@@ -375,7 +376,7 @@ window.exhibitosViewport={
   if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');
   if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');
   const frame=current,request=checkedBenchInspectorRequest(value,frame),{abort,signal}=beginCatalogRequest(request);benchPending=true;viewportChanged?.();
-  try{await catalogSession(frame!,signal);const candidate=nativeBenchInspectorCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),benchId:request.type==='remove-bench'?request.benchId:request.bench.id,candidate};}
+  try{await catalogSession(frame!,signal);const candidate=nativeBenchInspectorCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),benchId:'benchId' in request?request.benchId:request.bench.id,candidate};}
   finally{benchPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  lightInspector:async value=>{
