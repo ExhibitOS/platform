@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,directionalNormalBias,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,directionalNormalBias,COMPACT_SHADOW_RESERVE_BYTES,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
 import {AssetPeakBudget} from './loading';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
@@ -602,4 +602,65 @@ test('malformed rectangle extents are not admitted as GPU masks',()=>{
     {...contactRow(h.room,h.mesh),shape:{kind:'rectangle' as const,width:NaN,height:.1}}];
   const pass=installSupportContactShadows(three,rows,false,()=>{});pass.setView(contactView());
   expect(h.mesh.material.userData.exhibitosSupportContact).toBeUndefined();pass.dispose();h.pass.dispose();
+});
+
+
+test('Compact uses one cached authored sculpture spot and retires it before switching across rooms',()=>{
+  const h=setup(true);h.pass.dispose();
+  const other=new three.Group();other.position.x=8;
+  const body=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());
+  body.userData.viewerArtworkType='sculpture';
+  const receiver=new three.Mesh(new three.PlaneGeometry(4,4),new three.MeshStandardMaterial());
+  receiver.rotation.x=-Math.PI/2;receiver.position.y=-.5;
+  const glass=new three.Mesh(new three.BoxGeometry(1.2,1.2,1.2),new three.MeshStandardMaterial({transparent:true}));
+  other.add(body,receiver,glass);
+  const first=new three.SpotLight(),second=new three.SpotLight(),off=new three.SpotLight();
+  for(const light of [first,second,off]){light.position.set(0,4,-2);light.angle=Math.PI/6;}
+  h.room.add(first,first.target);other.add(second,second.target,off,off.target);
+  const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
+  const pass=installBoundedShadows(three,h.renderer,[
+    {room:h.room,light:first,authoredCastShadow:true,sculptureRoom:{width:4,depth:4,height:4},sourceLightId:'first'},
+    {room:other,light:second,authoredCastShadow:true,sculptureRoom:{width:4,depth:4,height:4},sourceLightId:'second'},
+    {room:other,light:off,authoredCastShadow:false,sculptureRoom:{width:4,depth:4,height:4},sourceLightId:'off'},
+  ],true,COMPACT_SHADOW_RESERVE_BYTES,value=>h.reports.push(value),fixed);
+  try{
+    pass.flush(contactView());
+    expect(h.reports.at(-1)).toMatchObject({sourceLightId:'first',mapCount:1,mapSize:256,mapBytes:524288,deferredSources:1,updates:1});
+    const map=new three.WebGLRenderTarget(256,256),released=vi.fn();map.addEventListener('dispose',released);first.shadow.map=map;
+    pass.flush(contactView(4.2));
+    expect(h.reports.at(-1)).toMatchObject({sourceLightId:'first',updates:1});
+    pass.flush(contactView(8));
+    expect(released).toHaveBeenCalledOnce();expect(first.shadow.map).toBeNull();
+    expect(h.reports.at(-1)).toMatchObject({sourceLightId:'second',mapCount:1,updates:2});
+    expect(body.castShadow).toBe(true);expect(receiver.receiveShadow).toBe(true);
+    expect(glass.castShadow||glass.receiveShadow||off.castShadow).toBe(false);
+    pass.setAvailableBytes(COMPACT_SHADOW_RESERVE_BYTES-1);pass.flush(contactView(8));
+    expect(h.reports.at(-1)).toMatchObject({mode:'budget',mapCount:0,casters:0});
+    expect(body.castShadow||receiver.receiveShadow||second.castShadow).toBe(false);
+  }finally{pass.dispose();}
+});
+
+
+test('Detailed sculpture opt-in preserves the existing fallback in an unrelated room',()=>{
+  const h=setup();h.pass.dispose();
+  const other=new three.Group();other.position.x=8;
+  other.add(new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial()));
+  const spot=new three.SpotLight(),existing=new three.SpotLight();
+  for(const light of [spot,existing]){light.position.set(0,3,-1);light.angle=Math.PI/4;}
+  other.add(spot,spot.target);h.room.add(existing,existing.target);
+  const fixed=new three.Box3(new three.Vector3(-5,-3,-5),new three.Vector3(13,5,5));
+  const pass=installBoundedShadows(three,h.renderer,[
+    {room:other,light:spot,authoredCastShadow:true,sculptureRoom:{width:6,depth:8,height:4},sourceLightId:'sculpture'},
+    {room:h.room,light:existing,sourceLightId:'existing'},
+  ],false,SHADOW_RESERVE_BYTES,value=>h.reports.push(value),fixed);
+  try{
+    const camera=contactView();camera.position.set(0,1.65,2);
+    pass.flush(camera);expect(h.reports.at(-1)).toMatchObject({sourceLightId:'existing',updates:1});
+    camera.position.x=8;
+    pass.flush(camera);expect(h.reports.at(-1)).toMatchObject({sourceLightId:'sculpture',updates:2});
+    camera.position.x=11.1;
+    pass.flush(camera);expect(h.reports.at(-1)).toMatchObject({sourceLightId:'sculpture',updates:2});
+    camera.position.x=11.4;
+    pass.flush(camera);expect(h.reports.at(-1)).toMatchObject({sourceLightId:'existing',updates:3});
+  }finally{pass.dispose();}
 });

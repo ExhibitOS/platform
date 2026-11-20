@@ -14,7 +14,7 @@ Creation, import, save and export contracts do not acquire these viewing limits.
 | Compact color triangles | 250,000 | Aggregate; existing 20,000-triangle per-model tier retained |
 | Shadow caster geometry | 250,000 | Union of admitted caster geometry |
 | Dirty shadow depth triangles | 250,000 | Sum across source maps, including repeated material groups |
-| Shadow maps | 2 | 512-pixel PCF; at most 4 MiB modeled map allocation |
+| Shadow maps | 2 Detailed, 1 Compact | Detailed uses 512-pixel PCF at up to 4 MiB. Compact reserves 512 KiB for a 256-pixel PCF map when the exhibition has an eligible authored sculpture spot. |
 | Shadow casters / receivers / dependencies | 64 / 256 / 2 | Existing independent bounds retained |
 
 The approved physical fixture workload explains the change. Each museum spot

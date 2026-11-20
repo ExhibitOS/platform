@@ -67,7 +67,7 @@ import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/p
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
-import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,sculptureShadowRooms,COMPACT_SHADOW_RESERVE_BYTES,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -614,7 +614,8 @@ export function GeometryPreview({
       const depthDrawBudget=session&&!publicSource?384:256;
       // Preserve the existing single-map carve and every artwork/material limit.
       // Additional maps need a reversible, no-reclaim lease after actual loading.
-      const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      const sculptureRooms=sculptureShadowRooms(document);
+      const shadowReserve=compactQuality?(sculptureRooms.size?COMPACT_SHADOW_RESERVE_BYTES:0):SHADOW_RESERVE_BYTES;
       let releaseExtraShadows:ReturnType<typeof leaseOptionalShadowMaps>;
       const releaseOptionalShadows=()=>{releaseExtraShadows?.();releaseExtraShadows=undefined;};
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
@@ -909,7 +910,7 @@ export function GeometryPreview({
         );
       const shadowCandidates:ShadowCandidate[]=[...scriptLights.values()].flatMap(({light})=>{
         const item=document.lights.find(item=>scriptLights.get(item.id)?.light===light),room=item&&rooms.get(item.roomId.toLowerCase());
-        return room&&item&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId}]:[];
+        return room&&item&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room,authoredCastShadow:item.castsShadow===true,sourceLightId:item.id,targetPlacementId:item.targetPlacementId,sculptureRoom:sculptureRooms.get(item.id)}]:[];
       });
       for(const room of rooms.values())shadowCandidates.push({light:sun,room});
       // Architecture is immutable for this renderer lifetime. A bounded whole
