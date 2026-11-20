@@ -120,6 +120,8 @@ export async function createWalkingCamera({
   let orderedViewing=false;
   let orderedViewpointId:string|undefined;
   let seated: {benchId:string;roomId:string;workspaceVisual?:WorkspaceBenchVisual;eye:[number,number,number];floor:[number,number,number];floorCorners:readonly [number,number,number][];yaw:number;pitch:number;fov:number;returnFov:number;returnWalking:boolean;resumeInput:boolean}|undefined;
+  // Navigation can retain a stopped pose without reaching the authored seat.
+  let seatCompleted=false;
   let seatTransition:{phase:'sit'|'stand';startedAt:number;progress:number;
     from:import('three').Vector3;to:import('three').Vector3;fromRotation:import('three').Quaternion;toRotation:import('three').Quaternion;
     fromFov:number;toFov:number;complete:()=>void}|undefined;
@@ -211,7 +213,7 @@ export async function createWalkingCamera({
     }catch{return false;}
   };
   const abortSeatTransition=(transition:NonNullable<typeof seatTransition>)=>{
-    seatTransition=undefined;cancelAnimationFrame(frame);paused=true;controller.pause();
+    seatCompleted=false;seatTransition=undefined;cancelAnimationFrame(frame);paused=true;controller.pause();
     const saved=seated;if(!saved)return;
     const fromAngles=new Euler().setFromQuaternion(transition.fromRotation,'YXZ');
     const from=transition.from.toArray() as [number,number,number];
@@ -242,6 +244,7 @@ export async function createWalkingCamera({
     const transition=seatTransition;if(!transition||disposed)return !disposed;
     if(!seatTransitionClear(transition)){abortSeatTransition(transition);return false;}
     seatTransition=undefined;cancelAnimationFrame(frame);
+    const completingSeat=seated;
     try{transition.complete();}catch{
       // reset revalidates the standing capsule. Keep the qualified seat if a
       // newly active obstacle invalidates the landing before this completion.
@@ -252,13 +255,15 @@ export async function createWalkingCamera({
     const end=new Euler().setFromQuaternion(camera.quaternion,'YXZ');pitch=end.x;targetPitch=pitch;targetYaw=end.y;
     if(seated){seated.yaw=end.y;seated.pitch=end.x;}
     controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
-    apply();if(transition.phase==='stand')canvas.focus({preventScroll:true});return true;
+    apply();
+    if(transition.phase==='sit'&&seated&&seated===completingSeat&&!seatTransition&&!disposed)seatCompleted=true;
+    if(transition.phase==='stand')canvas.focus({preventScroll:true});return true;
   };
   const animateSeat=(phase:'sit'|'stand',eye:[number,number,number],yaw:number,nextPitch:number,fov:number,complete:()=>void)=>{
     cancelAnimationFrame(frame);
     const transition={phase,startedAt:performance.now(),progress:0,from:camera.position.clone(),to:new Vector3(...eye),
       fromRotation:camera.quaternion.clone(),toRotation:new Quaternion().setFromEuler(new Euler(nextPitch,yaw,0,'YXZ')),fromFov:camera.fov,toFov:fov,complete};
-    seatTransition=transition;
+    seatCompleted=false;seatTransition=transition;
     if(settings.reducedMotion){finishSeatTransition();return;}
     const advance=(now:number)=>{
       if(disposed||seatTransition!==transition)return;
@@ -412,7 +417,7 @@ export async function createWalkingCamera({
       onMessage('벤치에 앉습니다.');
       animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
       if(seated)onSeat?.(bench.id);
-      return seated ? undefined : 'BENCH_SEAT_TRANSITION_UNSAFE';
+      return seatTransition||seatCompleted ? undefined : 'BENCH_SEAT_TRANSITION_UNSAFE';
     } catch(error) {
       const known=['BENCH_REFERENCE','BENCH_ORIENTATION_UNSUPPORTED','BENCH_SEAT_UNSAFE','BENCH_VIEW_PATH_UNSAFE'];
       const reason=error instanceof Error&&known.includes(error.message)?error.message:'BENCH_SIT_UNAVAILABLE';
@@ -557,7 +562,7 @@ export async function createWalkingCamera({
   if(initialWalking!==undefined){if(walking)controls.enabled=false;onMode(walking,true,'settings');}
   publish();
   onMessage("정지 관람 중입니다. 걷기 시작을 선택하면 실제 충돌이 적용됩니다.");
-  const isSeated=(benchId:string)=>!disposed&&!seatTransition&&seated?.benchId.toLowerCase()===benchId.toLowerCase();
+  const isSeated=(benchId:string)=>!disposed&&seatCompleted&&!seatTransition&&seated?.benchId.toLowerCase()===benchId.toLowerCase();
   return {
     actions,
     isSeated,
@@ -584,7 +589,7 @@ export async function createWalkingCamera({
     qualifiedStandingEye: eye => disposed ? undefined : controller.qualifiedStandingEye(eye),
     dispose: () => {
       if (disposed) return;
-      disposed = true;seatTransition=undefined;
+      disposed = true;seatCompleted=false;seatTransition=undefined;
       reportNearbyBench(null);
       if (onNearbyBench) controls.removeEventListener?.('change', orbitChanged);
       cancelAnimationFrame(frame);

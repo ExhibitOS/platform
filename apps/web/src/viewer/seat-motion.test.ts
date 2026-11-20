@@ -16,7 +16,7 @@ function fixture(){
  const benchId=crypto.randomUUID(),viewpointId=crypto.randomUUID();
  return {benchId,document:applyBenchCommand(d,{type:'add-bench',bench:{id:benchId,name:'Seat',roomId,position:[0,0,0],yaw:0,kind:'backed',dimensions:{width:1.5,depth:.7,height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat view',roomId,position:[0,1.15,-.08],target:[0,1,-3],fov:50}})};
 }
-async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixture>['document'])=>void,hooks?:{onSeatTransition?:(active:boolean)=>void;onSeat?:(id:string|null)=>void}){
+async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixture>['document'])=>void,hooks?:{onSeatTransition?:(active:boolean)=>void;onSeat?:(id:string|null)=>void;onMode?:(walking:boolean,paused:boolean)=>void}){
  const f=fixture();configure?.(f.document);
  const camera=new Three.PerspectiveCamera(63,1,.01,100);camera.position.set(0,1.65,3);camera.rotation.set(.1,Math.PI-.02,0,'YXZ');
  const doc=Object.assign(new EventTarget(),{hidden:false,activeElement:null as unknown,pointerLockElement:null,exitPointerLock:vi.fn()});
@@ -30,7 +30,7 @@ async function harness(reducedMotion=false,configure?:(d:ReturnType<typeof fixtu
  let sources:MountedFurnishingCollision[]=[];
  const adapter=await createWalkingCamera({...hooks,document:f.document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion},
   render:()=>rendered.push({eye:camera.position.toArray(),quaternion:camera.quaternion.toArray(),state:JSON.parse(canvas.dataset.navigationState!)}),
-  onMode:(walking,paused,reason)=>gate.mode(walking,paused,reason),onMessage:message=>messages.push(message),wasWalkingBeforeSeat:gate.wasWalkingBeforeSeat,furnishingCollisions:()=>sources});
+  onMode:(walking,paused,reason)=>{gate.mode(walking,paused,reason);hooks?.onMode?.(walking,paused);},onMessage:message=>messages.push(message),wasWalkingBeforeSeat:gate.wasWalkingBeforeSeat,furnishingCollisions:()=>sources});
  vi.spyOn(performance,'now').mockImplementation(()=>now);
  const advance=(time:number)=>{now=time;const pending=[...frames.values()];frames.clear();for(const callback of pending)callback(time);};
  const pointer=(type:string,x:number,y:number)=>canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerType:'touch',pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
@@ -171,5 +171,38 @@ test('a subsequently clear real head path succeeds and clears a stale refusal re
   h.setSources([]);h.adapter.actions.sit!(h.benchId);
   expect(h.camera.position.toArray()).toEqual([0,1.15,-.08]);expect(h.canvas.dataset.benchSeatRefusal).toBeUndefined();
   expect(h.messages.at(-1)).toContain('앉은 위치');
+ }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
+});
+
+
+test.each([false,true])('preview refuses the retained pose when both sit endpoints become obstructed (reduced motion=%s)',async(reducedMotion)=>{
+ const group=new Three.Group();
+ for(const z of [-.08,3]){
+  const wall=new Three.Mesh(new Three.BoxGeometry(2,3,.02));wall.position.set(0,1.5,z);group.add(wall);
+ }
+ const collision:MountedFurnishingCollision={id:'blocked-sit-endpoints',mesh:furnishingCollisionMesh(Three,group)!,active:()=>true};
+ let onSit: (()=>void)|undefined;
+ const seats:(string|null)[]=[];
+ const h=await harness(reducedMotion,undefined,{onSeat:id=>seats.push(id),onMode:(walking,paused)=>{
+  if(!walking&&paused&&onSit){const obstruct=onSit;onSit=undefined;obstruct();}
+ }});
+ try{
+  if(reducedMotion)onSit=()=>h.setSources([collision]);
+  const pending=h.adapter.previewSeat(h.benchId,new AbortController().signal);
+  const result=expect(pending).rejects.toThrow('BENCH_SEAT_TRANSITION_UNSAFE');
+  if(!reducedMotion){
+   h.advance(175);
+   expect(h.state().seatTransition).toMatchObject({phase:'sit',progress:.5});
+   h.setSources([collision]);
+   const intermediate=h.camera.position.toArray();
+   h.advance(350);
+   expect(h.camera.position.toArray()).toEqual(intermediate);
+  }
+  await result;
+  expect(h.state()).toMatchObject({paused:true,grounded:false,seatTransition:null});
+  expect(seats).toEqual([h.benchId]);
+  expect(h.camera.position.toArray()).not.toEqual([0,1.15,-.08]);
+  expect(h.adapter.isSeated(h.benchId)).toBe(false);
+  expect(h.frames.size).toBe(0);
  }finally{h.adapter.dispose();group.traverse(node=>{if(node instanceof Three.Mesh){node.geometry.dispose();(node.material as Three.Material).dispose();}});}
 });
