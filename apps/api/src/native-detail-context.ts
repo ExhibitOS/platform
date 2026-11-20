@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {CLOSING_LIGHTS_SELECTED_SCOPE,PAINTING_BENCH_SELECTED_SCOPE,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
+import {CLOSING_LIGHTS_SELECTED_SCOPE,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {isIssuedNativeLocalExport,type NativeLocalExportContext} from './native-oex-provenance.ts';
 
 export const OCCUPIED_SELECTED_OUTPUT_REVISION = 215;
@@ -25,6 +25,15 @@ export const ACCEPTED_WHEAT_FIT_PREDECESSOR = Object.freeze({
  publicManifestSha256: '88ff33002d835381e82e3cf0a77e865591a46b6fdcd0d01a37d767833e351794',
  deliveryReceiptSha256: 'f77738f9e3f108217c2077f2078c014d9bb61e6232383ca8207a917b3d7bfbce',
 });
+export const ACCEPTED_CLOSING_PREDECESSOR = Object.freeze({
+ revision: WHEAT_IMAGE_FIT_SUCCESSOR_REVISION,
+ etag: ACCEPTED_WHEAT_FIT_PREDECESSOR.etag,
+ publicationId: '34b9adbd-d6c2-42c7-9b31-81e10ddfed59',
+ revisionSha256: '81085f842c2df5a85962bd1db0d85afc7cd19c87acc0d3d5b07a17a822848d0c',
+ projectionIdentity: 'v1:50bf0e78c9fba33f13205080b9102d105a858b759f9f164d6e5c14e65cb0287f',
+ publicManifestSha256: '1b414f0ba3bd85fd02277c3cfe8c62c39f05a1c2c9a2fc0abdc239dc2a43ac00',
+ deliveryReceiptSha256: '8a8c19922ae3bf05587dbce9389ad7e64000faf781529fc035390df65fe0619b',
+});
 export const OCCUPIED_CANNON_SCOPE = 'transition-cannon-v1';
 export const OCCUPIED_PUBLIC_FINISH_SCOPE = 'public-seven-visual-finishes-v1';
 type OccupiedSelectionScope = typeof OCCUPIED_CANNON_SCOPE | typeof OCCUPIED_PUBLIC_FINISH_SCOPE;
@@ -36,7 +45,7 @@ type SelectedSavedHead =
  | {revision:typeof OCCUPIED_PAINTING_BENCH_REVISION;etag:string;scope:typeof PAINTING_BENCH_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string}
  | {revision:typeof WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;etag:string;
-    scope:typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    scope:typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
  return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
@@ -50,8 +59,8 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
  const keys=Object.keys(head).sort().join(',');
  if(keys==='etag,predecessorPublicationId,predecessorRevisionSha256,projectionIdentity,revision,scope'){
   if(typeof head.projectionIdentity!=='string'||!/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity))return false;
-  if(head.scope===CLOSING_LIGHTS_SELECTED_SCOPE){
-   const pin=ACCEPTED_WHEAT_FIT_PREDECESSOR;
+  if(head.scope===CLOSING_LIGHTS_SELECTED_SCOPE||head.scope===RETAINED_SPOTS_SELECTED_SCOPE){
+   const pin=head.scope===CLOSING_LIGHTS_SELECTED_SCOPE?ACCEPTED_WHEAT_FIT_PREDECESSOR:ACCEPTED_CLOSING_PREDECESSOR;
    return head.revision===pin.revision&&head.etag===pin.etag&&
     head.predecessorPublicationId===pin.publicationId&&head.predecessorRevisionSha256===pin.revisionSha256;
   }

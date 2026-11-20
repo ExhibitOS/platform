@@ -10,7 +10,7 @@ import {
   freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
-  CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
+  CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
 } from '@exhibitos/studio-contract';
 import {ApiError, type Session} from './auth.ts';
 import {Audio, audioMedia} from './audio.ts';
@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
+  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
   OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
   OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
@@ -29,6 +29,7 @@ import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
 import {ACCEPTED_PUBLIC_WHEAT_MANIFEST,assertAcceptedSelectedPredecessor,projectSelectedWheatFrame,projectSelectedWheatImageFit} from './native-selected-wheat.ts';
 import {projectSelectedPaintingBench} from './native-selected-painting-bench.ts';
 import {projectSelectedClosingFixtures} from './native-selected-closing-fixtures.ts';
+import {projectSelectedRetainedSpots} from './native-selected-retained-spots.ts';
 
 // Keep the persisted selection mode stable across exact-head corrections.
 export const SELECTED_NATIVE_RELEASE = 'r125-approved-r201-v1';
@@ -97,7 +98,7 @@ type ApprovedBrassFrames = readonly [string, string];
 type ApprovedFootsteps = {paintingTarget: string; entranceTarget: string; commitment: string};
 export type SelectedProjectionIdentity = `v1:${string}`;
 type WheatNoticeScope = typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE |
-  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE;
+  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE;
 export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: WheatNoticeScope};
 const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
   fingerprint([SELECTED_NATIVE_RELEASE, 'footstep-target-v1', role, id]);
@@ -122,9 +123,10 @@ export async function loadSelectedNativeRelease(
     throw new ApiError(412, 'REMOTE_CONFLICT');
   if (postWheat && !selectedHead?.scope) return unavailable();
   if (paintingBench && selectedHead?.scope !== PAINTING_BENCH_SELECTED_SCOPE) return unavailable();
-  if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE &&
-      selectedHead?.scope !== CLOSING_LIGHTS_SELECTED_SCOPE) return unavailable();
-  if (selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE && (!wheatImageFit || match !== ACCEPTED_WHEAT_FIT_PREDECESSOR.etag))
+  const retainedSpots = selectedHead?.scope === RETAINED_SPOTS_SELECTED_SCOPE;
+  const closing = retainedSpots || selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
+  if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE && !closing) return unavailable();
+  if (closing && (!wheatImageFit || match !== ACCEPTED_WHEAT_FIT_PREDECESSOR.etag))
     throw new ApiError(412, 'REMOTE_CONFLICT');
   const captionStands = row.revision === captionStandsRevision || defaultLighting;
   if ((!captionStands && row.revision !== currentRevision) || etag(row.revision, row.metadata) !== match ||
@@ -190,9 +192,8 @@ export async function loadSelectedNativeRelease(
     if (selectedHead.scope === OCCUPIED_PUBLIC_FINISH_SCOPE)
       return bindScopedSelection(selected, publicFinishes, publicPredecessor, match, selectedHead);
     if (selectedHead.scope !== WHEAT_SELECTED_SCOPE) {
-      const closing = selectedHead.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
       const repair = selectedHead.scope !== PAINTING_BENCH_SELECTED_SCOPE;
-      const pin = closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
+      const pin = retainedSpots ? ACCEPTED_CLOSING_PREDECESSOR : closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
       if ((repair ? !wheatImageFit : !paintingBench) || selectedHead.predecessorPublicationId !== pin.publicationId ||
           selectedHead.predecessorRevisionSha256 !== pin.revisionSha256) return unavailable();
       const wheatHead = await savedRevision(OCCUPIED_POST_WHEAT_REVISION);
@@ -215,16 +216,31 @@ export async function loadSelectedNativeRelease(
             !isDeepStrictEqual({...row.metadata, candidate: benchHead.candidate,
               editVersion: benchHead.editVersion, updatedAt: benchHead.updatedAt}, benchHead)) return unavailable();
         const candidate = projectSelectedWheatImageFit(withWheat, benchHead.candidate, row.metadata.candidate);
-        if (selectedHead.scope === CLOSING_LIGHTS_SELECTED_SCOPE) {
+        if (closing) {
           const accepted = ACCEPTED_WHEAT_FIT_PREDECESSOR;
           const fitIdentity = scopedProjectionIdentity(candidate, predecessor, match, WHEAT_IMAGE_FIT_SELECTED_SCOPE);
           if (fitIdentity !== accepted.projectionIdentity) return unavailable();
-          await assertAcceptedSelectedPredecessor(c, s, exhibitionId, selectedHead,
-            SELECTED_NATIVE_RELEASE, fitIdentity, WHEAT_IMAGE_FIT_SELECTED_SCOPE);
+          await assertAcceptedSelectedPredecessor(c, s, exhibitionId, {
+            predecessorPublicationId: accepted.publicationId, predecessorRevisionSha256: accepted.revisionSha256,
+            revision: accepted.revision, etag: accepted.etag,
+          }, SELECTED_NATIVE_RELEASE, fitIdentity, WHEAT_IMAGE_FIT_SELECTED_SCOPE);
           const closingPredecessor = fingerprintCanonical([fitIdentity, accepted.publicationId, accepted.revisionSha256,
             accepted.publicManifestSha256, accepted.deliveryReceiptSha256]);
           const withClosing = projectSelectedClosingFixtures(candidate, row.metadata.candidate);
-          return {...bindScopedSelection(selected, withClosing, closingPredecessor, match, selectedHead), wheatScope: selectedHead.scope};
+          if (retainedSpots) {
+            const deployed = ACCEPTED_CLOSING_PREDECESSOR;
+            const closingIdentity = scopedProjectionIdentity(withClosing, closingPredecessor, match, CLOSING_LIGHTS_SELECTED_SCOPE);
+            if (closingIdentity !== deployed.projectionIdentity) return unavailable();
+            await assertAcceptedSelectedPredecessor(c, s, exhibitionId, selectedHead,
+              SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
+            const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
+              deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
+            const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate, true);
+            return {...bindScopedSelection(selected, withRetainedSpots, retainedPredecessor, match, selectedHead),
+              wheatScope: RETAINED_SPOTS_SELECTED_SCOPE};
+          }
+          return {...bindScopedSelection(selected, withClosing, closingPredecessor, match, selectedHead),
+            wheatScope: CLOSING_LIGHTS_SELECTED_SCOPE};
         }
         return {...bindScopedSelection(selected, candidate, predecessor, match, selectedHead), wheatScope: WHEAT_IMAGE_FIT_SELECTED_SCOPE};
       }
