@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {EntranceThemeId} from '@exhibitos/studio-contract';
-import {freezeCanonical} from '@exhibitos/studio-contract';
+import {benchesFor,freezeCanonical} from '@exhibitos/studio-contract';
 import {catalogBinding,type CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 
 /** Advertise only after the shared DOM host and snapshot readiness are qualified. */
 export const NATIVE_ENTRANCE_PREVIEW_CAPABILITY='entrance-preview-v1';
-export interface EntrancePreviewRequest extends CatalogBinding {
- type:'show'|'replay'|'walk'|'thumbnail'|'close';
+export const NATIVE_ENTRANCE_SEAT_PREVIEW_CAPABILITY='entrance-seat-preview-v1';
+export interface EntrancePreviewSeat {benchId:string;viewpointId:string}
+export type EntrancePreviewMode='cover'|'walk'|'editor'|'seated';
+interface EntrancePreviewOptions extends CatalogBinding {
  device:'desktop'|'mobile';scenario:'normal'|'slow'|'image-failed';
  reducedMotion:boolean;theme:EntranceThemeId|null;locale:string|null;
 }
+export type EntrancePreviewRequest=EntrancePreviewOptions & ({type:'show'|'replay'|'walk'|'thumbnail'|'close'}|({type:'seat'}&EntrancePreviewSeat));
 export interface EntrancePreviewGeometry {
  renderGeneration:number;imageStatus:'absent'|'ready'|'failed';
  viewport:{width:number;height:number};snapshotRect:{x:number;y:number;width:number;height:number};
@@ -19,7 +22,7 @@ export interface EntrancePreviewReply extends CatalogBinding,EntrancePreviewGeom
  baseDraft:NativeViewportFrame['draft'];
  theme:EntrancePreviewRequest['theme'];locale:string|null;
  device:EntrancePreviewRequest['device'];scenario:EntrancePreviewRequest['scenario'];reducedMotion:boolean;
- status:'ready';mode:'cover'|'walk'|'editor';
+ status:'ready';mode:EntrancePreviewMode;benchId?:string;viewpointId?:string;
 }
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const themes=['catalogue','poster','artwork','invitation','threshold'];
@@ -27,14 +30,28 @@ const themes=['catalogue','poster','artwork','invitation','threshold'];
 export function checkedEntrancePreviewRequest(value:unknown,frame:NativeViewportFrame|undefined):EntrancePreviewRequest {
  if(!frame||!value||typeof value!=='object'||Array.isArray(value))throw Error('ENTRANCE_PREVIEW_INVALID');
  const v=value as EntrancePreviewRequest;
- if(Object.keys(v).sort().join(',')!=='device,epoch,locale,principalId,reducedMotion,requestId,scenario,sequence,tenantId,theme,type,version'||
+ const keys='device,epoch,locale,principalId,reducedMotion,requestId,scenario,sequence,tenantId,theme,type,version';
+ if(Object.keys(v).sort().join(',')!==(v.type==='seat'?`benchId,${keys},viewpointId`:keys)||
  v.version!==1||typeof v.requestId!=='string'||!uuid.test(v.requestId)||
- !['show','replay','walk','thumbnail','close'].includes(v.type)||!['desktop','mobile'].includes(v.device)||
+ !['show','replay','walk','thumbnail','close','seat'].includes(v.type)||
+ (v.type==='seat'&&(typeof v.benchId!=='string'||!uuid.test(v.benchId)||typeof v.viewpointId!=='string'||!uuid.test(v.viewpointId)))||!['desktop','mobile'].includes(v.device)||
  !['normal','slow','image-failed'].includes(v.scenario)||typeof v.reducedMotion!=='boolean'||
  (v.theme!==null&&!themes.includes(v.theme))||
  (v.locale!==null&&(typeof v.locale!=='string'||v.locale.length>35||!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(v.locale))))throw Error('ENTRANCE_PREVIEW_INVALID');
  if(v.epoch!==frame.epoch||v.sequence!==frame.sequence||v.tenantId!==frame.tenantId||v.principalId!==frame.principalId)throw Error('ENTRANCE_PREVIEW_STALE');
  return structuredClone(v);
+}
+export function requireEntrancePreviewSeat(request:EntrancePreviewSeat,frame:NativeViewportFrame){
+ const bench=benchesFor(frame.draft.candidate).find(bench=>bench.id.toLowerCase()===request.benchId.toLowerCase());
+ if(!bench||bench.viewpointId.toLowerCase()!==request.viewpointId.toLowerCase())throw Error('ENTRANCE_PREVIEW_BENCH_MISMATCH');
+}
+export function entrancePreviewMode(request:EntrancePreviewRequest):EntrancePreviewMode {
+ switch(request.type){
+  case 'close':return 'editor';
+  case 'walk':return 'walk';
+  case 'seat':return 'seated';
+  default:return 'cover';
+ }
 }
 /** Geometry is measured from the real shared host in CSS pixels, never a guessed card. */
 export function entrancePreviewReply(request:EntrancePreviewRequest,frame:NativeViewportFrame,geometry:EntrancePreviewGeometry):EntrancePreviewReply {
@@ -44,7 +61,8 @@ export function entrancePreviewReply(request:EntrancePreviewRequest,frame:Native
  ![v.width,v.height,r.x,r.y,r.width,r.height].every(Number.isFinite)||v.width<=0||v.height<=0||r.x<0||r.y<0||r.width<=0||r.height<=0||r.x+r.width>v.width||r.y+r.height>v.height)throw Error('ENTRANCE_PREVIEW_BOUNDS');
  return {...catalogBinding(request),baseDraft:structuredClone(frame.draft),theme:request.theme,locale:request.locale,
  device:request.device,scenario:request.scenario,reducedMotion:request.reducedMotion,status:'ready',
- mode:request.type==='close'?'editor':request.type==='walk'?'walk':'cover',renderGeneration:geometry.renderGeneration,imageStatus:geometry.imageStatus,
+ mode:entrancePreviewMode(request),...(request.type==='seat'?{benchId:request.benchId,viewpointId:request.viewpointId}:{}),
+ renderGeneration:geometry.renderGeneration,imageStatus:geometry.imageStatus,
  viewport:{width:v.width,height:v.height},snapshotRect:{x:r.x,y:r.y,width:r.width,height:r.height}};
 }
 /** State checks compare the original request and full draft without consuming a replay ID. */

@@ -1,3 +1,4 @@
+import type {EntrancePreviewSeat} from './native-entrance-preview-protocol';
 import {assetResourceLimits} from './viewer/exhibition-budget';
 import {collectSceneResourceUsage,type SceneResourceUsage} from './viewer/scene-resource-usage';
 import {clearNativeCameraPose,nativeCameraPoseRefresh,publishNativeCameraPose,type NativeCameraPoseFrame} from './native-camera-pose';
@@ -135,8 +136,13 @@ export interface DetailEntryActions {
   resumeViewing?: () => void;
 }
 export type GeometrySelection=EditorSelection;
-export interface EntranceSceneScope {enter(signal:AbortSignal):Promise<void>;cancelEntry():void;close():void}
-export interface EntranceScenePreview {begin():EntranceSceneScope}
+export interface EntranceSceneScope {
+  enter(signal:AbortSignal,seat?:EntrancePreviewSeat & {reducedMotion:boolean}):Promise<void>;
+  isSeated(seat:EntrancePreviewSeat):boolean;
+  cancelEntry():void;
+  close():void;
+}
+export interface EntranceScenePreview {document:Document;begin():EntranceSceneScope}
 
 export function GeometryPreview({
   document,
@@ -389,6 +395,7 @@ export function GeometryPreview({
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
     [walkLoading, setWalkLoading] = useState(false),
+    [entranceSeated,setEntranceSeated]=useState(false),
     [walkPreparation,setWalkPreparation]=useState<'pending'|'ready'|'failed'>('pending'),
     [walkMessage, setWalkMessage] = useState(
       "정지 관람입니다. 걷기 시작을 선택하세요.",
@@ -452,7 +459,7 @@ export function GeometryPreview({
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const resourceUsageCallback=useRef(onResourceUsageReady);resourceUsageCallback.current=onResourceUsageReady;
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed,entranceMode]);
+  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,firstEntranceFrame,entranceAssetFailed,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||entranceSeated||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,entranceSeated,walkPreparation,walkingMode,firstEntranceFrame,entranceAssetFailed,entranceMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -1793,22 +1800,26 @@ export function GeometryPreview({
       // renderer effect's document, budget, immersive or editing dependencies.
       if(entranceSceneCallback.current&&!viewerBudget){
         let preparing=false;
-        const preview:EntranceScenePreview={begin:()=>{
+        const preview:EntranceScenePreview={document,begin:()=>{
           if(disposed||gpuLost||xrActive.current||entranceScope.current||preparing||currentWalkMode.current.walking)throw Error('ENTRANCE_SCENE_BUSY');
-          const saved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone(),fov:camera.fov,zoom:camera.zoom,near:camera.near,far:camera.far,enabled:controls.enabled,actions:walkingActions.current,tabIndex:renderer.domElement.getAttribute('tabindex'),focus:renderer.domElement.ownerDocument.activeElement};
-          const abortPreview=new AbortController();let abortEntry=new AbortController(),adapter:{actions:WalkingActions;dispose:()=>void}|undefined,entered=false,closed=false;
+          const saved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone(),fov:camera.fov,authoredFov,zoom:camera.zoom,near:camera.near,far:camera.far,enabled:controls.enabled,actions:walkingActions.current,tabIndex:renderer.domElement.getAttribute('tabindex'),focus:renderer.domElement.ownerDocument.activeElement};
+          const abortPreview=new AbortController();let abortEntry=new AbortController(),adapter:Awaited<ReturnType<typeof import('./viewer/navigation-camera').createWalkingCamera>>|undefined;
+          let activeSeat:EntrancePreviewSeat|undefined,entered=false,closed=false,seatEntry=false;
           controls.enabled=false;
           const restore=(enabled:boolean)=>{
+            if(seatEntry)authoredFov=saved.authoredFov;
             camera.position.copy(saved.position);camera.quaternion.copy(saved.quaternion);camera.up.copy(saved.up);controls.target.copy(saved.target);camera.fov=saved.fov;camera.zoom=saved.zoom;camera.near=saved.near;camera.far=saved.far;camera.updateProjectionMatrix();controls.enabled=enabled;controls.update();if(!disposed&&!gpuLost)render();
           };
           const scope:EntranceSceneScope={
-            enter:async externalSignal=>{
-              if(entered||closed)throw Error('ENTRANCE_SCENE_STALE');if(preparing)throw Error('ENTRANCE_SCENE_BUSY');entered=true;
+            isSeated:seat=>!closed&&!disposed&&!gpuLost&&activeSeat?.benchId===seat.benchId&&activeSeat.viewpointId===seat.viewpointId&&adapter?.isSeated(seat.benchId)===true,
+            enter:async (externalSignal,seat)=>{
+              if(entered||closed)throw Error('ENTRANCE_SCENE_STALE');if(preparing)throw Error('ENTRANCE_SCENE_BUSY');entered=true;seatEntry=seat!==undefined;
               const signal=AbortSignal.any([abortPreview.signal,abortEntry.signal,externalSignal]);signal.throwIfAborted();
               preparing=true;setEntranceWalking(true);setWalkPreparation('pending');setWalkLoading(true);view('start');controls.enabled=false;renderer.domElement.tabIndex=0;
               try{
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
-                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,furnishingCollisions,
+                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current,...(seat?{reducedMotion:seat.reducedMotion}:{})},render,furnishingCollisions,
+                  ...(seat?{signal,workspaceBenchAvailability}:{}),
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
                   onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
                   activateContextAction:activateExit,
@@ -1816,17 +1827,23 @@ export function GeometryPreview({
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
                 if(closed||disposed||signal.aborted){created.dispose();signal.throwIfAborted();throw Error('ENTRANCE_SCENE_STALE');}
-                adapter=created;walkingActions.current=created.actions;created.actions.refreshFurnishingCollisions?.();setWalkPreparation('ready');created.actions.start(focusEntry);
+                adapter=created;walkingActions.current=created.actions;created.actions.refreshFurnishingCollisions?.();
+                if(seat){
+                  await created.previewSeat(seat.benchId,signal);
+                  signal.throwIfAborted();
+                  activeSeat={benchId:seat.benchId,viewpointId:seat.viewpointId};setEntranceSeated(true);
+                }else created.actions.start(focusEntry);
+                setWalkPreparation('ready');
               }catch(error){if(!closed&&!signal.aborted)setWalkPreparation('failed');throw error;}
               finally{preparing=false;if(!closed)setWalkLoading(false);}
             },
             cancelEntry:()=>{
               if(closed)return;abortEntry.abort();abortEntry=new AbortController();adapter?.dispose();adapter=undefined;entered=false;walkingActions.current=saved.actions;
-              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');setEntranceWalking(false);restore(false);
+              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');activeSeat=undefined;setEntranceSeated(false);setEntranceWalking(false);restore(false);
             },
             close:()=>{
               if(closed)return;closed=true;abortPreview.abort();adapter?.dispose();walkingActions.current=saved.actions;
-              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');setEntranceWalking(false);
+              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');activeSeat=undefined;setEntranceSeated(false);setEntranceWalking(false);
               if(entranceScope.current===scope)entranceScope.current=null;restore(saved.enabled);
               if(saved.tabIndex===null)renderer.domElement.removeAttribute('tabindex');else renderer.domElement.setAttribute('tabindex',saved.tabIndex);
               if(saved.focus instanceof HTMLElement&&saved.focus.isConnected&&saved.focus!==renderer.domElement.ownerDocument.body)saved.focus.focus({preventScroll:true});

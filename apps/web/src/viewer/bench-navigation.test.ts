@@ -132,3 +132,47 @@ test.each(['mouse','touch'])('seated %s drag rotates in place and its current ga
     expect(camera.fov).toBe(standing.fov);
   }finally{adapter.dispose();}
 });
+
+test.each([false,true])('preview seat waits for the guarded transition and observes cancellation (cancel=%s)',async(cancel)=>{
+  const exhibition=benchFixture(),benchId=(exhibition.extensions![N] as unknown as {benches:{id:string}[]}).benches[0]!.id;
+  const camera=new PerspectiveCamera(63,1,.01,100);
+  camera.position.set(0,1.65,3);
+  camera.lookAt(0,1.2,0);
+  const doc=Object.assign(new EventTarget(),{activeElement:null,pointerLockElement:null,hidden:false});
+  const canvas=Object.assign(new EventTarget(),{dataset:{},style:{touchAction:''},focus:vi.fn()}) as unknown as HTMLCanvasElement;
+  const controls={enabled:true,target:new Vector3(),update(){}} as OrbitControls;
+  let next=0;
+  const frames=new Map<number,FrameRequestCallback>();
+  vi.stubGlobal('document',doc);
+  vi.stubGlobal('window',new EventTarget());
+  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{frames.set(++next,callback);return next;});
+  vi.stubGlobal('cancelAnimationFrame',(id:number)=>{frames.delete(id);});
+  const adapter=await createWalkingCamera({
+    document:exhibition,camera,initialCamera:camera.clone(),controls,canvas,
+    settings:{speed:1.3,eyeHeight:1.65,reducedMotion:false},render(){},onMode(){},onMessage(){},
+  });
+  try{
+    const abort=new AbortController();
+    await expect(adapter.previewSeat(crypto.randomUUID(),abort.signal)).rejects.toThrow('BENCH_REFERENCE');
+    expect(adapter.isSeated(benchId)).toBe(false);
+    const result=adapter.previewSeat(benchId,abort.signal);
+    expect(adapter.isSeated(benchId)).toBe(false);
+    if(cancel){
+      const cancelled=expect(result).rejects.toThrow('PREVIEW_CLOSED');
+      abort.abort(Error('PREVIEW_CLOSED'));
+      adapter.dispose();
+      await cancelled;
+      expect(adapter.isSeated(benchId)).toBe(false);
+      expect(frames.size).toBe(0);
+      return;
+    }
+    for(const [id,callback] of [...frames]){frames.delete(id);callback(performance.now()+500);}
+    await result;
+    expect(adapter.isSeated(benchId)).toBe(true);
+    expect(camera.position.toArray()).toEqual([0,1.15,-.08]);
+  }finally{
+    adapter.dispose();
+  }
+  expect(adapter.isSeated(benchId)).toBe(false);
+  expect(frames.size).toBe(0);
+});

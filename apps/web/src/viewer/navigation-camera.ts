@@ -68,7 +68,9 @@ export async function createWalkingCamera({
   /** The embedding projection owner retains the authored FOV and applies its
    * existing responsive/user display policy before this visit renders. */
   onViewpointFov?: (fov:number) => void;
-}): Promise<{ actions: WalkingActions; qualifiedStandingEye: (eye: Vec3) => Vec3 | undefined; dispose: () => void }> {
+}): Promise<{ actions: WalkingActions; qualifiedStandingEye: (eye: Vec3) => Vec3 | undefined;
+  previewSeat: (benchId:string,signal:AbortSignal)=>Promise<void>;
+  isSeated: (benchId:string)=>boolean; dispose: () => void }> {
   signal?.throwIfAborted();
   const { Euler, Vector3, Quaternion } = await import("three");
   signal?.throwIfAborted();
@@ -387,6 +389,40 @@ export async function createWalkingCamera({
     if(onViewpointFov)onViewpointFov(fov);
     else {camera.fov=fov;camera.updateProjectionMatrix();}
   };
+  const sit = (benchId:string) => {
+    if(disposed||seated||orderedViewing)return 'BENCH_SIT_UNAVAILABLE';
+    const refusalOrigin=camera.position.toArray();let refusalEye:number[]|undefined;
+    try{delete canvas.dataset.benchSeatRefusal;}catch{/* Diagnostics cannot alter seat safety. */}
+    const recordRefusal=(reason:string)=>{
+      const point=(value:number[]|undefined)=>value?.length===3&&value.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000)?value:null;
+      try{canvas.dataset.benchSeatRefusal=JSON.stringify({version:1,reason,benchId:/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(benchId)?benchId.toLowerCase():null,origin:point(refusalOrigin),seatEye:point(refusalEye)});}catch{/* Missing evidence remains unknown. */}
+    };
+    try {
+      const {bench, floor, floorCorners, eye, target, fov} = seatPose(benchId);refusalEye=[...eye];
+      if(bench.workspaceVisual&&workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready'){
+        recordRefusal('BENCH_WORKSPACE_UNAVAILABLE');
+        onMessage('벤치가 아직 표시되지 않아 앉을 수 없어요.');
+        return 'BENCH_WORKSPACE_UNAVAILABLE';
+      }
+      const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
+      if(!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],eye))throw Error('BENCH_VIEW_PATH_UNSAFE');
+      const snapshot={benchId:bench.id,roomId:bench.roomId,workspaceVisual:bench.workspaceVisual,eye,floor,floorCorners,yaw,pitch:seatPitch,fov,returnFov:camera.fov,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
+      input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;canvas.style.touchAction="none";
+      targetPitch=seatPitch;targetYaw=yaw;onMode(false,true);
+      onMessage('벤치에 앉습니다.');
+      animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
+      if(seated)onSeat?.(bench.id);
+      return seated ? undefined : 'BENCH_SEAT_TRANSITION_UNSAFE';
+    } catch(error) {
+      const known=['BENCH_REFERENCE','BENCH_ORIENTATION_UNSUPPORTED','BENCH_SEAT_UNSAFE','BENCH_VIEW_PATH_UNSAFE'];
+      const reason=error instanceof Error&&known.includes(error.message)?error.message:'BENCH_SIT_UNAVAILABLE';
+      recordRefusal(reason);
+      onMessage(reason==='BENCH_VIEW_PATH_UNSAFE'
+        ?'벤치까지 안전하게 이동할 경로를 확인할 수 없습니다. 다른 관람 위치에서 벤치와 가까운 위치로 이동한 뒤 다시 선택하세요. 현재 위치와 작품 목록을 유지합니다.'
+        :'이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');
+      return reason;
+    }
+  };
   const actions: WalkingActions = {
     start,
     prepareViewpoint:async id=>prepareViewpoint(id),
@@ -410,38 +446,7 @@ export async function createWalkingCamera({
       controls.enabled=false;controls.target.fromArray(base.target);applyViewpointFov(base.fov);apply();return true;
     },
     freeViewing:()=>{if(disposed||seated)return false;if(!orderedViewing)return true;orderedViewing=false;orderedViewpointId=undefined;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
-    sit: benchId => {
-      if(disposed||seated||orderedViewing)return;
-      const refusalOrigin=camera.position.toArray();let refusalEye:number[]|undefined;
-      try{delete canvas.dataset.benchSeatRefusal;}catch{/* Diagnostics cannot alter seat safety. */}
-      const recordRefusal=(reason:string)=>{
-        const point=(value:number[]|undefined)=>value?.length===3&&value.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000)?value:null;
-        try{canvas.dataset.benchSeatRefusal=JSON.stringify({version:1,reason,benchId:/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(benchId)?benchId.toLowerCase():null,origin:point(refusalOrigin),seatEye:point(refusalEye)});}catch{/* Missing evidence remains unknown. */}
-      };
-      try {
-        const {bench, floor, floorCorners, eye, target, fov} = seatPose(benchId);refusalEye=[...eye];
-        if(bench.workspaceVisual&&workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready'){
-          recordRefusal('BENCH_WORKSPACE_UNAVAILABLE');
-          onMessage('벤치가 아직 표시되지 않아 앉을 수 없어요.');
-          return;
-        }
-        const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
-        if(!controller.viewSegmentClear(camera.position.toArray() as [number,number,number],eye))throw Error('BENCH_VIEW_PATH_UNSAFE');
-        const snapshot={benchId:bench.id,roomId:bench.roomId,workspaceVisual:bench.workspaceVisual,eye,floor,floorCorners,yaw,pitch:seatPitch,fov,returnFov:camera.fov,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
-        input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;canvas.style.touchAction="none";
-        targetPitch=seatPitch;targetYaw=yaw;onMode(false,true);
-        onMessage('벤치에 앉습니다.');
-        animateSeat('sit',eye,yaw,seatPitch,fov,()=>onMessage('앉은 위치에서 드래그해 둘러볼 수 있어요. 일어서면 현재 시선을 유지합니다.'));
-        if(seated)onSeat?.(bench.id);
-      } catch(error) {
-        const known=['BENCH_REFERENCE','BENCH_ORIENTATION_UNSUPPORTED','BENCH_SEAT_UNSAFE','BENCH_VIEW_PATH_UNSAFE'];
-        const reason=error instanceof Error&&known.includes(error.message)?error.message:'BENCH_SIT_UNAVAILABLE';
-        recordRefusal(reason);
-        onMessage(reason==='BENCH_VIEW_PATH_UNSAFE'
-          ?'벤치까지 안전하게 이동할 경로를 확인할 수 없습니다. 다른 관람 위치에서 벤치와 가까운 위치로 이동한 뒤 다시 선택하세요. 현재 위치와 작품 목록을 유지합니다.'
-          :'이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');
-      }
-    },
+    sit,
     sitNearby: expectedBenchId => {
       if (disposed || !nearbyBenchId || expectedBenchId !== nearbyBenchId) return false;
       const current = nearbyBench(controller.state());
@@ -552,8 +557,30 @@ export async function createWalkingCamera({
   if(initialWalking!==undefined){if(walking)controls.enabled=false;onMode(walking,true,'settings');}
   publish();
   onMessage("정지 관람 중입니다. 걷기 시작을 선택하면 실제 충돌이 적용됩니다.");
+  const isSeated=(benchId:string)=>!disposed&&!seatTransition&&seated?.benchId.toLowerCase()===benchId.toLowerCase();
   return {
     actions,
+    isSeated,
+    previewSeat:async (benchId,signal)=>{
+      signal.throwIfAborted();
+      // Use the controller's qualified entry pose as the origin of the normal seat transition.
+      apply();
+      const refusal=sit(benchId);
+      if(refusal)throw Error(refusal);
+      if(isSeated(benchId))return;
+      await new Promise<void>((resolve,reject)=>{
+        let checkFrame:number;
+        const cleanup=()=>{cancelAnimationFrame(checkFrame);signal.removeEventListener('abort',abort);};
+        const abort=()=>{cleanup();reject(signal.reason);};
+        const check=()=>{
+          if(isSeated(benchId)){cleanup();resolve();}
+          else if(disposed||seatTransition?.phase!=='sit'){cleanup();reject(Error('BENCH_SEAT_TRANSITION_UNSAFE'));}
+          else checkFrame=requestAnimationFrame(check);
+        };
+        signal.addEventListener('abort',abort,{once:true});
+        check();
+      });
+    },
     qualifiedStandingEye: eye => disposed ? undefined : controller.qualifiedStandingEye(eye),
     dispose: () => {
       if (disposed) return;

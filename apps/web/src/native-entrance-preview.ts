@@ -2,8 +2,8 @@
 import {freezeCanonical} from '@exhibitos/studio-contract';
 import type {EntranceSceneScope,EntranceScenePreview} from './GeometryPreview';
 import type {NativeViewportFrame} from './native-viewport-protocol';
-import {checkedEntrancePreviewRequest,entrancePreviewReply,entrancePreviewStateMatches,type EntrancePreviewRequest,type EntrancePreviewReply,type EntrancePreviewGeometry} from './native-entrance-preview-protocol';
-export interface EntrancePreviewMeasurement extends EntrancePreviewGeometry {mode:'cover'|'walk'|'editor'}
+import {checkedEntrancePreviewRequest,entrancePreviewReply,entrancePreviewStateMatches,entrancePreviewMode,requireEntrancePreviewSeat,type EntrancePreviewMode,type EntrancePreviewRequest,type EntrancePreviewReply,type EntrancePreviewGeometry} from './native-entrance-preview-protocol';
+export interface EntrancePreviewMeasurement extends EntrancePreviewGeometry {mode:EntrancePreviewMode}
 export interface EntrancePreviewIntent {
  frame:NativeViewportFrame;request:EntrancePreviewRequest;generation:number;signal:AbortSignal;
  scope:EntranceSceneScope;
@@ -23,13 +23,18 @@ export class NativeEntrancePreview {
   const old=this.pending;this.pending=undefined;this.generation++;
   if(old){old.abort.abort(Error('ENTRANCE_PREVIEW_STALE'));old.reject?.(Error('ENTRANCE_PREVIEW_STALE'));old.scope?.close();this.ports.notify();}
  }
+ private measure(p:Pending,read:()=>EntrancePreviewMeasurement){
+  const geometry=read();
+  if(geometry.mode!==entrancePreviewMode(p.request)||(p.request.type==='seat'&&!p.scope?.isSeated(p.request)))throw Error('ENTRANCE_PREVIEW_STALE');
+  return geometry;
+ }
  private current(p:Pending){
   p.abort.signal.throwIfAborted();
   if(this.pending!==p||this.ports.frame()!==p.frame||p.generation!==this.generation||freezeCanonical(p.frame.draft)!==p.canonical)throw Error('ENTRANCE_PREVIEW_STALE');
  }
  ready(intent:EntrancePreviewIntent,measure:()=>EntrancePreviewMeasurement){
   const p=this.pending;if(!p||p.intent!==intent||p.abort.signal.aborted)return;
-  try{this.current(p);const geometry=measure();if(geometry.mode!==(p.request.type==='walk'?'walk':'cover'))throw Error('ENTRANCE_PREVIEW_STALE');p.measure=measure;p.resolve?.(geometry);}
+  try{this.current(p);const geometry=this.measure(p,measure);p.measure=measure;p.resolve?.(geometry);}
   catch(error){p.reject?.(error);}
  }
  failed(intent:EntrancePreviewIntent,error:unknown){if(this.pending?.intent===intent)this.pending.reject?.(error);}
@@ -48,8 +53,10 @@ export class NativeEntrancePreview {
     const reply=entrancePreviewReply(request,p.frame,{...geometry,renderGeneration:p.generation});
     await this.ports.authenticate(p.frame,p.abort.signal);this.current(p);this.pending=undefined;this.ports.notify();return reply;
    }
+   if(request.type==='seat')requireEntrancePreviewSeat(request,p.frame);
    if(!this.ports.idle())throw Error('ENTRANCE_PREVIEW_BUSY');
    const scene=this.ports.scene();if(!scene)throw Error('ENTRANCE_PREVIEW_NOT_READY');
+   if(request.type==='seat'&&scene.document!==p.frame.draft.candidate&&freezeCanonical(scene.document)!==freezeCanonical(p.frame.draft.candidate))throw Error('ENTRANCE_PREVIEW_NOT_READY');
    p.scope=scene.begin();
    const geometry=await new Promise<EntrancePreviewMeasurement>((resolve,reject)=>{
     p.resolve=resolve;p.reject=reject;
@@ -57,7 +64,7 @@ export class NativeEntrancePreview {
     p.intent={frame:p.frame,request,generation:p.generation,signal:p.abort.signal,scope:p.scope!};this.ports.notify();
    });
    this.current(p);await this.ports.authenticate(p.frame,p.abort.signal);this.current(p);
-   const measured=p.measure?.();if(!measured||freezeCanonical(measured)!==freezeCanonical(geometry))throw Error('ENTRANCE_PREVIEW_STALE');
+   const measured=p.measure&&this.measure(p,p.measure);if(!measured||freezeCanonical(measured)!==freezeCanonical(geometry))throw Error('ENTRANCE_PREVIEW_STALE');
    p.reply=entrancePreviewReply(request,p.frame,measured);return structuredClone(p.reply);
   }catch(error){if(this.pending===p)this.invalidate();throw error;}
   finally{clearTimeout(timeout);p.resolve=undefined;p.reject=undefined;}
@@ -66,8 +73,8 @@ export class NativeEntrancePreview {
   const frame=this.ports.frame(),request=checkedEntrancePreviewRequest(value,frame),p=this.pending;
   if(!p?.reply||!p.measure)throw Error('ENTRANCE_PREVIEW_STALE');
   await this.ports.authenticate(frame!,AbortSignal.timeout(10000));this.current(p);
-  const measured=p.measure();
-  if(measured.mode!==(request.type==='walk'?'walk':'cover')||!entrancePreviewStateMatches(p.request,request,frame!,p.reply,measured))throw Error('ENTRANCE_PREVIEW_STALE');
+  const measured=this.measure(p,p.measure);
+  if(!entrancePreviewStateMatches(p.request,request,frame!,p.reply,measured))throw Error('ENTRANCE_PREVIEW_STALE');
   return structuredClone(p.reply);
  }
 }

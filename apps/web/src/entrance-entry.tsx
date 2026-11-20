@@ -30,7 +30,7 @@ export function useEntranceEntry(){
  useEffect(()=>()=>{generation.current++;},[]);
  return {mode,modeRef,begin,cancel,stageReady,entryFailed,stageMessage,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState};
 }
-export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStatus,onCancel,onText,download}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;focusStatus?:()=>boolean;onCancel:()=>void;onText:()=>void;download?:EntryDownloadProgress|null}){
+export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStatus,onCancel,onText,download}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;focusStatus?:()=>boolean;onCancel:()=>void;onText?:()=>void;download?:EntryDownloadProgress|null}){
  const cancelRef=useRef<HTMLButtonElement>(null);
  useEffect(()=>{if(!entry.stageReady&&!entry.entryFailed&&focusStatus?.()!==false)(statusRef.current??cancelRef.current)?.focus({preventScroll:true});},[entry.stageReady,entry.entryFailed,entry.entryAttempt,statusRef,focusStatus]);
  return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?220:transition==='panels'?180:140)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
@@ -39,7 +39,7 @@ export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStat
    {entry.entryFailed
     ? <p className="publication-entry-progress" role="alert" ref={statusRef} tabIndex={-1}>공간을 열지 못했어요. 메뉴에서 화면·화질 설정을 바꾸거나, 입장을 취소하거나, 글로 관람할 수 있어요.</p>
     : <EntryProgress download={download} statusRef={statusRef}/>}
-   <div className="publication-entry-secondary"><button ref={cancelRef} onClick={onCancel}>입장 취소</button><button onClick={onText}>텍스트로 관람</button></div>
+   <div className="publication-entry-secondary"><button ref={cancelRef} onClick={onCancel}>입장 취소</button>{onText&&<button onClick={onText}>텍스트로 관람</button>}</div>
    <output hidden data-testid="entry-stage-diagnostics">{entry.stageMessage}</output>
   </div>}
  </div>;

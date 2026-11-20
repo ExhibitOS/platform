@@ -7,6 +7,7 @@ import {EntranceEntryOverlay,useEntranceEntry,type EntranceStage} from './entran
 import {entranceContent,entranceRuntime} from './entrance-runtime';
 import {waitForCoverLayout} from './cover-ready';
 import {nativeEntranceCoverSource} from './native-entrance-cover-source';
+import {entrancePreviewMode} from './native-entrance-preview-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import type {NativeEntrancePreview,EntrancePreviewIntent,EntrancePreviewMeasurement} from './native-entrance-preview';
 import type {ThemeProps} from './entrance-themes/types';
@@ -52,30 +53,35 @@ export function NativeEntranceHost({intent,owner,authenticate,stage}:{intent:Ent
  useEffect(()=>{
   const media=matchMedia('(prefers-reduced-motion:reduce)'),changed=()=>{setSystemReduced(media.matches);owner.invalidate();};media.addEventListener('change',changed);return()=>media.removeEventListener('change',changed);
  },[owner]);
- useEffect(()=>{if(intent.request.type==='walk')entry.begin();},[intent,entry.begin]);
+ const requestedMode=entrancePreviewMode(intent.request),seatPreview=requestedMode==='seated',starts3D=requestedMode==='walk'||seatPreview;
+ useEffect(()=>{if(starts3D)entry.begin();},[intent,starts3D,entry.begin]);
  useEffect(()=>{
   if(entry.mode!=='3d')return;
   let cancelled=false;setEnteredScene(false);
-  void (async()=>{if(intent.request.scenario==='slow')await previewDelay(intent.signal);intent.signal.throwIfAborted();await intent.scope.enter(intent.signal);if(!cancelled)setEnteredScene(true);})().catch(error=>{
-   if(!cancelled&&!intent.signal.aborted){entry.onStageState({ready:false,error:true,message:'이 공간에서 걷기를 준비할 수 없어요.',phase:'navigation'});if(intent.request.type==='walk')owner.failed(intent,error);}
+  void (async()=>{if(intent.request.scenario==='slow')await previewDelay(intent.signal);
+   intent.signal.throwIfAborted();
+   const seat=intent.request.type==='seat'?{benchId:intent.request.benchId,viewpointId:intent.request.viewpointId,reducedMotion:reduced}:undefined;
+   await intent.scope.enter(intent.signal,seat);
+   if(!cancelled)setEnteredScene(true);})().catch(error=>{
+   if(!cancelled&&!intent.signal.aborted){entry.onStageState({ready:false,error:true,message:seatPreview?'이 벤치에 앉을 수 없어요.':'이 공간에서 걷기를 준비할 수 없어요.',phase:'navigation'});if(starts3D)owner.failed(intent,error);}
   });
   return()=>{cancelled=true;intent.scope.cancelEntry();};
- },[intent,entry.mode,entry.entryAttempt,entry.onStageState,owner]);
+ },[intent,entry.mode,entry.entryAttempt,entry.onStageState,owner,reduced,seatPreview,starts3D]);
  useEffect(()=>{if(stage&&enteredScene&&entry.mode==='3d')entry.onStageState(stage);},[stage,enteredScene,entry.mode,entry.onStageState]);
  useEffect(()=>{if(entry.mode==='text')root.current?.querySelector<HTMLElement>('#native-preview-text')?.focus({preventScroll:true});},[entry.mode]);
  useEffect(()=>{
   if(!root.current||intent.signal.aborted)return;
-  const wanted=intent.request.type==='walk'?'3d':'cover';if(entry.mode!==wanted||(wanted==='3d'&&(!entry.stageReady||imageStatus!=='absent'))||(wanted==='cover'&&!['absent','ready','failed'].includes(imageStatus)))return;
+  const wanted=starts3D?'3d':'cover';if(entry.mode!==wanted||(wanted==='3d'&&(!entry.stageReady||imageStatus!=='absent'))||(wanted==='cover'&&!['absent','ready','failed'].includes(imageStatus)))return;
   const abort=new AbortController(),signal=AbortSignal.any([intent.signal,abort.signal]);
   void waitForCoverLayout(root.current,signal).then(()=>{
    owner.ready(intent,():EntrancePreviewMeasurement=>{
     const element=root.current,current=observed.current;if(!element?.isConnected||signal.aborted||current.mode!==wanted||(wanted==='3d'&&!current.ready)||!['absent','ready','failed'].includes(current.imageStatus))throw Error('ENTRANCE_PREVIEW_STALE');
-    const box=element.getBoundingClientRect();return {mode:wanted==='3d'?'walk':'cover',renderGeneration:intent.generation,imageStatus:current.imageStatus as 'absent'|'ready'|'failed',viewport:{width:innerWidth,height:innerHeight},snapshotRect:{x:box.x,y:box.y,width:box.width,height:box.height}};
+    const box=element.getBoundingClientRect();return {mode:requestedMode,renderGeneration:intent.generation,imageStatus:current.imageStatus as 'absent'|'ready'|'failed',viewport:{width:innerWidth,height:innerHeight},snapshotRect:{x:box.x,y:box.y,width:box.width,height:box.height}};
    });
   }).catch(error=>{if(!abort.signal.aborted&&!intent.signal.aborted)owner.failed(intent,error);});
   return()=>abort.abort();
- },[intent,owner,entry.mode,entry.stageReady,imageStatus]);
- const cancel=()=>{intent.scope.cancelEntry();entry.cancel();requestAnimationFrame(()=>entry.entryButton.current?.focus({preventScroll:true}));};
+ },[intent,owner,entry.mode,entry.stageReady,imageStatus,requestedMode,starts3D]);
+ const cancel=()=>{if(intent.request.type==='seat'){owner.invalidate();return;}intent.scope.cancelEntry();entry.cancel();requestAnimationFrame(()=>entry.entryButton.current?.focus({preventScroll:true}));};
  const showText=()=>{intent.scope.cancelEntry();entry.cancel('text');};
  return <div ref={root} className={`native-entrance-preview publication-shell publication-mode-${entry.mode}`} data-native-entrance-generation={intent.generation} data-entry-ready={entry.stageReady} data-reduced-motion={reduced}>
   <div className="publication-cover-surface" style={entry.entryTicketRect?{'--entry-ticket-left':`${entry.entryTicketRect.left}px`,'--entry-ticket-top':`${entry.entryTicketRect.top}px`,'--entry-ticket-width':`${entry.entryTicketRect.width}px`,'--entry-ticket-height':`${entry.entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={entry.mode==='3d'} hidden={entry.mode==='text'} inert={entry.mode==='3d'} aria-hidden={entry.mode==='3d'}>
@@ -85,7 +91,7 @@ export function NativeEntranceHost({intent,owner,authenticate,stage}:{intent:Ent
     {runtime.design.theme==='threshold'&&!spaceStillFor(exhibition)&&<p role="status">표지에 사용할 공간 이미지를 연결하세요.</p>}
    </EntranceCover>
   </div>
-  {entry.mode==='3d'&&<EntranceEntryOverlay key={entry.entryAttempt} entry={entry} transition={runtime.effects.transition} speed={runtime.effects.speed} statusRef={status} onCancel={cancel} onText={showText}/>}
+  {entry.mode==='3d'&&<EntranceEntryOverlay key={entry.entryAttempt} entry={entry} transition={runtime.effects.transition} speed={runtime.effects.speed} statusRef={status} onCancel={cancel} onText={seatPreview?undefined:showText}/>}
   {entry.mode==='text'&&<section id="native-preview-text" tabIndex={-1}><h1>{content.title}</h1><p>{content.artist}</p><p>{content.introduction}</p><button onClick={cancel}>전시 표지로</button>{exhibition.artworks.map(art=><article key={art.revisionId}><h2>{art.metadata.title}</h2><p>{art.metadata.artist}</p><p>{art.metadata.description}</p><p>{art.rights.creditLine}</p></article>)}</section>}
  </div>;
 }
