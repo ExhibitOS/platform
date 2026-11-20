@@ -131,3 +131,19 @@ it('replays only an exact supplemental add or removal and rejects a changed lega
  changed.candidate.lights[0]!.intensity++;
  expect(ordinaryRoomBaseLightDelta(before,changed)).toBe(false);
 });
+
+
+it.each([0,.25])('replays room-local opt-in on a later room without changing the first fill at %s',brightness=>{
+ const before=newDraft(),first=before.candidate.rooms[0]!;
+ const second={...structuredClone(first),id:crypto.randomUUID(),name:'second'};
+ before.candidate.rooms.push(second);
+ before.candidate=ensureRoomBaseLight(before.candidate,first.id,undefined,brightness);
+ before.candidate=ensureOrdinaryRoomBaseLight(before.candidate,second.id,undefined,ROOM_CEILING_FILL_DEFAULT_PROFILE);
+ const last=before.candidate.lights[1]!;
+ const next=change(before,d=>{d.candidate=applyLightObjectCommand(d.candidate,{type:'set-room-ceiling-fill-brightness',
+  lightId:last.id,brightness:.5,mode:'default',spaceLightingMode:'room-local'}).candidate;});
+ expect(next.candidate.lights).toEqual(before.candidate.lights);
+ expect(lightDetailsFor(next.candidate)).toEqual(lightDetailsFor(before.candidate));
+ expect(spaceLightingFor(next.candidate)?.mode).toBe('room-local');
+ expect(ordinaryRoomBaseLightDelta(before,next)).toBe(true);
+});

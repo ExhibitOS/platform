@@ -61,7 +61,7 @@ export function ordinaryRoomBaseLightDelta<T extends {candidate:Exhibition}>(bef
    const settings=lightDetailsFor(target).find(v=>same(v.lightId,next.id))!;
    for(const placement of ['auto','manual'] as const)if(settings.basePlacement===placement&&matches(applyLightObjectCommand(source,{type:'set-room-base-light-placement',lightId:old.id,basePlacement:placement},{verifiedBaseline:source}).candidate))return true;
    const fill=settings.ceilingFill;
-   if(fill&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:fill.brightness,...(fill.mode&&{mode:fill.mode}),...(optsInToRoomLocal&&{spaceLightingMode:ROOM_LOCAL_SPACE_LIGHTING_MODE})},{verifiedBaseline:source}).candidate))return true;
+   if(fill&&(!optsInToRoomLocal||fill.mode==='default')&&matches(applyLightObjectCommand(source,{type:'set-room-ceiling-fill-brightness',lightId:old.id,brightness:fill.brightness,...(fill.mode&&{mode:fill.mode}),...(optsInToRoomLocal&&{spaceLightingMode:ROOM_LOCAL_SPACE_LIGHTING_MODE})},{verifiedBaseline:source}).candidate))return true;
    const {id:_,...light}=next,{lightId:__,...details}=settings;void _;void __;
    const previous=lightDetailsFor(source).find(v=>same(v.lightId,old.id));
    if(previous?.basePlacement!==undefined)details.basePlacement=previous.basePlacement;else delete details.basePlacement;
