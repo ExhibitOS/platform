@@ -6,3 +6,10 @@ import {benchProposal} from '../../../scripts/private-agent-bench';
 function sample(){const draft=newDraft(),roomId=draft.candidate.rooms[0]!.id,viewpointId=crypto.randomUUID();const frame=checkedFrame({version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:false,disabled:false});const request={version:1 as const,epoch:frame.epoch,sequence:1,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),type:'add-bench' as const,bench:{id:crypto.randomUUID(),name:'Bench',roomId,position:[0,0,0] as [number,number,number],yaw:0,kind:'slab' as const,dimensions:{width:1.5,depth:.6,height:.45},material:{preset:'wood' as const,color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId,position:[0,1.15,0] as [number,number,number],target:[0,1,-2] as [number,number,number],fov:50}};return {frame,request};}
 test('pure proposal keeps exact native reply and original document',()=>{const {frame,request}=sample(),before=structuredClone(frame),reply=benchProposal(frame,request);expect(Object.keys(reply).sort()).toEqual(['benchId','candidate','epoch','principalId','requestId','sequence','tenantId','version']);expect(reply.benchId).toBe(request.bench.id);expect(frame).toEqual(before);});
 test('foreign/stale proposal never generates an apply reply',()=>{const {frame,request}=sample();expect(()=>benchProposal(frame,{...request,sequence:2})).toThrow('STALE');expect(()=>benchProposal(frame,{...request,tenantId:crypto.randomUUID()})).toThrow('STALE');});
+test('seat target height is not a headless proposal operation',()=>{
+ const {frame,request}=sample();
+ const {bench,viewpoint,type,...binding}=request;
+ expect(type).toBe('add-bench');
+ expect(()=>benchProposal(frame,{...binding,type:'set-bench-viewpoint-target-height',benchId:bench.id,
+  viewpointId:viewpoint.id,targetY:1.3})).toThrow('BENCH_INSPECTOR_REQUEST_INVALID');
+});
