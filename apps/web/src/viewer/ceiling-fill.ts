@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
-import {alignedDoorPair, lightDetailsFor, type LightDetails} from '@exhibitos/studio-contract';
+import {alignedDoorPair, lightDetailsFor, roomCeilingFillDimensions, type LightDetails} from '@exhibitos/studio-contract';
 import type * as Three from 'three';
 import {createUpperAngularLighting} from './upper-angular-lighting';
 
@@ -8,6 +8,11 @@ const passageMetres = .5;
 const boundaryTolerance = .002;
 const allowedWallInset = .01;
 const lightChunk = '#include <lights_fragment_begin>';
+const lightEnd = '#include <lights_fragment_end>';
+// Low ceiling-only diffuse return, qualified at 12% of emitter intensity in
+// the receiver fixture. Cap irradiance so small, bright panels cannot dominate.
+const ceilingReturnFraction = .12;
+const ceilingReturnLimit = .3;
 const directAreaCall = 'RE_Direct_RectArea( rectAreaLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
 const materialHooks = new WeakMap<Three.Material, Three.Material['onBeforeCompile']>();
 export const hasCeilingFillMaterialHook = (material: Three.Material) =>
@@ -103,9 +108,10 @@ export function installCeilingFillMask(
   scene: Three.Scene,
   rooms: ReadonlyMap<string, Three.Group>,
   lights: ReadonlyMap<string, {light: Three.Light}>,
+  roomOnlySurfaceMaterials?: ReadonlyMap<string, Three.MeshStandardMaterial>,
 ) {
   const details = lightDetailsFor(doc);
-  const tagged = new Set(details.filter(entry => entry.ceilingFill).map(entry => entry.lightId.toLowerCase()));
+  const tagged = new Map(details.filter(entry => entry.ceilingFill).map(entry => [entry.lightId.toLowerCase(), entry]));
   const upperProfiles = new Map<Three.SpotLight, NonNullable<LightDetails['angularProfile']>>();
   for (const entry of details) {
     if (!entry.angularProfile) continue;
@@ -118,13 +124,28 @@ export function installCeilingFillMask(
   if (!tagged.size && !upperAngular) return;
   scene.updateMatrixWorld(true);
   const byObject = new Map<Three.RectAreaLight, string>();
+  const ceilingReturns = new Map<Three.Material, {light: Three.RectAreaLight; irradiance: {value: number}}>();
   for (const item of doc.lights) {
-    if (!tagged.has(item.id.toLowerCase())) continue;
+    const detail = tagged.get(item.id.toLowerCase());
+    if (!detail) continue;
     const room = doc.rooms.find(entry => entry.id.toLowerCase() === item.roomId.toLowerCase());
     const group = rooms.get(item.roomId.toLowerCase());
     const light = lights.get(item.id)?.light;
     if (room && group && light instanceof three.RectAreaLight) {
       byObject.set(light, roomMask(three, doc, room, group, byObject.size));
+      if (!roomOnlySurfaceMaterials || detail.purpose !== 'room-base' ||
+        detail.basePlacement !== 'auto' || detail.ceilingFill?.mode !== 'default') continue;
+      const ceiling = doc.surfaces.find(surface => surface.type === 'ceiling' && surface.roomId.toLowerCase() === room.id.toLowerCase());
+      const material = ceiling && roomOnlySurfaceMaterials.get(ceiling.id.toLowerCase());
+      if (!material) continue;
+      try {
+        // Uses the same unambiguous, room-sized, downward-facing envelope
+        // check as automatic fill admission.
+        roomCeilingFillDimensions(doc, room.id);
+        ceilingReturns.set(material, {light, irradiance: {value: 0}});
+      } catch {
+        // Unverified envelope faces receive no return.
+      }
     }
   }
 
@@ -150,6 +171,13 @@ export function installCeilingFillMask(
         }
       }
     });
+    if (ceilingReturns.size) {
+      const visible = new Set(order);
+      for (const {light, irradiance} of ceilingReturns.values()) {
+        irradiance.value = visible.has(light) && Number.isFinite(light.intensity)
+          ? Math.min(ceilingReturnLimit, Math.max(0, light.intensity * ceilingReturnFraction)) : 0;
+      }
+    }
     const assignments = order.map((light, i) => {
       const zone = indices.get(light);
       return zone === undefined ? '' : `if (UNROLLED_LOOP_INDEX == ${i}) exhibitosFillWeight = exhibitosRoomFill${zone}(exhibitosFillWorld, exhibitosFillNormal);`;
@@ -176,6 +204,7 @@ export function installCeilingFillMask(
       if (materials.has(material)) continue;
       const before = material.onBeforeCompile, key = material.customProgramCacheKey;
       const baseKey = key.call(material);
+      const ceilingReturn = ceilingReturns.get(material);
       const hook: Three.Material['onBeforeCompile'] = (shader, renderer) => {
         before.call(material, shader, renderer);
         // Three retains one uniform dictionary per material, even when
@@ -185,8 +214,15 @@ export function installCeilingFillMask(
           shader.fragmentShader = upperAngular.definitions + '\n' + shader.fragmentShader;
         }
         shader.fragmentShader = definitions + '\n' + shader.fragmentShader.replace(lightChunk, injectedLighting);
+        if (ceilingReturn) {
+          shader.uniforms.exhibitosCeilingIrradiance = ceilingReturn.irradiance;
+          shader.fragmentShader = 'uniform float exhibitosCeilingIrradiance;\n' + shader.fragmentShader.replace(lightEnd, `${lightEnd}
+            if (gl_FrontFacing) {
+              reflectedLight.indirectDiffuse += vec3(exhibitosCeilingIrradiance) * BRDF_Lambert(material.diffuseContribution);
+            }`);
+        }
       };
-      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey;
+      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey + (ceilingReturn ? '|diffuse-underside' : '');
       material.onBeforeCompile = hook;
       material.customProgramCacheKey = ownedKey;
       const retire = () => {

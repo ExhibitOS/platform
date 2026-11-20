@@ -876,7 +876,7 @@ export function GeometryPreview({
         }
       }
       const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
-      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights);
+      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();

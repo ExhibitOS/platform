@@ -269,6 +269,7 @@ export * from './dimensions-display.js';
 export * from './artwork-thumbnail.js';
 
 export * from './room-envelope.js';
+export {roomCeilingFillDimensions} from './room-envelope-faces.js';
 
 export * from './door-connection.js';
 export * from './workspace-furnishing.js';
