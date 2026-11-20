@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE} from '@exhibitos/studio-contract';
+import {ensureRoomBaseLight, LIGHT_DETAILS_NAMESPACE, validateStudioLightDetails} from '@exhibitos/studio-contract';
 import * as three from 'three';
 import {expect, test} from 'vitest';
 import {newDraft} from '../drafts/example';
-import {hasAuthoredGalleryLighting} from '../light-details-renderer';
+import {galleryLightingFor, hasAuthoredGalleryLighting} from '../light-details-renderer';
 import {retireArtworkResources} from './artwork-ownership';
 import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 import {hasCeilingFillMaterialHook, installCeilingFillMask} from './ceiling-fill';
@@ -47,6 +47,41 @@ function fixture(supplemental = false) {
   const mask = installCeilingFillMask(three, document, scene, rooms, lights)!;
   return {camera, document, lights, mask, material, mesh, room, untaggedArea, scene, rooms};
 }
+
+test('admits the five saved default fills alongside legacy fills, and rejects an unknown mode', () => {
+  const draft = newDraft().candidate;
+  const template = draft.rooms[0]!;
+  // Dimensions and canonical lumens of the five r215 room envelopes.
+  const fills = [
+    [8, 10, 393.9477973320593],
+    [4, 10, 293.84127306534356],
+    [11, 4, 313.9216206216657],
+    [4, 4, 186.31766634982088],
+    [10, 10, 451.08184843040203],
+  ] as const;
+  draft.rooms = fills.map(([width, depth]) => ({
+    ...template, id: crypto.randomUUID(), dimensions: {width, depth, height: 4},
+  }));
+  const legacy = draft.rooms.reduce((document, room) => ensureRoomBaseLight(document, room.id, undefined, .5), draft);
+  expect(validateStudioLightDetails(legacy).valid).toBe(true);
+  expect(galleryLightingFor(legacy)).toMatchObject({roomOnly:false, fallbackSun:true, baselineIntensity:2.5});
+
+  const marked = structuredClone(legacy);
+  const details = marked.extensions![LIGHT_DETAILS_NAMESPACE] as {lights: Array<{ceilingFill: {mode?: string}}>};
+  for (const [i, [, , intensity]] of fills.entries()) {
+    marked.lights[i]!.intensity = intensity;
+    details.lights[i]!.ceilingFill.mode = 'default';
+  }
+  expect(validateStudioLightDetails(marked).valid).toBe(true);
+  expect(galleryLightingFor(marked)).toMatchObject({
+    roomOnly:true, fallbackSun:false, baselineIntensity:0, environmentBaselineIntensity:0, reflectionIntensity:0,
+  });
+
+  details.lights[0]!.ceilingFill.mode = 'unknown';
+  expect(validateStudioLightDetails(marked)).toMatchObject({
+    valid:false, errors:[expect.objectContaining({code:'LIGHT_DETAILS_CEILING_FILL'})],
+  });
+});
 
 test('a supplemental ceiling fill masks its area contribution without changing the gallery fallback or legacy point', () => {
   const {camera, document, lights, mask, material, mesh} = fixture(true);

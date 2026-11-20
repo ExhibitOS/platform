@@ -2,7 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {coupleFixtureEmission} from './fixture-emission';
-import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
+import {hasDefaultRoomLighting,lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,resolveTrackSpotAiming,spaceLightingFor,validateStudioLightDetails,type TrackSpotAimingSuccess} from '@exhibitos/studio-contract';
 
 /** Local defaults and contained fills do not select the exhibition-wide fallback. */
 export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
@@ -10,6 +10,21 @@ export function hasAuthoredGalleryLighting(document: Exhibition): boolean {
     .filter(details => details.purpose === 'room-base' || details.ceilingFill)
     .map(details => details.lightId.toLowerCase()));
   return document.lights.some(light => !localLights.has(light.id.toLowerCase()));
+}
+
+/** Resolve only the synthetic gallery lighting. Saved lights and daylight
+ * remain owned by the authored lighting paths. */
+export function galleryLightingFor(document: Exhibition) {
+  const spaceLighting=spaceLightingFor(document);
+  const roomOnly=!spaceLighting&&hasDefaultRoomLighting(document);
+  const hasAuthoredLighting=hasAuthoredGalleryLighting(document);
+  const fallbackSun=!spaceLighting&&!roomOnly&&!hasAuthoredLighting;
+  return {
+    spaceLighting,roomOnly,fallbackSun,
+    baselineIntensity:spaceLighting?.baselineIntensity??(roomOnly ? 0 : hasAuthoredLighting ? .4 : 2.5),
+    environmentBaselineIntensity:spaceLighting?.baselineIntensity??(roomOnly ? 0 : hasAuthoredLighting ? .2 : .6),
+    reflectionIntensity:spaceLighting?.reflectionIntensity??(roomOnly ? 0 : .45),
+  };
 }
 
 /** Opt-in bodies are simple non-shadow-casting visual geometry, not an optical model.

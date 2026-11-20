@@ -6,7 +6,7 @@ import {freezeCanonical} from './freeze.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {artifactBounds,artifactCorners} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
-import {deriveRoomCeilingFill,type RoomCeilingFill} from './room-ceiling-fill.js';
+import {deriveRoomCeilingFill,ROOM_CEILING_FILL_INITIAL_BRIGHTNESS,type RoomCeilingFill} from './room-ceiling-fill.js';
 import {roomCeilingFillDimensions} from './room-envelope-faces.js';
 import {isUpperFramingProfile,upperFramingProtectsImage,type UpperFramingProfile} from './upper-framing.js';
 export type {UpperFramingProfile} from './upper-framing.js';
@@ -14,7 +14,7 @@ export type {UpperFramingProfile} from './upper-framing.js';
 export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const ROOM_BASE_LIGHT_PLACEMENT_PROFILE='room-base-light-placement-v1' as const;
 export const ROOM_CEILING_FILL_PROFILE='room-ceiling-fill-v1' as const;
-export const ROOM_CEILING_FILL_INITIAL_BRIGHTNESS=0.5;
+export {ROOM_CEILING_FILL_INITIAL_BRIGHTNESS};
 export const ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE='room-supplemental-ceiling-fill-v1' as const;
 export const LIGHT_DETAILS_NAMESPACE='org.exhibitos.studio/light-details';
 export const LIGHT_DETAILS_LIMITS=Object.freeze({bindings:32,bytes:16384,fixtureTriangles:1920,fixtureMeshes:64});
@@ -115,12 +115,12 @@ export function validateStudioLightDetails(candidate:unknown){
       const fill=entry.ceilingFill;
       const attachments=(candidate.extensions as Record<string,unknown>)['org.exhibitos.studio/light-attachments'];
       const attached=object(attachments)&&Array.isArray(attachments.lights)&&attachments.lights.some(b=>object(b)&&typeof b.lightId==='string'&&same(b.lightId,entry.lightId as string));
-      if(!object(fill)||!closed(fill,['version','brightness'])||fill.version!==1||!finite(fill.brightness,0,1)||(entry.purpose!=='room-base'&&!supplemental)||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||entry.trackAim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
+      if(!object(fill)||!closed(fill,['version','brightness'],['mode'])||fill.version!==1||!finite(fill.brightness,0,1)||Object.hasOwn(fill,'mode')&&(entry.purpose!=='room-base'||fill.mode!=='default'||fill.brightness!==ROOM_CEILING_FILL_INITIAL_BRIGHTNESS)||(entry.purpose!=='room-base'&&!supplemental)||(entry.basePlacement!=='auto'&&entry.basePlacement!=='manual')||entry.fixture!=='none'||entry.aim!==undefined||entry.trackAim!==undefined||attached||light.type!=='area'||light.unit!=='lumen'||light.castsShadow!==false||light.targetPlacementId!==undefined||!finite(light.intensity,0,Number.MAX_VALUE)||(fill.brightness===0)!==(light.intensity===0)){
         add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Expected a non-shadow-casting room area light with explicit placement and brightness');
       }else if(entry.basePlacement==='auto'){
         try{
           const dimensions=roomCeilingFillDimensions(candidate as unknown as Exhibition,room.id as string);
-          const expected=deriveRoomCeilingFill(dimensions,fill.brightness);
+          const expected=deriveRoomCeilingFill(dimensions,fill.brightness,fill.mode as RoomCeilingFill['mode']);
           const transform=light.transform as ExhibitionLight['transform'];
           if(!sameLightPose(expected.transform,transform)||freezeCanonical(expected.dimensions)!==freezeCanonical(light.dimensions)||light.intensity!==expected.intensity)throw Error('noncanonical ceiling fill');
         }catch{add('LIGHT_DETAILS_CEILING_FILL',path+'/ceilingFill','Automatic ceiling fill must match its room envelope and canonical emitter');}
@@ -178,6 +178,10 @@ export function validateStudioLightDetails(candidate:unknown){
 }
 /** Call after full admission. Legacy absence is never rewritten. */
 export function lightDetailsFor(candidate:Pick<Exhibition,'extensions'>):LightDetails[]{return structuredClone((candidate.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined)?.lights??[]);}
+/** A saved, admitted automatic area using the product default selects the room-fill lighting policy. */
+export function hasDefaultRoomLighting(document:Exhibition):boolean {
+ return lightDetailsFor(document).some(entry=>entry.purpose==='room-base'&&entry.basePlacement==='auto'&&entry.ceilingFill?.mode==='default');
+}
 export function roomBaseLight(document:Exhibition,roomId:string):ExhibitionLight|undefined {
   const ids=new Set(lightDetailsFor(document).filter(b=>b.purpose==='room-base').map(b=>b.lightId.toLowerCase()));
   return document.lights.find(light=>same(light.roomId,roomId)&&ids.has(light.id.toLowerCase()));
