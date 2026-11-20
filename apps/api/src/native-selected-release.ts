@@ -18,6 +18,7 @@ import {installedFurnishingDescriptorFor} from './installed-workspace-furnishing
 import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
+import {OCCUPIED_SELECTED_OUTPUT_REVISION, type NativeDetailContext} from './native-detail-context.ts';
 
 // Keep the persisted selection mode stable across exact-head corrections.
 export const SELECTED_NATIVE_RELEASE = 'r125-approved-r201-v1';
@@ -87,10 +88,13 @@ const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
  * identity. Only the exact Studio owner may pick this release on that head. */
 export async function loadSelectedNativeRelease(
   c: PoolClient, s: Session, exhibitionId: string, row: SavedHead,
-  match: string, image: NativeOriginalPublication['originalImage'],
+  match: string, image: NativeOriginalPublication['originalImage'], selectedHead?: NativeDetailContext['selectedHead'],
 ): Promise<SelectedNativeRelease> {
   if (row.studio_owner_user_id !== s.userId) throw new ApiError(403, 'FORBIDDEN');
-  const defaultLighting = row.revision === captionStandsRevision + 5;
+  const defaultLighting = row.revision === OCCUPIED_SELECTED_OUTPUT_REVISION;
+  if (defaultLighting && !selectedHead) return unavailable();
+  if (selectedHead && (row.revision !== selectedHead.revision || match !== selectedHead.etag))
+    throw new ApiError(412, 'REMOTE_CONFLICT');
   const captionStands = row.revision === captionStandsRevision || defaultLighting;
   if ((!captionStands && row.revision !== currentRevision) || etag(row.revision, row.metadata) !== match ||
       (!defaultLighting && releaseFingerprint(match) !== (captionStands ? captionStandsHeadFingerprint : currentHeadFingerprint)))

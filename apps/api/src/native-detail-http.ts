@@ -24,7 +24,7 @@ const emptyDigest=createHash('sha256').update(freezeCanonical([])).digest('hex')
 /** Native-only control and privately scoped original reads. No candidate can
  * pass until a server-owned image model is registered and qualified. */
 export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard,token,original}:Dependencies){
- if(!isIssuedNativeDetailContext(context))throw Error('NATIVE_DETAIL_CONFIGURATION');
+ if(!isIssuedNativeDetailContext(context)||context.selectedHead&&!original)throw Error('NATIVE_DETAIL_CONFIGURATION');
  const registry=new NativeDetailOperations();
  const ownerLost=()=>{void registry.closeRuntime();};context.signal.addEventListener('abort',ownerLost,{once:true});if(context.signal.aborted)ownerLost();
  app.addHook('preClose',async()=>{void registry.closeRuntime();});

@@ -72,7 +72,7 @@ import {registerSelectedNativeOexUploadSlot,type NativeBoundedUploadSlot} from '
 import {registerSelectedStudioPutGate,runSelectedStudioPut,type SelectedStudioPutSlot} from './native-selected-studio-put.ts';
 import {registerNativeBoundedOexExport} from './native-bounded-oex-export.ts';
 import {registerNativeDetailHttp} from './native-detail-http.ts';
-import {isIssuedNativeDetailContext} from './native-detail-context.ts';
+import {isIssuedNativeDetailContext,OCCUPIED_SELECTED_OUTPUT_REVISION} from './native-detail-context.ts';
 import {isIssuedNativeHayesCaller} from './native-hayes-caller.ts';
 import {isHayesReleaseContext} from './hayes-original-attempt.ts';
 import {readHayesTerminal,requireHayesTerminalContext} from './hayes-preopen-terminal.ts';
@@ -506,8 +506,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     let selected:SelectedNativeRelease|undefined, assertNarrationTime:(()=>void)|undefined;
     if(releaseSelection){
      const row=await studio.access(c,s,p.id);
-     if(detailContext?.selectedHead&&row.revision!==detailContext.selectedHead.revision)throw new ApiError(412,'REMOTE_CONFLICT');
-     selected=await loadSelectedNativeRelease(c,s,p.id,row,match!,originalImage);
+     if(row.revision===OCCUPIED_SELECTED_OUTPUT_REVISION&&!detailContext?.selectedHead)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+     selected=await loadSelectedNativeRelease(c,s,p.id,row,match!,originalImage,detailContext?.selectedHead);
      assertNarrationTime=await selectedNarrationRights(c,s,p.id,selected);
     }
     if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode,producer,releaseSelection,selected?.projectionIdentity);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!detailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');assertNarrationTime?.();return existing;}}
