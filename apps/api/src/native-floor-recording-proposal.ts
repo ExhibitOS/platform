@@ -18,9 +18,17 @@ export interface NativeFloorRecordingAttachmentCommand {
   audioId: string;
   audioRevision: 1;
   expectedMediaAsset: MediaAsset;
+  initializeMissingStoneRow?: true;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+type Footstep = ReturnType<typeof experienceFor>['footsteps'][number];
+
+function assertStoneRecordingSlot(step: Footstep | undefined, audioId: string) {
+  if (step && step.material !== 'stone') throw new ApiError(422, 'FLOOR_RECORDING_TARGET_INVALID');
+  if (step?.bank || (step?.assetId !== undefined && !same(step.assetId, audioId)))
+    throw new ApiError(409, 'FLOOR_RECORDING_ALREADY_BOUND');
+}
 
 function assertFloorSoundAllowsAttachment(candidate: Exhibition, surface: Exhibition['surfaces'][number], audioId: string) {
   const sound = floorFor(candidate, {roomId: surface.roomId, surfaceId: surface.id})?.sound;
@@ -45,7 +53,7 @@ async function approvedFloorRecording(c: PoolClient, s: Session, exhibitionId: s
   return media;
 }
 
-/** Preserve the existing stone floor and only admit an explicit, approved WAV. */
+/** Preserve the material binding and initialize only the selected recording row on request. */
 export async function nativeFloorRecordingProposal(c: PoolClient, s: Session, exhibitionId: string,
   candidate: Exhibition, command: NativeFloorRecordingAttachmentCommand, blobs: BlobStore | undefined) {
   uuid(command.surfaceId); uuid(command.materialId); uuid(command.audioId);
@@ -53,14 +61,16 @@ export async function nativeFloorRecordingProposal(c: PoolClient, s: Session, ex
   const workspace = candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings | undefined;
   const bindings = workspace?.bindings.filter(row => same(row.surfaceId, command.surfaceId)) ?? [];
   const [binding] = bindings;
+  const descriptors = workspace?.materials.filter(row => same(row.id, command.materialId) &&
+    row.version === command.materialVersion && row.kind === 'floor') ?? [];
   const experience = experienceFor(candidate);
   const step = experience.footsteps.find(row => same(row.surfaceId, command.surfaceId));
   if (!surface || bindings.length !== 1 || !binding || !same(binding.materialId, command.materialId) ||
-      binding.materialVersion !== command.materialVersion || step?.material !== 'stone' ||
+      binding.materialVersion !== command.materialVersion || descriptors.length !== 1 ||
+      (!step && command.initializeMissingStoneRow !== true) ||
       !validateViewerExperience(candidate).valid) throw new ApiError(422, 'FLOOR_RECORDING_TARGET_INVALID');
   assertFloorSoundAllowsAttachment(candidate, surface, command.audioId);
-  if (step.bank || (step.assetId !== undefined && !same(step.assetId, command.audioId)))
-    throw new ApiError(409, 'FLOOR_RECORDING_ALREADY_BOUND');
+  assertStoneRecordingSlot(step, command.audioId);
   if (command.audioRevision !== 1) throw new ApiError(409, 'REVISION_CONFLICT');
   const media = await approvedFloorRecording(c, s, exhibitionId, command.audioId, command.expectedMediaAsset, blobs);
 
@@ -69,7 +79,8 @@ export async function nativeFloorRecordingProposal(c: PoolClient, s: Session, ex
     throw new ApiError(409, 'AUDIO_APPROVAL_CHANGED');
   const next = structuredClone(candidate);
   if (existing.length === 0) next.mediaAssets.push(media);
-  if (step.assetId === undefined) step.assetId = media.id;
+  if (!step) experience.footsteps.push({surfaceId:surface.id, material:'stone', assetId:media.id});
+  else if (step.assetId === undefined) step.assetId = media.id;
   next.extensions = {...next.extensions, [EXPERIENCE_NAMESPACE]: experience} as unknown as Exhibition['extensions'];
   if (!validateViewerExperience(next).valid) throw new ApiError(422, 'FLOOR_RECORDING_TARGET_INVALID');
   return {candidate: next, surfaceId: surface.id};
@@ -89,12 +100,21 @@ export async function assertChangedWorkspaceFloorRecordings(c: PoolClient, s: Se
     const priorBinding = priorWorkspace?.bindings.find(row => same(row.surfaceId, surfaceId));
     const old = prior.find(row => same(row.surfaceId, surfaceId));
     const expected = after.mediaAssets.find(row => same(row.id, assetId));
-    if (priorBinding && same(priorBinding.materialId, binding.materialId) &&
-        priorBinding.materialVersion === binding.materialVersion &&
+    const sameBinding = !!priorBinding && same(priorBinding.materialId, binding.materialId) &&
+      priorBinding.materialVersion === binding.materialVersion;
+    if (sameBinding &&
         old?.material === material && old.assetId !== undefined && same(old.assetId, assetId) &&
         isDeepStrictEqual(before.mediaAssets.find(row => same(row.id, assetId)), expected)) continue;
     const surface = after.surfaces.find(row => row.type === 'floor' && same(row.id, surfaceId));
     if (!surface) throw new ApiError(422, 'FLOOR_RECORDING_TARGET_INVALID');
+    if (!old?.assetId || !same(old.assetId, assetId)) {
+      assertStoneRecordingSlot(old, assetId);
+      const target = {roomId:surface.roomId,surfaceId:surface.id};
+      const savedSurface = before.surfaces.find(row => same(row.id, surface.id));
+      if (!sameBinding || !isDeepStrictEqual(savedSurface, surface) ||
+          !isDeepStrictEqual(floorFor(before, target)?.sound, floorFor(after, target)?.sound))
+        throw new ApiError(422, 'FLOOR_RECORDING_TARGET_INVALID');
+    }
     assertFloorSoundAllowsAttachment(after, surface, assetId);
     await approvedFloorRecording(c, s, exhibitionId, assetId, expected, blobs);
   }
