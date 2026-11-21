@@ -6,7 +6,8 @@ import {validateViewerBudgetPolicy,setViewerBudgetPolicy,type ViewerBudgetPolicy
 import {analyzeViewerBudget,type ViewerBudgetAnalysisOptions} from './viewer-budget-analysis.ts';
 import {ordinaryViewerBudgetPolicyDelta} from './viewer-budget-policy-delta.ts';
 import {ordinaryCeilingRailInsertionDelta,ordinaryCeilingRailReplacementDelta} from './workspace-ceiling-rail-replacement-delta.ts';
-import {nativeFrameImageFitProposal,type NativeFrameImageFitCommand} from './native-frame-image-fit.ts';
+import {nativeFrameImageFitProposal,nativeMeasuredFrameAttachmentProposal,requiresMeasuredFrameAttachmentFit,
+ type NativeFrameImageFitCommand,type NativeMeasuredFrameAttachmentCommand} from './native-frame-image-fit.ts';
 export {NATIVE_FRAME_IMAGE_FIT_PROPOSAL_PROFILE} from './native-frame-image-fit.ts';
 import {validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import {ordinaryRoomBaseLightEdit} from './room-base-light-delta.ts';
@@ -61,7 +62,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|NativeMeasuredFrameAttachmentCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -250,7 +251,13 @@ export class Studio {
       if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
       if(railDelta||railNoop)await this.assertCeilingRailReplacement(c,s,row.metadata,input.draft);
       const fit=validateWorkspaceFurnishings(input.draft.candidate);if(!fit.valid)throw new ApiError(422,fit.errors[0]?.code??'DRAFT_INVALID');
-      if(!row.nativeBounded){checked(input);await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);return {valid:true as const};}
+      if(!row.nativeBounded){
+        checked(input);
+        if(requiresMeasuredFrameAttachmentFit(row.metadata.candidate,input.draft.candidate)&&this.workspaceFurnishing?.supportsReusableFit())
+          throw new ApiError(422,'FRAME_IMAGE_FIT_REQUIRED');
+        await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
+        return {valid:true as const};
+      }
     }
     if(!row.nativeBounded)throw new ApiError(403,'FORBIDDEN');
     if(typeof input.draft?.exhibitionId!=='string'||typeof input.draft?.id!=='string'||input.draft.exhibitionId.toLowerCase()!==id.toLowerCase()||input.draft.id.toLowerCase()!==row.metadata.id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
@@ -462,6 +469,16 @@ export class Studio {
         };
         result=nativeDoorPairProposal(draft.candidate,operation,[doorId('first'),doorId('second')]);
       }
+      else if(request.type==='attach-measured-frame'){
+        const service=this.workspaceFurnishing;
+        if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');
+        await service.authorize(c,s);
+        const placement=draft.candidate.placements.find(item=>item.id===request.placementId);
+        const artwork=placement&&draft.candidate.artworks.find(item=>item.revisionId===placement.artworkRevisionId);
+        if(!placement||artwork?.artworkType!=='image'||placement.assetId!==artwork.primaryAssetId)throw Error('FRAME_IMAGE_FIT_STALE');
+        const descriptor=await service.checkDisplay(c,s,request.furnishingId,request.furnishingVersion);
+        result=nativeMeasuredFrameAttachmentProposal(draft.candidate,request,descriptor,await service.frameImageFit(c,s,artwork));
+      }
       else if(request.type==='reconcile-frame-image-fit'){
         const service=this.workspaceFurnishing,workspace=draft.candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as import('@exhibitos/studio-contract').WorkspaceFurnishings|undefined;
         if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');
@@ -488,6 +505,12 @@ export class Studio {
     }catch(error){
       if((request.type==='select-floor-material'||request.type==='reset-floor-sound')&&error instanceof Error&&
         ['FLOOR_TARGET_INVALID','FLOOR_RECORDING_UNASSIGNED','FLOOR_SETTINGS_INVALID'].includes(error.message))throw new ApiError(422,error.message);
+      if(request.type==='attach-measured-frame'&&error instanceof Error&&
+          ['FRAME_IMAGE_FIT_INVALID','FRAME_IMAGE_FIT_STALE','FRAME_IMAGE_FIT_UNSUPPORTED','FRAME_ASSET_UNSUPPORTED',
+           'ARTWORK_SNAPSHOT_CHANGED','ASSET_INTEGRITY','FURNISHING_NOT_FOUND','RIGHTS_DENIED'].includes(error.message)){
+        if(error instanceof ApiError)throw error;
+        throw new ApiError(422,error.message);
+      }
       if(error instanceof Error&&error.message==='LIGHT_FIXTURE_REQUIRED')throw new ApiError(422,'LIGHT_FIXTURE_REQUIRED');
       const articulated=(operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'
         ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
@@ -612,6 +635,8 @@ export class Studio {
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);
     if(benchForwardDelta)await this.assertBenchModelForward(c,s,row.metadata,input.draft);
+    if(requiresMeasuredFrameAttachmentFit(row.metadata.candidate,input.draft.candidate)&&this.workspaceFurnishing?.supportsReusableFit())
+      throw new ApiError(422,'FRAME_IMAGE_FIT_REQUIRED');
     if(this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(row.metadata.candidate,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
