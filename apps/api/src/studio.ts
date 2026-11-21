@@ -31,7 +31,7 @@ import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts'
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
-import {applyPairedWallStructureCommand,type PairedWallStructureCommand} from '@exhibitos/studio-contract';
+import {applyPairedWallStructureCommand,pairedWallAttachedPortalFront,type PairedWallStructureCommand} from '@exhibitos/studio-contract';
 import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
@@ -484,7 +484,13 @@ export class Studio {
       }
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
       else if(request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure'){
-        result={candidate:applyPairedWallStructureCommand(draft.candidate,request)};
+        const candidate=applyPairedWallStructureCommand(draft.candidate,request);
+        const opening=candidate.openings.find(item=>item.id.toLowerCase()===request.openingId.toLowerCase());
+        if(request.type==='set-paired-wall-structure'&&opening&&pairedWallAttachedPortalFront(candidate,opening.surfaceId)!==undefined){
+          await this.authorizeDoorPairFrame(c,s);
+          await assertWorkspaceFurnishingSnapshot(c,s,candidate,this.workspaceFurnishing);
+        }
+        result={candidate};
       }
       else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(operation.type==='add-connected-door-pair'){
@@ -542,8 +548,10 @@ export class Studio {
       }
       if((request.type==='select-floor-material'||request.type==='reset-floor-sound')&&error instanceof Error&&
         ['FLOOR_TARGET_INVALID','FLOOR_RECORDING_UNASSIGNED','FLOOR_SETTINGS_INVALID'].includes(error.message))throw new ApiError(422,error.message);
-      if((request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure')&&error instanceof Error&&error.message==='PAIRED_WALL_STRUCTURE_INVALID')
-        throw new ApiError(422,error.message);
+      if(request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure'){
+        if(error instanceof ApiError)throw error;
+        if(error instanceof Error&&error.message==='PAIRED_WALL_STRUCTURE_INVALID')throw new ApiError(422,error.message);
+      }
       if(request.type==='attach-measured-frame'&&error instanceof Error&&
           ['FRAME_IMAGE_FIT_INVALID','FRAME_IMAGE_FIT_STALE','FRAME_IMAGE_FIT_UNSUPPORTED','FRAME_ASSET_UNSUPPORTED',
            'ARTWORK_SNAPSHOT_CHANGED','ASSET_INTEGRITY','FURNISHING_NOT_FOUND','RIGHTS_DENIED'].includes(error.message)){
