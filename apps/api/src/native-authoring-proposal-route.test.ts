@@ -50,7 +50,7 @@ it('proposes and extends a reciprocal door pair only on the authenticated ordina
  try{
   const original=structuredClone(draft.candidate),match=etag(revision,draft);
   const advertised=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1',nativePairedWallStructureProfile:PAIRED_WALL_STRUCTURE_PROFILE});
+  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1',nativeDoorPairEditProfile:'saved-head-reciprocal-door-edit-v1',nativePairedWallStructureProfile:PAIRED_WALL_STRUCTURE_PROFILE});
   expect((await post(command,etag(revision-1,draft))).statusCode).toBe(412);
   ownerUserId=randomUUID();
   expect((await post(command)).statusCode).toBe(403);
@@ -108,6 +108,40 @@ it('proposes and extends a reciprocal door pair only on the authenticated ordina
   const removed=await post({...binding,...rightPair,type:'remove-paired-wall-structure',requestId:randomUUID()});
   expect(removed.statusCode,removed.body).toBe(200);
   expect(removed.json().candidate).toEqual(before);
+  draft.candidate=before;
+  revision++;
+  const dimensions={width:2.2,height:2.8};
+  const resize={...binding,type:'edit-connected-door-pair',openingId:first,dimensions,requestId:randomUUID()};
+  const resizeHead=etag(revision,draft);
+  const resized=await post(resize);
+  expect(resized.statusCode,resized.body).toBe(200);
+  expect(resized.headers.etag).toBe(resizeHead);
+  const next=resized.json();
+  expect(next.openingIds).toEqual([first,second].sort());
+  const expectedOpenings=before.openings.map(row=>next.openingIds.includes(row.id)?{...row,dimensions,
+   offset:[row.offset[0],row.offset[1]-row.dimensions.height/2+dimensions.height/2]}:row);
+  expect(next.candidate).toEqual({...before,openings:expectedOpenings});
+  expect((await post({...resize,openingId:second})).json()).toEqual(next);
+  expect((await post({...resize,openingId:randomUUID()})).json()).toMatchObject({
+   code:'DOOR_PAIR_EDIT_INVALID',doorPairViolation:{constraint:'reference'},
+  });
+  expect((await post({...resize,dimensions:{width:32,height:3}})).json()).toMatchObject({
+   code:'DOOR_PAIR_EDIT_INVALID',doorPairViolation:{constraint:'wall-bounds',openingId:expect.any(String),roomId:expect.any(String)},
+  });
+  expect((await post({...resize,frame:null})).statusCode).toBe(403);
+  expect((await post(resize,match)).statusCode).toBe(412);
+  const nextDraft={...draft,candidate:next.candidate};
+  const preview=(candidate:typeof draft,ifMatch=resizeHead)=>app.inject({method:'POST',
+   url:url.replace('/native-authoring-proposal','/native-viewport-check'),headers:{...headers,'if-match':ifMatch},
+   payload:{draft:candidate,requestId:randomUUID()}});
+  expect((await preview(nextDraft)).json()).toEqual({valid:true});
+  expect((await preview(nextDraft,match)).statusCode).toBe(412);
+  const mismatched={...draft,candidate:{...before,openings:before.openings.map(row=>row.id===first?{...row,
+   dimensions:{...row.dimensions,width:2.2}}:row)}};
+  const invalidSave=await app.inject({method:'PUT',url:url.replace('/native-authoring-proposal',''),
+   headers:{...headers,'if-match':resizeHead},payload:{draft:mismatched,requestId:randomUUID()}});
+  expect(invalidSave.json()).toMatchObject({code:'DOOR_PAIR_EDIT_INVALID',doorPairViolation:{constraint:'alignment'}});
+  expect(draft.candidate).toEqual(before);
   expect(writes).toEqual([]);
  }finally{await app.close();}
 });
