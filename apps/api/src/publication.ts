@@ -12,7 +12,7 @@ import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from '.
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
 import {matchesInstalledFurnishing} from './installed-workspace-furnishing.ts';
 import {readSelectedWheatNotice} from './native-selected-wheat.ts';
-import {ACCEPTED_WHEAT_FIT_PREDECESSOR,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
+import {ACCEPTED_SEVEN_SUCCESSOR_HEAD,ACCEPTED_WHEAT_FIT_PREDECESSOR,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -836,15 +836,17 @@ export class Publications {
         const known=installedWheatNoticeFor(row.snapshot);
         const paintingBench=row.draft_revision===OCCUPIED_PAINTING_BENCH_REVISION;
         const repair=row.draft_revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
-        if(!known||!repair&&!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
-        const scope=repair?WHEAT_IMAGE_FIT_SELECTED_SCOPE:paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
+        const acceptedSevenSuccessor=row.draft_revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;
+        if(!known||!acceptedSevenSuccessor&&!repair&&!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const scope=acceptedSevenSuccessor?ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE:repair?WHEAT_IMAGE_FIT_SELECTED_SCOPE:paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
         let head:string=paintingBench?OCCUPIED_PAINTING_BENCH_ETAG:OCCUPIED_POST_WHEAT_ETAG;
-        if(repair){
+        if(repair||acceptedSevenSuccessor){
             const saved=(await c.query<{snapshot:Draft}>(
                 'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
                 [row.tenant_id,row.exhibition_id,row.draft_revision])).rows[0]?.snapshot;
             if(!saved||saved.exhibitionId!==row.exhibition_id)return;
             head=etag(row.draft_revision,saved);
+            if(acceptedSevenSuccessor&&head!==ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag)return;
         }
         const receiptFor=async (scope:string)=>(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
           AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6

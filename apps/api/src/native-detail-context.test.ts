@@ -11,7 +11,7 @@ import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {reconstructNativeOriginalExport} from './native-original-export-plan.ts';
-import {ACCEPTED_CLOSING_PREDECESSOR,ACCEPTED_WHEAT_FIT_PREDECESSOR,ACCEPTED_WHEAT_PREDECESSOR,bindNativeDetailContext,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
+import {ACCEPTED_CLOSING_PREDECESSOR,ACCEPTED_SEVEN_SUCCESSOR_HEAD,ACCEPTED_WHEAT_FIT_PREDECESSOR,ACCEPTED_WHEAT_PREDECESSOR,bindNativeDetailContext,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -116,6 +116,12 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
    const seven={...retained,scope:ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE};
    expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,seven).selectedHead).toEqual(seven);
    expect(selectedScopeRequiresWheatNotice(seven.scope)).toBe(true);
+   const sevenSuccessor={...seven,...ACCEPTED_SEVEN_SUCCESSOR_HEAD};
+   expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,sevenSuccessor).selectedHead).toEqual(sevenSuccessor);
+   for(const invalid of [{...sevenSuccessor,etag:seven.etag},{...sevenSuccessor,scope:retained.scope},
+    {...sevenSuccessor,predecessorPublicationId:acceptedFit.publicationId}]){
+    expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
+   }
    for(const invalid of [{...seven,predecessorPublicationId:acceptedFit.publicationId},
     {...seven,predecessorRevisionSha256:acceptedFit.revisionSha256},{...seven,revision:seven.revision+1},
     {...seven,etag:repair.etag},{...seven,includeSunrise:true}]){

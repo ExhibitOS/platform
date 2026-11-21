@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
+  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_SEVEN_SUCCESSOR_HEAD, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
   OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
   OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
@@ -111,6 +111,26 @@ export async function loadSelectedNativeRelease(
   match: string, image: NativeOriginalPublication['originalImage'], selectedHead?: NativeDetailContext['selectedHead'],
 ): Promise<SelectedNativeRelease> {
   if (row.studio_owner_user_id !== s.userId) throw new ApiError(403, 'FORBIDDEN');
+  const selectedMatch = match;
+  if (selectedHead && (row.revision !== selectedHead.revision || selectedMatch !== selectedHead.etag))
+    throw new ApiError(412, 'REMOTE_CONFLICT');
+  const savedRevision = async (revision: number) => (await c.query<{snapshot: Draft}>(
+    'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
+    [s.tenantId, exhibitionId, revision],
+  )).rows[0]?.snapshot;
+  if (row.revision === ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision) {
+    if (selectedHead?.scope !== ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE) return unavailable();
+    if (selectedMatch !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag || etag(row.revision, row.metadata) !== selectedMatch)
+      throw new ApiError(412, 'REMOTE_CONFLICT');
+    if (row.metadata.exhibitionId !== exhibitionId) return unavailable();
+    const retained = await savedRevision(ACCEPTED_CLOSING_PREDECESSOR.revision);
+    if (!retained || retained.exhibitionId !== exhibitionId ||
+        etag(ACCEPTED_CLOSING_PREDECESSOR.revision, retained) !== ACCEPTED_CLOSING_PREDECESSOR.etag) return unavailable();
+    // Keep Closing and the seven spotlights on their retained source. The
+    // scoped output receipt still binds the actual live r220 match below.
+    row = {...row,revision:ACCEPTED_CLOSING_PREDECESSOR.revision,metadata:retained};
+    match = ACCEPTED_CLOSING_PREDECESSOR.etag;
+  }
   const postWheat = row.revision === OCCUPIED_POST_WHEAT_REVISION;
   const paintingBench = row.revision === OCCUPIED_PAINTING_BENCH_REVISION;
   const wheatImageFit = row.revision === WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
@@ -119,8 +139,7 @@ export async function loadSelectedNativeRelease(
   const defaultLighting = requiresOccupiedSelectedHead(row.revision);
   if (defaultLighting && !selectedHead) return unavailable();
   const finishMatch = paintingBench ? OCCUPIED_PAINTING_BENCH_ETAG : postWheat ? OCCUPIED_POST_WHEAT_ETAG : OCCUPIED_SELECTED_FINISH_ETAG;
-  if ((visualFinishes && !wheatImageFit && match !== finishMatch) ||
-      (selectedHead && (row.revision !== selectedHead.revision || match !== selectedHead.etag)))
+  if (visualFinishes && !wheatImageFit && match !== finishMatch)
     throw new ApiError(412, 'REMOTE_CONFLICT');
   if (postWheat && !selectedHead?.scope) return unavailable();
   if (paintingBench && selectedHead?.scope !== PAINTING_BENCH_SELECTED_SCOPE) return unavailable();
@@ -138,10 +157,6 @@ export async function loadSelectedNativeRelease(
       'd0825de02f2b0367a78eb3bda31670428bf074cbe92ae01ad6569f11df1b5496')
     return unavailable();
 
-  const savedRevision = async (revision: number) => (await c.query<{snapshot: Draft}>(
-    'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
-    [s.tenantId, exhibitionId, revision],
-  )).rows[0]?.snapshot;
   const baseline = await savedRevision(baselineRevision);
   if (!baseline || baseline.exhibitionId !== exhibitionId || row.metadata.exhibitionId !== exhibitionId ||
       releaseFingerprint(etag(baselineRevision, baseline)) !== baselineHeadFingerprint)
@@ -233,13 +248,14 @@ export async function loadSelectedNativeRelease(
             const deployed = ACCEPTED_CLOSING_PREDECESSOR;
             const closingIdentity = scopedProjectionIdentity(withClosing, closingPredecessor, match, CLOSING_LIGHTS_SELECTED_SCOPE);
             if (closingIdentity !== deployed.projectionIdentity) return unavailable();
-            await assertAcceptedSelectedPredecessor(c, s, exhibitionId, selectedHead,
-              SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
+            await assertAcceptedSelectedPredecessor(c, s, exhibitionId, {
+              ...selectedHead, revision: deployed.revision, etag: deployed.etag,
+            }, SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
             const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
               deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
             const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate,
               acceptedSeven ? 'accepted-seven' : true);
-            return {...bindScopedSelection(selected, withRetainedSpots, retainedPredecessor, match, selectedHead),
+            return {...bindScopedSelection(selected, withRetainedSpots, retainedPredecessor, selectedMatch, selectedHead),
               wheatScope: acceptedSeven ? ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE : RETAINED_SPOTS_SELECTED_SCOPE};
           }
           return {...bindScopedSelection(selected, withClosing, closingPredecessor, match, selectedHead),

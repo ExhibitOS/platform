@@ -34,6 +34,12 @@ export const ACCEPTED_CLOSING_PREDECESSOR = Object.freeze({
  publicManifestSha256: '1b414f0ba3bd85fd02277c3cfe8c62c39f05a1c2c9a2fc0abdc239dc2a43ac00',
  deliveryReceiptSha256: '8a8c19922ae3bf05587dbce9389ad7e64000faf781529fc035390df65fe0619b',
 });
+// The one independently confirmed ordinary bench-height Save. Historical
+// selected scenes still derive from the exact r219 source.
+export const ACCEPTED_SEVEN_SUCCESSOR_HEAD = Object.freeze({
+ revision:220,
+ etag:'"studio-r220-d48d3de2ac7bc3875cb628f4464b3a846217ba2ccbf675ad113f3a61523bb25d"',
+} as const);
 export const OCCUPIED_CANNON_SCOPE = 'transition-cannon-v1';
 export const OCCUPIED_PUBLIC_FINISH_SCOPE = 'public-seven-visual-finishes-v1';
 type OccupiedSelectionScope = typeof OCCUPIED_CANNON_SCOPE | typeof OCCUPIED_PUBLIC_FINISH_SCOPE;
@@ -47,9 +53,12 @@ type SelectedSavedHead =
  | {revision:typeof WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;etag:string;
     scope:typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE |
       typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    predecessorPublicationId:string;predecessorRevisionSha256:string}
+ | {revision:typeof ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;etag:typeof ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag;
+    scope:typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
- return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
+ return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION||revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;
 }
 export interface NativeDetailContext {readonly owner:NativeLocalExportContext;readonly runtimeGeneration:string;readonly signal:AbortSignal;readonly selectedHead?:Readonly<SelectedSavedHead>;live():boolean}
 const issued=new WeakSet<NativeDetailContext>();
@@ -62,8 +71,10 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
   if(typeof head.projectionIdentity!=='string'||!/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity))return false;
   if(head.scope===CLOSING_LIGHTS_SELECTED_SCOPE||head.scope===RETAINED_SPOTS_SELECTED_SCOPE||head.scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE){
    const pin=head.scope===CLOSING_LIGHTS_SELECTED_SCOPE?ACCEPTED_WHEAT_FIT_PREDECESSOR:ACCEPTED_CLOSING_PREDECESSOR;
-   return head.revision===pin.revision&&head.etag===pin.etag&&
-    head.predecessorPublicationId===pin.publicationId&&head.predecessorRevisionSha256===pin.revisionSha256;
+   const headMatches=(head.revision===pin.revision&&head.etag===pin.etag)||
+    (head.scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE&&head.revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision&&
+     head.etag===ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag);
+   return headMatches&&head.predecessorPublicationId===pin.publicationId&&head.predecessorRevisionSha256===pin.revisionSha256;
   }
   if(head.scope===WHEAT_IMAGE_FIT_SELECTED_SCOPE)
    return head.revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION&&typeof head.etag==='string'&&
