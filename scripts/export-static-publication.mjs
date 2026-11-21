@@ -28,6 +28,13 @@ const WALKING_SAMPLE_REVISION="fa261e9791bc482f92c30cf4aca325a9e3a9fc6609e67d3e1
 const MAX=25*1024*1024,COUNT=20000,sha=b=>createHash("sha256").update(b).digest("hex");
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const fail=(code,path)=>{throw Error(`${code}: ${path}`);};
+function assertStaticMediaRights(exhibition,allowedRights){
+ const now=Date.now();
+ for(const {rights} of exhibition.mediaAssets){
+  if(!allowedRights(rights,'display',now))fail('STATIC_DISPLAY_RIGHTS','publication.json');
+  if(!allowedRights(rights,'export',now))fail('STATIC_MEDIA_EXPORT_RIGHTS','publication.json');
+ }
+}
 const refuseDetail=value=>{if(value?.detailAssets!==undefined||value?.exhibition?.artworks?.some(a=>a.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE]!==undefined))fail('STATIC_DETAIL_UNSUPPORTED','publication.json');};
 const nativeStage=Symbol('native owned detail stage');
 const nativeDetail=Symbol('native owner detail transport');
@@ -66,6 +73,11 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  for(const asset of inventory){if(!safeStaticPath(asset.path))fail("STATIC_ASSET_PATH",asset.path);const prior=byId.get(asset.id);if(prior&&JSON.stringify(prior)!==JSON.stringify(asset))fail("STATIC_ASSET_ALIAS",asset.path);byId.set(asset.id,asset);}
  const profileExhibition=detailPlan?.entries.length?structuredClone(raw.exhibition):raw.exhibition;if(detailPlan?.entries.length)for(const artwork of profileExhibition.artworks)if(artwork.extensions)delete artwork.extensions[ARTWORK_DETAIL_QUALITY_NAMESPACE];
  checkOexProfile(profileExhibition,!!workspace,!!material);if(!validateExhibition(raw.exhibition,{publicationTime:new Date().toISOString()}).valid)fail("STATIC_DISPLAY_RIGHTS","publication.json");
+ // The publication API binds these media grants to the live approval on each read.
+ const mediaRights=!privateEditor&&!studioDemo&&raw.exhibition.mediaAssets.length
+  ? await (coverCompanion==='reference-demo'?import('../apps/api/dist-public-export/rights.js'):import('../apps/api/dist/rights.js'))
+  : undefined;
+ if(mediaRights)assertStaticMediaRights(raw.exhibition,mediaRights.allowedRights);
  const stepResources=publicResourcesFor(raw.exhibition),declared=raw.resources;
  if(stepResources.length){
   if(!Array.isArray(declared)||declared.length!==stepResources.length||new Set(declared.map(x=>x.sha256)).size!==stepResources.length||stepResources.some(item=>!declared.some(x=>Object.keys(x).sort().join(',')==='bytes,mime,sha256,url'&&x.sha256===item.sha256&&x.bytes===item.bytes&&x.mime===item.mime&&x.url===`/api/v1/publications/${publicationId}/resources/${item.sha256}`)))fail('STATIC_RESOURCE_INVENTORY','publication.json');
@@ -198,6 +210,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  if((studioDemo||privateEditor)&&!files.has("studio.html"))fail("STATIC_RUNTIME_ENTRY","static-studio.html");
  // Recheck public status/revision immediately before publication; no draft/withdrawn snapshot is exported.
  const current=parseStaticJson(await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json"));if(detailPlan){const checked=await buildDetailPlan(publicationId,current.exhibition,current.assets,detailDescriptors);if(checked.detailSetSha256!==detailPlan.detailSetSha256||checked.totalBytes!==detailPlan.totalBytes||current.detailAssets!==undefined&&(await buildDetailPlan(publicationId,current.exhibition,current.assets,current.detailAssets)).detailSetSha256!==detailPlan.detailSetSha256)fail('STATIC_PUBLICATION_CHANGED',publicationId);}else refuseDetail(current);const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(!publicWorkspaceFurnishingRights(raw.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE])||!publicWorkspaceMaterialRights(material)||current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||revisionHash(current.exhibition)!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null)||JSON.stringify(current.materialMapBatch??null)!==JSON.stringify(raw.materialMapBatch??null)||JSON.stringify(current.furnishingNotices??null)!==JSON.stringify(raw.furnishingNotices??null)||coverVariants&&JSON.stringify(current.coverVariants??null)!==JSON.stringify(coverVariants))fail("STATIC_PUBLICATION_CHANGED",publicationId);
+ if(mediaRights)assertStaticMediaRights(current.exhibition,mediaRights.allowedRights);
  const manifest=Buffer.from(JSON.stringify({format:"exhibitos-static-publication-v1",publicationId,revisionSha256:publication.publication.revisionSha256,indexSha256:sha(index),files:[...files].map(([path,entry])=>({path,...entry})).sort((a,b)=>a.path.localeCompare(b.path))}));await put("static-export-manifest.json",manifest);
  if(!directStage){try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
  signal?.throwIfAborted();await rename(temporary,target);}else signal?.throwIfAborted();
