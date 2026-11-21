@@ -30,6 +30,7 @@ import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts'
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
+import {applyPairedWallStructureCommand,type PairedWallStructureCommand} from '@exhibitos/studio-contract';
 import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
@@ -62,7 +63,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|NativeMeasuredFrameAttachmentCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|NativeMeasuredFrameAttachmentCommand|PairedWallStructureCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -461,6 +462,9 @@ export class Studio {
         result={candidate,...(floor.surfaceId&&{surfaceId:floor.surfaceId}),floorRecording:floorRecordingStatus(floor)};
       }
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
+      else if(request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure'){
+        result={candidate:applyPairedWallStructureCommand(draft.candidate,request)};
+      }
       else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(operation.type==='add-connected-door-pair'){
         const doorId=(side: 'first'|'second')=>{
@@ -505,6 +509,8 @@ export class Studio {
     }catch(error){
       if((request.type==='select-floor-material'||request.type==='reset-floor-sound')&&error instanceof Error&&
         ['FLOOR_TARGET_INVALID','FLOOR_RECORDING_UNASSIGNED','FLOOR_SETTINGS_INVALID'].includes(error.message))throw new ApiError(422,error.message);
+      if((request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure')&&error instanceof Error&&error.message==='PAIRED_WALL_STRUCTURE_INVALID')
+        throw new ApiError(422,error.message);
       if(request.type==='attach-measured-frame'&&error instanceof Error&&
           ['FRAME_IMAGE_FIT_INVALID','FRAME_IMAGE_FIT_STALE','FRAME_IMAGE_FIT_UNSUPPORTED','FRAME_ASSET_UNSUPPORTED',
            'ARTWORK_SNAPSHOT_CHANGED','ASSET_INTEGRITY','FURNISHING_NOT_FOUND','RIGHTS_DENIED'].includes(error.message)){
