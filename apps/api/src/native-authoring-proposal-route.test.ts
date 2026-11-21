@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {architecturalSolids,PAIRED_WALL_STRUCTURE_NAMESPACE,PAIRED_WALL_STRUCTURE_PROFILE,validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {architecturalSolids,pairedWallRevealFinish,PAIRED_WALL_STRUCTURE_NAMESPACE,PAIRED_WALL_STRUCTURE_PROFILE,validateArchitecturalFinishes,wallFinishesFor} from '@exhibitos/studio-contract';
 import {projectPublication} from './publication.ts';
 import {remapOex} from './oex.ts';
 import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,spaceLightingFor,setSpaceLighting,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
@@ -76,7 +76,7 @@ it('proposes and extends a reciprocal door pair only on the authenticated ordina
 
   for (const wall of [leftWall,rightWall]) {
     draft.candidate=applyArchitecturalFinishCommand(draft.candidate,{type:'set-wall-finish',wall:{
-      surfaceId:wall.id,preset:'plain',depth:.12,baseboardHeight:.04,trimWidth:.02,ceilingBand:false,
+      surfaceId:wall.id,preset:wall.id===leftWall.id?'painted-edge':'plain',depth:.12,baseboardHeight:.04,trimWidth:.02,ceilingBand:false,
     }});
   }
   const before=structuredClone(draft.candidate), rightPair={openingId:second,peerOpeningId:first};
@@ -95,16 +95,36 @@ it('proposes and extends a reciprocal door pair only on the authenticated ordina
   expect(Math.max(...wallSolids.flatMap(s=>s.vertices.map(v=>v[0])))-oldMax).toBeCloseTo(.11);
   const through:[number,number,number]=[oldMax-.12,1,0], opposite:[number,number,number]=[oldMax+.66,1,0];
   expect(wallSolids.some(s=>s.collision.hit(through,opposite,.25))).toBe(false);
-  for(const output of [remapOex(applied).exhibition,projectPublication(applied,[],new Date().toISOString()).snapshot]){
+  expect(pairedWallRevealFinish(applied,first)).toBeUndefined();
+  draft.candidate=applied;
+  revision++;
+  const finish=await post({...add,requestId:randomUUID(),revealFinish:'painted-edge'});
+  expect(finish.statusCode,finish.body).toBe(200);
+  const painted=finish.json().candidate as typeof before;
+  expect(painted.openings).toEqual(applied.openings);
+  expect(wallFinishesFor(painted)).toEqual(wallFinishesFor(applied));
+  const paintSource=wallFinishesFor(applied).find(wall=>wall.surfaceId===leftWall.id);
+  expect(pairedWallRevealFinish(painted,first)).toEqual(paintSource);
+  expect(pairedWallRevealFinish(painted,second)).toEqual(paintSource);
+  const geometry=(candidate:typeof before)=>architecturalSolids(candidate).map(({vertices,surfaceId,kind})=>({vertices,surfaceId,kind}));
+  expect(geometry(painted)).toEqual(geometry(applied));
+  for(const output of [remapOex(painted).exhibition,projectPublication(painted,[],new Date().toISOString()).snapshot]){
     expect(validateArchitecturalFinishes(output).valid).toBe(true);
     const {pairs}=output.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE] as unknown as {pairs:(typeof extent)[]};
     expect(pairs).toHaveLength(1);
     expect(pairs[0]!.openingId).not.toBe(second);
     expect(output.openings.find(o=>o.id===pairs[0]!.openingId)?.connectsToOpeningId).toBe(pairs[0]!.peerOpeningId);
     expect(pairs[0]!.extensionMeters).toBe(.11);
+    expect(pairedWallRevealFinish(output,pairs[0]!.openingId)?.trimWidth).toBe(.02);
   }
-  draft.candidate=applied;
+  draft.candidate=painted;
   revision++;
+  const omitted=await post({...add,requestId:randomUUID()});
+  expect(omitted.statusCode,omitted.body).toBe(200);
+  expect(omitted.json().candidate).toEqual(painted);
+  const cleared=await post({...add,requestId:randomUUID(),revealFinish:null});
+  expect(cleared.statusCode,cleared.body).toBe(200);
+  expect(cleared.json().candidate).toEqual(applied);
   const removed=await post({...binding,...rightPair,type:'remove-paired-wall-structure',requestId:randomUUID()});
   expect(removed.statusCode,removed.body).toBe(200);
   expect(removed.json().candidate).toEqual(before);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactBounds, artifactCorners, artifactPoint, validateArtifactPose, type AffinePoint} from './artifact-affine.js';
-import {ARCHITECTURAL_FINISH_NAMESPACE, type ArchitecturalFinishes} from './architectural-finishes.js';
+import {ARCHITECTURAL_FINISH_NAMESPACE, type ArchitecturalFinishes, type WallFinish} from './architectural-finishes.js';
 import {benchSolids} from './bench-geometry.js';
 import {furnishingsFor} from './furnishings.js';
 import {resolveInstallations} from './installation-resolver.js';
@@ -16,9 +16,11 @@ export interface PairedWallExtent {
   peerOpeningId: string;
   side: 'positive-normal' | 'negative-normal';
   extensionMeters: number;
+  revealFinish?: 'painted-edge';
 }
 export interface PairedWallStructure {version: 1; pairs: PairedWallExtent[]}
-export type PairedWallStructureCommand = ({type: 'set-paired-wall-structure'} & PairedWallExtent)
+export type PairedWallStructureCommand = ({type: 'set-paired-wall-structure'; revealFinish?: 'painted-edge' | null}
+  & Omit<PairedWallExtent, 'revealFinish'>)
   | ({type: 'remove-paired-wall-structure'} & Pick<PairedWallExtent, 'openingId' | 'peerOpeningId'>);
 
 type Scene = Pick<Exhibition, 'extensions' | 'openings'>;
@@ -40,7 +42,10 @@ function settings(scene: Pick<Exhibition, 'extensions'>): PairedWallStructure | 
   if (!closed(value, ['version', 'pairs']) || value.version !== 1 || !Array.isArray(value.pairs)
     || value.pairs.length === 0 || value.pairs.length > 10) throw invalid();
   for (const row of value.pairs) {
-    if (!closed(row, ['openingId','peerOpeningId','side','extensionMeters']) || !uuid(row.openingId) || !uuid(row.peerOpeningId)
+    const fields = ['openingId','peerOpeningId','side','extensionMeters'];
+    if (row && typeof row === 'object' && Object.hasOwn(row, 'revealFinish')) fields.push('revealFinish');
+    if (!closed(row, fields) || !uuid(row.openingId) || !uuid(row.peerOpeningId)
+      || (fields.includes('revealFinish') && row.revealFinish !== 'painted-edge')
       || (row.side !== 'positive-normal' && row.side !== 'negative-normal')
       || typeof row.extensionMeters !== 'number' || !Number.isFinite(row.extensionMeters)
       || row.extensionMeters <= 0 || row.extensionMeters > MAX_PAIRED_WALL_EXTENSION_METERS) throw invalid();
@@ -80,6 +85,20 @@ function wallSide(scene: Exhibition, openingId: string) {
   return {opening, wall, room, finish, bottom, tangent, normal, inward};
 }
 
+function paintedRevealSource(first: WallFinish, second: WallFinish): WallFinish {
+  if (first.preset === 'painted-edge' && second.preset === 'plain') return first;
+  if (second.preset === 'painted-edge' && first.preset === 'plain') return second;
+  throw invalid();
+}
+
+/** The opted-in return borrows the pair's authored paint finish from either viewing side. */
+export function pairedWallRevealFinish(scene: Exhibition, openingId: string): WallFinish | undefined {
+  const extent = settings(scene)?.pairs.find(row => same(row.openingId, openingId) || same(row.peerOpeningId, openingId));
+  if (!extent?.revealFinish) return;
+  const first = wallSide(scene, extent.openingId), second = wallSide(scene, extent.peerOpeningId);
+  return structuredClone(paintedRevealSource(first.finish, second.finish));
+}
+
 function extraPanelBounds(scene: Exhibition, extent: PairedWallExtent, used: Set<string>) {
   const side = wallSide(scene, extent.openingId), peer = wallSide(scene, extent.peerOpeningId);
   const {opening,wall,room,finish,normal,inward} = side;
@@ -99,6 +118,10 @@ function extraPanelBounds(scene: Exhibition, extent: PairedWallExtent, used: Set
     || Math.abs(gap) >= (finish.depth + peer.finish.depth)/2 - epsilon) throw invalid();
 
   const openings = scene.openings.filter(item => same(item.surfaceId, wall.id) || same(item.surfaceId, peer.wall.id));
+  if (extent.revealFinish) {
+    if (openings.length !== 2) throw invalid();
+    paintedRevealSource(finish, peer.finish);
+  }
   const affectedOpening = (id: string) => openings.some(item => same(item.id,id));
   const workspace = scene.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings | undefined;
   if (workspace?.openingAttachments?.some(item => affectedOpening(item.openingId))
@@ -142,7 +165,9 @@ export function applyPairedWallStructureCommand(scene: Exhibition, command: Pair
     pairs.splice(index,1);
   } else {
     const {openingId,peerOpeningId,side,extensionMeters} = command;
-    const extent = {openingId,peerOpeningId,side,extensionMeters};
+    const revealFinish = command.revealFinish === undefined ? pairs[index]?.revealFinish : command.revealFinish;
+    const extent: PairedWallExtent = {openingId,peerOpeningId,side,extensionMeters,
+      ...(revealFinish !== undefined && revealFinish !== null ? {revealFinish} : {})};
     if (index < 0) pairs.push(extent);
     else pairs[index] = extent;
   }
