@@ -199,9 +199,33 @@ it('proposes the exact approved step and rechecks changed workspace recordings d
     row.sha256 = sha256(bytes);
     row.bytes = bytes.length;
     approval = audioMedia(row);
-    const saved = await save(expected);
+    const updateExperience = (next:typeof draft, footsteps:typeof experience.footsteps) => {
+      next.candidate.extensions = {...next.candidate.extensions,
+        [EXPERIENCE_NAMESPACE]:{...experienceFor(next.candidate), footsteps}
+      } as unknown as typeof next.candidate.extensions;
+    };
+    updateExperience(draft, [{surfaceId:floor!.id, material:'wood'}, experience.footsteps[1]!]);
+    expect((await post({initializeMissingStoneRow:true})).json().code).toBe('FLOOR_RECORDING_TARGET_INVALID');
+    expect((await save(expected)).json().code).toBe('FLOOR_RECORDING_TARGET_INVALID');
+    updateExperience(draft, [experience.footsteps[1]!]);
+    expect((await post()).json().code).toBe('FLOOR_RECORDING_TARGET_INVALID');
+    expect((await post({initializeMissingStoneRow:false})).statusCode).toBe(400);
+    expect((await post({initializeMissingStoneRow:true,surfaceId:otherFloor!.id})).json().code).toBe('FLOOR_RECORDING_TARGET_INVALID');
+
+    const initialized = structuredClone(draft);
+    initialized.candidate.mediaAssets.push(audioMedia(row));
+    updateExperience(initialized, [experience.footsteps[1]!, {surfaceId:floor!.id, material:'stone', assetId:row.id}]);
+    const response = await post({initializeMissingStoneRow:true});
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({...binding,surfaceId:floor!.id,candidate:initialized.candidate});
+    expect(writes).toEqual([]);
+    row.revoked = true;
+    expect((await save(initialized)).json().code).toBe('AUDIO_RIGHTS_DENIED');
+    row.revoked = false;
+    const saved = await save(initialized);
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(saved.json()).toMatchObject({revision:4, draft:expected});
+    expect(saved.json()).toMatchObject({revision:4, draft:initialized});
+    expect((await post({initializeMissingStoneRow:true})).json().candidate).toEqual(initialized.candidate);
     const reopened = await app.inject({method:'GET', url:path, headers:headers()});
     expect(reopened.json()).toEqual(saved.json());
 

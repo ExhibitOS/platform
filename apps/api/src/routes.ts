@@ -686,7 +686,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const pedestal=object({...binding,type:{const:'set-pedestal'},placementId:id,pedestal:{type:'object'}});
   const placementVoice=object({...binding,type:{const:'set-placement-voice'},placementId:id,audioId:id,locale:{type:'string',pattern:'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}$'},transcript:{type:'string',minLength:1,maxLength:16384},expectedMediaAsset:{type:'object'}});
   const attachFloorRecording=object({...binding,type:{const:'attach-floor-recording'},surfaceId:id,materialId:id,
-   materialVersion:{type:'integer',minimum:1,maximum:2147483647},audioId:id,audioRevision:{const:1},expectedMediaAsset:{type:'object'}});
+   materialVersion:{type:'integer',minimum:1,maximum:2147483647},audioId:id,audioRevision:{const:1},
+   expectedMediaAsset:{type:'object'},initializeMissingStoneRow:{const:true}},
+   [...Object.keys(binding),'type','surfaceId','materialId','materialVersion','audioId','audioRevision','expectedMediaAsset']);
   const frameImageFit=object({...binding,type:{const:'reconcile-frame-image-fit'},placementId:id});
   const newLight=object({...binding,type:{const:'add-light'},light:{type:'object'},settings:{type:'object'}},[...Object.keys(binding),'type','light']);
   const supplementalFill=object({...binding,type:{const:'add-room-supplemental-ceiling-fill'},roomId:id,baseLightId:id,lightId:id});
