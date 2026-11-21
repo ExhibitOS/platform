@@ -46,10 +46,12 @@ export function pairedOpeningRevealCoverage(three:typeof Three,document:Exhibiti
   const normal=new three.Vector3(0,0,1).applyMatrix3(new three.Matrix3().getNormalMatrix(a.matrixWorld)).normalize(),owns=normal.toArray().find(n=>Math.abs(n)>1e-8)!>0;
   const inverse=relative.clone().invert().elements;
   if(!inverse.every(Number.isFinite)||Math.abs(inverse[15]!-1)>1e-9)continue;
-  const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:peerMinZ,maxZ:peerMaxZ};
-  const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!+inverse[10]!*spanA.maxZ,maxZ:inverse[14]!+inverse[10]!*spanA.minZ};
-  put(opening,Math.min(spanA.minZ,peerA.minZ),Math.max(spanA.maxZ,peerA.maxZ),!owns,peerA);
-  put(mate,Math.min(spanB.minZ,peerB.minZ),Math.max(spanB.maxZ,peerB.maxZ),owns,peerB);
+  // Keep buried trim on the original finish coverage. Only the shared reveal uses the structural extension.
+  const peerHalfA=Math.abs(e[10]!)*depthB/2,peerHalfB=Math.abs(inverse[10]!)*depthA/2;
+  const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:center.z-peerHalfA,maxZ:center.z+peerHalfA};
+  const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!-peerHalfB,maxZ:inverse[14]!+peerHalfB};
+  put(opening,Math.min(spanA.minZ,peerMinZ),Math.max(spanA.maxZ,peerMaxZ),!owns,peerA);
+  put(mate,Math.min(spanB.minZ,inverse[14]!+inverse[10]!*spanA.maxZ),Math.max(spanB.maxZ,inverse[14]!+inverse[10]!*spanA.minZ),owns,peerB);
  }
  return result;
 }

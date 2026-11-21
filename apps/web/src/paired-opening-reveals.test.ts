@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import * as three from 'three';
-import {architecturalSolids,architecturalWallBoxes,ARCHITECTURAL_FINISH_NAMESPACE,wallFinishesFor} from '@exhibitos/studio-contract';
+import {architecturalSolids,architecturalWallBoxes,ARCHITECTURAL_FINISH_NAMESPACE,PAIRED_WALL_STRUCTURE_NAMESPACE,wallFinishesFor} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {newDoor} from './geometry/model';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
@@ -112,6 +112,39 @@ it('uses the one-sided structural extent for both reveal faces and walking colli
   result.dispose();
   for(const material of materials.values())material.dispose();
  }
+});
+it('extends only the joined reveal while preserving trim instances and both flanking sightlines',()=>{
+ const {document,a,b,first,second,world,surfaces,materials}=fixture();
+ const walls=wallFinishesFor(document);
+ walls[0]!.preset='painted-edge';
+ walls[1]!.depth=.04;
+ document.extensions![ARCHITECTURAL_FINISH_NAMESPACE]={version:1,walls:walls.map(wall=>({...wall}))};
+ const trimInstances=(meshes:three.Mesh[])=>{
+  const trim=meshes.find(mesh=>mesh.userData.architecturalFinish.surfaceId===a.id&&mesh.userData.architecturalFinish.kind==='finish') as three.InstancedMesh;
+  return trim.instanceMatrix.array.slice();
+ };
+ const baseline=installArchitecturalFinishes(three,document,surfaces,materials);
+ const originalTrim=trimInstances(baseline.meshes);
+ baseline.dispose();
+ document.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE]={version:1,pairs:[{
+  openingId:second.id,peerOpeningId:first.id,side:'positive-normal',extensionMeters:.11,
+ }]};
+ const result=installArchitecturalFinishes(three,document,surfaces,materials);
+ try{
+  world.updateMatrixWorld(true);
+  expect(trimInstances(result.meshes)).toEqual(originalTrim);
+  const eye=new three.Vector3(0,1.66,0);
+  for(const x of [-2.2,2.2]){
+   const ray=new three.Vector3(x,1.5,-3.919).sub(eye);
+   expect(new three.Raycaster(eye,ray.clone().normalize(),0,ray.length()).intersectObjects(result.meshes)).toEqual([]);
+  }
+  const structures=result.meshes.filter(mesh=>mesh.userData.architecturalFinish.kind==='structure');
+  for(const [direction,distance] of [[new three.Vector3(-1,0,0),1.2],[new three.Vector3(1,0,0),1.2],[new three.Vector3(0,1,0),1.5]] as const){
+   const hits=new three.Raycaster(new three.Vector3(0,1.5,-4.139),direction).intersectObjects(structures)
+    .filter(hit=>Math.abs(hit.distance-distance)<1e-6);
+   expect(new Set(hits.map(hit=>hit.object.userData.architecturalFinish.surfaceId))).toEqual(new Set([a.id]));
+  }
+ }finally{result.dispose();for(const material of materials.values())material.dispose();}
 });
 it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled','multiple'])('leaves %s geometry on its original safe path',kind=>{
  const f=fixture();if(kind==='unpaired')delete f.first.connectsToOpeningId;if(kind==='oneway')delete f.second.connectsToOpeningId;if(kind==='width')f.second.dimensions.width=2;if(kind==='height')f.second.dimensions.height=2.5;if(kind==='shift')f.second.offset[0]=.1;if(kind==='tilt')f.surfaces.get(f.b.id)!.rotation.x=.1;if(kind==='disjoint')f.surfaces.get(f.b.id)!.position.z=3.7;
