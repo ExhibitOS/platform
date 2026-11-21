@@ -133,6 +133,21 @@ test('a preview revoked during static export prevents publication of that export
  art.assets.push({id,path,role:'preview',mime:'image/png',bytes:png.length,sha256:sha(png)});art.extensions={...art.extensions,'org.exhibitos.viewer/thumbnail':{version:1,assetId:id}};fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);fixture.raw.assets.push({assetId:id,mime:'image/png',url:`/api/v1/publications/${fixture.id}/assets/${id}`});fixture.decoded.manifest.assets.push({id,path,mime:'image/png'});fixture.decoded.files.set(path,png);
  const fetcher=options.fetcher;options.fetcher=async(...args)=>{if(fixture.reads===1&&new URL(args[0]).pathname.endsWith(fixture.id))fixture.raw.assets=fixture.raw.assets.filter(a=>a.assetId!==id);return fetcher(...args);};await assert.rejects(exportStaticPublication(options),/STATIC_PUBLICATION_CHANGED/);await assert.rejects(lstat(options.output),{code:'ENOENT'});assert.deepEqual(await readdir(directory),['runtime']);
 });
+test('viewer-only audio rights expiring at the final fence prevent commit of the same snapshot',async t=>{
+ const {fixture,options,directory}=await setup(t),fetcher=options.fetcher;
+ const expiresAt='2026-11-21T12:00:00.000Z';
+ t.mock.timers.enable({apis:['Date'],now:Date.parse(expiresAt)-1000});
+ fixture.raw.exhibition.mediaAssets[0].rights.expiresAt=expiresAt;
+ fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ options.fetcher=async(...args)=>{
+  const response=await fetcher(...args);
+  if(fixture.reads===2)t.mock.timers.setTime(Date.parse(expiresAt));
+  return response;
+ };
+ await assert.rejects(exportStaticPublication(options),/STATIC_DISPLAY_RIGHTS/);
+ assert.equal(fixture.reads,2);
+ assert.deepEqual(await readdir(directory),['runtime']);
+});
 test("asset byte corruption is rejected before publish",async t=>{const {fixture,options}=await setup(t),fetcher=options.fetcher;options.fetcher=async(...args)=>{const response=await fetcher(...args);if(new URL(args[0]).pathname.includes("/assets/")){const b=Buffer.from(await response.arrayBuffer());b[b.length-1]^=1;return new Response(b,{headers:response.headers});}return response;};await assert.rejects(exportStaticPublication(options),/STATIC_ASSET_HASH/);await assert.rejects(lstat(options.output),{code:"ENOENT"});assert.equal(fixture.reads,1);});
 test("unsafe authored asset path identifies offending filename",async t=>{const {fixture,options}=await setup(t);fixture.raw.exhibition.artworks[0].assets[0].path="../secret.glb";fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);await assert.rejects(exportStaticPublication(options),/STATIC_ASSET_PATH: \.\.\/secret.glb/);});
 test("runtime symlink is never followed or published",async t=>{const {options,runtime,directory}=await setup(t);await writeFile(join(directory,"secret.js"),"private");await mkdir(join(runtime,"assets"));await symlink(join(directory,"secret.js"),join(runtime,"assets","leak.js"));await assert.rejects(exportStaticPublication(options),/STATIC_SYMLINK: assets\/leak.js/);await assert.rejects(lstat(options.output),{code:"ENOENT"});});
@@ -356,8 +371,8 @@ async function isolatedBenchExporter(t){
  // must never rename or modify the shared catalogue or another checkout.
  const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
  await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
- for(const name of ['oex-profile.js','cover-validation.js','api-error.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
- await copyFile(new URL('../apps/api/dist/furnishing-assets.js',import.meta.url),join(api,'furnishing-assets.js'));
+ for(const name of ['oex-profile.js','cover-validation.js','api-error.js','approved-cover-projection.js','rights.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
+ for(const name of ['furnishing-assets.js','installed-workspace-hosts.json'])await copyFile(new URL('../apps/api/dist/'+name,import.meta.url),join(api,name));
  const web=join(code,'apps/web/src');await mkdir(join(web,'workspace-furnishing'),{recursive:true});for(const name of ['static-json.mjs','cover-variant-descriptor.mjs','workspace-material-resources.mjs','workspace-material-batch.mjs','workspace-material-public-rights.mjs','workspace-furnishing/public-rights.mjs'])await copyFile(new URL('../apps/web/src/'+name,import.meta.url),join(web,name));
  await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
  const entry=furnishingCatalogueEntry('backless-oak-bench');
