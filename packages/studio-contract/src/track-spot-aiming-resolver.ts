@@ -8,6 +8,7 @@ import {solveTrackSpotAiming,type TrackSpotAimFailureReason,type TrackSpotAimSuc
 import {rectangularRailContact} from './rectangular-rail-contact.js';
 import {groupedRailContact} from './grouped-rail-contact.js';
 import {whiteRailOppositeHeading} from './white-rail-opposite-heading.js';
+import {fixedCeilingSupportContact} from './fixed-ceiling-support-contact.js';
 
 type PartFrame='fixed'|'yoke'|'head';
 export type TrackSpotAimingFailureReason=TrackSpotAimFailureReason|'INVALID_BINDING'|'INVALID_SOURCE'|'INVALID_RAIL'|'INVALID_TARGET'|'RAIL_CONTACT'|'OUTSIDE_ROOM';
@@ -57,7 +58,8 @@ export function resolveTrackSpotAiming(document:Exhibition,lightId:string,explic
   if(g.profile!=='passive-ceiling-rail-v1')return fail('INVALID_RAIL','Choose an admitted passive ceiling rail.');
   const c=Math.cos(rail.yaw),s=Math.sin(rail.yaw),fixedPose=rigid(result.fixedPose);
   const corners=profile.mountFootprint.map(point=>{const room=artifactPoint([...point],fixedPose),dx=room[0]-rail.position[0],dz=room[2]-rail.position[2];return [c*dx-s*dz,room[1]-rail.position[1],s*dx+c*dz] as AffinePoint;});
-  const certified=rectangularRailContact(descriptor,corners)??groupedRailContact(descriptor,corners);
+  const fixedSupport=fixedCeilingSupportContact(descriptor,binding.mount,context.ceilingGap,corners);
+  const certified=fixedSupport??rectangularRailContact(descriptor,corners)??groupedRailContact(descriptor,corners);
   if(certified===false)return fail('RAIL_CONTACT','Move the adapter onto a verified contact region of the selected rail.');
   if(certified===undefined){
    const [x,y,z]=corners.reduce((sum,p)=>sum.map((n,i)=>n+p[i]!/4) as AffinePoint,[0,0,0] as AffinePoint),railRotation:[number,number,number,number]=[0,Math.sin(rail.yaw/2),0,Math.cos(rail.yaw/2)];
@@ -73,6 +75,7 @@ export function resolveTrackSpotAiming(document:Exhibition,lightId:string,explic
     const point=artifactPoint([part.bounds[i&1?'max':'min'][0],part.bounds[i&2?'max':'min'][1],part.bounds[i&4?'max':'min'][2]],pose);
     artifactPoint(point,room.transform);
     if(point[1]<-1e-6||point[1]>room.dimensions.height+1e-6||Math.abs(point[0])>room.dimensions.width/2+1e-6||Math.abs(point[2])>room.dimensions.depth/2+1e-6)return fail('OUTSIDE_ROOM','Move the mount or target so every articulated part stays inside the room.');
+    if(fixedSupport&&point[1]>fixedPose.position[1]+1e-6)return fail('RAIL_CONTACT','Keep all articulated parts below the fixed support receiver.');
     points.push(point);
    }
    parts.push({name:part.name,frame:part.frame,pose,bounds:{min:[0,1,2].map(i=>Math.min(...points.map(p=>p[i]!))) as AffinePoint,max:[0,1,2].map(i=>Math.max(...points.map(p=>p[i]!))) as AffinePoint}});
