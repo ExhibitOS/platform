@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import * as three from 'three';
-import {architecturalSolids,architecturalWallBoxes,ARCHITECTURAL_FINISH_NAMESPACE,wallFinishesFor} from '@exhibitos/studio-contract';
+import {architecturalSolids,architecturalWallBoxes,ARCHITECTURAL_FINISH_NAMESPACE,PAIRED_WALL_STRUCTURE_NAMESPACE,wallFinishesFor} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {newDoor} from './geometry/model';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
@@ -51,6 +51,37 @@ it.each([['painted-edge','plain'],['plain','painted-edge'],['dark-edge','painted
   const bounds=new three.Box3().setFromObject(f.world),points=architecturalSolids(f.document).flatMap(s=>s.vertices);for(const axis of [0,1,2]){expect(bounds.min.getComponent(axis)).toBeCloseTo(Math.min(...points.map(p=>p[axis]!)),6);expect(bounds.max.getComponent(axis)).toBeCloseTo(Math.max(...points.map(p=>p[axis]!)),6);}
   expect(JSON.stringify(f.document)).toBe(input);expect(JSON.stringify(architecturalSolids(f.document))).toBe(physical);
  }finally{result.dispose();for(const m of f.materials.values())m.dispose();}
+});
+it.each([0,.11])('matches structural faces, artwork sightlines and the merged reveal at %s m one-sided extension',extensionMeters=>{
+ const f=fixture();
+ if(extensionMeters)f.document.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE]={version:1,pairs:[{
+  openingId:f.second.id,peerOpeningId:f.first.id,side:'positive-normal',extensionMeters,
+ }]};
+ const result=installArchitecturalFinishes(three,f.document,f.surfaces,f.materials);
+ try{
+  f.world.updateMatrixWorld(true);
+  const peer=result.meshes.find(m=>m.userData.architecturalFinish.surfaceId===f.b.id)!;
+  const physical=architecturalSolids(f.document).filter(s=>s.surfaceId===f.b.id).flatMap(s=>s.vertices.map(p=>p[2]));
+  const rendered=new three.Box3().setFromObject(peer);
+  expect(rendered.min.z).toBeCloseTo(Math.min(...physical),6);
+  expect(rendered.max.z).toBeCloseTo(Math.max(...physical),6);
+
+  const eye=new three.Vector3(0,1.66,0);
+  for(const x of [-2.2,2.2]){
+   const ray=new three.Vector3(x,1.5,-3.919).sub(eye);
+   expect(new three.Raycaster(eye,ray.clone().normalize(),0,ray.length()).intersectObjects(result.meshes)).toEqual([]);
+  }
+  expect(new three.Raycaster(eye,new three.Vector3(0,0,-1)).intersectObjects(result.meshes)).toEqual([]);
+
+  for(const z of [-4.179,-4.071,-4.069,-3.931,-3.929]){
+   const origin=new three.Vector3(0,1.5,z);
+   const covered=z> -4.07-extensionMeters&&z< -3.93;
+   for(const [direction,distance] of [[new three.Vector3(-1,0,0),1.2],[new three.Vector3(1,0,0),1.2],[new three.Vector3(0,1,0),1.5]] as const){
+    const hits=new three.Raycaster(origin,direction).intersectObjects(result.meshes).filter(hit=>Math.abs(hit.distance-distance)<1e-6);
+    expect(new Set(hits.map(hit=>hit.object.uuid)).size).toBe(covered?1:0);
+   }
+  }
+ }finally{result.dispose();for(const material of f.materials.values())material.dispose();}
 });
 it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled','multiple'])('leaves %s geometry on its original safe path',kind=>{
  const f=fixture();if(kind==='unpaired')delete f.first.connectsToOpeningId;if(kind==='oneway')delete f.second.connectsToOpeningId;if(kind==='width')f.second.dimensions.width=2;if(kind==='height')f.second.dimensions.height=2.5;if(kind==='shift')f.second.offset[0]=.1;if(kind==='tilt')f.surfaces.get(f.b.id)!.rotation.x=.1;if(kind==='disjoint')f.surfaces.get(f.b.id)!.position.z=3.7;
