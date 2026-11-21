@@ -19,7 +19,8 @@ import {ordinaryWorkspaceBenchVisualReplacementDelta} from './workspace-bench-vi
 import {ordinaryWorkspaceInfoStandReplacementDelta} from './workspace-info-stand-replacement-delta.ts';
 import {nativeFixtureProposal,type NativeFixtureCommand} from './native-fixture-proposal.ts';
 import {nativeSceneProposal,type NativeSceneCommand} from './native-scene-proposal.ts';
-import {nativeDoorPairProposal,NATIVE_DOOR_PAIR_PROFILE,type NativeDoorPairCommand} from './native-door-pair-proposal.ts';
+import {assertReciprocalDoorEdits,DoorPairEditError,editReciprocalDoorPair} from '@exhibitos/studio-contract';
+import {nativeDoorPairProposal,NATIVE_DOOR_PAIR_PROFILE,ordinaryDoorPairEditDelta,type NativeDoorPairCommand,type NativeDoorPairEditCommand} from './native-door-pair-proposal.ts';
 import {applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,furnishingWalkingCollisionState,validateFurnishingWalkingCollision,validateFurnishings,type FurnishingWalkingCollisionTarget} from '@exhibitos/studio-contract';
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
@@ -49,7 +50,7 @@ import {consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,type NativeOe
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
 import { ApiError, uuid, type Session } from "./auth.ts";
-import {NativeTrackSpotAimProposalError} from './api-error.ts';
+import {NativeDoorPairEditProposalError,NativeTrackSpotAimProposalError} from './api-error.ts';
 import {applyRecordedFloorCommand, floorRecordingStatus, recordedFloorScopes, type FloorRecordingStatus, type RecordedFloorCommand} from '@exhibitos/studio-contract';
 export type Draft = Extract<Lifecycle, { kind: "exhibition-draft" }>;
 export interface StudioResponse {
@@ -63,7 +64,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|NativeMeasuredFrameAttachmentCommand|PairedWallStructureCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=RecordedFloorCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeDoorPairEditCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|NativeMeasuredFrameAttachmentCommand|PairedWallStructureCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -214,6 +215,19 @@ export class Studio {
   /** The persisted, owner-bound provenance controls profile selection. */
   async validateNativeViewport(c:PoolClient,s:Session,id:string,input:StudioInput,match?:string) {
     const row=await this.access(c,s,id);
+    const doorPairEdit=!row.nativeBounded&&input?.draft?.candidate&&ordinaryDoorPairEditDelta(row.metadata,input.draft);
+    if(doorPairEdit){
+      const owner=this.nativeOexWorkspace;
+      if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId||
+         row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
+      await owner.assertDatabase(c);
+      if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
+      if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+      if(doorPairEdit.frameChanged)await this.authorizeDoorPairFrame(c,s);
+      checked(input);
+      await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
+      return {valid:true as const};
+    }
     // An ordinary fresh placement can be previewed from its exact saved head.
     // Keep the existing bounded, removal, and replacement paths independent.
     const stockRail=!row.nativeBounded&&input?.draft?.candidate&&ordinaryCeilingRailInsertionDelta(row.metadata,input.draft);
@@ -436,6 +450,13 @@ export class Studio {
     return this.putInternal(c,s,id,{requestId:input.requestId,draft},match,undefined,payloadHash);
   }
   /** Server-only narrow operation; authorization and verified approval remain caller obligations. */
+  private async authorizeDoorPairFrame(c:PoolClient,s:Session){
+    const service=this.workspaceFurnishing;
+    if(!service?.hasWriterLease()||!service.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
+    await service.authorize(c,s);
+    return service;
+  }
+
   async proposeNativeAuthoring(c:PoolClient,s:Session,id:string,input:NativeAuthoringProposalInput,match:string){
     const owner=this.nativeOexWorkspace;
     if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
@@ -473,6 +494,14 @@ export class Studio {
         };
         result=nativeDoorPairProposal(draft.candidate,operation,[doorId('first'),doorId('second')]);
       }
+      else if(request.type==='edit-connected-door-pair'){
+        if(row.nativeBounded)throw new ApiError(403,'FORBIDDEN');
+        if(request.dimensions===undefined&&request.frame===undefined)throw new DoorPairEditError('reference');
+        const service=request.frame!==undefined?await this.authorizeDoorPairFrame(c,s):undefined;
+        const frame=request.frame?await service!.checkDisplay(c,s,request.frame.furnishingId,request.frame.furnishingVersion):request.frame;
+        result=editReciprocalDoorPair(draft.candidate,request.openingId,request.dimensions,frame);
+        await assertWorkspaceFurnishingSnapshot(c,s,result.candidate,this.workspaceFurnishing);
+      }
       else if(request.type==='attach-measured-frame'){
         const service=this.workspaceFurnishing;
         if(!service?.hasWriterLease()||!service.supportsReusableFit())throw Error('FRAME_IMAGE_FIT_UNSUPPORTED');
@@ -507,6 +536,10 @@ export class Studio {
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){
+      if(request.type==='edit-connected-door-pair'){
+        if(error instanceof DoorPairEditError)throw new NativeDoorPairEditProposalError(error);
+        if(error instanceof ApiError)throw error;
+      }
       if((request.type==='select-floor-material'||request.type==='reset-floor-sound')&&error instanceof Error&&
         ['FLOOR_TARGET_INVALID','FLOOR_RECORDING_UNASSIGNED','FLOOR_SETTINGS_INVALID'].includes(error.message))throw new ApiError(422,error.message);
       if((request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure')&&error instanceof Error&&error.message==='PAIRED_WALL_STRUCTURE_INVALID')
@@ -637,6 +670,13 @@ export class Studio {
     if (replay) return replay;
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
+    if(this.nativeBoundedEditing&&this.nativeOexWorkspace&&!row.nativeBounded){
+      try{assertReciprocalDoorEdits(row.metadata.candidate,input.draft.candidate);}
+      catch(error){
+        if(error instanceof DoorPairEditError)throw new NativeDoorPairEditProposalError(error);
+        throw error;
+      }
+    }
     if(railDelta)await this.assertCeilingRailReplacement(c,s,row.metadata,input.draft);
     if(infoStandDelta)await this.assertInfoStandReplacement(c,s,row.metadata,input.draft);
     if(benchVisualDelta)await this.assertBenchVisualReplacement(c,s,row.metadata,input.draft);

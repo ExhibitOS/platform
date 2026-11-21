@@ -280,6 +280,7 @@ export * from './room-envelope.js';
 export {roomCeilingFillDimensions} from './room-envelope-faces.js';
 
 export * from './door-connection.js';
+export * from './reciprocal-door-edit.js';
 export * from './workspace-furnishing.js';
 export * from './workspace-default-seats.js';
 

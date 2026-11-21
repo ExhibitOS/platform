@@ -85,6 +85,17 @@ function movedSurface(surface:Surface,kind:Side,dimensions:Room['dimensions']):S
  result.transform.position=kind==='floor'?[0,0,0]:kind==='ceiling'?[0,dimensions.height,0]:[kind==='west'?-dimensions.width/2:kind==='east'?dimensions.width/2:0,dimensions.height/2,kind==='north'?-dimensions.depth/2:kind==='south'?dimensions.depth/2:0];
  return result;
 }
+export function assertOpeningsClearOfWallArtwork(document:Exhibition,roomId:string,openings=document.openings){
+ for(const p of document.placements.filter(p=>same(p.roomId,roomId))){
+  const art=document.artworks.find(a=>same(a.revisionId,p.artworkRevisionId));if(art?.artworkType!=='image')continue;
+  const corners=artifactCorners(art.dimensions,[art.transform,p.transform]);
+  for(const wall of document.surfaces.filter(s=>same(s.roomId,roomId)&&s.type==='wall')){
+   if(!close(Math.abs(p.transform.rotation.reduce((sum,v,i)=>sum+v*wall.transform.rotation[i]!,0)),1))continue;
+   const b=artifactBounds(corners.map(v=>inverse(v,wall.transform)));if(!close(b.min[2],.002))continue;
+   for(const opening of openings.filter(o=>same(o.surfaceId,wall.id)))if(b.max[0]>opening.offset[0]-opening.dimensions.width/2+tolerance&&b.min[0]<opening.offset[0]+opening.dimensions.width/2-tolerance&&b.max[1]>opening.offset[1]-opening.dimensions.height/2+tolerance&&b.min[1]<opening.offset[1]+opening.dimensions.height/2-tolerance)fail('ROOM_ENVELOPE_OPENING_ARTWORK',opening.id,'문·창문이 벽에 맞춘 작품과 겹쳐요. 작품이나 개구부 위치를 먼저 옮겨 주세요.');
+  }
+ }
+}
 function assertRoomEnvelopeContentsCore(document:Exhibition,roomId:string,baseline?:Exhibition){
  const room=roomFor(document,roomId),d=room.dimensions;assertRoom(room);
  for(const surface of document.surfaces.filter(s=>same(s.roomId,roomId))){
@@ -93,15 +104,7 @@ function assertRoomEnvelopeContentsCore(document:Exhibition,roomId:string,baseli
   try{surfacePanels(surface,document.openings);}catch{fail('ROOM_ENVELOPE_OPENING_BOUNDS',surface.id,'문·창문이 벽 밖으로 나가요. 개구부 크기나 위치를 먼저 조절해 주세요.');}
  }
  for(const p of document.placements.filter(p=>same(p.roomId,roomId))){const art=document.artworks.find(a=>same(a.revisionId,p.artworkRevisionId));if(!art||artifactCorners(art.dimensions,[art.transform,p.transform]).some(v=>!inside(v,d)))fail('ROOM_ENVELOPE_ARTWORK_BOUNDS',p.id,'작품 전체가 새 방 안에 들어오지 않아요. 작품을 먼저 옮겨 주세요.');artifactCorners(art.dimensions,[art.transform,p.transform,room.transform],true);}
- for(const p of document.placements.filter(p=>same(p.roomId,roomId))){
-  const art=document.artworks.find(a=>same(a.revisionId,p.artworkRevisionId));if(art?.artworkType!=='image')continue;
-  const corners=artifactCorners(art.dimensions,[art.transform,p.transform]);
-  for(const wall of document.surfaces.filter(s=>same(s.roomId,roomId)&&s.type==='wall')){
-   if(!close(Math.abs(p.transform.rotation.reduce((sum,v,i)=>sum+v*wall.transform.rotation[i]!,0)),1))continue;
-   const b=artifactBounds(corners.map(v=>inverse(v,wall.transform)));if(!close(b.min[2],.002))continue;
-   for(const opening of document.openings.filter(o=>same(o.surfaceId,wall.id)))if(b.max[0]>opening.offset[0]-opening.dimensions.width/2+tolerance&&b.min[0]<opening.offset[0]+opening.dimensions.width/2-tolerance&&b.max[1]>opening.offset[1]-opening.dimensions.height/2+tolerance&&b.min[1]<opening.offset[1]+opening.dimensions.height/2-tolerance)fail('ROOM_ENVELOPE_OPENING_ARTWORK',opening.id,'문·창문이 벽에 맞춘 작품과 겹쳐요. 작품이나 개구부 위치를 먼저 옮겨 주세요.');
-  }
- }
+ assertOpeningsClearOfWallArtwork(document,roomId);
  for(const installation of resolveInstallations(document).filter(i=>same(i.roomId,roomId)))if(installation.issues.length||installation.primitives.some(p=>p.vertices.some(v=>!inside(v,d))))fail('ROOM_ENVELOPE_INSTALLATION_BOUNDS',installation.placementId,'받침대나 프레임 전체가 새 방 안에 들어오지 않아요. 먼저 설치 위치를 조절해 주세요.');
  for(const light of document.lights.filter(l=>same(l.roomId,roomId)))if(!inside(light.transform.position,d))fail('ROOM_ENVELOPE_LIGHT_BOUNDS',light.id,'자유 배치 조명이 새 방 밖으로 나가요. 조명을 먼저 옮기거나 부착할 표면을 선택해 주세요.');
  if(!validateStudioLightDetails(document).valid)fail('ROOM_ENVELOPE_LIGHT_BOUNDS',roomId,'조명 기구 전체와 비추는 방향이 새 방에 맞지 않아요. 위치·부착 간격·방향을 확인해 주세요.');
