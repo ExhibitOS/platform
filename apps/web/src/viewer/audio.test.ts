@@ -305,8 +305,9 @@ test('recorded step bank preloads only its selected clip and reuses it after a m
  for(let n=0;n<9;n++){runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{roomId:'room',floorSurfaceId:id}));}await Promise.resolve();assert.deepEqual(requested,[ids[0]]);
  requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:'other-floor'}));await Promise.resolve();assert.deepEqual(requested,[other[0]]);
  requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));await Promise.resolve();assert.equal(requested.length,0);
- internal.buffers.delete(ids[0]!);audio.pending=new Map(Array.from({length:8},(_,i)=>[`held-${i}`,new Promise<AudioBuffer>(()=>{})]));audio.preload();assert.equal(requested.length,0);audio.pending.clear();
- audio.preload();await Promise.resolve();assert.deepEqual(requested,[ids[0]]); // Explicit cache eviction reloads the same choice once.
+ internal.buffers.delete(ids[0]!);audio.pending=new Map(Array.from({length:8},(_,i)=>[`held-${i}`,new Promise<AudioBuffer>(()=>{})]));audio.preload();
+ // Even a full optional queue admits one selected step after cache eviction.
+ await vi.waitFor(()=>assert.deepEqual(requested,[ids[0]]));audio.pending.clear();
  }finally{runtime.dispose();random.mockRestore();}
 });
 
@@ -409,15 +410,76 @@ async function verifiedStepFixture(sampleIndex:0|1=0){
 }
 test('a queued step cancelled by mute or tab hiding resumes the same selection once on the same floor',async()=>{
  for(const hide of [false,true]){
-  const f=await verifiedStepFixture();let release:()=>void=()=>{};f.audio.loadQueue=new Promise(resolve=>{release=()=>resolve(undefined);});
+  const f=await verifiedStepFixture();
   try{
-   const queued=f.begin();if(hide)f.runtime.visibility(false);else f.runtime.mute(true);release();
+   const queued=f.begin();if(hide)f.runtime.visibility(false);else f.runtime.mute(true);
    await assert.rejects(queued,/AUDIO_PRELOAD_STALE/);assert.equal(f.requests(),0);
    if(hide)f.runtime.visibility(true);else f.runtime.mute(false);
    const resumed=f.audio.pending.get(f.sample)!;assert(resumed);await resumed;
    assert.equal(f.requests(),1);assert.equal(f.decodes(),1);assert.equal(f.calls.length,0);
    f.stride();assert.deepEqual(f.calls,[[0,0,.43]]);
-  }finally{release();f.runtime.dispose();}
+  }finally{f.runtime.dispose();}
+ }
+});
+test('the current wood step loads during a held background transfer and only plays on an unmuted stride', async () => {
+ const f = await verifiedStepFixture(1);
+ const {publication,context} = f.internal;
+ const backgroundId = '22222222-2222-4222-8222-222222222222';
+ const background = wav(60);
+ publication.exhibition.mediaAssets = [{
+  id:backgroundId, mime:'audio/wav', bytes:background.byteLength,
+  sha256:createHash('sha256').update(new Uint8Array(background)).digest('hex'),
+ }] as typeof publication.exhibition.mediaAssets;
+ publication.assets = [{
+  assetId:backgroundId, mime:'audio/wav', url:`/api/v1/publications/${publication.publication.id}/assets/${backgroundId}`,
+ }];
+ f.internal.experience.footsteps = [{surfaceId:f.id,material:'wood'}];
+ publication.exhibition.extensions = {
+  ...publication.exhibition.extensions,
+  'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']},
+ };
+
+ let reportStarted = () => {};
+ let releaseTransfer = () => {};
+ const started = new Promise<void>(resolve => { reportStarted = resolve; });
+ const transfer = new Promise<void>(resolve => { releaseTransfer = resolve; });
+ const local = publication.local!, fetchStep = local.fetcher!;
+ local.fetcher = async (input, init) => {
+  if (!String(input).endsWith(`/${backgroundId}`)) return fetchStep(input,init);
+  reportStarted();
+  await transfer;
+  return new Response(background,{headers:{
+   'content-type':'audio/wav', 'x-exhibitos-publication-revision':publication.publication.revisionSha256,
+  }});
+ };
+ const decode = context.decodeAudioData;
+ const decodeBackground = vi.fn(async () => ({duration:60,length:60*48000,numberOfChannels:1,sampleRate:48000}) as AudioBuffer);
+ context.decodeAudioData = bytes => bytes.byteLength === background.byteLength ? decodeBackground() : decode(bytes);
+ const chooseWood = vi.spyOn(Math,'random').mockReturnValue(.25);
+ const load = f.audio.load(backgroundId);
+ try {
+  await started;
+  f.runtime.lifecycle(true);
+  f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));
+  const step = f.audio.pending.get(f.sample);
+  assert(step);
+  await step;
+  assert.equal(f.requests(),1);
+  assert.equal(f.decodes(),1);
+  assert.equal(decodeBackground.mock.calls.length,0);
+  assert.equal(f.audio.pending.get(backgroundId),load);
+  assert.deepEqual(f.calls,[]);
+  f.stride();
+  assert.deepEqual(f.calls,[[0,0,.43]]);
+  f.runtime.mute(true);
+  f.stride();
+  assert.deepEqual(f.calls,[[0,0,.43]]);
+  assert.equal(f.requests(),1);
+ } finally {
+  releaseTransfer();
+  await load;
+  chooseWood.mockRestore();
+  f.runtime.dispose();
  }
 });
 test('room narration preloads retain the selected wood recording beside active BGM', async () => {
