@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
-import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
+import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,spaceLightingFor,setSpaceLighting,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
@@ -182,6 +182,24 @@ it('proposes only a checked change to the current saved draft through the instal
   expect(marked.lights).toEqual([originalLight,{...fillLight,intensity:5*fillLight.intensity}]);
   expect(lightDetailsFor(marked).at(-1)?.ceilingFill).toEqual({version:1,brightness:.5,mode:'default'});
   expect((await post({...selectDefault,request:{...selectDefault.request,brightness:.4}},{'if-match':fillHead})).statusCode).toBe(422);
+  draft.candidate=marked;
+  const markedHead=etag(revision,draft);
+  const localSelection={...selectDefault,request:{...selectDefault.request,spaceLightingMode:'room-local'}};
+  const roomLocal=await post(localSelection,{'if-match':markedHead});
+  expect(roomLocal.statusCode,roomLocal.body).toBe(200);
+  const localCandidate=roomLocal.json().candidate;
+  expect(spaceLightingFor(localCandidate)).toEqual({version:1,baselineIntensity:0,reflectionIntensity:0,mode:'room-local'});
+  expect(localCandidate.lights).toEqual(marked.lights);
+  expect(lightDetailsFor(localCandidate)).toEqual(lightDetailsFor(marked));
+  expect(draft.candidate).toEqual(marked);
+  expect((await post(localSelection,{'if-match':fillHead})).statusCode).toBe(412);
+  expect((await post({...localSelection,request:{...localSelection.request,principalId:randomUUID()}},{'if-match':markedHead})).statusCode).toBe(403);
+  expect((await post({...localSelection,request:{...localSelection.request,spaceLightingMode:'future'}},{'if-match':markedHead})).statusCode).toBe(400);
+  expect((await post({...localSelection,request:{...localSelection.request,brightness:0}},{'if-match':markedHead})).statusCode).toBe(422);
+  draft.candidate=setSpaceLighting(marked,{version:1,baselineIntensity:0,reflectionIntensity:0});
+  expect((await post(localSelection,{'if-match':etag(revision,draft)})).json().candidate).toEqual(draft.candidate);
+  const negotiated=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
+  expect(negotiated.json().nativeRoomCeilingFillRoomLocalProfile).toBe(ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE);
   draft.candidate=marked;
   const {mode:_,...selectExplicit}=selectDefault.request;
   void _;
