@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,artifactBounds,validateArtifactHull,createConvexCollision,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
+import {pairedWallStructuralSpan,validatePairedWallStructure} from './paired-wall-structure.js';
 import {surfacePanels} from './surface-panels.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {plainBaseboardPortalFeet} from './architectural-portal-feet.js';
@@ -16,7 +17,8 @@ const equal=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const finite=(v:unknown,min:number,max:number):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 /** XY never enters the original opening. No sill/threshold, or independent door geometry. */
 export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],openings:Exhibition['openings'],settings:WallFinish,includeBaseboard=true,document?:Exhibition):ArchitecturalBox[]{
- const panels=surfacePanels(surface,openings),boxes:ArchitecturalBox[]=panels.map(p=>({position:[p.x,p.y,0],dimensions:{width:p.width,height:p.height,depth:settings.depth},kind:'structure'}));
+ const panels=surfacePanels(surface,openings),span=document?pairedWallStructuralSpan(document,surface.id,settings.depth):{minZ:-settings.depth/2,maxZ:settings.depth/2};
+ const boxes:ArchitecturalBox[]=panels.map(p=>({position:[p.x,p.y,(span.minZ+span.maxZ)/2],dimensions:{width:p.width,height:p.height,depth:span.maxZ-span.minZ},kind:'structure'}));
  if(settings.preset==='plain'){
   if(settings.plainBaseboard!==true||!includeBaseboard)return boxes;
   if(!document)throw Error('PLAIN_BASEBOARD_CONTEXT_REQUIRED');
@@ -57,7 +59,10 @@ function boxVertices(box:ArchitecturalBox,surface:ArtifactPose,room:ArtifactPose
 export function wallFinishesFor(document:Pick<Exhibition,'extensions'>):WallFinish[]{return structuredClone((document.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined)?.walls??[]);}
 export function validateArchitecturalFinishes(candidate:unknown){
  const errors:{code:string;path:string;message:string}[]=[];const add=(code:string,path:string,message:string)=>errors.push({code,path:'/candidate/extensions/org.exhibitos.studio~1architectural-finishes'+path,message});
- if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,ARCHITECTURAL_FINISH_NAMESPACE))return {valid:true,errors};
+ if(!object(candidate)||!object(candidate.extensions))return {valid:true,errors};
+ const paired=validatePairedWallStructure(candidate as unknown as Exhibition);
+ if(!paired.valid)return paired;
+ if(!Object.hasOwn(candidate.extensions,ARCHITECTURAL_FINISH_NAMESPACE))return {valid:true,errors};
  const value=candidate.extensions[ARCHITECTURAL_FINISH_NAMESPACE];
  if(!object(value)||Object.keys(value).sort().join(',')!=='version,walls'||value.version!==1||!Array.isArray(value.walls)||value.walls.length>ARCHITECTURAL_FINISH_LIMITS.walls){add('ARCHITECTURAL_FINISH_SCHEMA','','Expected closed version1 with at most20 walls');return {valid:false,errors};}
  if(!['surfaces','rooms','openings','placements','artworks'].every(k=>Array.isArray(candidate[k]))){add('ARCHITECTURAL_FINISH_SCHEMA','','Expected full exhibition arrays');return {valid:false,errors};}
