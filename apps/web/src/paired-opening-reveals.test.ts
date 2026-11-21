@@ -7,6 +7,7 @@ import {newDoor} from './geometry/model';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {pairedOpeningRevealCoverage,wallOpeningShell} from './wall-opening-shell';
 import {surfaceTexturePlan} from './surface-texture-renderer';
+import {createNavigationController} from './viewer/navigation';
 
 function fixture(){
  const document=newDraft().candidate,room=document.rooms[0]!;room.dimensions={width:8,height:4,depth:8};room.transform={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]};
@@ -51,6 +52,66 @@ it.each([['painted-edge','plain'],['plain','painted-edge'],['dark-edge','painted
   const bounds=new three.Box3().setFromObject(f.world),points=architecturalSolids(f.document).flatMap(s=>s.vertices);for(const axis of [0,1,2]){expect(bounds.min.getComponent(axis)).toBeCloseTo(Math.min(...points.map(p=>p[axis]!)),6);expect(bounds.max.getComponent(axis)).toBeCloseTo(Math.max(...points.map(p=>p[axis]!)),6);}
   expect(JSON.stringify(f.document)).toBe(input);expect(JSON.stringify(architecturalSolids(f.document))).toBe(physical);
  }finally{result.dispose();for(const m of f.materials.values())m.dispose();}
+});
+it('uses the one-sided structural extent for both reveal faces and walking collision',async()=>{
+ const {document,a,b,first,second,world,surfaces,materials}=fixture();
+ const walls=wallFinishesFor(document);
+ walls[1]!.preset='painted-edge';
+ document.extensions![ARCHITECTURAL_FINISH_NAMESPACE]={version:1,walls:walls.map(wall=>({...wall}))};
+ const trimMatrices=(meshes:three.Mesh[])=>{
+  const trim=meshes.find(mesh=>mesh.userData.architecturalFinish.surfaceId===b.id&&mesh.userData.architecturalFinish.kind==='finish') as three.InstancedMesh;
+  return Array.from({length:trim.count},(_,index)=>{
+   const matrix=new three.Matrix4();
+   trim.getMatrixAt(index,matrix);
+   return matrix.toArray();
+  });
+ };
+ const baseline=installArchitecturalFinishes(three,document,surfaces,materials);
+ const originalTrim=trimMatrices(baseline.meshes);
+ baseline.dispose();
+ document.extensions!['org.exhibitos.studio/paired-wall-structure']={version:1,pairs:[{
+  openingId:first.id,peerOpeningId:second.id,side:'positive-normal',extensionMeters:.11,
+ }]};
+ // Resolve coverage with the extended wall as the peer to exercise inverted Z.
+ document.openings.reverse();
+ const result=installArchitecturalFinishes(three,document,surfaces,materials);
+ world.updateMatrixWorld(true);
+ try{
+  const structures=result.meshes.filter(mesh=>mesh.userData.architecturalFinish.kind==='structure');
+  const bounds=new three.Box3().setFromObject(structures.find(mesh=>mesh.userData.architecturalFinish.surfaceId===a.id)!);
+  expect(bounds.min.z).toBeCloseTo(-4.07,6);
+  expect(bounds.max.z).toBeCloseTo(-3.82,6);
+  const solidPoints=architecturalSolids(document).filter(solid=>solid.kind==='structure').flatMap(solid=>solid.vertices);
+  expect(Math.min(...solidPoints.map(point=>point[2]))).toBeCloseTo(bounds.min.z,6);
+  expect(Math.max(...solidPoints.map(point=>point[2]))).toBeCloseTo(bounds.max.z,6);
+  expect(trimMatrices(result.meshes)).toEqual(originalTrim);
+  for(const z of [-4.06,-3.99,-3.94,-3.83]){
+   for(const [direction,distance] of [[new three.Vector3(-1,0,0),1.3],[new three.Vector3(0,1,0),1.6]] as const){
+    const hits=new three.Raycaster(new three.Vector3(.1,1.4,z),direction).intersectObjects(structures,false)
+     .filter(hit=>Math.abs(hit.distance-distance)<1e-6);
+    expect(new Set(hits.map(hit=>hit.object.userData.architecturalFinish.surfaceId))).toEqual(new Set([a.id]));
+   }
+  }
+  const navigation=await createNavigationController(document,{position:[0,1.6,-3]});
+  try{
+   for(const [z,endZ,yaw,roomId] of [[-3,-4.35,0,b.roomId],[-5,-3.55,Math.PI,a.roomId]] as const){
+    navigation.reset({position:[0,1.6,z],yaw});
+    const direction=Math.sign(endZ-z);
+    for(let i=0;i<100;i++){
+     const state=navigation.advance(1/60,{forward:1,right:0,yaw});
+     expect(state.blocked||state.recovered,`yaw ${yaw}, frame ${i}, eye ${state.eyePosition}`).toBe(false);
+     if((state.eyePosition[2]-endZ)*direction>=0)break;
+    }
+    const state=navigation.state();
+    expect((state.eyePosition[2]-endZ)*direction).toBeGreaterThanOrEqual(0);
+    expect(state.roomId).toBe(roomId);
+    expect(state.grounded).toBe(true);
+   }
+  }finally{navigation.dispose();}
+ }finally{
+  result.dispose();
+  for(const material of materials.values())material.dispose();
+ }
 });
 it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled','multiple'])('leaves %s geometry on its original safe path',kind=>{
  const f=fixture();if(kind==='unpaired')delete f.first.connectsToOpeningId;if(kind==='oneway')delete f.second.connectsToOpeningId;if(kind==='width')f.second.dimensions.width=2;if(kind==='height')f.second.dimensions.height=2.5;if(kind==='shift')f.second.offset[0]=.1;if(kind==='tilt')f.surfaces.get(f.b.id)!.rotation.x=.1;if(kind==='disjoint')f.surfaces.get(f.b.id)!.position.z=3.7;

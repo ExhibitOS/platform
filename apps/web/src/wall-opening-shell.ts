@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import type { architecturalWallBoxes,WallFinish } from '@exhibitos/studio-contract';
+import {pairedWallStructuralSpan,type architecturalWallBoxes,type WallFinish} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 
 type Point = readonly [number, number];
@@ -14,7 +14,7 @@ export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab};
  * Draw their depth union once, on a deterministic world-normal side. Front/back
  * panels and physical solids remain unchanged. Only aligned, matching apertures
  * with overlapping depths qualify; other geometry retains the original shell. */
-export function pairedOpeningRevealCoverage(three:typeof Three,document:Pick<Exhibition,'openings'|'surfaces'>,surfaces:ReadonlyMap<string,Three.Group>,walls:readonly WallFinish[]){
+export function pairedOpeningRevealCoverage(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,walls:readonly WallFinish[]){
  const result=new Map<string,OpeningRevealCoverage[]>(),depths=new Map(walls.map(w=>[w.surfaceId.toLowerCase(),w.depth])),visited=new Set<string>(),epsilon=1e-6;
  const put=(opening:Exhibition['openings'][number],minZ:number,maxZ:number,omit:boolean,peer:Slab)=>{
   const id=opening.surfaceId.toLowerCase(),rows=result.get(id)??[];
@@ -35,14 +35,21 @@ export function pairedOpeningRevealCoverage(three:typeof Three,document:Pick<Exh
   // Relative X/Z reverse, Y agrees. Reject skew, tilted/nonmatching apertures,
   // disjoint depths and singular transforms rather than guessing a join.
   if(!e.every(Number.isFinite)||e[0]!>=0||e[5]!<=0||e[10]!>=0||[1,2,3,4,6,7,8,9,11].some(i=>Math.abs(e[i]!)>1e-9)||Math.abs(e[15]!-1)>1e-9)continue;
-  const center=new three.Vector3(...mate.offset,0).applyMatrix4(relative),peerHalf=Math.abs(e[10]!)*depthB/2;
-  if(Math.abs(center.x-opening.offset[0])>epsilon||Math.abs(center.y-opening.offset[1])>epsilon||Math.abs(Math.abs(e[0]!)*mate.dimensions.width-opening.dimensions.width)>epsilon||Math.abs(e[5]!*mate.dimensions.height-opening.dimensions.height)>epsilon||Math.min(depthA/2,center.z+peerHalf)-Math.max(-depthA/2,center.z-peerHalf)<=epsilon)continue;
+  const center=new three.Vector3(...mate.offset,0).applyMatrix4(relative);
+  const spanA=pairedWallStructuralSpan(document,surfaceA.id,depthA);
+  const spanB=pairedWallStructuralSpan(document,surfaceB.id,depthB);
+  const peerMinZ=center.z+e[10]!*spanB.maxZ,peerMaxZ=center.z+e[10]!*spanB.minZ;
+  if(Math.abs(center.x-opening.offset[0])>epsilon||Math.abs(center.y-opening.offset[1])>epsilon
+    ||Math.abs(Math.abs(e[0]!)*mate.dimensions.width-opening.dimensions.width)>epsilon
+    ||Math.abs(e[5]!*mate.dimensions.height-opening.dimensions.height)>epsilon
+    ||Math.min(spanA.maxZ,peerMaxZ)-Math.max(spanA.minZ,peerMinZ)<=epsilon)continue;
   const normal=new three.Vector3(0,0,1).applyMatrix3(new three.Matrix3().getNormalMatrix(a.matrixWorld)).normalize(),owns=normal.toArray().find(n=>Math.abs(n)>1e-8)!>0;
-  const inverse=relative.clone().invert().elements;if(!inverse.every(Number.isFinite)||Math.abs(inverse[15]!-1)>1e-9)continue;const otherHalf=Math.abs(inverse[10]!)*depthA/2;
-  const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:center.z-peerHalf,maxZ:center.z+peerHalf};
-  const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!-otherHalf,maxZ:inverse[14]!+otherHalf};
-  put(opening,Math.min(-depthA/2,peerA.minZ),Math.max(depthA/2,peerA.maxZ),!owns,peerA);
-  put(mate,Math.min(-depthB/2,peerB.minZ),Math.max(depthB/2,peerB.maxZ),owns,peerB);
+  const inverse=relative.clone().invert().elements;
+  if(!inverse.every(Number.isFinite)||Math.abs(inverse[15]!-1)>1e-9)continue;
+  const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:peerMinZ,maxZ:peerMaxZ};
+  const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!+inverse[10]!*spanA.maxZ,maxZ:inverse[14]!+inverse[10]!*spanA.minZ};
+  put(opening,Math.min(spanA.minZ,peerA.minZ),Math.max(spanA.maxZ,peerA.maxZ),!owns,peerA);
+  put(mate,Math.min(spanB.minZ,peerB.minZ),Math.max(spanB.maxZ,peerB.maxZ),owns,peerB);
  }
  return result;
 }
@@ -107,7 +114,9 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
 
   const positions: number[] = [], normals: number[] = [], indices: number[] = [];
   const vertices = new Map<string, number>(), boundary = new Map<string, Edge>();
+  const [,,centerZ] = boxes[0]!.position;
   const halfDepth = boxes[0]!.dimensions.depth / 2;
+  const backZ = centerZ - halfDepth, frontZ = centerZ + halfDepth;
   function vertex([x, y]: Point, z: number, nx: number, ny: number, nz: number) {
     const key = `${x},${y},${z}/${nx},${ny},${nz}`;
     const existing = vertices.get(key);
@@ -120,7 +129,7 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   }
   for (const panel of panels) {
     const center: Point = [(panel.min[0] + panel.max[0]) / 2, (panel.min[1] + panel.max[1]) / 2];
-    const front = vertex(center, halfDepth, 0, 0, 1), back = vertex(center, -halfDepth, 0, 0, -1);
+    const front = vertex(center, frontZ, 0, 0, 1), back = vertex(center, backZ, 0, 0, -1);
     for (const edge of panelEdges(panel)) {
       const axis = varyingAxis(edge), [from, to] = edge, fixed = from[1 - axis]!;
       const direction = Math.sign(to[axis] - from[axis]);
@@ -130,8 +139,8 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
       const points: Point[] = cuts.map(value => axis === 0 ? [value, fixed] : [fixed, value]);
       for (let i = 1; i < points.length; i++) {
         const a = points[i - 1]!, b = points[i]!;
-        indices.push(front, vertex(a, halfDepth, 0, 0, 1), vertex(b, halfDepth, 0, 0, 1),
-          back, vertex(b, -halfDepth, 0, 0, -1), vertex(a, -halfDepth, 0, 0, -1));
+        indices.push(front, vertex(a, frontZ, 0, 0, 1), vertex(b, frontZ, 0, 0, 1),
+          back, vertex(b, backZ, 0, 0, -1), vertex(a, backZ, 0, 0, -1));
         if (!boundary.delete(`${b}:${a}`)) boundary.set(`${a}:${b}`, [a, b]);
       }
     }
@@ -139,7 +148,7 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
   // Only unmatched edges bound the outer wall or an opening reveal.
   for (const [a, b] of boundary.values()) {
     const reveal=coverageForEdge([a,b],coverage);if(reveal?.omit)continue;
-    const minZ=reveal?.minZ??-halfDepth,maxZ=reveal?.maxZ??halfDepth;
+    const minZ=reveal?.minZ??backZ,maxZ=reveal?.maxZ??frontZ;
     const nx = Math.sign(b[1] - a[1]), ny = Math.sign(a[0] - b[0]);
     const am = vertex(a, minZ, nx, ny, 0), bm = vertex(b, minZ, nx, ny, 0);
     const ap = vertex(a, maxZ, nx, ny, 0), bp = vertex(b, maxZ, nx, ny, 0);
