@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {lstat,mkdir,mkdtemp,readFile,realpath,rename,rm,writeFile} from 'node:fs/promises';
+import {lstat,mkdtemp,readFile,realpath,rename,rm,writeFile} from 'node:fs/promises';
 import {dirname,join,resolve,sep} from 'node:path';
 import {revisionHash,validateExhibition} from '@exhibitos/spec';
 import {validateFurnishings,validateStudioBenches,validateStudioPresentation,validateViewingPlan} from '@exhibitos/studio-contract';
@@ -19,11 +19,11 @@ const viewerBuildId='e231cf826f7fc7aeb46a3c215b35ea7f49834989f74ada0972f205fccdf
 const publicationId='63719dad-65d3-41e9-86a8-57304976e142';
 const current={
   publicationId,revisionSha256:'eb94cec5e8f23217e470096c68de2c58d3764d9c4a72305fd810115004e1b7c5',
-  sourceManifestSha256:'5b2f40e3dc80657dc41a2167f63a9ec17140c7661db8893aaa755516af18c307',
-  indexSha256:'c4a8aa3bd2e1d77c113638d60a3abf290a3cb51fcd355817de6a2f37cabaa3fc',
-  body:'92598eb1a44fac9dc0de9f8f05b8daf9bb848782811eb228b2cf8ad243ed39ea',
-  deployment:'03ffbf9864a9628d27a024d1e4e9803b3ba5e8159183d1742e461f6cf019149e',
-  custodyProjection:'acd49a4ab167433c39d898198827084933bc770d202264713f3e3baf0d62a434',
+  sourceManifestSha256:'465fa7f85f8809e59c9c67beae1f9dfc7a7504e11cc89a7f2390b550bfc7fdc8',
+  indexSha256:'dfa826f65cb2e153b925d86e0a0bf09c5b9b029cf3b866f68fed700ed1b474ce',
+  body:'d5b932d5e3e88c0e47f27448b11393fdf0e2a19e90cd31ffd1d8d96bab4057f2',
+  deployment:'f979f98783c3035e10cd8ef062be8d14291aeb3ceb948fc27855b8a4bbca2ed7',
+  custodyProjection:'35a0c8c3b4f3e4b7c70b14fa0349eed5ce5d52f6199253dc03a7bd7991aabcf0',
 };
 const coverAuthority={
   publicationId,revisionSha256:'e0f14b847913fb54ffcd3d638bcc4695ffd706142b797e59709ae173a84bb0cb',
@@ -97,12 +97,12 @@ function exactBench(currentBody,oldBody,witness){
   return {bench:{...bench,roomId:targetRoom.id},view:{...view,roomId:targetRoom.id,target:authored.target},binding,model};
 }
 
-export async function composeDerivedPaintingBench({sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,outputDir}){
-  for(const path of [sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath])assert.equal(await realpath(path),path);
+export async function composeDerivedPaintingBench({sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,existingOutput,outputDir}){
+  for(const path of [sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,existingOutput])assert.equal(await realpath(path),path);
   const parent=dirname(outputDir);
   assert.equal(resolve(outputDir),outputDir);
   assert.equal(await realpath(parent),parent);
-  for(const path of [sourceDir,coverDir,emittedDir])assert.ok(!outputDir.startsWith(path+sep)&&!path.startsWith(outputDir+sep));
+  for(const path of [sourceDir,coverDir,emittedDir,existingOutput])assert.ok(!outputDir.startsWith(path+sep)&&!path.startsWith(outputDir+sep));
   const parentStat=await lstat(parent);
   assert.ok(parentStat.isDirectory()&&parentStat.uid===process.getuid()&&(parentStat.mode&0o022)===0);
   await assertAbsent(outputDir);
@@ -184,17 +184,10 @@ export async function composeDerivedPaintingBench({sourceDir,coverDir,emittedDir
   const manifestSha256=sha(manifest);
   const stage=await mkdtemp(join(parent,'.derived-painting-bench-'));
   try{
-    const output=join(stage,'output');
-    await mkdir(output,{mode:0o700});
-    for(const entry of files){
-      const data=newBytes.get(entry.path)??await base.source.read(entry.path);
-      assert.deepEqual(row(entry.path,data),entry);
-      const file=join(output,entry.path);
-      await mkdir(dirname(file),{recursive:true,mode:0o700});
-      await writeFile(file,data,{flag:'wx',mode:0o400});
-    }
-    await writeFile(join(output,manifestName),manifest,{flag:'wx',mode:0o400});
-    const check=await localStaticPublicationSource({sourceDir:output,sourceManifestSha256:manifestSha256,indexSha256,publicationId,revisionSha256});
+    // The witnessed package is immutable. A predecessor-only change
+    // must reproduce its full manifest and every consumer byte.
+    assert.equal(manifestSha256,'bf8c96d78509a82746ed869c027c790e52aaa371f813487a5714ae9c3d822cb4');
+    const check=await localStaticPublicationSource({sourceDir:existingOutput,sourceManifestSha256:manifestSha256,indexSha256,publicationId,revisionSha256});
     assert.deepEqual(check.entries,expected);
     assert.deepEqual(JSON.parse(await check.read(bodyPath)),bound);
     const receipt={
@@ -203,7 +196,8 @@ export async function composeDerivedPaintingBench({sourceDir,coverDir,emittedDir
       derived:{manifestSha256,indexSha256,bodySha256,entrySha256:sha(nextEntry),revisionSha256,viewerBuildId},
       bench:{id:bench.id,viewpointId:view.id,target:view.target,modelSha256:model.sha256,noticeSha256:model.rights.notice.sha256},
       semanticDelta:{sceneRows:4,resourceReferences:2,coverRevisionRebound:true,fullInverse:true},
-      originalDetailUnchanged:true,viewOnly:true,publicationCreated:false,
+      originalDetailUnchanged:true,all178WitnessedFilesUnchanged:true,viewOnly:true,publicationCreated:false,
+      replacedCustodySha256:'2089933f707bd542741a619c68be03c06515e5bfe14ac751d71b99e21f5b3ff8',
     };
     const custody=pretty(receipt);
     const publicProjection=compact({
@@ -224,7 +218,7 @@ export async function composeDerivedPaintingBench({sourceDir,coverDir,emittedDir
 }
 
 if(import.meta.main){
-  const [sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,outputDir,...extra]=process.argv.slice(2);
-  assert.ok(outputDir&&!extra.length,'Usage: compose-derived-painting-bench.mjs PUBLIC COVER PREVIOUS_BENCH REOPEN RETURN FENCE DEPLOYMENT PRIOR_PROJECTION OUTPUT');
-  console.log(JSON.stringify(await composeDerivedPaintingBench({sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,outputDir})));
+  const [sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,existingOutput,outputDir,...extra]=process.argv.slice(2);
+  assert.ok(outputDir&&!extra.length,'Usage: compose-derived-painting-bench.mjs PUBLIC COVER PREVIOUS_BENCH REOPEN RETURN FENCE DEPLOYMENT PRIOR_PROJECTION EXISTING_OUTPUT CUSTODY_OUTPUT');
+  console.log(JSON.stringify(await composeDerivedPaintingBench({sourceDir,coverDir,emittedDir,reopenPath,returnPath,fencePath,deploymentPath,priorProjectionPath,existingOutput,outputDir})));
 }
