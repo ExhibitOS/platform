@@ -40,6 +40,12 @@ export const ACCEPTED_SEVEN_SUCCESSOR_HEAD = Object.freeze({
  revision:220,
  etag:'"studio-r220-d48d3de2ac7bc3875cb628f4464b3a846217ba2ccbf675ad113f3a61523bb25d"',
 } as const);
+// The r221 Save adds only the independently authored viewing order. The
+// bench export still derives from the verified historical r219 -> r220 edit.
+export const ACCEPTED_BENCH_EXPORT_HEAD = Object.freeze({
+ revision:221,
+ etag:'"studio-r221-1131327c22dccfdf150906856bc0b11586c6efb751541e8ec0028ae7ff5dca05"',
+} as const);
 export const ACCEPTED_SEVEN_SPOTS_PREDECESSOR = Object.freeze({
  ...ACCEPTED_SEVEN_SUCCESSOR_HEAD,
  publicationId:'63719dad-65d3-41e9-86a8-57304976e142',
@@ -63,10 +69,13 @@ type SelectedSavedHead =
       typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string}
  | {revision:typeof ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;etag:typeof ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag;
-    scope:typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE | typeof PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    scope:typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
+    predecessorPublicationId:string;predecessorRevisionSha256:string}
+ | {revision:typeof ACCEPTED_BENCH_EXPORT_HEAD.revision;etag:typeof ACCEPTED_BENCH_EXPORT_HEAD.etag;
+    scope:typeof PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;projectionIdentity:`v1:${string}`;
     predecessorPublicationId:string;predecessorRevisionSha256:string};
 export function requiresOccupiedSelectedHead(revision:number):boolean {
- return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION||revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;
+ return revision===OCCUPIED_SELECTED_OUTPUT_REVISION||revision===OCCUPIED_SELECTED_FINISH_REVISION||revision===OCCUPIED_POST_WHEAT_REVISION||revision===OCCUPIED_PAINTING_BENCH_REVISION||revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION||revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision||revision===ACCEPTED_BENCH_EXPORT_HEAD.revision;
 }
 export interface NativeDetailContext {readonly owner:NativeLocalExportContext;readonly runtimeGeneration:string;readonly signal:AbortSignal;readonly selectedHead?:Readonly<SelectedSavedHead>;live():boolean}
 const issued=new WeakSet<NativeDetailContext>();
@@ -79,7 +88,7 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
   if(typeof head.projectionIdentity!=='string'||!/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity))return false;
   if(head.scope===PAINTING_BENCH_HEIGHT_SELECTED_SCOPE){
    const pin=ACCEPTED_SEVEN_SPOTS_PREDECESSOR;
-   return head.revision===pin.revision&&head.etag===pin.etag&&
+   return head.revision===ACCEPTED_BENCH_EXPORT_HEAD.revision&&head.etag===ACCEPTED_BENCH_EXPORT_HEAD.etag&&
     head.predecessorPublicationId===pin.publicationId&&head.predecessorRevisionSha256===pin.revisionSha256;
   }
   if(head.scope===CLOSING_LIGHTS_SELECTED_SCOPE||head.scope===RETAINED_SPOTS_SELECTED_SCOPE||head.scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE){

@@ -7,7 +7,7 @@ import {FOOTSTEP_RESOURCE_NAMESPACE, footstepResourcesFor} from '@exhibitos/spec
 import {WORKSPACE_MATERIAL_NAMESPACE, type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {
   applyArchitecturalFinishCommand, applyLightObjectCommand, ENTRANCE_NAMESPACE, EXPERIENCE_NAMESPACE, experienceFor, floorFor, FLOOR_NAMESPACE,
-  freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
+  freezeCanonical, PRESENTATION_NAMESPACE, presentationFor, VIEWING_PLAN_NAMESPACE, validateViewingPlan, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
   ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE, CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_HEIGHT_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_SEVEN_SPOTS_PREDECESSOR, ACCEPTED_SEVEN_SUCCESSOR_HEAD, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
+  ACCEPTED_BENCH_EXPORT_HEAD, ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_SEVEN_SPOTS_PREDECESSOR, ACCEPTED_SEVEN_SUCCESSOR_HEAD, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
   OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
   OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
@@ -114,23 +114,42 @@ export async function loadSelectedNativeRelease(
   const selectedMatch = match;
   const currentDraft = row.metadata;
   const benchHeight = selectedHead?.scope === PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;
-  if (benchHeight && row.revision !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision) return unavailable();
   if (selectedHead && (row.revision !== selectedHead.revision || selectedMatch !== selectedHead.etag))
     throw new ApiError(412, 'REMOTE_CONFLICT');
   const savedRevision = async (revision: number) => (await c.query<{snapshot: Draft}>(
     'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
     [s.tenantId, exhibitionId, revision],
   )).rows[0]?.snapshot;
-  if (row.revision === ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision) {
-    if (selectedHead?.scope !== ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE && !benchHeight) return unavailable();
-    if (selectedMatch !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag || etag(row.revision, row.metadata) !== selectedMatch)
+  let benchDraft: Draft | undefined;
+  if (benchHeight) {
+    if (row.revision !== ACCEPTED_BENCH_EXPORT_HEAD.revision || selectedMatch !== ACCEPTED_BENCH_EXPORT_HEAD.etag ||
+        etag(row.revision, currentDraft) !== selectedMatch) throw new ApiError(412, 'REMOTE_CONFLICT');
+    const retainedBench = await savedRevision(ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision);
+    if (!retainedBench || retainedBench.exhibitionId !== exhibitionId ||
+        etag(ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision, retainedBench) !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag ||
+        currentDraft.editVersion !== retainedBench.editVersion + 5 || !validateViewingPlan(currentDraft.candidate).valid)
+      return unavailable();
+    const candidate = structuredClone(currentDraft.candidate);
+    const presentation = presentationFor(candidate);
+    const previousViews = presentationFor(retainedBench.candidate).viewpoints;
+    if (!candidate.extensions || presentation.viewpoints.length !== previousViews.length + 4) return unavailable();
+    presentation.viewpoints.splice(previousViews.length);
+    candidate.extensions[PRESENTATION_NAMESPACE] = presentation as unknown as NonNullable<Exhibition['extensions']>[string];
+    delete candidate.extensions[VIEWING_PLAN_NAMESPACE];
+    if (!isDeepStrictEqual({...currentDraft, candidate, editVersion:retainedBench.editVersion,
+        updatedAt:retainedBench.updatedAt}, retainedBench)) return unavailable();
+    benchDraft = retainedBench;
+  }
+  if (row.revision === ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision || benchDraft) {
+    if (!benchDraft && selectedHead?.scope !== ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE) return unavailable();
+    if (!benchDraft && (selectedMatch !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag || etag(row.revision, row.metadata) !== selectedMatch))
       throw new ApiError(412, 'REMOTE_CONFLICT');
     if (row.metadata.exhibitionId !== exhibitionId) return unavailable();
     const retained = await savedRevision(ACCEPTED_CLOSING_PREDECESSOR.revision);
     if (!retained || retained.exhibitionId !== exhibitionId ||
         etag(ACCEPTED_CLOSING_PREDECESSOR.revision, retained) !== ACCEPTED_CLOSING_PREDECESSOR.etag) return unavailable();
     // Keep Closing and the seven spotlights on their retained source. The
-    // scoped output receipt still binds the actual live r220 match below.
+    // scoped output receipt still binds the actual live head match below.
     row = {...row,revision:ACCEPTED_CLOSING_PREDECESSOR.revision,metadata:retained};
     match = ACCEPTED_CLOSING_PREDECESSOR.etag;
   }
@@ -258,7 +277,7 @@ export async function loadSelectedNativeRelease(
             }, SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
             const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
               deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
-            if (benchHeight) {
+            if (benchDraft) {
               const publishedSeven = ACCEPTED_SEVEN_SPOTS_PREDECESSOR;
               const withSeven = projectSelectedRetainedSpots(withClosing, row.metadata.candidate, 'accepted-seven');
               const sevenIdentity = scopedProjectionIdentity(withSeven, retainedPredecessor, publishedSeven.etag, ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE);
@@ -270,7 +289,7 @@ export async function loadSelectedNativeRelease(
               const benchPredecessor = fingerprintCanonical([sevenIdentity, publishedSeven.publicationId, publishedSeven.revisionSha256,
                 publishedSeven.publicManifestSha256, publishedSeven.deliveryReceiptSha256]);
               const withBenchHeight = await projectSelectedPaintingBenchHeight(withSeven,
-                '3325e9bba1bdbeffc40027c3673810d97f4fc2a8c7e5f70a5bd7788aa2841ceb', row.metadata, currentDraft);
+                '3325e9bba1bdbeffc40027c3673810d97f4fc2a8c7e5f70a5bd7788aa2841ceb', row.metadata, benchDraft);
               return {...bindScopedSelection(selected, withBenchHeight, benchPredecessor, selectedMatch, selectedHead),
                 wheatScope: PAINTING_BENCH_HEIGHT_SELECTED_SCOPE};
             }
