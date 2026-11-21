@@ -687,7 +687,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const placementVoice=object({...binding,type:{const:'set-placement-voice'},placementId:id,audioId:id,locale:{type:'string',pattern:'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}$'},transcript:{type:'string',minLength:1,maxLength:16384},expectedMediaAsset:{type:'object'}});
   const frameImageFit=object({...binding,type:{const:'reconcile-frame-image-fit'},placementId:id});
   const pairedStructureBinding={...binding,openingId:id,peerOpeningId:id};
-  const setPairedStructure=object({...pairedStructureBinding,type:{const:'set-paired-wall-structure'},side:{enum:['positive-normal','negative-normal']},extensionMeters:{type:'number',exclusiveMinimum:0,maximum:MAX_PAIRED_WALL_EXTENSION_METERS}});
+  const setPairedStructure=object({...pairedStructureBinding,type:{const:'set-paired-wall-structure'},
+   side:{enum:['positive-normal','negative-normal']},extensionMeters:{type:'number',exclusiveMinimum:0,maximum:MAX_PAIRED_WALL_EXTENSION_METERS},
+   revealFinish:{enum:['painted-edge',null]}},[...Object.keys(pairedStructureBinding),'type','side','extensionMeters']);
   const removePairedStructure=object({...pairedStructureBinding,type:{const:'remove-paired-wall-structure'}});
   const measuredFrame=object({...binding,type:{const:'attach-measured-frame'},placementId:id,furnishingId:id,furnishingVersion:{const:1}});
   const newLight=object({...binding,type:{const:'add-light'},light:{type:'object'},settings:{type:'object'}},[...Object.keys(binding),'type','light']);
