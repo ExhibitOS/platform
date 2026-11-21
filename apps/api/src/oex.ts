@@ -23,6 +23,7 @@ import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contr
 import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_WORKSPACE_FURNISHING_V7_VERSION,OEX_WORKSPACE_FURNISHING_V9_VERSION,OEX_WORKSPACE_FURNISHING_V10_VERSION,OEX_WORKSPACE_FURNISHING_V11_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
 import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
 import {FLOOR_NAMESPACE,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
+import {PAIRED_WALL_STRUCTURE_NAMESPACE,remapPairedWallStructure} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
 import {LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails,LIGHT_ATTACHMENT_NAMESPACE,remapLightAttachments,type StudioLightAttachments} from '@exhibitos/studio-contract';
@@ -179,12 +180,15 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  const attachments=source.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
  if(source.extensions){delete source.extensions[FURNISHING_WALKING_COLLISION_NAMESPACE];delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ delete source.extensions?.[PAIRED_WALL_STRUCTURE_NAMESPACE];
  if(portableFurnishings)delete source.extensions?.[WORKSPACE_FURNISHING_NAMESPACE];
  const exhibition=visit(source)as Exhibition;
  if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(floors)exhibition.extensions={...exhibition.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(lightDetails)exhibition.extensions={...exhibition.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(attachments)exhibition.extensions={...exhibition.extensions,[LIGHT_ATTACHMENT_NAMESPACE]:remapLightAttachments(attachments,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ const pairedStructure=remapPairedWallStructure(e,ids);
+ if(pairedStructure)exhibition.extensions={...exhibition.extensions,[PAIRED_WALL_STRUCTURE_NAMESPACE]:pairedStructure as unknown as NonNullable<Exhibition['extensions']>[string]};
  if(finishes)exhibition.extensions={...exhibition.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(plaques)exhibition.extensions={...exhibition.extensions,[PLAQUE_NAMESPACE]:remapStudioPlaques(plaques,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(viewingPlan)exhibition.extensions={...exhibition.extensions,[VIEWING_PLAN_NAMESPACE]:remapViewingPlan(viewingPlan,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
