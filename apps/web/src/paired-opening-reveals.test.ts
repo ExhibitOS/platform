@@ -146,6 +146,51 @@ it('extends only the joined reveal while preserving trim instances and both flan
   }
  }finally{result.dispose();for(const material of materials.values())material.dispose();}
 });
+it.each([false,true])('applies the existing painted-edge finish only to the opted-in jambs and head (reverse=%s)',reverse=>{
+ const {document,a,b,first,second,world,surfaces,materials}=fixture();
+ const walls=wallFinishesFor(document);
+ walls[0]!.preset='painted-edge';
+ document.extensions![ARCHITECTURAL_FINISH_NAMESPACE]={version:1,walls:walls.map(wall=>({...wall}))};
+ const extent={openingId:second.id,peerOpeningId:first.id,side:'positive-normal',extensionMeters:.11};
+ document.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE]={version:1,pairs:[extent]};
+ if(reverse)document.openings.reverse();
+ const bindings=new Map([[a.id,{repeatMeters:[2,3] as [number,number],rotation:0}]]);
+ const original=installArchitecturalFinishes(three,document,surfaces,materials,bindings);
+ const solids=JSON.stringify(architecturalSolids(document));
+ document.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE]={version:1,pairs:[{...extent,revealFinish:'painted-edge'}]};
+ const result=installArchitecturalFinishes(three,document,surfaces,materials,bindings);
+ const materialAt=(hit:three.Intersection)=>{
+  const {material}=hit.object as three.Mesh;
+  return Array.isArray(material)?material[hit.face!.materialIndex]:material;
+ };
+ try{
+  world.updateMatrixWorld(true);
+  expect(JSON.stringify(architecturalSolids(document))).toBe(solids);
+  expect(result.records).toEqual(original.records);
+  expect(result.meshes).toHaveLength(original.meshes.length);
+  const triangles=(mesh:three.Mesh)=>{
+   const indices=Array.from(mesh.geometry.index!.array);
+   return Array.from({length:indices.length/3},(_,i)=>indices.slice(i*3,i*3+3).join(',')).sort();
+  };
+  for(const [i,mesh] of result.meshes.entries()){
+   expect(mesh.geometry.getAttribute('position').array).toEqual(original.meshes[i]!.geometry.getAttribute('position').array);
+   expect(triangles(mesh)).toEqual(triangles(original.meshes[i]!));
+  }
+  const trim=result.meshes.find(mesh=>mesh.userData.architecturalFinish.kind==='finish')!.material;
+  const structures=result.meshes.filter(mesh=>mesh.userData.architecturalFinish.kind==='structure');
+  for(const z of [-3.931,-4,-4.179]){
+   const eye=new three.Vector3(0,1.5,z);
+   for(const [direction,distance] of [[new three.Vector3(-1,0,0),1.2],[new three.Vector3(1,0,0),1.2],[new three.Vector3(0,1,0),1.5]] as const){
+    const hits=new three.Raycaster(eye,direction).intersectObjects(structures).filter(hit=>Math.abs(hit.distance-distance)<1e-6);
+    expect(new Set(hits.map(hit=>hit.object.uuid)).size).toBe(1);
+    expect(hits.every(hit=>materialAt(hit)===trim)).toBe(true);
+   }
+   expect(new three.Raycaster(eye,new three.Vector3(0,-1,0)).intersectObjects(result.meshes)).toEqual([]);
+  }
+  const plainFace=new three.Raycaster(new three.Vector3(1.21,1.5,-5),new three.Vector3(0,0,1)).intersectObjects(structures)[0]!;
+  expect(materialAt(plainFace)).toBe(materials.get(b.id));
+ }finally{original.dispose();result.dispose();for(const material of materials.values())material.dispose();}
+});
 it.each(['unpaired','oneway','width','height','shift','tilt','disjoint','unstyled','multiple'])('leaves %s geometry on its original safe path',kind=>{
  const f=fixture();if(kind==='unpaired')delete f.first.connectsToOpeningId;if(kind==='oneway')delete f.second.connectsToOpeningId;if(kind==='width')f.second.dimensions.width=2;if(kind==='height')f.second.dimensions.height=2.5;if(kind==='shift')f.second.offset[0]=.1;if(kind==='tilt')f.surfaces.get(f.b.id)!.rotation.x=.1;if(kind==='disjoint')f.surfaces.get(f.b.id)!.position.z=3.7;
  if(kind==='multiple')f.document.openings.push(newDoor(f.a.id,{width:.8,height:2},[2.5,-1]));

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {pairedWallStructuralSpan,type architecturalWallBoxes,type WallFinish} from '@exhibitos/studio-contract';
+import {pairedWallRevealFinish,pairedWallStructuralSpan,type architecturalWallBoxes,type WallFinish} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 
 type Point = readonly [number, number];
@@ -8,7 +8,7 @@ type Edge = readonly [Point, Point];
 type Axis = 0 | 1;
 type Panel = { min: Point; max: Point };
 type Slab={left:number;right:number;bottom:number;top:number;minZ:number;maxZ:number};
-export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab};
+export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab;paintedReturn:boolean};
 
 /** Two explicitly connected slabs can overlap along the same reveal plane.
  * Draw their depth union once, on a deterministic world-normal side. Front/back
@@ -16,9 +16,9 @@ export type OpeningRevealCoverage=Slab&{omit:boolean;peer:Slab};
  * with overlapping depths qualify; other geometry retains the original shell. */
 export function pairedOpeningRevealCoverage(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,walls:readonly WallFinish[]){
  const result=new Map<string,OpeningRevealCoverage[]>(),depths=new Map(walls.map(w=>[w.surfaceId.toLowerCase(),w.depth])),visited=new Set<string>(),epsilon=1e-6;
- const put=(opening:Exhibition['openings'][number],minZ:number,maxZ:number,omit:boolean,peer:Slab)=>{
+ const put=(opening:Exhibition['openings'][number],minZ:number,maxZ:number,omit:boolean,peer:Slab,paintedReturn:boolean)=>{
   const id=opening.surfaceId.toLowerCase(),rows=result.get(id)??[];
-  rows.push({left:Math.fround(opening.offset[0]-opening.dimensions.width/2),right:Math.fround(opening.offset[0]+opening.dimensions.width/2),bottom:Math.fround(opening.offset[1]-opening.dimensions.height/2),top:Math.fround(opening.offset[1]+opening.dimensions.height/2),minZ,maxZ,omit,peer});result.set(id,rows);
+  rows.push({left:Math.fround(opening.offset[0]-opening.dimensions.width/2),right:Math.fround(opening.offset[0]+opening.dimensions.width/2),bottom:Math.fround(opening.offset[1]-opening.dimensions.height/2),top:Math.fround(opening.offset[1]+opening.dimensions.height/2),minZ,maxZ,omit,peer,paintedReturn});result.set(id,rows);
  };
  for(const opening of document.openings){
   const id=opening.id.toLowerCase(),mate=document.openings.find(o=>o.id.toLowerCase()===opening.connectsToOpeningId?.toLowerCase());
@@ -50,8 +50,9 @@ export function pairedOpeningRevealCoverage(three:typeof Three,document:Exhibiti
   const peerHalfA=Math.abs(e[10]!)*depthB/2,peerHalfB=Math.abs(inverse[10]!)*depthA/2;
   const peerA={left:e[12]!-Math.abs(e[0]!)*surfaceB.dimensions.width/2,right:e[12]!+Math.abs(e[0]!)*surfaceB.dimensions.width/2,bottom:e[13]!-e[5]!*surfaceB.dimensions.height/2,top:e[13]!+e[5]!*surfaceB.dimensions.height/2,minZ:center.z-peerHalfA,maxZ:center.z+peerHalfA};
   const peerB={left:inverse[12]!-Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,right:inverse[12]!+Math.abs(inverse[0]!)*surfaceA.dimensions.width/2,bottom:inverse[13]!-inverse[5]!*surfaceA.dimensions.height/2,top:inverse[13]!+inverse[5]!*surfaceA.dimensions.height/2,minZ:inverse[14]!-peerHalfB,maxZ:inverse[14]!+peerHalfB};
-  put(opening,Math.min(spanA.minZ,peerMinZ),Math.max(spanA.maxZ,peerMaxZ),!owns,peerA);
-  put(mate,Math.min(spanB.minZ,inverse[14]!+inverse[10]!*spanA.maxZ),Math.max(spanB.maxZ,inverse[14]!+inverse[10]!*spanA.minZ),owns,peerB);
+  const paintedReturn=pairedWallRevealFinish(document,opening.id)!==undefined;
+  put(opening,Math.min(spanA.minZ,peerMinZ),Math.max(spanA.maxZ,peerMaxZ),!owns,peerA,paintedReturn);
+  put(mate,Math.min(spanB.minZ,inverse[14]!+inverse[10]!*spanA.maxZ),Math.max(spanB.maxZ,inverse[14]!+inverse[10]!*spanA.minZ),owns,peerB,paintedReturn);
  }
  return result;
 }
@@ -114,7 +115,7 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
     }
   }
 
-  const positions: number[] = [], normals: number[] = [], indices: number[] = [];
+  const positions: number[] = [], normals: number[] = [], indices: number[] = [], painted: number[] = [];
   const vertices = new Map<string, number>(), boundary = new Map<string, Edge>();
   const [,,centerZ] = boxes[0]!.position;
   const halfDepth = boxes[0]!.dimensions.depth / 2;
@@ -154,17 +155,21 @@ function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>,c
     const nx = Math.sign(b[1] - a[1]), ny = Math.sign(a[0] - b[0]);
     const am = vertex(a, minZ, nx, ny, 0), bm = vertex(b, minZ, nx, ny, 0);
     const ap = vertex(a, maxZ, nx, ny, 0), bp = vertex(b, maxZ, nx, ny, 0);
-    indices.push(am, bm, bp, am, bp, ap);
+    // Jambs face sideways and the head faces down into the opening.
+    const materialIndices=reveal?.paintedReturn&&(nx!==0||ny<0)?painted:indices;
+    materialIndices.push(am, bm, bp, am, bp, ap);
   }
-  return {positions,normals,indices};
+  return {positions,normals,indices,painted};
 }
 
 export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>,coverage?:readonly OpeningRevealCoverage[]) {
-  const {positions,normals,indices}=wallOpeningShellData(boxes,coverage);
-  return new three.BufferGeometry()
+  const {positions,normals,indices,painted}=wallOpeningShellData(boxes,coverage);
+  const geometry=new three.BufferGeometry()
     .setAttribute('position', new three.Float32BufferAttribute(positions, 3))
     .setAttribute('normal', new three.Float32BufferAttribute(normals, 3))
-    .setIndex(indices);
+    .setIndex(painted.length?indices.concat(painted):indices);
+  if(painted.length){geometry.addGroup(0,indices.length,0);geometry.addGroup(indices.length,painted.length,1);}
+  return geometry;
 }
 
 /** Count CPU and GPU positions, normals, optional metric UVs, and UInt32 indices. */
