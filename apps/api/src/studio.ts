@@ -1,3 +1,4 @@
+import {assertChangedWorkspaceFloorRecordings,nativeFloorRecordingProposal,type NativeFloorRecordingAttachmentCommand} from './native-floor-recording-proposal.ts';
 import {nativePlacementVoiceProposal,type NativePlacementVoiceCommand} from './native-placement-voice-proposal.ts';
 import type {BlobStore} from '@exhibitos/storage';
 import type {Cms} from './cms.ts';
@@ -60,7 +61,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=NativeFloorRecordingAttachmentCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -430,6 +431,7 @@ export class Studio {
     let fitEdit:{command:Extract<LightObjectCommand,{type:'set-light-object'}>;intent:NativeSpotBeamFitIntent}|undefined;
     try{
       if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
+      else if(request.type==='attach-floor-recording')result=await nativeFloorRecordingProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
       else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(operation.type==='add-connected-door-pair'){
@@ -463,6 +465,7 @@ export class Studio {
       else if(request.type==='set-furnishing-visual'||request.type==='set-light-attachment')result=nativeFixtureProposal(draft.candidate,request,{workspaceId:owner.workspaceId,tenantId,principalId,exhibitionId:id,head,requestId,epoch,sequence});
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){
+      if(request.type==='attach-floor-recording'&&error instanceof ApiError)throw error;
       if(error instanceof Error&&error.message==='LIGHT_FIXTURE_REQUIRED')throw new ApiError(422,'LIGHT_FIXTURE_REQUIRED');
       const articulated=(operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'
         ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
@@ -589,6 +592,8 @@ export class Studio {
     if(benchForwardDelta)await this.assertBenchModelForward(c,s,row.metadata,input.draft);
     if(this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(row.metadata.candidate,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
+    if(this.nativeBoundedEditing&&this.nativeOexWorkspace)
+      await assertChangedWorkspaceFloorRecordings(c,s,id,row.metadata.candidate,input.draft.candidate,this.budgetBlobs);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     // This row is the private active draft. Published snapshots and their
     // immutable asset bindings are separate and are never changed by a save.
