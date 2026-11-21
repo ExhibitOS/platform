@@ -10,7 +10,7 @@ import {
   freezeCanonical, FURNISHING_NAMESPACE, furnishingsFor, lightAttachmentsFor, lightDetailsFor, LIGHT_ATTACHMENT_NAMESPACE, LIGHT_DETAILS_NAMESPACE, plaquesFor,
   resolveTrackSpotAiming, ROOM_CEILING_FILL_INITIAL_BRIGHTNESS, setRoomCeilingFillBrightness, validateFurnishings, validateLightAttachments, validateStudioLightDetails,
   validateViewerEntrance, validateViewerExperience, validateWorkspaceFurnishings, wallFinishesFor,
-  ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE, CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
+  ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE, CLOSING_LIGHTS_SELECTED_SCOPE, PAINTING_BENCH_HEIGHT_SELECTED_SCOPE, PAINTING_BENCH_SELECTED_SCOPE, RETAINED_SPOTS_SELECTED_SCOPE, selectedScopeRequiresWheatNotice, WHEAT_IMAGE_FIT_SELECTED_SCOPE, WHEAT_SELECTED_SCOPE, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishingDescriptor, type WorkspaceFurnishingPlacement, type WorkspaceFurnishings,
 } from '@exhibitos/studio-contract';
 import {ApiError, type Session} from './auth.ts';
 import {Audio, audioMedia} from './audio.ts';
@@ -27,7 +27,7 @@ import {
 } from './native-detail-context.ts';
 import {projectSelectedVisualFinishes} from './native-selected-finishes.ts';
 import {ACCEPTED_PUBLIC_WHEAT_MANIFEST,assertAcceptedSelectedPredecessor,projectSelectedWheatFrame,projectSelectedWheatImageFit} from './native-selected-wheat.ts';
-import {projectSelectedPaintingBench} from './native-selected-painting-bench.ts';
+import {projectSelectedPaintingBench,projectSelectedPaintingBenchHeight} from './native-selected-painting-bench.ts';
 import {projectSelectedClosingFixtures} from './native-selected-closing-fixtures.ts';
 import {projectSelectedRetainedSpots} from './native-selected-retained-spots.ts';
 
@@ -99,7 +99,7 @@ type ApprovedFootsteps = {paintingTarget: string; entranceTarget: string; commit
 export type SelectedProjectionIdentity = `v1:${string}`;
 type WheatNoticeScope = typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE |
   typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE |
-  typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;
+  typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE | typeof PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;
 export type SelectedNativeRelease = ReturnType<typeof composeSelectedScene> & {projectionIdentity: SelectedProjectionIdentity; wheatScope?: WheatNoticeScope};
 const footstepTarget = (role: 'painting' | 'entrance', id: string) =>
   fingerprint([SELECTED_NATIVE_RELEASE, 'footstep-target-v1', role, id]);
@@ -112,6 +112,9 @@ export async function loadSelectedNativeRelease(
 ): Promise<SelectedNativeRelease> {
   if (row.studio_owner_user_id !== s.userId) throw new ApiError(403, 'FORBIDDEN');
   const selectedMatch = match;
+  const currentDraft = row.metadata;
+  const benchHeight = selectedHead?.scope === PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;
+  if (benchHeight && row.revision !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision) return unavailable();
   if (selectedHead && (row.revision !== selectedHead.revision || selectedMatch !== selectedHead.etag))
     throw new ApiError(412, 'REMOTE_CONFLICT');
   const savedRevision = async (revision: number) => (await c.query<{snapshot: Draft}>(
@@ -119,7 +122,7 @@ export async function loadSelectedNativeRelease(
     [s.tenantId, exhibitionId, revision],
   )).rows[0]?.snapshot;
   if (row.revision === ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision) {
-    if (selectedHead?.scope !== ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE) return unavailable();
+    if (selectedHead?.scope !== ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE && !benchHeight) return unavailable();
     if (selectedMatch !== ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag || etag(row.revision, row.metadata) !== selectedMatch)
       throw new ApiError(412, 'REMOTE_CONFLICT');
     if (row.metadata.exhibitionId !== exhibitionId) return unavailable();
@@ -145,7 +148,8 @@ export async function loadSelectedNativeRelease(
   if (paintingBench && selectedHead?.scope !== PAINTING_BENCH_SELECTED_SCOPE) return unavailable();
   const acceptedSeven = selectedHead?.scope === ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;
   const retainedSpots = acceptedSeven || selectedHead?.scope === RETAINED_SPOTS_SELECTED_SCOPE;
-  const closing = retainedSpots || selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
+  const afterClosing = retainedSpots || benchHeight;
+  const closing = afterClosing || selectedHead?.scope === CLOSING_LIGHTS_SELECTED_SCOPE;
   if (wheatImageFit && selectedHead?.scope !== WHEAT_IMAGE_FIT_SELECTED_SCOPE && !closing) return unavailable();
   if (closing && (!wheatImageFit || match !== ACCEPTED_WHEAT_FIT_PREDECESSOR.etag))
     throw new ApiError(412, 'REMOTE_CONFLICT');
@@ -210,7 +214,7 @@ export async function loadSelectedNativeRelease(
       return bindScopedSelection(selected, publicFinishes, publicPredecessor, match, selectedHead);
     if (selectedHead.scope !== WHEAT_SELECTED_SCOPE) {
       const repair = selectedHead.scope !== PAINTING_BENCH_SELECTED_SCOPE;
-      const pin = retainedSpots ? ACCEPTED_CLOSING_PREDECESSOR : closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
+      const pin = afterClosing ? ACCEPTED_CLOSING_PREDECESSOR : closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
       if ((repair ? !wheatImageFit : !paintingBench) || selectedHead.predecessorPublicationId !== pin.publicationId ||
           selectedHead.predecessorRevisionSha256 !== pin.revisionSha256) return unavailable();
       const wheatHead = await savedRevision(OCCUPIED_POST_WHEAT_REVISION);
@@ -244,7 +248,7 @@ export async function loadSelectedNativeRelease(
           const closingPredecessor = fingerprintCanonical([fitIdentity, accepted.publicationId, accepted.revisionSha256,
             accepted.publicManifestSha256, accepted.deliveryReceiptSha256]);
           const withClosing = projectSelectedClosingFixtures(candidate, row.metadata.candidate);
-          if (retainedSpots) {
+          if (afterClosing) {
             const deployed = ACCEPTED_CLOSING_PREDECESSOR;
             const closingIdentity = scopedProjectionIdentity(withClosing, closingPredecessor, match, CLOSING_LIGHTS_SELECTED_SCOPE);
             if (closingIdentity !== deployed.projectionIdentity) return unavailable();
@@ -253,6 +257,12 @@ export async function loadSelectedNativeRelease(
             }, SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
             const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
               deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
+            if (benchHeight) {
+              const withBenchHeight = await projectSelectedPaintingBenchHeight(withClosing,
+                'a831ea5dfd0e7e6a6d39dcc4fcdf917c685d97faa7f370b4c81c762915e17f09', row.metadata, currentDraft);
+              return {...bindScopedSelection(selected, withBenchHeight, retainedPredecessor, selectedMatch, selectedHead),
+                wheatScope: PAINTING_BENCH_HEIGHT_SELECTED_SCOPE};
+            }
             const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate,
               acceptedSeven ? 'accepted-seven' : true);
             return {...bindScopedSelection(selected, withRetainedSpots, retainedPredecessor, selectedMatch, selectedHead),

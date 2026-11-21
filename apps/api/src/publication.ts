@@ -30,7 +30,7 @@ import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from '
 import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
-import {ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE,CLOSING_LIGHTS_SELECTED_SCOPE,installedWheatNoticeFor,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE,CLOSING_LIGHTS_SELECTED_SCOPE,installedWheatNoticeFor,PAINTING_BENCH_HEIGHT_SELECTED_SCOPE,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,WHEAT_FRAME_ID,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -836,23 +836,23 @@ export class Publications {
         const known=installedWheatNoticeFor(row.snapshot);
         const paintingBench=row.draft_revision===OCCUPIED_PAINTING_BENCH_REVISION;
         const repair=row.draft_revision===WHEAT_IMAGE_FIT_SUCCESSOR_REVISION;
-        const acceptedSevenSuccessor=row.draft_revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;
-        if(!known||!acceptedSevenSuccessor&&!repair&&!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
-        const scope=acceptedSevenSuccessor?ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE:repair?WHEAT_IMAGE_FIT_SELECTED_SCOPE:paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
+        const closingSuccessor=row.draft_revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision;
+        if(!known||!closingSuccessor&&!repair&&!paintingBench&&row.draft_revision!==OCCUPIED_POST_WHEAT_REVISION)return;
+        const scope=closingSuccessor?ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE:repair?WHEAT_IMAGE_FIT_SELECTED_SCOPE:paintingBench?PAINTING_BENCH_SELECTED_SCOPE:WHEAT_SELECTED_SCOPE;
         let head:string=paintingBench?OCCUPIED_PAINTING_BENCH_ETAG:OCCUPIED_POST_WHEAT_ETAG;
-        if(repair||acceptedSevenSuccessor){
+        if(repair||closingSuccessor){
             const saved=(await c.query<{snapshot:Draft}>(
                 'SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',
                 [row.tenant_id,row.exhibition_id,row.draft_revision])).rows[0]?.snapshot;
             if(!saved||saved.exhibitionId!==row.exhibition_id)return;
             head=etag(row.draft_revision,saved);
-            if(acceptedSevenSuccessor&&head!==ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag)return;
+            if(closingSuccessor&&head!==ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag)return;
         }
         const receiptFor=async (scope:string)=>(await c.query(`SELECT 1 FROM studio_requests WHERE tenant_id=$1 AND user_id=$2 AND exhibition_id=$3
           AND response->>'publicationId'=$4 AND response->>'scope'=$5 AND response->>'releaseSelection'=$6
           AND response->>'head'=$7 AND response->>'projectionIdentity' ~ '^v1:[a-f0-9]{64}$'`,
         [row.tenant_id,row.created_by,row.exhibition_id,row.id,scope,SELECTED_NATIVE_RELEASE,head])).rows[0];
-        if(!await receiptFor(scope)&&
+        if(!await receiptFor(scope)&&!(closingSuccessor&&await receiptFor(PAINTING_BENCH_HEIGHT_SELECTED_SCOPE))&&
             !(repair&&head===ACCEPTED_WHEAT_FIT_PREDECESSOR.etag&&(await receiptFor(CLOSING_LIGHTS_SELECTED_SCOPE)||
               await receiptFor(RETAINED_SPOTS_SELECTED_SCOPE)||await receiptFor(ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE))))return;
         if(!workspace.some(item=>item.publicId===known.assetId&&item.sourceDescriptor.id===WHEAT_FRAME_ID))

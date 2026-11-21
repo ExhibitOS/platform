@@ -5,15 +5,16 @@ import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './worksp
 export const WHEAT_SELECTED_SCOPE = 'installed-wheat-frame-v1';
 export const WHEAT_IMAGE_FIT_SELECTED_SCOPE = 'installed-wheat-image-fit-v1';
 export const PAINTING_BENCH_SELECTED_SCOPE = 'painting-bench-after-wheat-v1';
+export const PAINTING_BENCH_HEIGHT_SELECTED_SCOPE = 'painting-bench-height-after-closing-v1';
 export const CLOSING_LIGHTS_SELECTED_SCOPE = 'closing-lights-after-wheat-fit-v1';
 export const RETAINED_SPOTS_SELECTED_SCOPE = 'painting-eight-old-arrow-after-closing-v1';
 export const ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE = 'painting-six-old-arrow-after-closing-v1';
 
 export function selectedScopeRequiresWheatNotice(scope:unknown):scope is typeof WHEAT_SELECTED_SCOPE | typeof PAINTING_BENCH_SELECTED_SCOPE |
  typeof WHEAT_IMAGE_FIT_SELECTED_SCOPE | typeof CLOSING_LIGHTS_SELECTED_SCOPE | typeof RETAINED_SPOTS_SELECTED_SCOPE |
- typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE {
+ typeof ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE | typeof PAINTING_BENCH_HEIGHT_SELECTED_SCOPE {
  return scope===WHEAT_SELECTED_SCOPE||scope===PAINTING_BENCH_SELECTED_SCOPE||scope===WHEAT_IMAGE_FIT_SELECTED_SCOPE||
-  scope===CLOSING_LIGHTS_SELECTED_SCOPE||scope===RETAINED_SPOTS_SELECTED_SCOPE||scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE;
+  scope===CLOSING_LIGHTS_SELECTED_SCOPE||scope===RETAINED_SPOTS_SELECTED_SCOPE||scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE||scope===PAINTING_BENCH_HEIGHT_SELECTED_SCOPE;
 }
 export const WHEAT_FRAME_ID = '4ddff48b-c2b2-5166-9e35-cd1c7aabb5b3';
 export const WHEAT_FRAME_MODEL_SHA256 = 'a96b4942c2cd10b25fe1b33001443e1824fc125bc258f28a68547d38d8c54362';

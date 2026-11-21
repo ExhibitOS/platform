@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
-import {ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE,CLOSING_LIGHTS_SELECTED_SCOPE,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,selectedScopeRequiresWheatNotice,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
+import {ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE,CLOSING_LIGHTS_SELECTED_SCOPE,PAINTING_BENCH_HEIGHT_SELECTED_SCOPE,PAINTING_BENCH_SELECTED_SCOPE,RETAINED_SPOTS_SELECTED_SCOPE,selectedScopeRequiresWheatNotice,WHEAT_IMAGE_FIT_SELECTED_SCOPE,WHEAT_SELECTED_SCOPE} from '@exhibitos/studio-contract';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
@@ -125,6 +125,12 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
    for(const invalid of [{...seven,predecessorPublicationId:acceptedFit.publicationId},
     {...seven,predecessorRevisionSha256:acceptedFit.revisionSha256},{...seven,revision:seven.revision+1},
     {...seven,etag:repair.etag},{...seven,includeSunrise:true}]){
+    expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
+   }
+   const benchHeight={...sevenSuccessor,scope:PAINTING_BENCH_HEIGHT_SELECTED_SCOPE};
+   expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,benchHeight).selectedHead).toEqual(benchHeight);
+   for(const invalid of [{...benchHeight,revision:219,etag:seven.etag},{...benchHeight,etag:seven.etag},
+    {...benchHeight,predecessorPublicationId:acceptedFit.publicationId}]){
     expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
    }
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');
