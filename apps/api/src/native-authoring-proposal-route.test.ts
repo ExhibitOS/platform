@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
+import {architecturalSolids,PAIRED_WALL_STRUCTURE_NAMESPACE,PAIRED_WALL_STRUCTURE_PROFILE,validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {projectPublication} from './publication.ts';
+import {remapOex} from './oex.ts';
 import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,spaceLightingFor,setSpaceLighting,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
@@ -11,7 +14,7 @@ import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
 
-it('proposes a fresh rectangular reciprocal door pair on only the authenticated ordinary saved head',async()=>{
+it('proposes and extends a reciprocal door pair only on the authenticated ordinary saved head',async()=>{
  const draft=newDraft(),left=draft.candidate.rooms[0]!;
  const right=newRoom('Adjacent gallery',{width:11,height:4,depth:8},
   {position:[(left.dimensions.width+11)/2,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
@@ -47,7 +50,7 @@ it('proposes a fresh rectangular reciprocal door pair on only the authenticated 
  try{
   const original=structuredClone(draft.candidate),match=etag(revision,draft);
   const advertised=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
-  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1'});
+  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1',nativePairedWallStructureProfile:PAIRED_WALL_STRUCTURE_PROFILE});
   expect((await post(command,etag(revision-1,draft))).statusCode).toBe(412);
   ownerUserId=randomUUID();
   expect((await post(command)).statusCode).toBe(403);
@@ -70,6 +73,41 @@ it('proposes a fresh rectangular reciprocal door pair on only the authenticated 
   draft.candidate=proposal.candidate;
   expect((await post({...command,requestId:randomUUID()},match)).statusCode).toBe(412);
   expect((await post({...command,requestId:randomUUID()})).statusCode).toBe(422);
+
+  for (const wall of [leftWall,rightWall]) {
+    draft.candidate=applyArchitecturalFinishCommand(draft.candidate,{type:'set-wall-finish',wall:{
+      surfaceId:wall.id,preset:'plain',depth:.12,baseboardHeight:.04,trimWidth:.02,ceilingBand:false,
+    }});
+  }
+  const before=structuredClone(draft.candidate), rightPair={openingId:second,peerOpeningId:first};
+  const extent={...rightPair,side:'positive-normal' as const,extensionMeters:.11};
+  const add={...binding,...extent,type:'set-paired-wall-structure',requestId:randomUUID()};
+  expect((await post(add,match)).statusCode).toBe(412);
+  expect((await post({...add,side:'negative-normal'})).statusCode).toBe(422);
+  expect((await post({...add,peerOpeningId:second})).statusCode).toBe(422);
+  const extended=await post(add);
+  expect(extended.statusCode,extended.body).toBe(200);
+  const applied=extended.json().candidate as typeof before;
+  expect(applied).toEqual({...before,extensions:{...before.extensions,[PAIRED_WALL_STRUCTURE_NAMESPACE]:{version:1,pairs:[extent]}}});
+  expect(draft.candidate).toEqual(before);
+  const wallSolids=architecturalSolids(applied).filter(s=>s.surfaceId===rightWall.id);
+  const oldMax=Math.max(...architecturalSolids(before).filter(s=>s.surfaceId===rightWall.id).flatMap(s=>s.vertices.map(v=>v[0])));
+  expect(Math.max(...wallSolids.flatMap(s=>s.vertices.map(v=>v[0])))-oldMax).toBeCloseTo(.11);
+  const through:[number,number,number]=[oldMax-.12,1,0], opposite:[number,number,number]=[oldMax+.66,1,0];
+  expect(wallSolids.some(s=>s.collision.hit(through,opposite,.25))).toBe(false);
+  for(const output of [remapOex(applied).exhibition,projectPublication(applied,[],new Date().toISOString()).snapshot]){
+    expect(validateArchitecturalFinishes(output).valid).toBe(true);
+    const {pairs}=output.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE] as unknown as {pairs:(typeof extent)[]};
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.openingId).not.toBe(second);
+    expect(output.openings.find(o=>o.id===pairs[0]!.openingId)?.connectsToOpeningId).toBe(pairs[0]!.peerOpeningId);
+    expect(pairs[0]!.extensionMeters).toBe(.11);
+  }
+  draft.candidate=applied;
+  revision++;
+  const removed=await post({...binding,...rightPair,type:'remove-paired-wall-structure',requestId:randomUUID()});
+  expect(removed.statusCode,removed.body).toBe(200);
+  expect(removed.json().candidate).toEqual(before);
   expect(writes).toEqual([]);
  }finally{await app.close();}
 });
