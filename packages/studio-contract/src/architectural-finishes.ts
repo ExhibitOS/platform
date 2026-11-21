@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,artifactBounds,validateArtifactHull,createConvexCollision,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
-import {pairedWallStructuralSpan,validatePairedWallStructure} from './paired-wall-structure.js';
+import {pairedWallAttachedPortalFront,pairedWallStructuralSpan,validatePairedWallStructure} from './paired-wall-structure.js';
 import {surfacePanels} from './surface-panels.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {plainBaseboardPortalFeet} from './architectural-portal-feet.js';
@@ -22,12 +22,13 @@ export function architecturalWallBoxes(surface:Exhibition['surfaces'][number],op
  if(settings.preset==='plain'){
   if(settings.plainBaseboard!==true||!includeBaseboard)return boxes;
   if(!document)throw Error('PLAIN_BASEBOARD_CONTEXT_REQUIRED');
+  const attachedFront=pairedWallAttachedPortalFront(document,surface.id);
   const feet=plainBaseboardPortalFeet(document,surface.id),bottom=-surface.dimensions.height/2,top=bottom+settings.baseboardHeight;
   for(const p of panels){
    const left=p.x-p.width/2,right=p.x+p.width/2,b=Math.max(p.y-p.height/2,bottom),t=Math.min(p.y+p.height/2,top);
    if(t<=b)continue;
    for(const side of [-1,1]){
-    const z=side*(settings.depth/2+.001),cuts=feet.filter(f=>Math.min(z+.001,f.max[2])-Math.max(z-.001,f.min[2])>1e-9);
+    const z=(side===1&&attachedFront!==undefined?attachedFront:side*settings.depth/2)+side*.001,cuts=feet.filter(f=>Math.min(z+.001,f.max[2])-Math.max(z-.001,f.min[2])>1e-9);
     const xs=[...new Set([left,right,...cuts.flatMap(f=>[f.min[0],f.max[0]]).filter(x=>x>left&&x<right)])].sort((a,b)=>a-b),ys=[...new Set([b,t,...cuts.flatMap(f=>[f.min[1],f.max[1]]).filter(y=>y>b&&y<t)])].sort((a,b)=>a-b);
     for(let i=1;i<xs.length;i++)for(let j=1;j<ys.length;j++){
      const l=xs[i-1]!,r=xs[i]!,low=ys[j-1]!,high=ys[j]!;

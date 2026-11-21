@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {Exhibition} from '@exhibitos/spec';
+import {qualifiedModularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artifactBounds, artifactCorners, artifactPoint, validateArtifactPose, type AffinePoint} from './artifact-affine.js';
 import {ARCHITECTURAL_FINISH_NAMESPACE, type ArchitecturalFinishes, type WallFinish} from './architectural-finishes.js';
 import {benchSolids} from './bench-geometry.js';
 import {furnishingsFor} from './furnishings.js';
 import {resolveInstallations} from './installation-resolver.js';
 import {surfacePanels} from './surface-panels.js';
-import {builtInStoolSolids, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishings} from './workspace-furnishing.js';
+import {builtInStoolSolids, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishings, type WorkspaceOpeningAttachment} from './workspace-furnishing.js';
 
 export const PAIRED_WALL_STRUCTURE_NAMESPACE = 'org.exhibitos.studio/paired-wall-structure';
 export const PAIRED_WALL_STRUCTURE_PROFILE = 'saved-head-paired-wall-structure-v1';
@@ -99,6 +100,28 @@ export function pairedWallRevealFinish(scene: Exhibition, openingId: string): Wa
   return structuredClone(paintedRevealSource(first.finish, second.finish));
 }
 
+function attachedPortalTarget(scene: Exhibition, extent: PairedWallExtent, workspace: WorkspaceFurnishings,
+  attachment: WorkspaceOpeningAttachment) {
+  if (!same(extent.openingId, attachment.openingId)) return;
+  const sources = workspace.furnishings.filter(row => same(row.id, attachment.furnishingId));
+  const source = sources[0], geometry = workspaceFitGeometry(source);
+  if (sources.length !== 1 || !source || source.version !== attachment.furnishingVersion
+    || source.model.sha256 !== attachment.modelSha256 || geometry?.profile !== 'modular-portal-v1') return;
+  const target = qualifiedModularPortalTarget(geometry, scene, extent.openingId, source);
+  if (target?.attachedExtent === extent.extensionMeters) return target;
+}
+
+/** Only the admitted plain-facing structural extension moves its matching baseboard. */
+export function pairedWallAttachedPortalFront(scene: Exhibition, surfaceId: string): number | undefined {
+  const workspace = scene.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings | undefined;
+  if (!workspace?.openingAttachments?.length) return;
+  const extent = settings(scene)?.pairs.find(row =>
+    scene.openings.some(opening => same(opening.id, row.openingId) && same(opening.surfaceId, surfaceId)));
+  if (!extent) return;
+  const attachment = workspace.openingAttachments.find(row => same(row.openingId, extent.openingId));
+  if (attachment) return attachedPortalTarget(scene, extent, workspace, attachment)?.maxZ;
+}
+
 function extraPanelBounds(scene: Exhibition, extent: PairedWallExtent, used: Set<string>) {
   const side = wallSide(scene, extent.openingId), peer = wallSide(scene, extent.peerOpeningId);
   const {opening,wall,room,finish,normal,inward} = side;
@@ -124,8 +147,11 @@ function extraPanelBounds(scene: Exhibition, extent: PairedWallExtent, used: Set
   }
   const affectedOpening = (id: string) => openings.some(item => same(item.id,id));
   const workspace = scene.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings | undefined;
-  if (workspace?.openingAttachments?.some(item => affectedOpening(item.openingId))
-    || furnishingsFor(scene)?.bindings.some(item => item.hostKind === 'opening' && affectedOpening(item.hostId))) throw invalid();
+  if (furnishingsFor(scene)?.bindings.some(item => item.hostKind === 'opening' && affectedOpening(item.hostId))) throw invalid();
+  if (workspace) {
+    const attached = workspace.openingAttachments?.filter(item => affectedOpening(item.openingId)) ?? [];
+    if (attached.length && (attached.length !== 1 || !attachedPortalTarget(scene, extent, workspace, attached[0]!))) throw invalid();
+  }
 
   const depth = extent.extensionMeters, half = finish.depth/2;
   const plane = (value: AffinePoint) => artifactPoint(value, wall.transform);
