@@ -64,7 +64,7 @@ function placementGeometry(scene: Exhibition, placementId: string, roomId: strin
  * owner and bound the acknowledged predecessor and the current saved receipt. */
 export function projectSelectedViewingOrder(selected: Exhibition, before: Head, saved: Head): Exhibition {
   if (!Number.isSafeInteger(saved.revision) || before.revision < 1 || saved.revision !== before.revision + 1 ||
-      saved.draft.editVersion !== before.draft.editVersion + 1 ||
+      saved.draft.editVersion !== before.draft.editVersion + stops.length + 1 ||
       etag(before.revision, before.draft) !== before.etag || etag(saved.revision, saved.draft) !== saved.etag)
     throw new ApiError(412, 'REMOTE_CONFLICT');
   const source = before.draft.candidate;
