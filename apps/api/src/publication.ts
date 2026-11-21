@@ -32,7 +32,7 @@ import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
-import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {validateArchitecturalFinishes,PAIRED_WALL_STRUCTURE_NAMESPACE,remapPairedWallStructure} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
 import {SPACE_LIGHTING_NAMESPACE} from '@exhibitos/studio-contract';
@@ -248,7 +248,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [VIEWER_BUDGET_NAMESPACE, FURNISHING_NAMESPACE, FURNISHING_WALKING_COLLISION_NAMESPACE, DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, LIGHT_ATTACHMENT_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE, FOOTSTEP_RESOURCE_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [VIEWER_BUDGET_NAMESPACE, FURNISHING_NAMESPACE, FURNISHING_WALKING_COLLISION_NAMESPACE, DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PAIRED_WALL_STRUCTURE_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, LIGHT_ATTACHMENT_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE, FOOTSTEP_RESOURCE_NAMESPACE].includes(key)));
     doc.extensions[PRESENTATION_NAMESPACE]={...presentationFor(doc),watermark:watermarkFor(doc)} as unknown as NonNullable<Exhibition['extensions']>[string];
     const lightDetails=doc.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
     const attachments=doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
@@ -264,6 +264,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     const walking=doc.extensions?.[FURNISHING_WALKING_COLLISION_NAMESPACE] as unknown as FurnishingWalkingCollisionSettings|undefined;
     const installation=doc.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
     if(doc.extensions){delete doc.extensions[FURNISHING_WALKING_COLLISION_NAMESPACE];delete doc.extensions[MATERIAL_NAMESPACE];delete doc.extensions[FLOOR_NAMESPACE];delete doc.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete doc.extensions[PLAQUE_NAMESPACE];delete doc.extensions[LIGHT_DETAILS_NAMESPACE];delete doc.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete doc.extensions[BENCH_NAMESPACE];delete doc.extensions[SPATIAL_NAMESPACE];delete doc.extensions[INSTALLATION_NAMESPACE];}
+    delete doc.extensions?.[PAIRED_WALL_STRUCTURE_NAMESPACE];
     collect(doc);
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
@@ -316,6 +317,8 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     if(floors)snapshot.extensions={...snapshot.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(lightDetails)snapshot.extensions={...snapshot.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(attachments)snapshot.extensions={...snapshot.extensions,[LIGHT_ATTACHMENT_NAMESPACE]:remapLightAttachments(attachments,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+    const pairedStructure=remapPairedWallStructure(candidate,ids);
+    if(pairedStructure)snapshot.extensions={...snapshot.extensions,[PAIRED_WALL_STRUCTURE_NAMESPACE]:pairedStructure as unknown as NonNullable<Exhibition['extensions']>[string]};
     if(finishes)snapshot.extensions={...snapshot.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(plaques)snapshot.extensions={...snapshot.extensions,[PLAQUE_NAMESPACE]:remapStudioPlaques(plaques,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(viewingPlan)snapshot.extensions={...snapshot.extensions,[VIEWING_PLAN_NAMESPACE]:remapViewingPlan(viewingPlan,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -324,7 +327,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     if(spatial)snapshot.extensions={...snapshot.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,map) as unknown as {[key:string]:import("@exhibitos/spec").JsonValue}};
     if(furniture)snapshot.extensions={...snapshot.extensions,[FURNISHING_NAMESPACE]:remapFurnishings(furniture,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
     if(walking)snapshot.extensions={...snapshot.extensions,[FURNISHING_WALKING_COLLISION_NAMESPACE]:remapFurnishingWalkingCollision(walking,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
-    if(!validateFurnishings(snapshot).valid||!validateFurnishingWalkingCollision(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!validateFurnishings(snapshot).valid||!validateFurnishingWalkingCollision(snapshot).valid||pairedStructure&&!validateArchitecturalFinishes(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     snapshot.createdAt = at;
     snapshot.revision = 1;
     if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');

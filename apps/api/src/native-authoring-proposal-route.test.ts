@@ -1,15 +1,116 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
 import {sha256} from '@exhibitos/storage';
+import {architecturalSolids,PAIRED_WALL_STRUCTURE_NAMESPACE,PAIRED_WALL_STRUCTURE_PROFILE,validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {projectPublication} from './publication.ts';
+import {remapOex} from './oex.ts';
 import {addRoomSupplementalCeilingFill,ensureOrdinaryRoomBaseLight,LIGHT_DETAILS_NAMESPACE,ROOM_SUPPLEMENTAL_CEILING_FILL_PROFILE,ROOM_CEILING_FILL_PROFILE,ensureRoomBaseLight,INSTALLATION_NAMESPACE,installationFor,lightDetailsFor,setLightDetails,applyArchitecturalFinishCommand,applyPlaqueCommand,applyFurnishingWalkingCollisionOverride,reconcileFurnishingWalkingCollision,FURNISHING_WALKING_COLLISION_NAMESPACE} from '@exhibitos/studio-contract';
 import type {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {newLight,newPlacement,syntheticArtwork} from '../../web/src/placement/model.ts';
-import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
+import {newRoom,whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
 import {buildApp} from './app.ts';
 import {etag} from './studio.ts';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
+
+it('proposes and extends a reciprocal door pair only on the authenticated ordinary saved head',async()=>{
+ const draft=newDraft(),left=draft.candidate.rooms[0]!;
+ const right=newRoom('Adjacent gallery',{width:11,height:4,depth:8},
+  {position:[(left.dimensions.width+11)/2,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
+ draft.candidate.rooms.push(right);
+ const leftSurfaces=whiteCubeSurfaces(left),rightSurfaces=whiteCubeSurfaces(right);
+ draft.candidate.surfaces=[...leftSurfaces,...rightSurfaces];
+ const leftWall=leftSurfaces.find(row=>row.type==='wall'&&row.transform.position[0]===left.dimensions.width/2)!;
+ const rightWall=rightSurfaces.find(row=>row.type==='wall'&&row.transform.position[0]===-right.dimensions.width/2)!;
+ const tenantId=randomUUID(),userId=randomUUID(),csrf='door-pair-csrf',token='a'.repeat(43);
+ const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:sha256(Buffer.from(csrf)),
+  csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')};
+ let revision=3,ownerUserId=userId;
+ const writes:string[]=[];
+ const client={query:async(sql:string)=>{
+  if(/^(INSERT|UPDATE|DELETE)/.test(sql))writes.push(sql);
+  if(sql.includes('SELECT s.*,m.role'))return {rows:[session],rowCount:1};
+  if(sql.startsWith('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions'))
+   return {rows:[{id:draft.exhibitionId,revision,metadata:draft,studio_owner_user_id:ownerUserId}],rowCount:1};
+  return {rows:[],rowCount:0};
+ },release:()=>{}};
+ const pool={connect:async()=>client} as unknown as Pool;
+ const auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'};
+ const owner={tenantId,principalId:userId,workspaceId:randomUUID(),assertDatabase:async()=>{},assertRecord:async()=>{}} as never;
+ const app=buildApp({pool,auth,nativeOexWorkspace:owner,nativeBoundedEditing:true,runtimeAvailable:()=>true});
+ const url=`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/native-authoring-proposal`;
+ const headers={host:'127.0.0.1:13200',origin:auth.origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
+ const binding={version:1,epoch:randomUUID(),sequence:1,tenantId,principalId:userId,requestId:randomUUID()};
+ const command={...binding,type:'add-connected-door-pair',dimensions:{width:2.4,height:3},
+  first:{surfaceId:leftWall.id,offset:[0,(3-left.dimensions.height)/2]},
+  second:{surfaceId:rightWall.id,offset:[0,(3-right.dimensions.height)/2]}};
+ const post=(request:unknown,match=etag(revision,draft))=>app.inject({method:'POST',url,headers:{...headers,'if-match':match},
+  payload:{expectedRevision:revision,request}});
+ try{
+  const original=structuredClone(draft.candidate),match=etag(revision,draft);
+  const advertised=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
+  expect(advertised.json()).toMatchObject({nativeDoorPairAuthoringProfile:'saved-head-rectangular-door-pair-v1',nativePairedWallStructureProfile:PAIRED_WALL_STRUCTURE_PROFILE});
+  expect((await post(command,etag(revision-1,draft))).statusCode).toBe(412);
+  ownerUserId=randomUUID();
+  expect((await post(command)).statusCode).toBe(403);
+  ownerUserId=userId;
+  expect((await post({...command,second:{...command.second,surfaceId:leftWall.id}})).statusCode).toBe(422);
+  expect((await post({...command,second:{...command.second,offset:[.2,command.second.offset[1]]}})).statusCode).toBe(422);
+  expect((await post({...command,dimensions:{width:32,height:3}})).statusCode).toBe(422);
+  const response=await post(command);
+  expect(response.statusCode,response.body).toBe(200);
+  expect(response.headers.etag).toBe(match);
+  const proposal=response.json();
+  const [first,second]=proposal.openingIds;
+  expect(first).not.toBe(second);
+  expect(proposal.candidate).toEqual({...original,openings:[...original.openings,
+   {...command.first,id:first,type:'door',dimensions:command.dimensions,connectsToOpeningId:second},
+   {...command.second,id:second,type:'door',dimensions:command.dimensions,connectsToOpeningId:first}]});
+  expect((await post(command)).json()).toEqual(proposal);
+  expect(draft.candidate).toEqual(original);
+  revision++;
+  draft.candidate=proposal.candidate;
+  expect((await post({...command,requestId:randomUUID()},match)).statusCode).toBe(412);
+  expect((await post({...command,requestId:randomUUID()})).statusCode).toBe(422);
+
+  for (const wall of [leftWall,rightWall]) {
+    draft.candidate=applyArchitecturalFinishCommand(draft.candidate,{type:'set-wall-finish',wall:{
+      surfaceId:wall.id,preset:'plain',depth:.12,baseboardHeight:.04,trimWidth:.02,ceilingBand:false,
+    }});
+  }
+  const before=structuredClone(draft.candidate), rightPair={openingId:second,peerOpeningId:first};
+  const extent={...rightPair,side:'positive-normal' as const,extensionMeters:.11};
+  const add={...binding,...extent,type:'set-paired-wall-structure',requestId:randomUUID()};
+  expect((await post(add,match)).statusCode).toBe(412);
+  expect((await post({...add,side:'negative-normal'})).statusCode).toBe(422);
+  expect((await post({...add,peerOpeningId:second})).statusCode).toBe(422);
+  const extended=await post(add);
+  expect(extended.statusCode,extended.body).toBe(200);
+  const applied=extended.json().candidate as typeof before;
+  expect(applied).toEqual({...before,extensions:{...before.extensions,[PAIRED_WALL_STRUCTURE_NAMESPACE]:{version:1,pairs:[extent]}}});
+  expect(draft.candidate).toEqual(before);
+  const wallSolids=architecturalSolids(applied).filter(s=>s.surfaceId===rightWall.id);
+  const oldMax=Math.max(...architecturalSolids(before).filter(s=>s.surfaceId===rightWall.id).flatMap(s=>s.vertices.map(v=>v[0])));
+  expect(Math.max(...wallSolids.flatMap(s=>s.vertices.map(v=>v[0])))-oldMax).toBeCloseTo(.11);
+  const through:[number,number,number]=[oldMax-.12,1,0], opposite:[number,number,number]=[oldMax+.66,1,0];
+  expect(wallSolids.some(s=>s.collision.hit(through,opposite,.25))).toBe(false);
+  for(const output of [remapOex(applied).exhibition,projectPublication(applied,[],new Date().toISOString()).snapshot]){
+    expect(validateArchitecturalFinishes(output).valid).toBe(true);
+    const {pairs}=output.extensions![PAIRED_WALL_STRUCTURE_NAMESPACE] as unknown as {pairs:(typeof extent)[]};
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.openingId).not.toBe(second);
+    expect(output.openings.find(o=>o.id===pairs[0]!.openingId)?.connectsToOpeningId).toBe(pairs[0]!.peerOpeningId);
+    expect(pairs[0]!.extensionMeters).toBe(.11);
+  }
+  draft.candidate=applied;
+  revision++;
+  const removed=await post({...binding,...rightPair,type:'remove-paired-wall-structure',requestId:randomUUID()});
+  expect(removed.statusCode,removed.body).toBe(200);
+  expect(removed.json().candidate).toEqual(before);
+  expect(writes).toEqual([]);
+ }finally{await app.close();}
+});
 
 it('proposes only a checked change to the current saved draft through the installed owner session',async()=>{
  const draft=newDraft(),tenantId=randomUUID(),userId=randomUUID(),csrf='test-csrf',token='a'.repeat(43);
