@@ -30,6 +30,7 @@ import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts'
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
+import {applyPairedWallStructureCommand,type PairedWallStructureCommand} from '@exhibitos/studio-contract';
 import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
@@ -61,7 +62,7 @@ export const NATIVE_FIXTURE_AUTHORING_PROPOSAL_PROFILE='saved-head-fixture-v1';
 export const NATIVE_LIGHT_OBJECT_AUTHORING_PROPOSAL_PROFILE='saved-head-light-object-v1';
 export const NATIVE_FIXTURE_FIRST_AUTHORING_PROFILE='saved-head-fixture-first-v1';
 type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
-type SupportedAuthoringCommand=NativeFloorRecordingAttachmentCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
+type SupportedAuthoringCommand=NativeFloorRecordingAttachmentCommand|NativePlacementVoiceCommand|Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>|NativeSceneCommand|NativeDoorPairCommand|NativeFixtureCommand|LightObjectCommand|(Extract<LightObjectCommand,{type:'set-light-object'}>&{fitBeam:NativeSpotBeamFitIntent})|NativeFrameImageFitCommand|PairedWallStructureCommand|{type:'set-viewer-budget-policy';policy:ViewerBudgetPolicy|null};
 export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
 
 export interface NativeDefaultSeatProposalInput {draft:Draft;targets:WorkspaceDefaultSeatTarget[]}
@@ -433,6 +434,9 @@ export class Studio {
       if(request.type==='set-placement-voice')result=await nativePlacementVoiceProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
       else if(request.type==='attach-floor-recording')result=await nativeFloorRecordingProposal(c,s,id,draft.candidate,request,this.budgetBlobs);
       else if(request.type==='set-viewer-budget-policy')result={candidate:setViewerBudgetPolicy(draft.candidate,request.policy)};
+      else if(request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure'){
+        result={candidate:applyPairedWallStructureCommand(draft.candidate,request)};
+      }
       else if(request.type==='set-wall-finish')result={candidate:reconcileFurnishingWalkingCollision(draft.candidate,applyArchitecturalFinishCommand(draft.candidate,request)),surfaceId:request.wall.surfaceId};
       else if(operation.type==='add-connected-door-pair'){
         const doorId=(side: 'first'|'second')=>{
@@ -466,6 +470,8 @@ export class Studio {
       else throw Error('AUTHORING_COMMAND_UNSUPPORTED');
     }catch(error){
       if(request.type==='attach-floor-recording'&&error instanceof ApiError)throw error;
+      if((request.type==='set-paired-wall-structure'||request.type==='remove-paired-wall-structure')&&error instanceof Error&&error.message==='PAIRED_WALL_STRUCTURE_INVALID')
+        throw new ApiError(422,error.message);
       if(error instanceof Error&&error.message==='LIGHT_FIXTURE_REQUIRED')throw new ApiError(422,'LIGHT_FIXTURE_REQUIRED');
       const articulated=(operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'
         ||operation.type==='set-light-object'&&operation.settings.trackAim!==undefined;
