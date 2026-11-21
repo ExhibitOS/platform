@@ -5,7 +5,7 @@ import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './worksp
 export const WHEAT_SELECTED_SCOPE = 'installed-wheat-frame-v1';
 export const WHEAT_IMAGE_FIT_SELECTED_SCOPE = 'installed-wheat-image-fit-v1';
 export const PAINTING_BENCH_SELECTED_SCOPE = 'painting-bench-after-wheat-v1';
-export const PAINTING_BENCH_HEIGHT_SELECTED_SCOPE = 'painting-bench-height-after-closing-v1';
+export const PAINTING_BENCH_HEIGHT_SELECTED_SCOPE = 'painting-bench-height-after-seven-lights-v1';
 export const CLOSING_LIGHTS_SELECTED_SCOPE = 'closing-lights-after-wheat-fit-v1';
 export const RETAINED_SPOTS_SELECTED_SCOPE = 'painting-eight-old-arrow-after-closing-v1';
 export const ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE = 'painting-six-old-arrow-after-closing-v1';

@@ -19,7 +19,7 @@ import {allowedRights} from './rights.ts';
 import {etag, type Draft} from './studio.ts';
 import type {NativeOriginalPublication} from './native-original-publication.ts';
 import {
-  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_SEVEN_SUCCESSOR_HEAD, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
+  ACCEPTED_CLOSING_PREDECESSOR, ACCEPTED_SEVEN_SPOTS_PREDECESSOR, ACCEPTED_SEVEN_SUCCESSOR_HEAD, ACCEPTED_WHEAT_FIT_PREDECESSOR, ACCEPTED_WHEAT_PREDECESSOR, OCCUPIED_PAINTING_BENCH_ETAG, OCCUPIED_PAINTING_BENCH_REVISION,
   OCCUPIED_CANNON_SCOPE, OCCUPIED_PUBLIC_FINISH_SCOPE, OCCUPIED_POST_WHEAT_ETAG, OCCUPIED_POST_WHEAT_REVISION,
   OCCUPIED_SELECTED_FINISH_ETAG,
   OCCUPIED_SELECTED_FINISH_REVISION, OCCUPIED_SELECTED_OUTPUT_REVISION,
@@ -214,7 +214,7 @@ export async function loadSelectedNativeRelease(
       return bindScopedSelection(selected, publicFinishes, publicPredecessor, match, selectedHead);
     if (selectedHead.scope !== WHEAT_SELECTED_SCOPE) {
       const repair = selectedHead.scope !== PAINTING_BENCH_SELECTED_SCOPE;
-      const pin = afterClosing ? ACCEPTED_CLOSING_PREDECESSOR : closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
+      const pin = benchHeight ? ACCEPTED_SEVEN_SPOTS_PREDECESSOR : afterClosing ? ACCEPTED_CLOSING_PREDECESSOR : closing ? ACCEPTED_WHEAT_FIT_PREDECESSOR : ACCEPTED_WHEAT_PREDECESSOR;
       if ((repair ? !wheatImageFit : !paintingBench) || selectedHead.predecessorPublicationId !== pin.publicationId ||
           selectedHead.predecessorRevisionSha256 !== pin.revisionSha256) return unavailable();
       const wheatHead = await savedRevision(OCCUPIED_POST_WHEAT_REVISION);
@@ -253,14 +253,25 @@ export async function loadSelectedNativeRelease(
             const closingIdentity = scopedProjectionIdentity(withClosing, closingPredecessor, match, CLOSING_LIGHTS_SELECTED_SCOPE);
             if (closingIdentity !== deployed.projectionIdentity) return unavailable();
             await assertAcceptedSelectedPredecessor(c, s, exhibitionId, {
-              ...selectedHead, revision: deployed.revision, etag: deployed.etag,
+              predecessorPublicationId: deployed.publicationId, predecessorRevisionSha256: deployed.revisionSha256,
+              revision: deployed.revision, etag: deployed.etag,
             }, SELECTED_NATIVE_RELEASE, closingIdentity, CLOSING_LIGHTS_SELECTED_SCOPE);
             const retainedPredecessor = fingerprintCanonical([closingIdentity, deployed.publicationId, deployed.revisionSha256,
               deployed.publicManifestSha256, deployed.deliveryReceiptSha256]);
             if (benchHeight) {
-              const withBenchHeight = await projectSelectedPaintingBenchHeight(withClosing,
-                'a831ea5dfd0e7e6a6d39dcc4fcdf917c685d97faa7f370b4c81c762915e17f09', row.metadata, currentDraft);
-              return {...bindScopedSelection(selected, withBenchHeight, retainedPredecessor, selectedMatch, selectedHead),
+              const publishedSeven = ACCEPTED_SEVEN_SPOTS_PREDECESSOR;
+              const withSeven = projectSelectedRetainedSpots(withClosing, row.metadata.candidate, 'accepted-seven');
+              const sevenIdentity = scopedProjectionIdentity(withSeven, retainedPredecessor, publishedSeven.etag, ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE);
+              if (sevenIdentity !== publishedSeven.projectionIdentity) return unavailable();
+              await assertAcceptedSelectedPredecessor(c, s, exhibitionId, {
+                predecessorPublicationId: publishedSeven.publicationId, predecessorRevisionSha256: publishedSeven.revisionSha256,
+                revision: publishedSeven.revision, etag: publishedSeven.etag,
+              }, SELECTED_NATIVE_RELEASE, sevenIdentity, ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE);
+              const benchPredecessor = fingerprintCanonical([sevenIdentity, publishedSeven.publicationId, publishedSeven.revisionSha256,
+                publishedSeven.publicManifestSha256, publishedSeven.deliveryReceiptSha256]);
+              const withBenchHeight = await projectSelectedPaintingBenchHeight(withSeven,
+                '3325e9bba1bdbeffc40027c3673810d97f4fc2a8c7e5f70a5bd7788aa2841ceb', row.metadata, currentDraft);
+              return {...bindScopedSelection(selected, withBenchHeight, benchPredecessor, selectedMatch, selectedHead),
                 wheatScope: PAINTING_BENCH_HEIGHT_SELECTED_SCOPE};
             }
             const withRetainedSpots = projectSelectedRetainedSpots(withClosing, row.metadata.candidate,

@@ -11,7 +11,7 @@ import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import {Imports} from './imports.ts';
 import {reconstructNativeOriginalExport} from './native-original-export-plan.ts';
-import {ACCEPTED_CLOSING_PREDECESSOR,ACCEPTED_SEVEN_SUCCESSOR_HEAD,ACCEPTED_WHEAT_FIT_PREDECESSOR,ACCEPTED_WHEAT_PREDECESSOR,bindNativeDetailContext,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
+import {ACCEPTED_CLOSING_PREDECESSOR,ACCEPTED_SEVEN_SPOTS_PREDECESSOR,ACCEPTED_SEVEN_SUCCESSOR_HEAD,ACCEPTED_WHEAT_FIT_PREDECESSOR,ACCEPTED_WHEAT_PREDECESSOR,bindNativeDetailContext,OCCUPIED_PAINTING_BENCH_ETAG,OCCUPIED_PAINTING_BENCH_REVISION,OCCUPIED_CANNON_SCOPE,OCCUPIED_PUBLIC_FINISH_SCOPE,OCCUPIED_POST_WHEAT_ETAG,OCCUPIED_POST_WHEAT_REVISION,OCCUPIED_SELECTED_FINISH_ETAG,OCCUPIED_SELECTED_FINISH_REVISION,OCCUPIED_SELECTED_OUTPUT_REVISION,WHEAT_IMAGE_FIT_SUCCESSOR_REVISION} from './native-detail-context.ts';
 import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import * as selection from './native-selected-release.ts';
@@ -127,10 +127,12 @@ it.skipIf(!(process.getuid?.())).each([OCCUPIED_SELECTED_OUTPUT_REVISION,OCCUPIE
     {...seven,etag:repair.etag},{...seven,includeSunrise:true}]){
     expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
    }
-   const benchHeight={...sevenSuccessor,scope:PAINTING_BENCH_HEIGHT_SELECTED_SCOPE};
+   const benchHeight={...sevenSuccessor,scope:PAINTING_BENCH_HEIGHT_SELECTED_SCOPE,
+    predecessorPublicationId:ACCEPTED_SEVEN_SPOTS_PREDECESSOR.publicationId,
+    predecessorRevisionSha256:ACCEPTED_SEVEN_SPOTS_PREDECESSOR.revisionSha256};
    expect(bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,benchHeight).selectedHead).toEqual(benchHeight);
    for(const invalid of [{...benchHeight,revision:219,etag:seven.etag},{...benchHeight,etag:seven.etag},
-    {...benchHeight,predecessorPublicationId:acceptedFit.publicationId}]){
+    {...benchHeight,predecessorPublicationId:deployedClosing.publicationId}]){
     expect(()=>bindNativeDetailContext(nativeExportWorkspace,runtimeGeneration,signal,()=>true,invalid)).toThrow('NATIVE_DETAIL_CONFIGURATION');
    }
    expect(()=>buildApp({...common,nativeDetailContext:scoped})).toThrow('NATIVE_DETAIL_CONFIGURATION');

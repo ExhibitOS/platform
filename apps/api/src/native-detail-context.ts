@@ -40,6 +40,14 @@ export const ACCEPTED_SEVEN_SUCCESSOR_HEAD = Object.freeze({
  revision:220,
  etag:'"studio-r220-d48d3de2ac7bc3875cb628f4464b3a846217ba2ccbf675ad113f3a61523bb25d"',
 } as const);
+export const ACCEPTED_SEVEN_SPOTS_PREDECESSOR = Object.freeze({
+ ...ACCEPTED_SEVEN_SUCCESSOR_HEAD,
+ publicationId:'63719dad-65d3-41e9-86a8-57304976e142',
+ revisionSha256:'e0f14b847913fb54ffcd3d638bcc4695ffd706142b797e59709ae173a84bb0cb',
+ projectionIdentity:'v1:2ece57be5e91ff17f7539c2eaf7b2a055c16770e4ab2c4f9a30521a245c9dbb1',
+ publicManifestSha256:'e540bee1f493cccb9f08ba5f3926ff3f99a4179da71feb8b9e61aa56f3e323a7',
+ deliveryReceiptSha256:'52ad60e0b1e319e1dc8a35c544afda650a1a22de33a42b07cddf96d8a7a3524d',
+});
 export const OCCUPIED_CANNON_SCOPE = 'transition-cannon-v1';
 export const OCCUPIED_PUBLIC_FINISH_SCOPE = 'public-seven-visual-finishes-v1';
 type OccupiedSelectionScope = typeof OCCUPIED_CANNON_SCOPE | typeof OCCUPIED_PUBLIC_FINISH_SCOPE;
@@ -69,9 +77,11 @@ function isSelectedSavedHead(input:unknown):input is SelectedSavedHead {
  const keys=Object.keys(head).sort().join(',');
  if(keys==='etag,predecessorPublicationId,predecessorRevisionSha256,projectionIdentity,revision,scope'){
   if(typeof head.projectionIdentity!=='string'||!/^v1:[a-f0-9]{64}$/.test(head.projectionIdentity))return false;
-  if(head.scope===PAINTING_BENCH_HEIGHT_SELECTED_SCOPE)
-   return head.revision===ACCEPTED_SEVEN_SUCCESSOR_HEAD.revision&&head.etag===ACCEPTED_SEVEN_SUCCESSOR_HEAD.etag&&
-    head.predecessorPublicationId===ACCEPTED_CLOSING_PREDECESSOR.publicationId&&head.predecessorRevisionSha256===ACCEPTED_CLOSING_PREDECESSOR.revisionSha256;
+  if(head.scope===PAINTING_BENCH_HEIGHT_SELECTED_SCOPE){
+   const pin=ACCEPTED_SEVEN_SPOTS_PREDECESSOR;
+   return head.revision===pin.revision&&head.etag===pin.etag&&
+    head.predecessorPublicationId===pin.publicationId&&head.predecessorRevisionSha256===pin.revisionSha256;
+  }
   if(head.scope===CLOSING_LIGHTS_SELECTED_SCOPE||head.scope===RETAINED_SPOTS_SELECTED_SCOPE||head.scope===ACCEPTED_SEVEN_SPOTS_SELECTED_SCOPE){
    const pin=head.scope===CLOSING_LIGHTS_SELECTED_SCOPE?ACCEPTED_WHEAT_FIT_PREDECESSOR:ACCEPTED_CLOSING_PREDECESSOR;
    const headMatches=(head.revision===pin.revision&&head.etag===pin.etag)||
