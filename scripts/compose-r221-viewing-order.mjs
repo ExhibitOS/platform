@@ -12,6 +12,7 @@ import {projectSelectedViewingOrder} from '../apps/api/src/native-selected-viewi
 import {assertStaticBudget} from './export-static-publication.mjs';
 import {assertSamePublicationContent, localStaticPublicationSource} from './local-static-publication-source.mjs';
 import {buildNativeDetailPlan} from './native-detail-plan.mjs';
+import {bindDerivedStaticCover} from './derived-static-cover.mjs';
 
 const stoppedDigest = '4162996bf0e9f0dfe9ba0021cbc25e7aaacb52a46b73dd46a13ee21f48c917e0';
 const selectionDigest = '3f2de22881b3b35c1e53b9f5c817cf83a136e1b9c98831301b27dc039c5c42c2';
@@ -178,7 +179,8 @@ export async function composeR221ViewingOrder({sourceDir,witness,selectionPath,d
   assert.notEqual(revisionSha256,predecessor.revisionSha256);
   // The existing publication identifier remains the locator for the preserved
   // static assets. This creates a distinct offline revision, never an API publication.
-  const bodyBytes=encode({...original.body,publication:{...original.body.publication,revisionSha256},exhibition});
+  const bodyBytes=encode(bindDerivedStaticCover(original.body,
+    {...original.body,publication:{...original.body.publication,revisionSha256},exhibition}));
   const bodySha=sha256(bodyBytes),bodyPath=`data/${bodySha}.json`;
   const indexBytes=encode({...original.index,publication:{...rowFor(bodyPath,bodyBytes),mime:'application/json'}});
   const indexSha256=sha256(indexBytes);
@@ -214,7 +216,9 @@ export async function composeR221ViewingOrder({sourceDir,witness,selectionPath,d
     });
     assertSamePublicationContent(expected,[...generated.entries.values()]);
     const next=await readProjection(generated,{bodySha,revisionSha256});
-    assert.deepEqual({...next.body,publication:original.body.publication,exhibition:original.body.exhibition},original.body);
+    const reversed={...next.body,publication:original.body.publication,exhibition:original.body.exhibition};
+    if (next.body.coverVariants) reversed.coverVariants={...next.body.coverVariants,revisionSha256:original.body.publication.revisionSha256};
+    assert.deepEqual(reversed,original.body);
     assert.deepEqual({...next.index,publication:original.index.publication},original.index);
     assert.equal(next.detail.detailSetSha256,original.detail.detailSetSha256);
     const receipt={
