@@ -5,6 +5,7 @@ import {WORKSPACE_FURNISHING_NAMESPACE,ceilingRailAttachmentMatrix,ceilingRailDe
 import {ARTICULATED_TRACK_SPOT_IDENTITY} from './track-spot-articulated-profile.js';
 import type {TrackSpotAimBinding} from './track-spot-aim-binding.js';
 import {resolveTrackSpotAiming,materializeTrackSpotAiming} from './track-spot-aiming-resolver.js';
+import {fixedCeilingSupportContact} from './fixed-ceiling-support-contact.js';
 import type {Exhibition} from '@exhibitos/spec';
 const railId='b0000000-0000-4000-8000-000000000001',pid='b0000000-0000-4000-8000-000000000002';
 function fixture(){
@@ -59,4 +60,74 @@ it('requires the complete adapter footprint on an ordinary linear rail and prese
  descriptor.model.sha256='f'.repeat(64);descriptor.fit!.sourceSha256=descriptor.model.sha256;const g=descriptor.fit!.geometry;if(g.profile!=='passive-ceiling-rail-v1')throw Error('fixture');g.min[2]=-.005;g.max[2]=.005;binding.mount.position[2]=0;
  expect(validateWorkspaceFurnishings(document).valid).toBe(true);expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
  binding.aim={kind:'point',position:[0,-1,0]};expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:false,reason:'INVALID_TARGET',requestedTarget:[0,-1,0]});
+});
+
+const supportSha256 = '06de01d214a67e68d021b164e64a1f7f621faf78bcf2d859151b56b8d6a4adf3';
+const supportDepth = -.587857;
+const supportZ = 1.4428774997877816;
+
+function fixedSupportFixture(gap = 0) {
+ const {document,binding}=fixture();
+ const surface=document.surfaces[0]!;
+ const workspace=document.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;
+ const descriptor=workspace.furnishings[0]!;
+ descriptor.model={mime:'model/gltf-binary',bytes:28_472,sha256:supportSha256};
+ descriptor.fit={version:1,sourceSha256:supportSha256,sourceBytes:28_472,
+  geometry:{profile:'passive-ceiling-rail-v1',min:[-.055,supportDepth,-.042],max:[.055,0,.042]}};
+ Object.assign(workspace.ceilingAttachments![0]!,{anchor:[0,supportZ],gap});
+ Object.assign(workspace.placements[0]!,ceilingRailDerivedPose(ceilingRailAttachmentMatrix(surface,workspace.ceilingAttachments![0]!).matrix));
+ binding.mount.position=[0,supportDepth,0];
+ binding.aim={kind:'point',position:[0,1.170954503750545,0]};
+ return {document,binding,descriptor,workspace};
+}
+
+it('mates the verified support at the decoded receiver and keeps the materialized head below it',()=>{
+ const {document,binding,workspace}=fixedSupportFixture();
+ const support=workspace.placements[0]!;
+ const before=structuredClone(document);
+ const result=resolveTrackSpotAiming(document,lightId);
+ expect(result.reachable).toBe(true);
+ if(!result.reachable)throw Error(result.reason);
+ expect(result.fixedPose.position[0]).toBeCloseTo(0,9);
+ expect(result.fixedPose.position[1]).toBeCloseTo(support.position[1]+supportDepth,9);
+ expect(result.fixedPose.position[2]).toBeCloseTo(support.position[2],9);
+ expect(result.parts.every(part=>part.bounds.max[1]<=result.fixedPose.position[1]+1e-6)).toBe(true);
+ const output=materializeTrackSpotAiming(document);
+ expect(output.lights[0]!.transform.position).toEqual(result.emitter);
+ expect(output.lights[0]!.transform.rotation).toEqual(result.headPose.rotation);
+ expect(document.extensions!['org.exhibitos.studio/light-details']).toEqual({version:1,lights:[{lightId,fixture:'none',trackAim:binding}]});
+ expect(document).toEqual(before);
+});
+
+it('fails closed for invalid contact or fit receipts on the fixed support source',()=>{
+ const lifted=fixedSupportFixture(.001);
+ expect(validateWorkspaceFurnishings(lifted.document).valid).toBe(true);
+ expect(resolveTrackSpotAiming(lifted.document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
+
+ const displaced=fixedSupportFixture();
+ displaced.binding.mount.position[0]=.002;
+ expect(resolveTrackSpotAiming(displaced.document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
+
+ const rotated=fixedSupportFixture();
+ rotated.binding.mount.yaw=Math.PI;
+ expect(resolveTrackSpotAiming(rotated.document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
+
+ const wrongFit=fixedSupportFixture();
+ const geometry=wrongFit.descriptor.fit?.geometry;
+ if(geometry?.profile!=='passive-ceiling-rail-v1')throw Error('Expected passive rail geometry');
+ geometry.min[2]=-.043;
+ expect(validateWorkspaceFurnishings(wrongFit.document).valid).toBe(true);
+ expect(resolveTrackSpotAiming(wrongFit.document,lightId)).toMatchObject({reachable:false,reason:'RAIL_CONTACT'});
+});
+
+it('keeps ordinary rail eligibility separate from certifying the exact support',()=>{
+ const {document,binding,descriptor,workspace}=fixedSupportFixture();
+ const adapter=[[-.0475,supportDepth,-.019],[-.0475,supportDepth,.019],[.0475,supportDepth,-.019],[.0475,supportDepth,.019]] as [number,number,number][];
+ expect(fixedCeilingSupportContact(descriptor,binding.mount,0,adapter)).toBe(true);
+ const substitute=structuredClone(descriptor);
+ substitute.model.sha256='f'.repeat(64);
+ substitute.fit!.sourceSha256=substitute.model.sha256;
+ expect(fixedCeilingSupportContact(substitute,binding.mount,0,adapter)).toBeUndefined();
+ workspace.furnishings[0]=substitute;
+ expect(resolveTrackSpotAiming(document,lightId)).toMatchObject({reachable:true});
 });

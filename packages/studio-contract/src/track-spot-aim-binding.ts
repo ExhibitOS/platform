@@ -35,7 +35,7 @@ export function validateTrackSpotAimBinding(value:unknown):value is TrackSpotAim
 /** The target and mount are both ROOM-local. The owning room transform is
  * applied after solving, including for rotated rooms. No nearest target or
  * legacy light.targetPlacementId fallback is permitted. */
-export function trackSpotAimContext(document:Exhibition,lightId:string,binding:TrackSpotAimBinding):{mountPose:ArtifactPose;target?:AffinePoint;surfaceId:string} {
+export function trackSpotAimContext(document:Exhibition,lightId:string,binding:TrackSpotAimBinding):{mountPose:ArtifactPose;target?:AffinePoint;surfaceId:string;ceilingGap:number} {
  if(!validateTrackSpotAimBinding(binding))return fail('TRACK_SPOT_AIM_SCHEMA');
  const lights=document.lights.filter(l=>same(l.id,lightId)),light=lights[0];
  if(lights.length!==1||!light||light.type!=='spot')return fail('TRACK_SPOT_AIM_REFERENCE');
@@ -62,7 +62,7 @@ export function trackSpotAimContext(document:Exhibition,lightId:string,binding:T
   target=artifactPoint(center.map((n,i)=>n+aim.offset[i]!) as AffinePoint,placement.transform);
  }
  if(target&&(!target.every(Number.isFinite)||Math.abs(target[0])>room.dimensions.width/2||target[1]<0||target[1]>room.dimensions.height||Math.abs(target[2])>room.dimensions.depth/2))return fail('TRACK_SPOT_AIM_TARGET_OUTSIDE_ROOM');
- return {mountPose,...(target?{target}:{}),surfaceId:surface.id};
+ return {mountPose,...(target?{target}:{}),surfaceId:surface.id,ceilingGap:attachments[0]!.gap};
 }
 
 /** Public UUID remapping must preserve the explicit rail and placement links.
