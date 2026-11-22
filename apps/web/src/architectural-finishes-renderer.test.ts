@@ -1,14 +1,17 @@
 import {expect,test,vi} from 'vitest';
+import {readFile} from 'node:fs/promises';
 import * as Three from 'three';
 import {newDraft} from './drafts/example';
 import {whiteCubeSurfaces,newDoor,newRoom} from './geometry/model';
-import {applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {ModularPortalFit,ModularPortalRole} from '@exhibitos/spec/workspace-fit-models';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {biasPairedPortalWalls} from './workspace-furnishing/portal-pose';
 import {surfaceTexturePlan} from './surface-texture-renderer';
 import {createNavigationController} from './viewer/navigation';
 import {createPresenceGeometry} from '../../api/src/realtime-geometry';
+import {validateWorkspaceFurnishingGlb} from '../../api/src/workspace-furnishing-glb';
+import {openRoomIndirectPairedShell} from './viewer/room-indirect-paired-shell';
 function fixture(){let d=newDraft().candidate;d.surfaces=whiteCubeSurfaces(d.rooms[0]!);const wall=d.surfaces[0]!;d.openings=[newDoor(wall.id,{width:2.4,height:3},[0,-.5])];d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:wall.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});return {d,wall};}
 test('finish pooled rendering matches world hulls once and disposes owned buffers without borrowed material',()=>{
  const {d,wall}=fixture(),room=new Three.Group(),parent=new Three.Group(),base=new Three.MeshStandardMaterial();room.position.fromArray(d.rooms[0]!.transform.position);parent.position.fromArray(wall.transform.position);parent.quaternion.fromArray(wall.transform.rotation);room.add(parent);const borrowed=vi.spyOn(base,'dispose');const r=installArchitecturalFinishes(Three,d,new Map([[wall.id.toLowerCase(),parent]]),new Map([[wall.id.toLowerCase(),base]]));expect(r.meshes).toHaveLength(2);expect(r.meshes[0]).not.toBeInstanceOf(Three.InstancedMesh);expect(r.meshes[1]).toBeInstanceOf(Three.InstancedMesh);room.updateMatrixWorld(true);
@@ -194,6 +197,33 @@ test.each([{name:'equal walls',full:false},{name:'approved 10/11 m walls',full:t
    expect(navigation.standingSegmentClear(second!,first!)).toBe(true);
   }finally{navigation.dispose();}
  }finally{results.dispose();}
+ if(full){
+  const exhibition=structuredClone(d);
+  const workspace=exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;
+  const descriptor=workspace.furnishings[0]!;
+  const bytes=await readFile(new URL('../../../assets/furnishings/user-authored-20261027/double-width-portal/model.glb',import.meta.url));
+  const geometry=await validateWorkspaceFurnishingGlb(descriptor.model,bytes,{},'modular-portal-v1');
+  descriptor.fit={...descriptor.fit!,geometry};
+  const asset={assetId:descriptor.id,path:`data/${descriptor.model.sha256}.bin`,...descriptor.model};
+  const source={exhibition,assets:[asset],read:async(path:string)=>{
+   expect(path).toBe(asset.path);return bytes;
+  }};
+  const component=await openRoomIndirectPairedShell(source,openings[0]!.id);
+  expect(component).toBeDefined();
+  try{
+   expect(component!.revealSurfaceId).toBe(walls[1]!.id);
+   expect(component!.trace([11,1.5,-2.2],[0,0,1],.4)).toBeUndefined();
+   expect(component!.trace([8.9,1.5,-2.2],[0,0,1],.4)?.position[2]).toBeCloseTo(-2.06,5);
+   expect(component!.trace([8.9,1.5,-1.8],[0,0,-1],.4)?.position[2]).toBeCloseTo(-1.94,5);
+   const paint=component!.trace([8.9,.02,-1.8],[0,0,-1],.4);
+   expect(paint?.kind).toBe('finish');
+   expect(paint?.reflectance).toEqual(new Three.Color('#dedbd2').toArray());
+   expect(component!.receiverOrigin(walls[0]!.id,4.1,-.5)?.position[2]).toBeCloseTo(-2.06001,6);
+   expect(component!.receiverOrigin(walls[1]!.id,1.4,-.5)?.position[2]).toBeCloseTo(-1.93999,6);
+   expect(component!.receiverOrigin(walls[0]!.id,2,-.5)).toBeUndefined();
+  }finally{component?.dispose();}
+  expect(await openRoomIndirectPairedShell({...source,assets:[]},openings[0]!.id)).toBeUndefined();
+ }
  const inset=structuredClone(d);
  for(const [i,wall] of walls.entries()){
   const target=inset.surfaces.find(surface=>surface.id===wall.id)!;

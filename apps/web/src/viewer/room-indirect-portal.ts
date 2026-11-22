@@ -9,7 +9,7 @@ import { loadBudgetGeometry } from './viewer-budget-glb';
 
 type Vector = [number, number, number];
 type ExportedAsset = { assetId: string; path: string; sha256: string; bytes: number; mime: string };
-interface VerifiedPortalSource {
+export interface VerifiedPortalSource {
   exhibition: Exhibition;
   assets: readonly ExportedAsset[];
   /** Reads only manifest-verified files from the same local export or stage. */
