@@ -83,6 +83,8 @@ import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/priv
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {galleryLightingFor,installLightDetails,installLightFixtureGate} from './light-details-renderer';
 import {installCeilingFillMask} from './viewer/ceiling-fill';
+import {verifiedRoomIndirect} from './private-static-room-indirect';
+import {fixtureAdmittedIndirectRooms,mountRoomIndirect} from './viewer/room-indirect';
 import {mountedFurnishingCollision,type MountedFurnishingCollision} from './viewer/furnishing-collision-mesh';
 import {installBenches} from './bench-renderer';
 import {benchesFor,experienceFor,furnishingWalkingCollisionLookup,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
@@ -654,8 +656,9 @@ export function GeometryPreview({
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
+      let indirectReserve=0;
       const fixedResourceReserve=qualityFrameReserve+environmentReserve+shadowReserve+plaqueReserve+mapThumbnailReserve+suppliedThumbnailReserve+retainedMaterialBytes+benchReserve+otherReserve+snapshotReserve;
-      const resourceLimits=(materialBytes:number)=>assetResourceLimits(resources?.maxCacheBytes??33554432,resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432,fixedResourceReserve+materialBytes);
+      const resourceLimits=(materialBytes:number)=>assetResourceLimits(resources?.maxCacheBytes??33554432,resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432,fixedResourceReserve+materialBytes+indirectReserve);
       let initialResourceLimits:ReturnType<typeof assetResourceLimits>;
       try{initialResourceLimits=resourceLimits(materialReserve);}catch(error){renderer.dispose();renderer.forceContextLoss();throw error;}
       let assetBudgetBytes=initialResourceLimits.resident,transitionBudgetBytes=initialResourceLimits.transition;
@@ -664,7 +667,7 @@ export function GeometryPreview({
         const materialBytes=serialMaterialPhaseBytes(floorPlan,surfacePlan,floorSettled,surfaceSettled);
         const effective=resourceLimits(materialBytes);
         assetBudgetBytes=effective.resident;transitionBudgetBytes=effective.transition;
-        renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
+        renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes,...(indirectReserve?{roomIndirectBytes:indirectReserve}:{})});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
         growAssetLimits();
@@ -881,7 +884,18 @@ export function GeometryPreview({
         new Set(otherFurnishings.filter(item=>item.binding.hostKind==='light').map(item=>item.binding.hostId.toLowerCase())),!!otherReserve);
       const reportFixtureSupport=()=>{renderer.domElement.dataset.lightFixtureSupport=JSON.stringify(fixtureGate.records());};
       reportFixtureSupport();
-      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined);
+      const indirectSources=roomOnly&&!editingEnabled?verifiedRoomIndirect(publicSource?.detailPublication,document):undefined;
+      const eligibleIndirect=indirectSources&&fixtureAdmittedIndirectRooms(indirectSources,fixtureGate.records());
+      const indirect=eligibleIndirect?.length?mountRoomIndirect(three,eligibleIndirect,rooms,surfaceMaterials,
+        Math.min(initialResourceLimits.resident,initialResourceLimits.transition)-1,
+        Math.min(resources?.maxTextureSize??2048,renderer.capabilities.maxTextureSize)):undefined;
+      if(indirect?.reservedBytes){
+        owned.push(indirect);
+        indirectReserve=indirect.reservedBytes;
+        renderer.domElement.dataset.roomIndirect=JSON.stringify({surfaces:indirect.receivers.size,reserveBytes:indirectReserve});
+        refreshAssetLimits();
+      }
+      const ceilingFill=installCeilingFillMask(three,document,scene,rooms,scriptLights,roomOnly?surfaceMaterials:undefined,indirect?.receivers);
       const collisionEnabled=furnishingWalkingCollisionLookup(document);
       const lightCollisionEnabled=(id:string)=>collisionEnabled('light',id);
       const fixtureCollisions=new Map<string,MountedFurnishingCollision>();

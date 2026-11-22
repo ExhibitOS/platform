@@ -5,6 +5,7 @@ import {setLightDetails,resolveTrackSpotAiming} from '@exhibitos/studio-contract
 import {newDraft} from './drafts/example';
 import {newLight} from './placement/model';
 import {installLightDetails,installLightFixtureGate} from './light-details-renderer';
+import {fixtureAdmittedIndirectRooms} from './viewer/room-indirect';
 import {articulatedTrackFixture} from './private-editor/articulated-track.test-fixture';
 function fixture(){
   const d=newDraft().candidate,l=newLight(d.rooms[0]!.id,'spot');l.transform.position=[0,2.4,1];l.color=[.2,.3,.4];d.lights=[l];const {id,...light}=l;
@@ -83,6 +84,9 @@ test('only the default area and physically supported luminaires are eligible to 
  const report=(id:string)=>gate.records().find(item=>item.lightId===id);
  try{
   expect(report(base)).toMatchObject({eligible:true,support:'room-base-area'});
+  const admittedRoom={roomId,emitterIds:[base],scale:1,charts:[]};
+  const disabledRoom={...admittedRoom,emitterIds:[base,supplemental]};
+  expect(fixtureAdmittedIndirectRooms([admittedRoom,disabledRoom],gate.records())).toEqual([admittedRoom]);
   for(const id of [supplemental,point,railOnly])expect(report(id)).toMatchObject({eligible:false,reason:'absent'});
   expect(report(bad)).toMatchObject({eligible:false,reason:'invalid'});
   expect(report(track)).toMatchObject({eligible:false,reason:'pending'});
