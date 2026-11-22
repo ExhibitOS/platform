@@ -103,21 +103,30 @@ export async function openRoomIndirectPairedShell(source: VerifiedPortalSource, 
       };
     }
 
+    function receiverHit(surfaceId: string, x: number, y: number) {
+      const wall = parents.get(surfaceId);
+      const finish = finishes.find(row => row.surfaceId === surfaceId);
+      if (!wall || !finish) return;
+      const front = pairedWallStructuralSpan(exhibition, surfaceId, finish.depth).maxZ;
+      const normal = new three.Vector3(0,0,1).transformDirection(wall.matrixWorld);
+      const start = wall.localToWorld(new three.Vector3(x,y,front + inwardSampleOffset));
+      const hit = trace(start.toArray(), normal.clone().negate().toArray(), inwardSampleOffset + epsilon);
+      if (hit) return { hit, inward: normal.toArray() };
+    }
+
     return {
       wallIds,
       revealSurfaceId: revealOwners[0]!,
       trace,
+      receiverHit,
       /** A wall chart starts at the visible inward face, never the center
        * plane. Apertures and portal-covered samples have no wall receiver. */
       receiverOrigin(surfaceId: string, x: number, y: number) {
-        const wall = parents.get(surfaceId);
-        const finish = finishes.find(row => row.surfaceId === surfaceId);
-        if (!wall || !finish) return;
-        const front = pairedWallStructuralSpan(exhibition, surfaceId, finish.depth).maxZ;
-        const normal = new three.Vector3(0,0,1).transformDirection(wall.matrixWorld);
-        const start = wall.localToWorld(new three.Vector3(x,y,front + inwardSampleOffset));
-        const hit = trace(start.toArray(), normal.clone().negate().toArray(), inwardSampleOffset + epsilon);
-        if (!hit || hit.surfaceId !== surfaceId || hit.kind === 'portal' ||
+        const sample = receiverHit(surfaceId,x,y);
+        if (!sample) return;
+        const {hit,inward} = sample;
+        const normal = new three.Vector3(...inward);
+        if (hit.surfaceId !== surfaceId || hit.kind === 'portal' ||
             normal.dot(new three.Vector3(...hit.normal)) < 1 - epsilon) return;
         return { ...hit, position: new three.Vector3(...hit.position).addScaledVector(normal, epsilon).toArray() };
       },

@@ -7,7 +7,7 @@ import {
   artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor,
   readStaticRoomIndirect, STATIC_ROOM_INDIRECT_FORMAT, STATIC_ROOM_INDIRECT_RECIPE, STATIC_ROOM_INDIRECT_TEXTURE_BUDGET,
   spaceLightingFor, staticRoomIndirectEmitterIds, staticRoomIndirectEmitterInput, surfacePanels, surfaceTextureFor,
-  validateSpaceLighting, WORKSPACE_FURNISHING_NAMESPACE,
+  validateSpaceLighting, WORKSPACE_FURNISHING_NAMESPACE, staticRoomIndirectFrontPaintFootprints,
 } from '@exhibitos/studio-contract';
 import { bakeRoomIndirectIrradiance, diffuseAreaSamples, traceRoomDiffusePanels } from './room-indirect-irradiance.mjs';
 import { readInstalledRoomIndirectRecipe, roomIndirectPortalWorkerPath } from './room-indirect-recipe.mjs';
@@ -134,6 +134,55 @@ function barePortalOpening(exhibition, workspace) {
       workspace.frameAttachments?.length || workspace.ceilingAttachments?.length ||
       workspace.openingAttachments?.length !== 1 || workspace.openingAttachments[0].openingId !== opening.id) return;
   return opening.id;
+}
+
+/** Inspect the finish role without enabling a partially covered paired room.
+ * The current receiver contract has no admitted nonparallel reveal role. */
+export function prepareRoomIndirectFrontPaint(exhibition, pairedShell) {
+  const footprints = staticRoomIndirectFrontPaintFootprints(exhibition);
+  if (!footprints?.length || !pairedShell) return { status:'live-fallback', reason:'unsupported-paint' };
+  const surface = exhibition.surfaces.find(row => row.id === footprints[0].chart.surfaceId);
+  const room = exhibition.rooms.find(row => row.id === surface?.roomId);
+  if (!surface || !room) return { status:'live-fallback', reason:'unsupported-paint' };
+  const baseCharts = exhibition.rooms.map(entry => roomSurfaces(exhibition,entry)?.charts);
+  if (baseCharts.some(charts=>!charts)) return { status:'live-fallback', reason:'unsupported-paint' };
+  const totalBytes = [...baseCharts.flat(),...footprints.map(({chart})=>chart)]
+    .reduce((sum,chart)=>sum+chart.width*chart.height*4,0);
+  if (totalBytes > STATIC_ROOM_INDIRECT_TEXTURE_BUDGET) return { status:'live-fallback', reason:'paint-budget' };
+
+  const translation = room.transform.position;
+  const basis = [[1,0,0],[0,1,0],[0,0,1]].map(vector=>axis(room.transform,vector));
+  const roomPoint = world => basis.map(vector=>vector.reduce((sum,value,i)=>sum+value*(world[i]-translation[i]),0));
+  const patches = [];
+  for (const { chart, wallXY } of footprints) {
+    const samples = [];
+    for (let y=0;y<chart.height;y++) for (let x=0;x<chart.width;x++) {
+      const u = chart.widthMetres*((x+.5)/chart.width-.5), v = chart.heightMetres*((y+.5)/chart.height-.5);
+      let sample;
+      try {
+        sample = pairedShell.receiverHit(chart.surfaceId,wallXY[0]+u,wallXY[1]+v);
+      } catch {
+        return { status:'live-fallback', reason:'unsupported-paint' };
+      }
+      const hit = sample?.hit;
+      if (hit?.kind === 'portal') {
+        samples.push(null);
+        continue;
+      }
+      if (hit?.kind !== 'finish' || hit.surfaceId !== chart.surfaceId)
+        return { status:'live-fallback', reason:'unsupported-paint' };
+      const actual = roomPoint(hit.position);
+      const expected = chart.center.map((value,i)=>value+u*chart.right[i]+v*chart.up[i]);
+      const alignment = hit.normal.reduce((sum,value,i)=>sum+value*sample.inward[i],0);
+      if (!(alignment >= 1-1e-5) ||
+          !actual.every((value,i)=>Math.abs(value-expected[i])<=1e-6) ||
+          !hit.reflectance.every(value=>Number.isFinite(value)&&value>=0&&value<=1))
+        return { status:'live-fallback', reason:'unsupported-paint' };
+      samples.push(actual.map((value,i)=>value+chart.normal[i]*1e-5));
+    }
+    patches.push({ chart,samples });
+  }
+  return { status:'live-fallback', reason:'unsupported-reveal', patches };
 }
 
 /** Private owner export extension. Unsupported authored geometry stays entirely

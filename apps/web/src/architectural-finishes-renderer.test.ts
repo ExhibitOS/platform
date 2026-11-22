@@ -1,9 +1,15 @@
 import {expect,test,vi} from 'vitest';
 import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import * as Three from 'three';
 import {newDraft} from './drafts/example';
 import {whiteCubeSurfaces,newDoor,newRoom} from './geometry/model';
-import {applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {
+ applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,
+ ensureOrdinaryRoomBaseLight,ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,readStaticRoomIndirectFrontPaintChart,
+ type StaticRoomIndirectFrontPaintChart,type WorkspaceFurnishings,
+} from '@exhibitos/studio-contract';
+import type {Exhibition} from '@exhibitos/spec';
 import type {ModularPortalFit,ModularPortalRole} from '@exhibitos/spec/workspace-fit-models';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {biasPairedPortalWalls} from './workspace-furnishing/portal-pose';
@@ -12,6 +18,11 @@ import {createNavigationController} from './viewer/navigation';
 import {createPresenceGeometry} from '../../api/src/realtime-geometry';
 import {validateWorkspaceFurnishingGlb} from '../../api/src/workspace-furnishing-glb';
 import {openRoomIndirectPairedShell} from './viewer/room-indirect-paired-shell';
+type PaintShell = Pick<NonNullable<Awaited<ReturnType<typeof openRoomIndirectPairedShell>>>, 'receiverHit'>;
+type PaintPatch = {chart:Omit<StaticRoomIndirectFrontPaintChart,'texture'>;samples:([number,number,number]|null)[]};
+const {prepareRoomIndirectFrontPaint}=createRequire(import.meta.url)('../../../scripts/prepare-room-indirect.mjs') as {
+ prepareRoomIndirectFrontPaint(exhibition:Exhibition,shell:PaintShell):{status:'live-fallback';reason:string;patches?:PaintPatch[]};
+};
 function fixture(){let d=newDraft().candidate;d.surfaces=whiteCubeSurfaces(d.rooms[0]!);const wall=d.surfaces[0]!;d.openings=[newDoor(wall.id,{width:2.4,height:3},[0,-.5])];d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:wall.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});return {d,wall};}
 test('finish pooled rendering matches world hulls once and disposes owned buffers without borrowed material',()=>{
  const {d,wall}=fixture(),room=new Three.Group(),parent=new Three.Group(),base=new Three.MeshStandardMaterial();room.position.fromArray(d.rooms[0]!.transform.position);parent.position.fromArray(wall.transform.position);parent.quaternion.fromArray(wall.transform.rotation);room.add(parent);const borrowed=vi.spyOn(base,'dispose');const r=installArchitecturalFinishes(Three,d,new Map([[wall.id.toLowerCase(),parent]]),new Map([[wall.id.toLowerCase(),base]]));expect(r.meshes).toHaveLength(2);expect(r.meshes[0]).not.toBeInstanceOf(Three.InstancedMesh);expect(r.meshes[1]).toBeInstanceOf(Three.InstancedMesh);room.updateMatrixWorld(true);
@@ -221,6 +232,33 @@ test.each([{name:'equal walls',full:false},{name:'approved 10/11 m walls',full:t
    expect(component!.receiverOrigin(walls[0]!.id,4.1,-.5)?.position[2]).toBeCloseTo(-2.06001,6);
    expect(component!.receiverOrigin(walls[1]!.id,1.4,-.5)?.position[2]).toBeCloseTo(-1.93999,6);
    expect(component!.receiverOrigin(walls[0]!.id,2,-.5)).toBeUndefined();
+   const lit=exhibition.rooms.reduce((doc,room)=>ensureOrdinaryRoomBaseLight(
+    doc,room.id,crypto.randomUUID(),ROOM_CEILING_FILL_ROOM_LOCAL_PROFILE,
+   ),exhibition);
+   const paintCoverage=prepareRoomIndirectFrontPaint(lit,component!);
+   expect(paintCoverage).toMatchObject({status:'live-fallback',reason:'unsupported-reveal'});
+   const patches=paintCoverage.patches!;
+   expect(patches.some(row=>row.samples.some(sample=>sample===null))).toBe(true);
+   const visible=patches.find(row=>row.samples.some(Boolean))!;
+   expect(visible.chart.receiverRole).toBe('front-paint');
+   expect(visible.chart.surfaceId).toBe(walls[1]!.id);
+   expect(visible.chart.center[2]).toBeCloseTo(-1.938,6);
+   const chart={...visible.chart,texture:{bytes:visible.chart.width*visible.chart.height*4,sha256:'0'.repeat(64)}};
+   expect(readStaticRoomIndirectFrontPaintChart(chart,visible.chart)).toEqual(chart);
+   expect(readStaticRoomIndirectFrontPaintChart({...chart,patchIndex:chart.patchIndex+1},visible.chart)).toBeUndefined();
+   expect(readStaticRoomIndirectFrontPaintChart({...chart,center:[...chart.center.slice(0,2),-1.94]},visible.chart)).toBeUndefined();
+   const unknownPaint:PaintShell={receiverHit(...args){
+    const sample=component!.receiverHit(...args);
+    if(sample?.hit.kind==='finish')sample.hit.reflectance=[NaN,0,0];
+    return sample;
+   }};
+   expect(prepareRoomIndirectFrontPaint(lit,unknownPaint)).toEqual({status:'live-fallback',reason:'unsupported-paint'});
+   const revealHit:PaintShell={receiverHit(...args){
+    const sample=component!.receiverHit(...args);
+    if(sample?.hit.kind==='finish')sample.hit.normal=[0,1,0];
+    return sample;
+   }};
+   expect(prepareRoomIndirectFrontPaint(lit,revealHit)).toEqual({status:'live-fallback',reason:'unsupported-paint'});
   }finally{component?.dispose();}
   expect(await openRoomIndirectPairedShell({...source,assets:[]},openings[0]!.id)).toBeUndefined();
  }

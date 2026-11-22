@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
+import { qualifiedModularPortalTarget, workspaceFitGeometry } from '@exhibitos/spec/workspace-fit-models';
 import { artifactPoint } from './artifact-affine.js';
+import { architecturalWallBoxes, validateArchitecturalFinishes, wallFinishesFor } from './architectural-finishes.js';
 import { freezeCanonical } from './freeze.js';
 import { lightDetailsFor, validateStudioLightDetails } from './light-details.js';
+import { PAIRED_WALL_STRUCTURE_NAMESPACE } from './paired-wall-structure.js';
 import { validateSpaceLighting, spaceLightingFor } from './space-lighting.js';
+import { validateWorkspaceFurnishings, WORKSPACE_FURNISHING_NAMESPACE, type WorkspaceFurnishings } from './workspace-furnishing.js';
 
 export const STATIC_ROOM_INDIRECT_FORMAT = 'exhibitos-static-room-indirect-v1';
 export const STATIC_ROOM_INDIRECT_RECIPE = 'room-diffuse-one-bounce-rgba8-v1';
@@ -33,6 +37,14 @@ export interface StaticRoomIndirectChart {
   texture: { sha256: string; bytes: number };
 }
 
+/** Source-side coverage record. Live descriptor admission still requires all
+ * receiver roles and therefore does not admit these records in isolation. */
+export type StaticRoomIndirectFrontPaintChart = StaticRoomIndirectChart & {
+  receiverRole: 'front-paint';
+  patchIndex: number;
+};
+type FrontPaintFootprint = Omit<StaticRoomIndirectFrontPaintChart, 'texture'>;
+
 interface StaticRoomIndirectRoom {
   roomId: string;
   transform: RoomPose;
@@ -59,6 +71,54 @@ const closed = (value: unknown, keys: readonly string[]): value is Record<string
   object(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const sameVector = (value: unknown, expected: readonly number[]) =>
   Array.isArray(value) && value.length === expected.length && expected.every((n, i) => value[i] === n);
+
+/** Derive the inward front rectangles from the existing wall decomposition.
+ * Portal concealment and receiver coverage are checked by the producer. */
+export function staticRoomIndirectFrontPaintFootprints(exhibition: Exhibition) {
+  if (!validateSpaceLighting(exhibition).valid || spaceLightingFor(exhibition)?.mode !== 'room-local' ||
+      exhibition.rooms.length !== 2 || exhibition.openings.length !== 2 || exhibition.placements.length ||
+      Object.hasOwn(exhibition.extensions ?? {}, PAIRED_WALL_STRUCTURE_NAMESPACE) ||
+      Object.hasOwn(exhibition.extensions ?? {}, 'org.exhibitos.studio/workspace-materials') ||
+      !validateArchitecturalFinishes(exhibition).valid || !validateWorkspaceFurnishings(exhibition).valid) return;
+  const workspace = exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings | undefined;
+  if (!workspace || workspace.furnishings.length !== 1 || workspace.openingAttachments?.length !== 1 ||
+      workspace.placements.length || workspace.frameAttachments?.length || workspace.ceilingAttachments?.length ||
+      !exhibition.rooms.every(room=>staticRoomIndirectEmitterIds(exhibition,room.id)?.length===1)) return;
+  const attachment = workspace.openingAttachments[0]!;
+  const asset = workspace.furnishings[0]!;
+  const shape = workspaceFitGeometry(asset);
+  if (shape?.profile !== 'modular-portal-v1') return;
+  const pair = qualifiedModularPortalTarget(shape, exhibition, attachment.openingId, asset)?.coincidentPair;
+  if (!pair) return;
+  const finishes = wallFinishesFor(exhibition);
+  const host = finishes.find(finish=>finish.surfaceId===pair.hostSurfaceId);
+  const finish = finishes.find(row=>row.surfaceId===pair.peerSurfaceId);
+  const surface = exhibition.surfaces.find(value=>value.id===pair.peerSurfaceId);
+  if (finishes.length!==2 || host?.preset!=='plain' || host.plainBaseboard || host.depth!==.12 ||
+      finish?.preset!=='painted-edge' || finish.depth!==.12 || !surface) return;
+  const {transform} = surface;
+  const direction = (axis: Vec3) => artifactPoint(axis,transform).map((value,i)=>value-transform.position[i]!) as Vec3;
+  const right = direction([1,0,0]), up = direction([0,1,0]), normal = direction([0,0,1]);
+  return architecturalWallBoxes(surface,exhibition.openings,finish,true,exhibition)
+    .filter(box=>box.kind==='finish' && box.position[2]>0)
+    .map(({position,dimensions},patchIndex)=>({
+      wallXY:[position[0],position[1]] as [number,number],
+      chart:{
+        surfaceId:surface.id,receiverRole:'front-paint',patchIndex,
+        center:artifactPoint([position[0],position[1],position[2]+dimensions.depth/2],transform),
+        right,up,normal,widthMetres:dimensions.width,heightMetres:dimensions.height,
+        width:Math.ceil(dimensions.width/.25),height:Math.ceil(dimensions.height/.25),
+      } satisfies FrontPaintFootprint,
+    }));
+}
+
+export function readStaticRoomIndirectFrontPaintChart(value: unknown, expected: FrontPaintFootprint) {
+  if (!closed(value,[...Object.keys(expected),'texture']) || !closed(value.texture,['sha256','bytes']) ||
+      !isHash(value.texture.sha256) || expected.width<1 || expected.height<1 ||
+      expected.width>64 || expected.height>64 || value.texture.bytes!==expected.width*expected.height*4 ||
+      !Object.entries(expected).every(([key,entry])=>Array.isArray(entry)?sameVector(value[key],entry):value[key]===entry)) return;
+  return structuredClone(value) as unknown as StaticRoomIndirectFrontPaintChart;
+}
 
 /** Admit only the fixture-free room-base area that the live Viewer enables. */
 export function staticRoomIndirectEmitterIds(exhibition: Exhibition, roomId: string): string[] | undefined {
