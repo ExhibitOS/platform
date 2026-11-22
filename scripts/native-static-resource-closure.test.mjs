@@ -8,6 +8,7 @@ import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assertNativeStaticResources,nativeStaticResourceFiles} from './native-static-resource-closure.mjs';
 import {verifyRoomIndirectPackageInputs} from './package-native-runtime.mjs';
+import {readRoomIndirectRecipe,roomIndirectPortalWorkerPath} from './room-indirect-recipe.mjs';
 const source=fileURLToPath(new URL('../apps/web/public',import.meta.url));
 test('the repository declared Native export closure verifies all floor, sound, notice and catalogue bytes',async()=>{
  const result=await assertNativeStaticResources(source);assert.equal(result.files.length,43);
@@ -35,7 +36,9 @@ test('changed bytes and resource path links are rejected without touching the or
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const fileRow = (path, contents) => ({path, bytes:Buffer.byteLength(contents), sha256:sha(contents)});
 
-async function roomIndirectInput(t, {withStudio = true, staleSource = false, incompatibleRecipe = false} = {}) {
+async function roomIndirectInput(t, {
+  withStudio = true, staleSource = false, incompatibleRecipe = false, approvedPortal = false,
+} = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(),'native-indirect-input-')));
   t.after(() => rm(root, {recursive:true,force:true}));
   const staticRoot = join(root,'apps/web/dist-static');
@@ -43,7 +46,11 @@ async function roomIndirectInput(t, {withStudio = true, staleSource = false, inc
   for (const dir of [staticRoot, studioRoot, join(root,'scripts')]) await mkdir(dir, {recursive:true});
   const scripts = ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs'];
   for (const name of scripts) await writeFile(join(root,'scripts',name), name);
-  const recipeSha256 = sha(JSON.stringify(scripts.map(sha)));
+  const worker = join(root,roomIndirectPortalWorkerPath);
+  await mkdir(dirname(worker),{recursive:true});
+  await writeFile(worker,'portal worker');
+  const recipe = await readRoomIndirectRecipe(root,approvedPortal);
+  const recipeSha256 = recipe.sha256;
   const sourceCommit = '1'.repeat(40), sourceTree = '2'.repeat(40);
   // Even a dual-entry claim must be checked against the actual inventory.
   const buildInput = {sourceCommit:staleSource ? '3'.repeat(40) : sourceCommit, sourceTree,
@@ -65,14 +72,26 @@ async function roomIndirectInput(t, {withStudio = true, staleSource = false, inc
   await writeFile(join(studioRoot,'index.js'), 'contract');
   await writeFile(studioPath, studio);
   await writeFile(viewerPath, viewer);
-  const qualification = {sourceCommit,sourceTree,recipeSha256,specSha256,studioSha256:sha(studio),viewerReceiptSha256:sha(viewer)};
-  return {root,staticRoot,studioRoot,viewerPath,verify:() => verifyRoomIndirectPackageInputs(root,studioPath,viewerPath,qualification)};
+  const qualification = {sourceCommit,sourceTree,recipeSha256,specSha256,studioSha256:sha(studio),viewerReceiptSha256:sha(viewer),
+    ...(approvedPortal && {portalProducerSha256:recipe.digests[2]})};
+  return {root,staticRoot,studioRoot,viewerPath,worker,verify:() => verifyRoomIndirectPackageInputs(root,studioPath,viewerPath,qualification)};
 }
 
 test('the reviewed paired Native input admits both entries and the exact Studio files', async t => {
   const result = await (await roomIndirectInput(t)).verify();
   assert.deepEqual(result.viewer.map(file => file.path), ['static-studio.html','static.html','viewer.js']);
   assert.deepEqual(result.studio, [fileRow('index.js','contract')]);
+  assert.deepEqual(result.recipe.digests, ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs'].map(sha));
+  assert.equal(result.recipe.sha256, sha(JSON.stringify(result.recipe.digests)));
+});
+
+test('only the reviewed three-member tuple binds the packaged portal worker', async t => {
+  const input = await roomIndirectInput(t,{approvedPortal:true});
+  const result = await input.verify();
+  const ordered = ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs','portal worker'].map(sha);
+  assert.deepEqual(result.recipe,{sha256:sha(JSON.stringify(ordered)),digests:ordered});
+  await writeFile(input.worker,'stale worker');
+  await assert.rejects(input.verify(), /NATIVE_PACKAGE_ROOM_INDIRECT_INPUT_INVALID/);
 });
 
 test('Native input rejects stale source, incompatible recipe and an absent Studio entry', async t => {

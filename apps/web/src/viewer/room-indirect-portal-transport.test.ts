@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fixtureURL, readOex, revisionHash, type Exhibition } from '@exhibitos/spec';
 import { WORKSPACE_FURNISHING_NAMESPACE } from '@exhibitos/studio-contract';
 import { expect, it } from 'vitest';
@@ -16,10 +16,17 @@ const { localStaticPublicationSource } = require('../../../../scripts/local-stat
     publicationId: string; revisionSha256: string}): Promise<{read(path: string): Promise<Buffer>}>;
 };
 type Baked = {status:'baked'; descriptorSha256:string; files:Map<string,Buffer>};
+type Recipe = {sha256:string; digests:string[]};
+const { readInstalledRoomIndirectRecipe, readRoomIndirectRecipe, roomIndirectPortalWorkerPath,
+  roomIndirectRecipeMarkerPath, roomIndirectRecipeScripts } = require('../../../../scripts/room-indirect-recipe.mjs') as {
+  readInstalledRoomIndirectRecipe(root:string): Promise<Recipe>;
+  readRoomIndirectRecipe(root:string, includePortalWorker?:boolean): Promise<Recipe>;
+  roomIndirectPortalWorkerPath:string; roomIndirectRecipeMarkerPath:string; roomIndirectRecipeScripts:string[];
+};
 const { prepareRoomIndirect } = require('../../../../scripts/prepare-room-indirect.mjs') as {
   prepareRoomIndirect(input: {publication: unknown; bodyBytes: Buffer; indexBytes: Buffer;
     stagedAssets: {assets: unknown[]; read(path: string): Promise<Buffer>}},
-  load: () => Promise<{openRoomIndirectPortal:typeof openRoomIndirectPortal; sha256:string}>):
+  options: {readRecipe:() => Promise<Recipe>;loadPortal:(sha256:string) => Promise<typeof openRoomIndirectPortal>}):
     Promise<Baked | {status:'live-fallback'}>;
 };
 
@@ -99,7 +106,23 @@ it('only a fully admitted matte portal contributes portal reflection to the ordi
       },
     } satisfies Exhibition;
   }
-  const producerSha256 = sha(await readFile(new URL('./room-indirect-portal.ts',import.meta.url)));
+  const recipeRoot = join(folder,'recipe');
+  const workerPath = join(recipeRoot,roomIndirectPortalWorkerPath);
+  const markerPath = join(recipeRoot,roomIndirectRecipeMarkerPath);
+  await mkdir(join(recipeRoot,'scripts'),{recursive:true});
+  await mkdir(dirname(workerPath),{recursive:true});
+  for (const name of roomIndirectRecipeScripts) {
+    const bytes = await readFile(new URL(`../../../../scripts/${name}`,import.meta.url));
+    await writeFile(join(recipeRoot,'scripts',name),bytes);
+  }
+  // The source witness uses the actual TS adapter below, not a packaged CPU build.
+  const sourceWorker = await readFile(new URL('./room-indirect-portal.ts',import.meta.url));
+  await writeFile(workerPath,sourceWorker);
+  const bareRecipe = await readRoomIndirectRecipe(recipeRoot);
+  const portalRecipe = await readRoomIndirectRecipe(recipeRoot,true);
+  expect(bareRecipe.digests).toEqual(portalRecipe.digests.slice(0,2));
+  expect(portalRecipe.digests[2]).toBe(sha(sourceWorker));
+  let portalLoads = 0;
   async function bake(name: string, exhibition: Exhibition, bytes: Buffer, missing = false) {
     const source = await stage(join(folder,name),exhibition,bytes);
     const indexBytes = await source.read('static-publication-index.json');
@@ -107,21 +130,43 @@ it('only a fully admitted matte portal contributes portal reflection to the ordi
     const bodyBytes = await source.read(index.publication.path);
     return prepareRoomIndirect({publication:JSON.parse(bodyBytes.toString()),bodyBytes,indexBytes,
       stagedAssets:{assets:missing?[]:index.assets,read:source.read}},
-    async()=>({openRoomIndirectPortal,sha256:producerSha256}));
+    {
+      readRecipe:()=>readInstalledRoomIndirectRecipe(recipeRoot),
+      async loadPortal(expectedSha256){
+        portalLoads++;
+        expect(expectedSha256).toBe(sha(sourceWorker));
+        return openRoomIndirectPortal;
+      },
+    });
   }
-  function floorPixels(output: Awaited<ReturnType<typeof bake>>) {
+  function bakedRoom(output: Awaited<ReturnType<typeof bake>>, expectedRecipe: Recipe) {
     expect(output.status).toBe('baked');
     if(output.status!=='baked')throw Error('Expected a complete room bake');
     const descriptor = JSON.parse(output.files.get(`data/${output.descriptorSha256}.json`)!.toString());
+    expect(descriptor.recipe.sha256).toBe(expectedRecipe.sha256);
     expect(descriptor.rooms).toHaveLength(1);
     expect(descriptor.rooms[0].charts).toHaveLength(6);
     const chart = descriptor.rooms[0].charts.find((entry:{surfaceId:string})=>entry.surfaceId===floor.id);
     return output.files.get(`data/${chart.texture.sha256}.bin`)!.filter((_,i)=>i%4!==3);
   }
   const whiteScene=await candidate(model),blackScene=await candidate(black);
-  expect(floorPixels(await bake('white',whiteScene,model)).some(value=>value>0)).toBe(true);
-  expect(floorPixels(await bake('black',blackScene,black)).every(value=>value===0)).toBe(true);
+  const bare = {
+    ...whiteScene,openings:[],extensions:Object.fromEntries(Object.entries(whiteScene.extensions)
+      .filter(([namespace])=>namespace!==WORKSPACE_FURNISHING_NAMESPACE)),
+  };
+  bakedRoom(await bake('bare-two',bare,model), bareRecipe);
+  expect(await bake('unapproved-worker',whiteScene,model)).toEqual({status:'live-fallback'});
+  expect(portalLoads).toBe(0);
+  await writeFile(markerPath,json(portalRecipe));
+  bakedRoom(await bake('bare-three',bare,model), portalRecipe);
+  expect(portalLoads).toBe(0);
+  expect(bakedRoom(await bake('white',whiteScene,model),portalRecipe).some(value=>value>0)).toBe(true);
+  expect(bakedRoom(await bake('black',blackScene,black),portalRecipe).every(value=>value===0)).toBe(true);
   expect(await bake('missing',whiteScene,model,true)).toEqual({status:'live-fallback'});
   const unsupported = {...whiteScene,extensions:{...whiteScene.extensions,'org.exhibitos.studio/architectural-finishes':{version:1,walls:[]}}};
   expect(await bake('unsupported',unsupported,model)).toEqual({status:'live-fallback'});
+  await writeFile(workerPath,'stale worker');
+  const previousLoads = portalLoads;
+  expect(await bake('stale-worker',whiteScene,model)).toEqual({status:'live-fallback'});
+  expect(portalLoads).toBe(previousLoads);
 },15_000);

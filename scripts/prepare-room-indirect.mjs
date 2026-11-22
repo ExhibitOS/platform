@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import {
   artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor,
   readStaticRoomIndirect, STATIC_ROOM_INDIRECT_FORMAT, STATIC_ROOM_INDIRECT_RECIPE, STATIC_ROOM_INDIRECT_TEXTURE_BUDGET,
@@ -9,6 +10,7 @@ import {
   validateSpaceLighting, WORKSPACE_FURNISHING_NAMESPACE,
 } from '@exhibitos/studio-contract';
 import { bakeRoomIndirectIrradiance, diffuseAreaSamples, traceRoomDiffusePanels } from './room-indirect-irradiance.mjs';
+import { readInstalledRoomIndirectRecipe, roomIndirectPortalWorkerPath } from './room-indirect-recipe.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const pack = value => Buffer.from(JSON.stringify(value));
@@ -17,7 +19,8 @@ const rigid = pose => pose.scale.every(v => v === 1);
 const tileSize = metres => Math.ceil(metres / .25);
 const raySamples = 64;
 const maxPanelTests = 48_000_000;
-const portalProducerUrl = new URL('../apps/api/dist/viewer-budget-geometry.mjs', import.meta.url);
+const runtimeRoot = new URL('../', import.meta.url);
+const portalProducerUrl = new URL(roomIndirectPortalWorkerPath, runtimeRoot);
 const unsupportedGeometry = [
   'org.exhibitos.studio/architectural-finishes',
   'org.exhibitos.studio/paired-wall-structure',
@@ -117,18 +120,10 @@ function encodeRoom(charts, tiles, scale, files) {
   });
 }
 
-async function loadPortalProducer() {
-  const bytes = await readFile(portalProducerUrl);
+async function loadPortalProducer(expectedSha256) {
+  if (sha(await readFile(portalProducerUrl)) !== expectedSha256) throw Error('STATIC_ROOM_INDIRECT_RECIPE');
   const { openRoomIndirectPortal } = await import(portalProducerUrl.href);
-  return { openRoomIndirectPortal, sha256: sha(bytes) };
-}
-
-async function installedPortalProducerDigest() {
-  try {
-    return sha(await readFile(portalProducerUrl));
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
+  return openRoomIndirectPortal;
 }
 
 function barePortalOpening(exhibition, workspace) {
@@ -144,7 +139,8 @@ function barePortalOpening(exhibition, workspace) {
 /** Private owner export extension. Unsupported authored geometry stays entirely
  * live; this pass never silently drops a model or texture from the transport. */
 export async function prepareRoomIndirect(
-  { publication, bodyBytes, indexBytes, signal, stagedAssets }, loadPortal = loadPortalProducer,
+  { publication, bodyBytes, indexBytes, signal, stagedAssets },
+  { readRecipe = () => readInstalledRoomIndirectRecipe(fileURLToPath(runtimeRoot)), loadPortal = loadPortalProducer } = {},
 ) {
   const { exhibition } = publication;
   if (!validateSpaceLighting(exhibition).valid ||
@@ -156,8 +152,17 @@ export async function prepareRoomIndirect(
   const usesPortal = Object.hasOwn(exhibition.extensions ?? {}, WORKSPACE_FURNISHING_NAMESPACE);
   const openingId = usesPortal && barePortalOpening(exhibition, exhibition.extensions[WORKSPACE_FURNISHING_NAMESPACE]);
   if (usesPortal && (!openingId || !stagedAssets)) return { status: 'live-fallback' };
+  let recipe;
+  try {
+    recipe = await readRecipe();
+  } catch {
+    signal?.throwIfAborted();
+    return { status: 'live-fallback' };
+  }
+  const [,, portalProducerSha256] = recipe.digests;
+  if (usesPortal && !portalProducerSha256) return { status: 'live-fallback' };
   const rooms = [], files = new Map();
-  let admittedBytes = 0, panelTests = 0, portalProducerSha256;
+  let admittedBytes = 0, panelTests = 0;
   for (const room of exhibition.rooms) {
     signal?.throwIfAborted();
     const geometry = roomSurfaces(exhibition, room), lighting = roomSources(exhibition, room);
@@ -165,11 +170,11 @@ export async function prepareRoomIndirect(
     const bytes = geometry.charts.reduce((total, chart) => total + chart.width * chart.height * 4, 0);
     let work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
     if (admittedBytes + bytes > STATIC_ROOM_INDIRECT_TEXTURE_BUDGET || panelTests + work > maxPanelTests) continue;
-    let producer, portal;
+    let portal;
     if (usesPortal) {
       try {
-        producer = await loadPortal();
-        portal = await producer?.openRoomIndirectPortal?.({ ...stagedAssets, exhibition }, openingId, 'room');
+        const openPortal = await loadPortal(portalProducerSha256);
+        portal = await openPortal?.({ ...stagedAssets, exhibition }, openingId, 'room');
       } catch {
         signal?.throwIfAborted();
       }
@@ -198,7 +203,6 @@ export async function prepareRoomIndirect(
     let scale = 0;
     for (const tile of tiles) for (const value of tile) scale = Math.max(scale, value);
     if (!Number.isFinite(scale) || scale <= 0) continue;
-    if (producer) portalProducerSha256 = producer.sha256;
     rooms.push({
       roomId: room.id, transform: room.transform, scale,
       panelsSha256: sha(pack(portal ? { panels: geometry.panels, portal: portal.source } : geometry.panels)),
@@ -209,18 +213,11 @@ export async function prepareRoomIndirect(
     admittedBytes += bytes;
   }
   if (!rooms.length) return { status: 'live-fallback' };
-  const recipe = await Promise.all([
-    readFile(new URL(import.meta.url)), readFile(new URL('./room-indirect-irradiance.mjs', import.meta.url)),
-  ]);
   const source = {
     publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
     bodySha256: sha(bodyBytes), indexSha256: sha(indexBytes),
   };
-  const recipeDigests = recipe.map(sha);
-  // A matched packaged Viewer accepts one recipe for both bare and portal rooms.
-  const portalDigest = portalProducerSha256 ?? await installedPortalProducerDigest();
-  if (portalDigest) recipeDigests.push(portalDigest);
-  const recipeSha256 = sha(pack(recipeDigests));
+  const recipeSha256 = recipe.sha256;
   const value = {
     format: STATIC_ROOM_INDIRECT_FORMAT, source, rooms,
     recipe: { id: STATIC_ROOM_INDIRECT_RECIPE, sha256: recipeSha256 },

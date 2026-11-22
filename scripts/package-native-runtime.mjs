@@ -22,6 +22,7 @@ import {ADOPTION_CAPABILITY,ADOPTION_MARKER,ADOPTION_CARRIED_TARGET_CAPABILITY,A
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
 import {assertNativeStaticResources} from './native-static-resource-closure.mjs';
+import {readRoomIndirectRecipe,roomIndirectRecipeMarkerPath,roomIndirectRecipeScripts} from './room-indirect-recipe.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 const fail = code => { throw Error(code); };
@@ -615,7 +616,6 @@ const roomIndirectInputs = {
 };
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const roomIndirectRecipeFiles = ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs'];
 const studioInputError = 'NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID';
 const indirectInputError = 'NATIVE_PACKAGE_ROOM_INDIRECT_INPUT_INVALID';
 
@@ -653,7 +653,7 @@ export async function verifyRoomIndirectPackageInputs(source, studioManifestPath
       !Array.isArray(files) || receipt.studioContract?.rawSha256 !== qualification.studioSha256 ||
       receipt.studioContract.fileCount !== studio.length || digest(JSON.stringify(files)) !== receipt.inventorySha256)
     fail(indirectInputError);
-  await verifyRoomIndirectRecipe(source, qualification.recipeSha256);
+  const recipe = await verifyRoomIndirectRecipe(source, qualification);
   const viewer = [...files].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const staticRoot = join(source, 'apps/web/dist-static');
   await verifyFileInventory(staticRoot, viewer, indirectInputError);
@@ -669,12 +669,14 @@ export async function verifyRoomIndirectPackageInputs(source, studioManifestPath
   const embeddedRecipe = await Promise.all(scripts.map(async path =>
     (await readFile(join(staticRoot, path))).includes(qualification.recipeSha256)));
   if (!embeddedRecipe.some(Boolean)) fail(indirectInputError);
-  return {studio, viewer};
+  return {studio, viewer, recipe};
 }
 
-async function verifyRoomIndirectRecipe(root, expectedSha256) {
-  const hashes = await Promise.all(roomIndirectRecipeFiles.map(name => hash(join(root, 'scripts', name))));
-  if (digest(JSON.stringify(hashes)) !== expectedSha256) fail(indirectInputError);
+async function verifyRoomIndirectRecipe(root, qualification) {
+  const recipe = await readRoomIndirectRecipe(root, qualification.portalProducerSha256 !== undefined);
+  if (recipe.sha256 !== qualification.recipeSha256 || recipe.digests[2] !== qualification.portalProducerSha256)
+    fail(indirectInputError);
+  return recipe;
 }
 
 export function assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminalSelected,hayesReleaseSelected,workspaceFurnishingThumbnailsSelected,currentImageThumbnailSelected,benchAfterTerminalSelected=false,workspaceArtworkFramePreparationSelected,workspaceFurnishingRoomVisualSelected}){
@@ -895,9 +897,13 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   await copy(join(source,'apps/web/src/workspace-material-resources.mjs'),join(platform,'apps/web/src/workspace-material-resources.mjs'));
   await copy(join(source,'apps/web/src/workspace-material-batch.mjs'),join(platform,'apps/web/src/workspace-material-batch.mjs'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
-  for(const name of roomIndirectRecipeFiles)
+  for(const name of [...roomIndirectRecipeScripts, 'room-indirect-recipe.mjs'])
     await copy(join(source,'scripts',name),join(platform,'scripts',name));
-  if (indirectInputs) await verifyRoomIndirectRecipe(platform, roomIndirectInputs.recipeSha256);
+  if (indirectInputs) {
+    const recipe = await verifyRoomIndirectRecipe(platform, roomIndirectInputs);
+    if (recipe.digests.length === 3)
+      await writeFile(join(platform,roomIndirectRecipeMarkerPath),JSON.stringify(recipe)+'\n',{flag:'wx',mode:0o600});
+  }
   await copy(join(source,'scripts/native-detail-plan.mjs'),join(platform,'scripts/native-detail-plan.mjs'));
   for(const name of ['pages-publication-source.mjs','local-static-publication-source.mjs','refresh-static-publication.mjs']) await copy(join(source,'scripts',name),join(platform,'scripts',name));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
