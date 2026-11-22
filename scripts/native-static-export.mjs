@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Native-only owner channel. The general public-projection exporter stays reusable.
 import {fstatSync} from 'node:fs';
-import {exportStaticPublication} from './export-static-publication.mjs';
+import {exportNativeRoomIndirect,exportStaticPublication} from './export-static-publication.mjs';
 
 // Detail diagnostics are fixed literals, never raw child error text. Ordinary
 // export keeps its existing output; stdout remains exclusively owner protocol.
@@ -25,12 +25,13 @@ try {
     const {runNativeDetailExport}=await import('./native-detail-export-runner.mjs');
     await runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor:extra[0]==='--private-editor',onPhase:phase=>{if(detailPhases.has(phase))detailPhase=phase;}});finished=true;
   }else{
-    if(extra.length > 1 || (extra.length === 1 && extra[0] !== '--private-editor')) throw Error('STATIC_NATIVE_USAGE');
+    if(extra.length > 1 || (extra.length === 1 && !['--private-editor','--private-room-indirect-v1'].includes(extra[0]))) throw Error('STATIC_NATIVE_USAGE');
     process.stdin.once('end', parentGone);
     process.stdin.once('error', parentGone);
     // Ordinary mode reads no credentials; owner pipe EOF ends the exporter.
     process.stdin.resume();
-    const receipt = await exportStaticPublication({origin,publicationId,runtimeRoot,output,privateEditor:extra[0] === '--private-editor'});
+    const exporter=extra[0]==='--private-room-indirect-v1'?exportNativeRoomIndirect:exportStaticPublication;
+    const receipt = await exporter({origin,publicationId,runtimeRoot,output,privateEditor:extra[0] === '--private-editor'});
     finished = true;
     console.log(JSON.stringify(receipt));
   }

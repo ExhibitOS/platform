@@ -8,7 +8,7 @@ import { join,dirname } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import {deflateSync} from "node:zlib";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
-import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
+import { exportNativeRoomIndirect,exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
 
 test('rejects an arbitrary cover companion before fetching or writing',async()=>{
  let fetched=false;await assert.rejects(exportStaticPublication({coverCompanion:'../external',fetcher:async()=>{fetched=true;}}),/STATIC_COVER_COMPANION/);assert.equal(fetched,false);
@@ -43,6 +43,76 @@ test('public export cover validation runs its own worker and rejects corrupted P
  await assert.rejects(validateCoverImage(corrupted),/FORMAT_REJECTED/);
 });
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
+test('private ordinary export seals a ceiling-reflected room tile and falls back on unsupported geometry', async t => {
+ const { directory, fixture, options } = await setup(t);
+ const exhibition = fixture.raw.exhibition;
+ const room = {
+  id: randomUUID(), name: 'User-authored indirect room',
+  dimensions: { width: 4, depth: 4, height: 3 },
+  transform: { position: [100, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+ };
+ exhibition.rooms.push(room);
+ const q = Math.SQRT1_2;
+ const surfaces = [
+  ['floor', [0, 0, 0], [-q, 0, 0, q]],
+  ['ceiling', [0, 3, 0], [q, 0, 0, q]],
+  ['wall', [2, 1.5, 0], [0, -q, 0, q]],
+  ['wall', [-2, 1.5, 0], [0, q, 0, q]],
+  ['wall', [0, 1.5, 2], [0, 1, 0, 0]],
+  ['wall', [0, 1.5, -2], [0, 0, 0, 1]],
+ ].map(([type, position, rotation]) => ({
+  id: randomUUID(), roomId: room.id, type,
+  dimensions: { width: 4, height: type === 'wall' ? 3 : 4 },
+  transform: { position, rotation, scale: [1, 1, 1] },
+ }));
+ exhibition.surfaces.push(...surfaces);
+ const emitter = {
+  id: randomUUID(), roomId: room.id, type: 'area', unit: 'lumen', color: [1, 1, 1], intensity: 36,
+  transform: { position: [0, .15, 0], rotation: [q, 0, 0, q], scale: [1, 1, 1] },
+  dimensions: { width: 1, height: 1 }, castsShadow: false,
+ };
+ exhibition.lights.push(emitter);
+ exhibition.extensions = {
+  ...exhibition.extensions,
+  'org.exhibitos.studio/space-lighting': { version: 1, mode: 'room-local', baselineIntensity: 0, reflectionIntensity: 0 },
+  'org.exhibitos.studio/materials': {
+   version: 1, surfaces: Object.fromEntries(surfaces.map(surface => [surface.id, {
+    color: surface.type === 'ceiling' ? '#aaaaaa' : '#000000', metalness: 0, roughness: .8,
+   }])),
+  },
+ };
+ fixture.raw.publication.revisionSha256 = revisionHash(exhibition);
+ const live = await exportStaticPublication(options);
+ const baked = await exportNativeRoomIndirect({ ...options, output: join(directory, 'baked') });
+ assert.equal(baked.indexSha256, live.indexSha256);
+ assert.equal(baked.revisionSha256, live.revisionSha256);
+ assert.equal(baked.indirectBake.status, 'baked');
+ assert.equal(baked.indirectBake.rooms, 1);
+ assert.match(await readFile(join(baked.output, 'index.html'), 'utf8'), /exhibitos-static-room-indirect/);
+ assert.doesNotMatch(await readFile(join(live.output, 'index.html'), 'utf8'), /exhibitos-static-room-indirect/);
+ const descriptorBytes = await readFile(join(baked.output, 'data', baked.indirectBake.descriptorSha256 + '.json'));
+ assert.equal(sha(descriptorBytes), baked.indirectBake.descriptorSha256);
+ const descriptor = JSON.parse(descriptorBytes);
+ assert.equal(descriptor.rooms[0].roomId, room.id);
+ assert.equal(descriptor.rooms[0].charts.length, 6);
+ const tile = async surfaceId => {
+  const chart = descriptor.rooms[0].charts.find(chart => chart.surfaceId === surfaceId);
+  const bytes = await readFile(join(baked.output, 'data', chart.texture.sha256 + '.bin'));
+  assert.equal(sha(bytes), chart.texture.sha256);
+  assert.equal(bytes.length, chart.width * chart.height * 4);
+  return bytes.filter((_, i) => i % 4 !== 3);
+ };
+ assert((await tile(surfaces[1].id)).every(value => value === 0));
+ assert((await tile(surfaces[2].id)).some(value => value > 0));
+
+ // A down-facing authored source cannot directly excite the only reflector.
+ // No baked metadata should be advertised if all admitted tiles are zero.
+ emitter.transform.rotation = [-q, 0, 0, q];
+ fixture.raw.publication.revisionSha256 = revisionHash(exhibition);
+ const fallback = await exportNativeRoomIndirect({ ...options, output: join(directory, 'fallback') });
+ assert.deepEqual(fallback.indirectBake, { status: 'live-fallback' });
+ assert.doesNotMatch(await readFile(join(fallback.output, 'index.html'), 'utf8'), /exhibitos-static-room-indirect/);
+});
 test('duplicate publication keys are rejected both before export and at its final fence',async t=>{
  for(const corruptRead of [1,2]){
   const {fixture,options,directory}=await setup(t);let reads=0;
