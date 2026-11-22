@@ -6,7 +6,7 @@ import {
   artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor,
   readStaticRoomIndirect, STATIC_ROOM_INDIRECT_FORMAT, STATIC_ROOM_INDIRECT_RECIPE, STATIC_ROOM_INDIRECT_TEXTURE_BUDGET,
   spaceLightingFor, staticRoomIndirectEmitterIds, staticRoomIndirectEmitterInput, surfacePanels, surfaceTextureFor,
-  validateSpaceLighting,
+  validateSpaceLighting, WORKSPACE_FURNISHING_NAMESPACE,
 } from '@exhibitos/studio-contract';
 import { bakeRoomIndirectIrradiance, diffuseAreaSamples, traceRoomDiffusePanels } from './room-indirect-irradiance.mjs';
 
@@ -17,10 +17,10 @@ const rigid = pose => pose.scale.every(v => v === 1);
 const tileSize = metres => Math.ceil(metres / .25);
 const raySamples = 64;
 const maxPanelTests = 48_000_000;
+const portalProducerUrl = new URL('../apps/api/dist/viewer-budget-geometry.mjs', import.meta.url);
 const unsupportedGeometry = [
   'org.exhibitos.studio/architectural-finishes',
   'org.exhibitos.studio/paired-wall-structure',
-  'org.exhibitos.studio/workspace-furnishings',
   'org.exhibitos.studio/workspace-materials',
   'org.exhibitos.studio/furnishing-visuals',
   'org.exhibitos.studio/benches',
@@ -117,9 +117,35 @@ function encodeRoom(charts, tiles, scale, files) {
   });
 }
 
+async function loadPortalProducer() {
+  const bytes = await readFile(portalProducerUrl);
+  const { openRoomIndirectPortal } = await import(portalProducerUrl.href);
+  return { openRoomIndirectPortal, sha256: sha(bytes) };
+}
+
+async function installedPortalProducerDigest() {
+  try {
+    return sha(await readFile(portalProducerUrl));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+function barePortalOpening(exhibition, workspace) {
+  const [opening] = exhibition.openings;
+  if (!workspace || exhibition.rooms.length !== 1 || exhibition.openings.length !== 1 ||
+      !opening || opening.type !== 'door' || opening.connectsToOpeningId !== undefined ||
+      workspace.placements?.length !== 0 || workspace.furnishings?.length !== 1 ||
+      workspace.frameAttachments?.length || workspace.ceilingAttachments?.length ||
+      workspace.openingAttachments?.length !== 1 || workspace.openingAttachments[0].openingId !== opening.id) return;
+  return opening.id;
+}
+
 /** Private owner export extension. Unsupported authored geometry stays entirely
  * live; this pass never silently drops a model or texture from the transport. */
-export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, signal }) {
+export async function prepareRoomIndirect(
+  { publication, bodyBytes, indexBytes, signal, stagedAssets }, loadPortal = loadPortalProducer,
+) {
   const { exhibition } = publication;
   if (!validateSpaceLighting(exhibition).valid ||
       spaceLightingFor(exhibition)?.mode !== 'room-local' ||
@@ -127,27 +153,55 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
       unsupportedGeometry.some(key => Object.hasOwn(exhibition.extensions ?? {}, key))) {
     return { status: 'live-fallback' };
   }
+  const usesPortal = Object.hasOwn(exhibition.extensions ?? {}, WORKSPACE_FURNISHING_NAMESPACE);
+  const openingId = usesPortal && barePortalOpening(exhibition, exhibition.extensions[WORKSPACE_FURNISHING_NAMESPACE]);
+  if (usesPortal && (!openingId || !stagedAssets)) return { status: 'live-fallback' };
   const rooms = [], files = new Map();
-  let admittedBytes = 0, panelTests = 0;
+  let admittedBytes = 0, panelTests = 0, portalProducerSha256;
   for (const room of exhibition.rooms) {
     signal?.throwIfAborted();
     const geometry = roomSurfaces(exhibition, room), lighting = roomSources(exhibition, room);
     if (!geometry || !lighting) continue;
     const bytes = geometry.charts.reduce((total, chart) => total + chart.width * chart.height * 4, 0);
-    const work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
+    let work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
     if (admittedBytes + bytes > STATIC_ROOM_INDIRECT_TEXTURE_BUDGET || panelTests + work > maxPanelTests) continue;
-    const trace = traceRoomDiffusePanels(geometry.panels);
+    let producer, portal;
+    if (usesPortal) {
+      try {
+        producer = await loadPortal();
+        portal = await producer?.openRoomIndirectPortal?.({ ...stagedAssets, exhibition }, openingId, 'room');
+      } catch {
+        signal?.throwIfAborted();
+      }
+    }
+    if (usesPortal && !portal) continue;
+    const charge = tests => {
+      work += tests;
+      if (panelTests + work > maxPanelTests) throw Error('ROOM_INDIRECT_PORTAL_BUDGET');
+    };
+    const trace = traceRoomDiffusePanels(geometry.panels,
+      portal && ((origin, direction, limit) => portal.trace(origin, direction, limit, charge)));
     const tiles = [];
-    for (const chart of geometry.charts) {
-      await setImmediate(undefined, { signal });
-      tiles.push(bakeRoomIndirectIrradiance({ ...lighting, chart, trace, raysPerTexel: raySamples, signal }));
+    try {
+      for (const chart of geometry.charts) {
+        await setImmediate(undefined, { signal });
+        tiles.push(bakeRoomIndirectIrradiance({ ...lighting, chart, trace, raysPerTexel: raySamples, signal }));
+      }
+    } catch (error) {
+      if (!portal) throw error;
+      signal?.throwIfAborted();
+      continue;
+    } finally {
+      portal?.dispose();
     }
     panelTests += work;
     let scale = 0;
     for (const tile of tiles) for (const value of tile) scale = Math.max(scale, value);
     if (!Number.isFinite(scale) || scale <= 0) continue;
+    if (producer) portalProducerSha256 = producer.sha256;
     rooms.push({
-      roomId: room.id, transform: room.transform, scale, panelsSha256: sha(pack(geometry.panels)),
+      roomId: room.id, transform: room.transform, scale,
+      panelsSha256: sha(pack(portal ? { panels: geometry.panels, portal: portal.source } : geometry.panels)),
       materialsSha256: sha(pack(geometry.materials)), emitterIds: lighting.emitterIds,
       emittersSha256: sha(staticRoomIndirectEmitterInput(exhibition, lighting.emitterIds)),
       charts: encodeRoom(geometry.charts, tiles, scale, files),
@@ -162,7 +216,11 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
     publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
     bodySha256: sha(bodyBytes), indexSha256: sha(indexBytes),
   };
-  const recipeSha256 = sha(pack(recipe.map(sha)));
+  const recipeDigests = recipe.map(sha);
+  // A matched packaged Viewer accepts one recipe for both bare and portal rooms.
+  const portalDigest = portalProducerSha256 ?? await installedPortalProducerDigest();
+  if (portalDigest) recipeDigests.push(portalDigest);
+  const recipeSha256 = sha(pack(recipeDigests));
   const value = {
     format: STATIC_ROOM_INDIRECT_FORMAT, source, rooms,
     recipe: { id: STATIC_ROOM_INDIRECT_RECIPE, sha256: recipeSha256 },

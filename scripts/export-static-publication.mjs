@@ -169,7 +169,10 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
   let prepared;
   try{
    const {prepareRoomIndirect}=await import('./prepare-room-indirect.mjs');
-   prepared=await prepareRoomIndirect({publication,bodyBytes:p,indexBytes:index,signal});
+   prepared=await prepareRoomIndirect({
+    publication,bodyBytes:p,indexBytes:index,signal,
+    stagedAssets:{assets:assetIndex,read:path=>readFile(stagePath(path))},
+   });
   }catch{
    signal?.throwIfAborted();
    prepared={status:'live-fallback'};

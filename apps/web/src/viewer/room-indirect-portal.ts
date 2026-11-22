@@ -29,7 +29,7 @@ function diffuseReflectance(material: unknown): Vector | undefined {
 
 /** Resolve only one already exported modular portal. Failure to qualify the
  * component is distinct from a qualified ray missing its trim. */
-export async function openRoomIndirectPortal(source: VerifiedPortalSource, openingId: string) {
+export async function openRoomIndirectPortal(source: VerifiedPortalSource, openingId: string, space: 'world' | 'room' = 'world') {
   const { exhibition } = source;
   const workspace = exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings | undefined;
   if (!workspace || !validateWorkspaceFurnishings(exhibition).valid) return;
@@ -59,28 +59,37 @@ export async function openRoomIndirectPortal(source: VerifiedPortalSource, openi
     const compose = ({position, rotation, scale}: typeof room.transform) => new three.Matrix4().compose(
       new three.Vector3(...position), new three.Quaternion(...rotation), new three.Vector3(...scale),
     );
-    model.matrix.copy(compose(room.transform)).multiply(compose(wall.transform))
+    if (space === 'world') model.matrix.copy(compose(room.transform));
+    model.matrix.multiply(compose(wall.transform))
       .multiply(new three.Matrix4().makeTranslation(opening.offset[0], opening.offset[1] - target.height / 2, 0));
     model.matrixAutoUpdate = false;
     model.updateMatrixWorld(true);
     const reflectance = new Map<three.Object3D, Vector>();
+    const parts: { mesh: three.Mesh; bounds: three.Box3; triangles: number }[] = [];
     for (const child of model.children) {
-      const rgb = child instanceof three.Mesh ? diffuseReflectance(child.material) : undefined;
+      if (!(child instanceof three.Mesh)) throw Error('ROOM_INDIRECT_PORTAL_GEOMETRY');
+      const rgb = diffuseReflectance(child.material);
       if (!rgb) throw Error('ROOM_INDIRECT_PORTAL_MATERIAL');
+      const count = child.geometry.index?.count ?? child.geometry.getAttribute('position').count;
+      if (count % 3 !== 0 || child.geometry.groups.length) throw Error('ROOM_INDIRECT_PORTAL_GEOMETRY');
+      child.geometry.computeBoundingBox();
+      parts.push({ mesh: child, bounds: new three.Box3().setFromObject(child), triangles: count / 3 });
       reflectance.set(child, rgb);
     }
     const ray = new three.Raycaster();
     const normalMatrix = new three.Matrix3();
     return {
       source: { openingId, roomId: room.id, furnishingId: descriptor.id, furnishingVersion: descriptor.version, sha256: asset.sha256 },
-      /** World-space segment. Dir is normalized before applying the metre limit. */
-      trace(origin: Vector, dir: Vector, limit: number) {
+      /** Segment in the chosen coordinate space. Dir is normalized before applying the metre limit. */
+      trace(origin: Vector, dir: Vector, limit: number, charge?: (tests: number) => void) {
         if (!publicWorkspaceFurnishingRights({ furnishings: [descriptor] })) throw Error('ROOM_INDIRECT_PORTAL_RIGHTS');
         ray.ray.origin.fromArray(origin);
         ray.ray.direction.fromArray(dir).normalize();
         ray.near = 1e-5;
         ray.far = limit;
-        const hit = ray.intersectObjects(model.children, false)[0];
+        const candidates = parts.filter(part => ray.ray.intersectsBox(part.bounds));
+        charge?.(parts.length + candidates.reduce((sum, part) => sum + part.triangles, 0));
+        const hit = ray.intersectObjects(candidates.map(part => part.mesh), false)[0];
         if (!hit?.face) return;
         const normal = hit.face.normal.clone().applyNormalMatrix(normalMatrix.getNormalMatrix(hit.object.matrixWorld));
         if (normal.dot(ray.ray.direction) > 0) normal.negate();

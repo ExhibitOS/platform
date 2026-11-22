@@ -9,7 +9,7 @@ const unit = value => value.map(channel => channel / Math.hypot(...value));
 
 /** Exact planar occlusion for admitted room-surface panels. Openings are
  * represented by the existing surface partition's gaps. */
-export function traceRoomDiffusePanels(panels) {
+export function traceRoomDiffusePanels(panels, tracePortal) {
   return (origin, direction, limit) => {
     let front;
     let nearest = limit;
@@ -25,7 +25,8 @@ export function traceRoomDiffusePanels(panels) {
       front = { position, normal: panel.normal, reflectance: panel.reflectance };
       nearest = distance;
     }
-    return front;
+    const portal = tracePortal?.(origin, direction, nearest);
+    return portal && portal.distance < nearest ? portal : front;
   };
 }
 

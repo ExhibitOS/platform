@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import * as three from 'three';
+export {openRoomIndirectPortal} from './room-indirect-portal';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {surfacePanels,wallFinishesFor,floorFor,furnishingsFor,resolveFurnishing,WORKSPACE_FURNISHING_NAMESPACE,frameImageFootprintForArtwork,frameAttachmentMetricFit,artworkFrameModel,artworkFrameFit,portalFinishModel,benchesFor,resolveViewerBudgetPolicy,freezeCanonical,daylightFor,daylightDirection,type ViewerBudgetGeometryInput,type ViewerBudgetGeometryResult,type ViewerBudgetAssetReference,type ViewerBudgetUsage,type WorkspaceFurnishings,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {workspaceFitGeometry,qualifiedRectangularPortalTarget,qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models';
