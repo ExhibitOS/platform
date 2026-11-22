@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {readFile} from 'node:fs/promises';
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import * as three from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {sha256} from '@exhibitos/storage';
@@ -8,6 +8,7 @@ import {qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models
 import {applyArchitecturalFinishCommand,validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {packageWorkspaceFurnishingManifest} from '@exhibitos/spec/workspace-furnishing';
 import {validateWorkspaceFurnishingGlb} from '../../../api/src/workspace-furnishing-glb';
+import {openRoomIndirectPortal} from '../viewer/room-indirect-portal';
 import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
 
 const catalogue=new URL('../../../../assets/furnishings/user-authored-20261027/',import.meta.url);
@@ -39,6 +40,47 @@ it('measures both modular originals and fits one unchanged source to the single 
  const portable={...corrected,extensions:{...corrected.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{version:7,furnishings:[descriptor],placements:[],frameAttachments:[],openingAttachments:[{openingId,furnishingId:id,furnishingVersion:1,modelSha256:source.sha256}]}}};
  expect(validateWorkspaceFurnishings(portable)).toEqual({valid:true,errors:[]});
  expect(packageWorkspaceFurnishingManifest(portable)).toMatchObject([{furnishingId:id,sha256:source.sha256,bytes:source.bytes}]);
+ const asset={assetId:id,path:`data/${source.sha256}.bin`,...source};
+ let reads=0;
+ const portalSource={exhibition:portable,assets:[asset],async read(path:string){
+  reads++;expect(path).toBe(asset.path);return original;
+ }};
+ const portal=await openRoomIndirectPortal(portalSource,openingId);
+ expect(portal?.source).toMatchObject({openingId,furnishingId:id,sha256:source.sha256});
+ try{
+  const wall=portable.surfaces.find((value:{id:string})=>value.id===opening.surfaceId);
+  if(!wall)throw Error('Expected portal wall');
+  const room=portable.rooms.find((value:{id:string})=>value.id===wall.roomId);
+  if(!room)throw Error('Expected portal room');
+  const pose=(value:typeof wall.transform)=>new three.Matrix4().compose(
+   new three.Vector3().fromArray(value.position),new three.Quaternion().fromArray(value.rotation),new three.Vector3().fromArray(value.scale),
+  );
+  const world=pose(room.transform).multiply(pose(wall.transform))
+   .multiply(new three.Matrix4().makeTranslation(opening.offset[0],opening.offset[1]-paired!.height/2,0));
+  const direction=new three.Vector3(0,0,1).transformDirection(world).toArray();
+  const trace=(x:number)=>portal!.trace(new three.Vector3(x,1.5,paired!.minZ-.15).applyMatrix4(world).toArray(),direction,.3);
+  expect(trace(-1.22)?.distance).toBeCloseTo(.144,4);
+  expect(trace(0)).toBeUndefined();
+ }finally{portal?.dispose();}
+ expect(await openRoomIndirectPortal({...portalSource,assets:[{...asset,path:'data/unbound.bin'}]},openingId)).toBeUndefined();
+ const denied=structuredClone(portable);
+ denied.extensions[WORKSPACE_FURNISHING_NAMESPACE].furnishings[0]!.rights.permissions.export=false;
+ expect(await openRoomIndirectPortal({...portalSource,exhibition:denied},openingId)).toBeUndefined();
+ expect(reads).toBe(1);
+ const metal=Buffer.from(original),materialOffset=metal.indexOf(Buffer.from('"metallicFactor":0'));
+ expect(materialOffset).toBeGreaterThan(0);
+ metal.write('"metallicFactor":1',materialOffset);
+ expect(await openRoomIndirectPortal({...portalSource,read:async()=>metal},openingId)).toBeUndefined();
+ const metalSource=model(metal),metalScene=structuredClone(portable);
+ const metalWorkspace=metalScene.extensions[WORKSPACE_FURNISHING_NAMESPACE];
+ metalWorkspace.furnishings[0]!.model=metalSource;
+ metalWorkspace.furnishings[0]!.fit.sourceSha256=metalSource.sha256;
+ metalWorkspace.openingAttachments[0]!.modelSha256=metalSource.sha256;
+ const readMetal=vi.fn(async()=>metal);
+ expect(await openRoomIndirectPortal({
+  exhibition:metalScene,assets:[{assetId:id,path:`data/${metalSource.sha256}.bin`,...metalSource}],read:readMetal,
+ },openingId)).toBeUndefined();
+ expect(readMetal).toHaveBeenCalledTimes(1);
  const changed=Buffer.from(original),oldTranslation=Buffer.from('-1.2200000286102295'),newTranslation=Buffer.from('-1.3200000286102295');
  const translationOffset=changed.indexOf(oldTranslation);
  expect(translationOffset).toBeGreaterThan(20);
