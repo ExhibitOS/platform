@@ -589,18 +589,72 @@ export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRo
  await verifyGpuModelEncoderPackageRoot(target);
  await writeFile(join(platformRoot,'scripts',GPU_MODEL_PREPARATION_MARKER),GPU_MODEL_PREPARATION_CAPABILITY,{flag:'wx',mode:0o600});
 }
-async function verifyArticulatedStudioContract(source, manifestPath) {
+const incumbentStudioInventorySha256 = '3d05b6939b4c1cc1b85c79c5eaa056aade06b68a3813db2bc75a60b6d1f3c104';
+// The paired inputs are reviewed independently. Config supplies their locations, not their trust digests.
+const roomIndirectInputs = {
+  sourceCommit: 'a09bc217c527a2dd24187a19811d508122169871',
+  sourceTree: 'c4f1dd6e853df3aba7d1e7bd614a815de27091f5',
+  studioSha256: '7c52c7684c6958b463fc8a15709edad4943eec2d3b983df9143493ac6b282818',
+  viewerReceiptSha256: '5b624235036c2d7b7f8bd1147a55f861b83715516340759058aa6b49505c3f73',
+  recipeSha256: '598b2c4a92b70a031760a7ca950067de64afaacd9bf84ed91315a42d97a8b03a',
+};
+
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const studioInputError = 'NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID';
+const indirectInputError = 'NATIVE_PACKAGE_ROOM_INDIRECT_INPUT_INVALID';
+
+async function readPinnedInventory(manifestPath, expectedSha256, code) {
   const manifest = await checkedSource(manifestPath, 'file');
   const bytes = await readFile(manifest);
-  if (createHash('sha256').update(bytes).digest('hex') !== '3d05b6939b4c1cc1b85c79c5eaa056aade06b68a3813db2bc75a60b6d1f3c104')
-    fail('NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID');
-  const expected = JSON.parse(bytes.toString('utf8'));
-  const actual = await inventory(join(source, 'packages/studio-contract/dist'));
+  if (digest(bytes) !== expectedSha256) fail(code);
+  return JSON.parse(bytes.toString('utf8'));
+}
+
+async function verifyFileInventory(root, expected, code) {
+  const actual = await inventory(root);
   const normalized = actual.map(({executable, ...entry}) => {
-    if (executable !== false || !entry.sha256) fail('NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID');
+    if (executable !== false || !entry.sha256) fail(code);
     return entry;
   }).sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  if (!isDeepStrictEqual(normalized, expected)) fail('NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID');
+  if (!isDeepStrictEqual(normalized, expected)) fail(code);
+}
+
+async function verifyArticulatedStudioContract(source, manifestPath, expectedSha256 = incumbentStudioInventorySha256) {
+  const files = await readPinnedInventory(manifestPath, expectedSha256, studioInputError);
+  await verifyFileInventory(join(source, 'packages/studio-contract/dist'), files, studioInputError);
+  return files;
+}
+
+export async function verifyRoomIndirectPackageInputs(source, studioManifestPath, viewerReceiptPath, qualification) {
+  const studio = await verifyArticulatedStudioContract(source, studioManifestPath, qualification.studioSha256);
+  const receipt = await readPinnedInventory(viewerReceiptPath, qualification.viewerReceiptSha256, indirectInputError);
+  const {buildInput, buildId, files} = receipt;
+  if (receipt.format !== 'exhibitos-215-private-dual-entry-web-input-v1' ||
+      buildInput?.sourceCommit !== qualification.sourceCommit || buildInput?.sourceTree !== qualification.sourceTree ||
+      buildInput.target !== 'viewer' || buildInput.privateEditor !== true || receipt.stagingDiagnostics !== false ||
+      buildInput.privateIndirectRecipe !== qualification.recipeSha256 || digest(JSON.stringify(buildInput)) !== buildId ||
+      !Array.isArray(files) || receipt.studioContract?.rawSha256 !== qualification.studioSha256 ||
+      receipt.studioContract.fileCount !== studio.length || digest(JSON.stringify(files)) !== receipt.inventorySha256)
+    fail(indirectInputError);
+  const recipes = await Promise.all(['prepare-room-indirect.mjs','room-indirect-irradiance.mjs']
+    .map(name => hash(join(source, 'scripts', name))));
+  if (digest(JSON.stringify(recipes)) !== qualification.recipeSha256) fail(indirectInputError);
+  const viewer = [...files].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const staticRoot = join(source, 'apps/web/dist-static');
+  await verifyFileInventory(staticRoot, viewer, indirectInputError);
+  const paths = new Set(viewer.map(file => file.path));
+  for (const entry of ['static.html', 'static-studio.html']) {
+    const closure = receipt.entryClosure?.[entry];
+    if (!Array.isArray(closure) || !closure.includes(entry) || !closure.every(path => paths.has(path))) fail(indirectInputError);
+    const html = await readFile(join(staticRoot, entry), 'utf8');
+    if (html.match(/<meta name="exhibitos-viewer-build-id" content="[a-f0-9]{64}">/g)?.join('') !==
+        `<meta name="exhibitos-viewer-build-id" content="${buildId}">`) fail(indirectInputError);
+  }
+  const scripts = receipt.entryClosure['static.html'].filter(path => path.endsWith('.js'));
+  const embeddedRecipe = await Promise.all(scripts.map(async path =>
+    (await readFile(join(staticRoot, path))).includes(qualification.recipeSha256)));
+  if (!embeddedRecipe.some(Boolean)) fail(indirectInputError);
+  return {studio, viewer};
 }
 
 export function assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminalSelected,hayesReleaseSelected,workspaceFurnishingThumbnailsSelected,currentImageThumbnailSelected,benchAfterTerminalSelected=false,workspaceArtworkFramePreparationSelected,workspaceFurnishingRoomVisualSelected}){
@@ -612,7 +666,7 @@ export function assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminal
     fail('NATIVE_PACKAGE_INPUT_INVALID');
 }
 
-export async function packageNativeRuntime(destination, {defaultCatalogueBaseline, nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, hayesPreopenTerminalSelected = false, benchAfterTerminalSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, currentImageThumbnailSelected = false, gpuModelPreparationSelected = false, gpuModelEncoderRoot, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, qualifiedStudioContractManifest, privateWheatQualification}) {
+export async function packageNativeRuntime(destination, {defaultCatalogueBaseline, nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, workspaceFurnishingPublicationSelected = false, workspaceFurnishingSelectedImport = false, workspaceMaterialPublicationSelected = false, workspaceMaterialSelectedImport = false, workspaceMaterialMultimapSelected = false, workspaceMaterialMultimapSelectedImport = false, workspaceFurnishingStoolSelected = false, workspaceFurnishingRoomVisualSelected = false, workspaceFurnishingArtworkFrameSelected = false, workspaceFurnishingArtworkFrameModelsSelected = false, workspaceArtworkFramePreparationSelected = false, workspacePortalFinishSelected = false, hayesOriginalSelected = false, hayesDispositionSelected = false, hayesReleaseSelected = false, hayesPreopenTerminalSelected = false, benchAfterTerminalSelected = false, modelPreparationSelected = false, modelAdoptionSelected = false, modelAdoptionCarriedTargetSelected = false, catalog045PreReadyPreservation = false, catalog045PreReadyHayesPreservation = false, freshImageSelected = false, largeModelSelected = false, largeModelRecoverySelected = false, infoStandPreparationSelected = false, workspaceFurnishingThumbnailsSelected = false, currentImageThumbnailSelected = false, gpuModelPreparationSelected = false, gpuModelEncoderRoot, hayesReleaseProbeSelected = false, hayesDispositionProbeSelected = false, hayesSessionProbeSelected = false, defaultFurnishingsRoot, qualifiedStudioContractManifest, qualifiedRoomIndirectViewerReceipt, privateWheatQualification}) {
   if (defaultCatalogueBaseline !== undefined &&
       (!defaultCatalogueBaseline || Object.keys(defaultCatalogueBaseline).length !== 2 ||
        typeof defaultCatalogueBaseline.path !== 'string' || !isAbsolute(defaultCatalogueBaseline.path) ||
@@ -659,7 +713,23 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   if (await command(nodeBinary, [npmCLI, '--version'], {capture:true}) !== '11.19.0') fail('NATIVE_PACKAGE_NPM_INVALID');
   if (!/^postgres \(PostgreSQL\) 18\.6 \(Postgres\.app\)$/.test(await command(join(postgresRoot, 'bin/postgres'), ['--version'], {capture:true,env:{PATH:'/usr/bin:/bin',LANG:'C'}}))) fail('NATIVE_PACKAGE_POSTGRES_INVALID');
   if(gpuModelPreparationSelected)await requireGpuModelPreparationFurnishingsRelease(defaultFurnishingsRoot);else await requireCurrentFurnishingsRelease(defaultFurnishingsRoot);
-  if (gpuModelPreparationSelected) {
+  let indirectInputs;
+  if (qualifiedRoomIndirectViewerReceipt !== undefined) {
+    if (typeof qualifiedRoomIndirectViewerReceipt !== 'string' || typeof qualifiedStudioContractManifest !== 'string' ||
+        !normalOexSelected || !privateStaticEditor || freshOexValidation || gpuModelPreparationSelected ||
+        defaultCatalogueBaseline !== undefined || privateWheatQualification !== undefined ||
+        workspaceFurnishingSelectedImport || workspaceMaterialSelectedImport || workspaceMaterialMultimapSelectedImport)
+      fail(indirectInputError);
+    // The build uses the reviewed source before this packager-only successor changes the commit ID.
+    const gitOptions = {cwd: source, capture:true};
+    if (await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],gitOptions) ||
+        await command('/usr/bin/git',['diff','--name-only',roomIndirectInputs.sourceCommit,'HEAD','--','.',
+          ':(exclude)scripts/package-native-runtime.mjs',':(exclude)scripts/native-static-resource-closure.test.mjs'],gitOptions))
+      fail(indirectInputError);
+    indirectInputs = await verifyRoomIndirectPackageInputs(
+      source, qualifiedStudioContractManifest, qualifiedRoomIndirectViewerReceipt, roomIndirectInputs,
+    );
+  } else if (gpuModelPreparationSelected) {
     // This historical build retains its original contract producer.
     await command(nodeBinary, [npmCLI, 'run', 'build', '--workspace', '@exhibitos/studio-contract'], {
       cwd: source, env: {...process.env, PATH: dirname(nodeBinary) + ':' + (process.env.PATH ?? '')}
@@ -695,6 +765,7 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
     await copy(join(source,workspace,'package.json'),join(platform,workspace,'package.json'));
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
+  if (indirectInputs) await verifyFileInventory(join(platform,'packages/studio-contract/dist'), indirectInputs.studio, studioInputError);
   const tracked = new Map();
   const currentFurnishings = isDefaultRelease(furnishingsRelease,['1.21.0']);
   // The ordinary rail and portal use the image-thumbnail parent catalog.
@@ -784,6 +855,7 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
     fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID');
   }
   await copy(staticRoot,join(platform,'apps/web/dist-static'));
+  if (indirectInputs) await verifyFileInventory(join(platform,'apps/web/dist-static'), indirectInputs.viewer, indirectInputError);
   await assertNativeStaticResources(join(platform,'apps/web/dist-static'));
   // Authored entrance themes use this trusted build-time companion, never code
   // from a caller-provided runtime directory or a public exhibition payload.
