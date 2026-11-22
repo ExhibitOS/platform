@@ -29,11 +29,11 @@ type BundleRow = {
   rights: {licenseId: string; notice: DefaultCatalogueFile};
 };
 function addedRow(entry: {
-  catalogId: string; path: string; descriptor: {model: Omit<BundleRow['model'], 'path'>};
+  catalogId: string; catalogVersion?:number; path: string; descriptor: {model: Omit<BundleRow['model'], 'path'>};
   notice: DefaultCatalogueFile;
 }, hostKind: string): BundleRow {
   return {
-    catalogId: entry.catalogId, catalogVersion: 1, hostKind,
+    catalogId: entry.catalogId, catalogVersion: entry.catalogVersion??1, hostKind,
     workspaceFurnishing: entry.descriptor, model: {path: entry.path, ...entry.descriptor.model},
     rights: {licenseId: 'CC0-1.0', notice: entry.notice},
   };
@@ -44,7 +44,9 @@ const retained: BundleRow = {
   model: {path: 'assets/model.glb', bytes: baselineBody.length, sha256: digest(baselineBody), mime: 'model/gltf-binary'},
   rights: {licenseId: 'CC0-1.0', notice: {path: 'assets/NOTICE.txt', bytes: baselineBody.length, sha256: digest(baselineBody)}},
 };
-const installedRows = hosts.map(entry => addedRow(entry, entry.hostKind));
+const installedRows = hosts.filter(entry=>entry.hostKind!=='bench').map(entry => addedRow(entry, entry.hostKind));
+const stockSeatRow=addedRow(hosts.find(entry=>entry.hostKind==='bench')!,'bench');
+const defaultSeatCapability='default-seat-proposal-v1';
 const capabilities = [frameCapability, ...railCapabilities, ...portalCapabilities];
 
 function release(version: string, rows: BundleRow[], requiredCapabilities = capabilities) {
@@ -64,8 +66,8 @@ function release(version: string, rows: BundleRow[], requiredCapabilities = capa
   return {metadata, manifest, tag: 'v' + version, commit: sourceCommit};
 }
 
-function check(candidate: ReturnType<typeof release>, support = {ceilingRail: true, modularPortal: true}, previous = '2.0.0') {
-  const baseline = release(previous, [retained], [frameCapability]);
+function check(candidate: ReturnType<typeof release>, support = {ceilingRail: true, modularPortal: true}, baselineRows=[retained]) {
+  const baseline = release('2.0.0', baselineRows, [frameCapability]);
   const runtime = createDefaultCatalogueRuntime({workspaceId: 'workspace', tenantId: 'tenant'},
     {getBounded: async () => { throw Object.assign(Error('not yet installed'), {code: 'ENOENT'}); }} as unknown as FileBlobStore,
     baseline, '0.1.0', async () => baselineBody, admit => ({
@@ -103,6 +105,28 @@ it('refuses unavailable hosts, missing declared capability and mismatched source
   const wrongNotice = {...rail!.rights.notice, path: portal!.rights.notice.path};
   await expect(check(release('2.1.0', [retained, rail!, {...portal!, rights: {...portal!.rights, notice: wrongNotice}}])))
     .rejects.toMatchObject(incompatible);
+});
+
+it('admits the versioned stock bench only with its exact installed identity and seat capability',async()=>{
+  const {workspaceFurnishing,...asset}=stockSeatRow;
+  const baseline=[retained,{...asset,catalogVersion:1}];
+  const seats=[frameCapability,defaultSeatCapability];
+  await expect(check(release('2.1.0',[retained,stockSeatRow],seats),undefined,baseline)).resolves.toMatchObject({
+    update:{added:[],changed:[{id:stockSeatRow.catalogId,version:2}]},
+  });
+  const incompatible={code:'DEFAULT_CATALOGUE_INCOMPATIBLE'};
+  await expect(check(release('2.1.0',[retained,{...stockSeatRow,catalogVersion:1}],seats),undefined,baseline)).rejects.toMatchObject(incompatible);
+  await expect(check(release('2.1.0',[retained,stockSeatRow],[frameCapability]),undefined,baseline)).rejects.toMatchObject(incompatible);
+  const mismatched={...stockSeatRow,workspaceFurnishing:{...(workspaceFurnishing as object),id:crypto.randomUUID()}};
+  await expect(check(release('2.1.0',[retained,mismatched],seats),undefined,baseline)).rejects.toMatchObject(incompatible);
+
+  const baselineRelease=release('2.0.0',baseline,[frameCapability]);
+  const source=vi.fn(async()=>{throw Error('Inactive exact stock must not read a body');});
+  const runtime=createDefaultCatalogueRuntime({workspaceId:'workspace',tenantId:'tenant'},
+    {getBounded:source} as unknown as FileBlobStore, baselineRelease,'0.1.0',source,()=>{throw Error('Unexpected update');});
+  const client={query:async()=>({rows:[]})} as unknown as PoolClient;
+  await expect(runtime.installedBenchModel(client,workspaceFurnishing as never,true)).resolves.toBeUndefined();
+  expect(source).not.toHaveBeenCalled();
 });
 
 it('uses the current stable release and rechecks its attested identity', async () => {

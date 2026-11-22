@@ -5,6 +5,13 @@ import {applyBenchCommand,benchesFor,validateStudioBenches,type StudioBench} fro
 import type {StudioCamera} from './index.js';
 import {validateWorkspaceFurnishings,workspaceDefaultSeat,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
+export interface InstalledBackedSeatDefault {
+ furnishingId:string;
+ dimensions:StudioBench['dimensions'];
+ point:AffinePoint;
+ modelForward:NonNullable<NonNullable<StudioBench['workspaceVisual']>['modelForward']>;
+}
+
 export interface WorkspaceDefaultSeatTarget {
  placementId:string;
  benchId:string;
@@ -24,7 +31,7 @@ export function defaultSeatCamera(point:AffinePoint,front:AffinePoint,pose:Artif
  return {position,target,fov:50};
 }
 
-export function proposeWorkspaceDefaultSeats(document:Exhibition,targets:readonly WorkspaceDefaultSeatTarget[]){
+export function proposeWorkspaceDefaultSeats(document:Exhibition,targets:readonly WorkspaceDefaultSeatTarget[],installedBackedSeat?:InstalledBackedSeatDefault){
  if(targets.length>32||!validateWorkspaceFurnishings(document).valid||!validateStudioBenches(document).valid)throw Error('BENCH_INVALID');
  const workspace=document.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
  const existing=new Set(benchesFor(document).flatMap(bench=>bench.workspaceVisual?[bench.workspaceVisual.placementId.toLowerCase()]:[]));
@@ -38,9 +45,14 @@ export function proposeWorkspaceDefaultSeats(document:Exhibition,targets:readonl
   if(!placement)throw Error('BENCH_REFERENCE');
   if(existing.has(key))continue;
   const item=workspace?.furnishings.find(item=>item.id===placement.furnishingId&&item.version===placement.furnishingVersion);
-  const defaults=item&&workspaceDefaultSeat(item);
-  if(!item||!defaults)continue;
+  if(!item)continue;
   const {position,yaw,scale,roomId}=placement;
+  const backed=item.kind==='bench'&&item.id===installedBackedSeat?.furnishingId?installedBackedSeat:undefined;
+  // Authored backed workspace benches use the existing unit-scale host contract.
+  if(backed&&scale!==1)continue;
+  // The linked visual is aligned to the host's -Z front by its saved model basis.
+  const defaults=backed?{dimensions:backed.dimensions,point:backed.point,front:[0,0,-1] as const}:workspaceDefaultSeat(item);
+  if(!defaults)continue;
   const pose:ArtifactPose={position,rotation:[0,Math.sin(yaw/2),0,Math.cos(yaw/2)],scale:[scale,scale,scale]};
   const viewpoint:WorkspaceDefaultSeatAddition['viewpoint']={
    id:target.viewpointId,name:item.name,roomId,
@@ -48,10 +60,10 @@ export function proposeWorkspaceDefaultSeats(document:Exhibition,targets:readonl
   };
   const d=defaults.dimensions;
   const bench:StudioBench={
-   id:target.benchId,name:item.name,roomId,position:[...position],yaw,kind:'slab',
+   id:target.benchId,name:item.name,roomId,position:[...position],yaw,kind:backed?'backed':'slab',
    dimensions:{width:d.width*scale,depth:d.depth*scale,height:d.height*scale},
    material:{preset:'wood',color:'#9B7653',roughness:.65,metalness:0},
-   viewpointId:viewpoint.id,workspaceVisual:{placementId:placement.id,modelSha256:item.model.sha256},
+   viewpointId:viewpoint.id,workspaceVisual:{placementId:placement.id,modelSha256:item.model.sha256,...(backed?{modelForward:backed.modelForward}:{})},
   };
   candidate=applyBenchCommand(candidate,{type:'add-bench',bench,viewpoint});
   additions.push({placementId:placement.id,bench,viewpoint});

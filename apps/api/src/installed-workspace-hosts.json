@@ -215,5 +215,53 @@
       "bytes": 1570,
       "sha256": "cec35a0e3c1ad0ff78f65bfecbb92315cd8a23b4041d0bbad987237dc7338f27"
     }
+  },
+  {
+    "catalogId": "sculpture-bench-refined-v6",
+    "catalogVersion": 2,
+    "hostKind": "bench",
+    "path": "assets/furnishings/exhibitos-authored-20261114/sculpture-bench-refined-v6/model.glb",
+    "descriptor": {
+      "id": "89b3fd6d-b8b8-4568-9094-93f0aac1e63f",
+      "version": 1,
+      "kind": "bench",
+      "name": "Sculpture Bench Refined v6",
+      "model": {
+        "mime": "model/gltf-binary",
+        "bytes": 345892,
+        "sha256": "28e980f60dfa50c0dd68b6bcf20f34df29957bf50a824262fe91db9d24279f60"
+      },
+      "rights": {
+        "holder": "ExhibitOS",
+        "ownership": "owner",
+        "licenseId": "CC0-1.0",
+        "creditLine": "ExhibitOS",
+        "permissions": {
+          "display": true,
+          "download": true,
+          "export": true,
+          "commercial": true
+        }
+      },
+      "provenance": "ExhibitOS default furnishings, sculpture-bench-refined-v6 v1. Unchanged ExhibitOS v6 original derived from the retained v5 source."
+    },
+    "notice": {
+      "path": "assets/furnishings/exhibitos-authored-20261114/sculpture-bench-refined-v6/LICENSE-NOTICE.txt",
+      "bytes": 532,
+      "sha256": "45935b8221ed5f18c96239cc88cae36d804ef802e6d16fdd7001ac87325528f7"
+    },
+    "defaultSeat": {
+      "dimensions": {
+        "width": 1.5,
+        "depth": 0.7,
+        "height": 0.45
+      },
+      "point": [
+        0,
+        0.45,
+        0
+      ],
+      "modelForward": "positive-z"
+    }
   }
 ]

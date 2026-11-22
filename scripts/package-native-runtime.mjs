@@ -286,7 +286,9 @@ const isDefaultRelease=(release,versions)=>versions.some(version=>release?.manif
 const DEFAULT_FRAME_ID='black-aluminum-frame';
 const wheatFrame=installedArtworkFrames.find(frame=>frame.catalogId===DEFAULT_WHEAT_FRAME_ID);
 const additionalInstalledFrames=installedArtworkFrames.filter(frame=>frame.notice&&frame.catalogId!==DEFAULT_WHEAT_FRAME_ID);
-const installedHostEntries=new Map(installedWorkspaceHosts.map(item=>[item.catalogId,item]));
+// Versioned updater entries are admitted by their signed catalogue, not copied as baseline hosts.
+const packagedWorkspaceHosts=installedWorkspaceHosts.filter(item=>item.catalogVersion===undefined);
+const installedHostEntries=new Map(packagedWorkspaceHosts.map(item=>[item.catalogId,item]));
 const articulatedReleases=['1.18.0','1.19.0','1.20.0','1.21.0'];
 const oakBenchReleases=['1.19.0','1.20.0','1.21.0'];
 const wheatReleases=['1.20.0','1.21.0'];
@@ -315,7 +317,7 @@ async function readDefaultFurnishingsManifest(root){
   const manifest=JSON.parse(bytes.toString('utf8'));
   const hosts={...DEFAULT_FURNISHINGS_HOSTS,
     ...(wheatReleases.includes(bundleVersion)?{[DEFAULT_WHEAT_FRAME_ID]:'artwork-frame'}:{}),
-    ...(bundleVersion==='1.21.0'?Object.fromEntries(installedWorkspaceHosts.map(item=>[item.catalogId,item.hostKind])):{}),
+    ...(bundleVersion==='1.21.0'?Object.fromEntries(packagedWorkspaceHosts.map(item=>[item.catalogId,item.hostKind])):{}),
     ...(oakBenchReleases.includes(bundleVersion)?{[DEFAULT_OAK_BENCH_ID]:'bench'}:{}),...(articulatedBundle?{[DEFAULT_ARTICULATED_SPOT_ID]:'light'}:{}),...(['1.16.0','1.17.0'].includes(version)?{[DEFAULT_DARK_TRACK_ID]:'ceiling-rail'}:{}),...(version==='1.17.0'?{[DEFAULT_RECTANGLE_TRACK_ID]:'ceiling-rail',[DEFAULT_FIXED64_SPOT_ID]:'light'}:{}),...(['1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_BENCH_V6_ID]:'bench'}:{}),...(['1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{[DEFAULT_CLEAR_HOOD_ID]:'display-case'}:{}),...(['1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'linear-track':'ceiling-rail'}:{}),
     ...(['1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?Object.fromEntries(additionalInstalledFrames.map(frame=>[frame.catalogId,'artwork-frame'])):{}),
     ...(['1.11.0','1.12.0','1.13.0','1.14.0','1.15.0','1.16.0','1.17.0'].includes(version)?{'recessed-downlight':'light'}:{}),
