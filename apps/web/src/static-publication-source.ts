@@ -14,6 +14,7 @@ import {validFootstepPublication} from './viewer/footstep-publication';
 import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import {packageFurnishingNoticeManifest} from './vendor/furnishings-v1.mjs';
 import {parseStaticJson} from './static-json.mjs';
+import {attachPrivateStaticRoomIndirect} from './private-static-room-indirect';
 interface FileEntry {path:string;bytes:number;sha256:string;mime:string;assetId?:string}
 const hash=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,"0")).join("");
 async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false,base="",progress?:(receivedBytes:number)=>void){
@@ -168,6 +169,9 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   if(!retainsCopyInventory(index,{...activeIndex,assets:[...activeIndex.assets,...supplemental]},activeIndex.version===4))throw Error('STATIC_PREVIOUS_ASSETS');
  }
  const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,entranceBootstrapBytes:indexBytes+p.length,fetcher:fetchAsset,assetFetcher:fetchAsset,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,revisionSha256,qualification:Object.freeze({candidateId:candidate.candidateId,tier:candidate.tier,sourceBindingSha256:candidate.sourceBindingSha256,featureReportSha256:candidate.featureReportSha256,inspector:candidate.featureReport.inspector,model:candidate.featureReport.cost.model,residentBytes:candidate.featureReport.cost.residentBytes,peakAdditionalBytes:candidate.featureReport.cost.peakAdditionalBytes}),candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
+ if(!previousIndex)await attachPrivateStaticRoomIndirect(publication,
+  {publicationId,revisionSha256,indexSha256:expectedIndex!,bodySha256:index.publication.sha256},
+  (path,limit,signal)=>read(path,limit,signal,true),hash);
  return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}

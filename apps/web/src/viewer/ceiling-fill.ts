@@ -2,6 +2,7 @@
 import type {Exhibition} from '@exhibitos/spec';
 import {alignedDoorPair, lightDetailsFor, roomCeilingFillDimensions, type LightDetails} from '@exhibitos/studio-contract';
 import type * as Three from 'three';
+import {applyRoomIndirect, type mountRoomIndirect} from './room-indirect';
 import {createUpperAngularLighting} from './upper-angular-lighting';
 
 const passageMetres = .5;
@@ -109,6 +110,7 @@ export function installCeilingFillMask(
   rooms: ReadonlyMap<string, Three.Group>,
   lights: ReadonlyMap<string, {light: Three.Light}>,
   roomOnlySurfaceMaterials?: ReadonlyMap<string, Three.MeshStandardMaterial>,
+  indirectReceivers?: ReturnType<typeof mountRoomIndirect>['receivers'],
 ) {
   const details = lightDetailsFor(doc);
   const tagged = new Map(details.filter(entry => entry.ceilingFill).map(entry => [entry.lightId.toLowerCase(), entry]));
@@ -121,7 +123,7 @@ export function installCeilingFillMask(
     upperProfiles.set(spot, entry.angularProfile);
   }
   const upperAngular = createUpperAngularLighting(three, upperProfiles);
-  if (!tagged.size && !upperAngular) return;
+  if (!tagged.size && !upperAngular && !indirectReceivers?.size) return;
   scene.updateMatrixWorld(true);
   const byObject = new Map<Three.RectAreaLight, string>();
   const ceilingReturns = new Map<Three.Material, {light: Three.RectAreaLight; irradiance: {value: number}}>();
@@ -204,7 +206,8 @@ export function installCeilingFillMask(
       if (materials.has(material)) continue;
       const before = material.onBeforeCompile, key = material.customProgramCacheKey;
       const baseKey = key.call(material);
-      const ceilingReturn = ceilingReturns.get(material);
+      const indirect = indirectReceivers?.get(material);
+      const ceilingReturn = indirect ? undefined : ceilingReturns.get(material);
       const hook: Three.Material['onBeforeCompile'] = (shader, renderer) => {
         before.call(material, shader, renderer);
         // Three retains one uniform dictionary per material, even when
@@ -214,6 +217,7 @@ export function installCeilingFillMask(
           shader.fragmentShader = upperAngular.definitions + '\n' + shader.fragmentShader;
         }
         shader.fragmentShader = definitions + '\n' + shader.fragmentShader.replace(lightChunk, injectedLighting);
+        if (indirect) applyRoomIndirect(shader, indirect.uniforms);
         if (ceilingReturn) {
           shader.uniforms.exhibitosCeilingIrradiance = ceilingReturn.irradiance;
           shader.fragmentShader = 'uniform float exhibitosCeilingIrradiance;\n' + shader.fragmentShader.replace(lightEnd, `${lightEnd}
@@ -222,7 +226,7 @@ export function installCeilingFillMask(
             }`);
         }
       };
-      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey + (ceilingReturn ? '|diffuse-underside' : '');
+      const ownedKey = () => baseKey + '|exhibitos-ceiling-fill-v1|' + sourceKey + (indirect ? '|room-indirect-rgba8' : ceilingReturn ? '|diffuse-underside' : '');
       material.onBeforeCompile = hook;
       material.customProgramCacheKey = ownedKey;
       const retire = () => {
