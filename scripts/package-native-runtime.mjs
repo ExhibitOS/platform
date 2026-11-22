@@ -605,7 +605,7 @@ export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRo
  await verifyGpuModelEncoderPackageRoot(target);
  await writeFile(join(platformRoot,'scripts',GPU_MODEL_PREPARATION_MARKER),GPU_MODEL_PREPARATION_CAPABILITY,{flag:'wx',mode:0o600});
 }
-const incumbentStudioInventorySha256 = '3d05b6939b4c1cc1b85c79c5eaa056aade06b68a3813db2bc75a60b6d1f3c104';
+const incumbentStudioInventorySha256 = '77cbbd39aef339276c71b6205d28241df8b636dc89911af85bc8372d68e40139';
 // The paired inputs are reviewed independently. Config supplies their locations, not their trust digests.
 const roomIndirectInputs = {
   sourceCommit: '5d12a28b346f19ee62266da27b25b6797a9c7a51',
