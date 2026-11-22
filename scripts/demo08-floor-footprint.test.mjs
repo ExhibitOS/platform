@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateDemo08SecondFootprint, inspectAcceptedDemo08SecondFootprint } from './demo08-floor-footprint.mjs';
+import {
+  admittedDemo08Roster, evaluateDemo08SecondFootprint, inspectAcceptedDemo08SecondFootprint,
+} from './demo08-floor-footprint.mjs';
 
 const floorId = '549b9572-4cb2-4ca0-a908-60c8d7b2da5f';
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -32,4 +34,29 @@ test('matching nearest-hit witnesses cannot hide an intervening sliver', () => {
 test('the private inspector requires a separately accepted snapshot digest before reading input', async () => {
   const result = await inspectAcceptedDemo08SecondFootprint({ sourceDir: '/never-read', snapshotPath: '/never-read' });
   assert.equal(result.reason, 'snapshot-acceptance-required');
+});
+
+test('only the reviewed artwork and plinth may be absent from the mounted draws', () => {
+  const artworkId = '724de42b-1009-4610-9ad8-51982578428e';
+  const pedestalId = `pedestal:${artworkId}`;
+  const sourceSha256 = '2961ccb074ed05b7f7cce2fed3cd126527c05d26a4be0fe4f5b7dc9a1ed61885';
+  const required = new Map([
+    [floorId, { kind: 'surface' }],
+    [artworkId, { kind: 'artwork', sourceSha256 }],
+    [pedestalId, { kind: 'pedestal' }],
+  ]);
+  const excluded = { readiness: 'verified-source', disposition: 'excluded', reason: 'approved-x-separation' };
+  const artwork = { ...excluded, id: artworkId, kind: 'artwork', sourceSha256, boundsX: [2.736816, 3.294320] };
+  const plinth = { ...excluded, id: pedestalId, kind: 'pedestal', boundsX: [2.674730, 3.325270] };
+  const floor = { id: floorId, kind: 'surface', readiness: 'ready', disposition: 'mounted' };
+  const snapshot = { roster: [floor, artwork, plinth], draws: [{ rosterId: floorId }] };
+  const admit = candidate => admittedDemo08Roster(candidate, required, { assets: [] });
+  assert.equal(admit(snapshot), true);
+  for (const replacement of [
+    { ...artwork, sourceSha256: '0'.repeat(64) },
+    { ...artwork, boundsX: [2.736817, 3.294320] },
+    { ...artwork, id: 'other-artwork' },
+  ]) assert.equal(admit({ ...snapshot, roster: [floor, replacement, plinth] }), false);
+  assert.equal(admit({ ...snapshot, roster: [artwork, plinth] }), false);
+  assert.equal(admit({ ...snapshot, draws: [...snapshot.draws, { rosterId: artworkId }] }), false);
 });

@@ -30,6 +30,18 @@ const viewerPin = Object.freeze({
   sourceTree: 'cbfb0efd3870cac1ae22784332ef542a34aad3bb',
   profile: 'desktop',
 });
+// Outward-rounded room-local bounds for the two individually reviewed sources
+// in #215. These exceptions belong only to the pinned second footprint.
+const approvedExclusions = new Map([
+  ['724de42b-1009-4610-9ad8-51982578428e', {
+    kind: 'artwork',
+    sourceSha256: '2961ccb074ed05b7f7cce2fed3cd126527c05d26a4be0fe4f5b7dc9a1ed61885',
+    boundsX: [2.736816, 3.294320],
+  }],
+  ['pedestal:724de42b-1009-4610-9ad8-51982578428e', {
+    kind: 'pedestal', boundsX: [2.674730, 3.325270],
+  }],
+]);
 const format = 'exhibitos-demo08-geometry-v1';
 const sides = new Map([['front', FrontSide], ['back', BackSide], ['double', DoubleSide]]);
 const epsilon = 1e-5;
@@ -252,23 +264,43 @@ function requiredRoster(exhibition, index) {
   return required;
 }
 
-function admittedRoster(snapshot, required, index) {
+/** Call only after admitting the exact source, Viewer, and one-texel scope.
+ * Mounted draws remain mandatory except for the two reviewed disjoint rows. */
+export function admittedDemo08Roster(snapshot, required, index) {
   if (!Array.isArray(snapshot.roster) || !Array.isArray(snapshot.draws) || !snapshot.roster.length ||
       !snapshot.draws.length) return false;
-  const mounted = new Map();
+  const roster = new Map();
+  const mounted = new Set();
   const readyKinds = new Set(['surface', 'artwork', 'pedestal', 'fixture', 'workspace', 'portal', 'plaque']);
+  const sweep = secondFootprint([0, 0, 0]);
+  const sweepMaxX = Math.max(...sweep.probes.flatMap(({ launch, end }) => [launch.x, end.x]));
   for (const row of snapshot.roster) {
-    const keys = ['id', 'kind', 'readiness', 'disposition', ...(Object.hasOwn(row ?? {}, 'sourceSha256') ? ['sourceSha256'] : [])];
-    if (!closed(row, keys) || !anchoredId(row.id) || !readyKinds.has(row.kind) ||
-        row.readiness !== 'ready' || row.disposition !== 'mounted' || mounted.has(row.id) ||
+    if (!anchoredId(row?.id) || roster.has(row.id)) return false;
+    if (row.disposition === 'excluded') {
+      const proof = approvedExclusions.get(row.id);
+      const expected = required.get(row.id);
+      if (!proof || expected?.kind !== proof.kind || expected.sourceSha256 !== proof.sourceSha256 ||
+          !sameFields(row, {
+            ...proof, id: row.id, boundsX: row.boundsX, readiness: 'verified-source',
+            disposition: 'excluded', reason: 'approved-x-separation',
+          }) || !sameVector(row.boundsX, proof.boundsX) || row.boundsX[0] <= sweepMaxX + epsilon) {
+        return false;
+      }
+      roster.set(row.id, row);
+      continue;
+    }
+    const keys = ['id', 'kind', 'readiness', 'disposition', ...(Object.hasOwn(row, 'sourceSha256') ? ['sourceSha256'] : [])];
+    if (!closed(row, keys) || !readyKinds.has(row.kind) ||
+        row.readiness !== 'ready' || row.disposition !== 'mounted' ||
         (row.sourceSha256 !== undefined &&
           (typeof row.sourceSha256 !== 'string' || !index.assets.some(asset => asset.sha256 === row.sourceSha256)))) {
       return false;
     }
-    mounted.set(row.id, row);
+    roster.set(row.id, row);
+    mounted.add(row.id);
   }
   for (const [id, expected] of required) {
-    const row = mounted.get(id);
+    const row = roster.get(id);
     if (row?.kind !== expected.kind || row.sourceSha256 !== expected.sourceSha256) return false;
   }
   const drawIds = new Set();
@@ -316,7 +348,7 @@ export async function inspectAcceptedDemo08SecondFootprint({
     const room = exhibition.rooms.find(row => row.id === roomId);
     if (!sameVector(room?.transform.rotation, [0, 0, 0, 1]) || !sameVector(room?.transform.scale, [1, 1, 1]) ||
         !sameVector(room?.transform.position, [13, 0, -7]) ||
-        !required?.has(floorId) || !admittedRoster(snapshot, required, index)) {
+        !required?.has(floorId) || !admittedDemo08Roster(snapshot, required, index)) {
       return unresolved('incomplete-roster');
     }
     return { ...evaluateDemo08SecondFootprint(snapshot.draws, room.transform.position, signal),
