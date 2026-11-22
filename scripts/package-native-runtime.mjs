@@ -63,6 +63,8 @@ const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.35.tgz';
 const OEX_SPEC_HASH='dc9b0f75ab735abe36c64fb34df3230f2564b295f744874943c735424114bc2b';
 const CURRENT_OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.38.tgz';
 const CURRENT_OEX_SPEC_HASH='df898ceec6053a9a6e12f512a86f85acc8d7bb15230cbf5510082263d0c49ddd';
+const ROOM_INDIRECT_OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.40.tgz';
+const ROOM_INDIRECT_OEX_SPEC_HASH='57792a5c91904ee325589ccda8bebcc91ab146bf46ea48c049dda657821f043c';
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
@@ -152,10 +154,22 @@ export async function copyModelPreparationSelectedFiles(sourceRoot,platformRoot,
 }
 /** Local validation only: lockfile dependency is included for every mode;
  * the supplemental isolated-test migration requires explicit opt-in. */
-export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation, currentFurnishings = false) {
+async function lockedOexSpec(sourceRoot) {
   const lock=JSON.parse(await readFile(join(sourceRoot,'package-lock.json'),'utf8'));
-  const spec=lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
-  if (currentFurnishings) {
+  return lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
+}
+
+function assertRoomIndirectOexSpec(spec, freshOexValidation, currentFurnishings) {
+  if (freshOexValidation || !currentFurnishings || spec !== `file:${ROOM_INDIRECT_OEX_SPEC_PATH}`)
+    fail('NATIVE_PACKAGE_SOURCE_INVALID');
+}
+
+export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation, currentFurnishings = false, qualifiedRoomIndirect = false) {
+  const spec=await lockedOexSpec(sourceRoot);
+  if (qualifiedRoomIndirect) {
+    assertRoomIndirectOexSpec(spec, freshOexValidation, currentFurnishings);
+    await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,ROOM_INDIRECT_OEX_SPEC_PATH,ROOM_INDIRECT_OEX_SPEC_HASH);
+  } else if (currentFurnishings) {
     if(spec!==`file:${CURRENT_OEX_SPEC_PATH}`)fail('NATIVE_PACKAGE_SOURCE_INVALID');
     await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,CURRENT_OEX_SPEC_PATH,CURRENT_OEX_SPEC_HASH);
   } else if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
@@ -596,10 +610,12 @@ const roomIndirectInputs = {
   sourceTree: 'c4f1dd6e853df3aba7d1e7bd614a815de27091f5',
   studioSha256: '7c52c7684c6958b463fc8a15709edad4943eec2d3b983df9143493ac6b282818',
   viewerReceiptSha256: '5b624235036c2d7b7f8bd1147a55f861b83715516340759058aa6b49505c3f73',
+  specSha256: ROOM_INDIRECT_OEX_SPEC_HASH,
   recipeSha256: '598b2c4a92b70a031760a7ca950067de64afaacd9bf84ed91315a42d97a8b03a',
 };
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const roomIndirectRecipeFiles = ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs'];
 const studioInputError = 'NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID';
 const indirectInputError = 'NATIVE_PACKAGE_ROOM_INDIRECT_INPUT_INVALID';
 
@@ -632,13 +648,12 @@ export async function verifyRoomIndirectPackageInputs(source, studioManifestPath
   if (receipt.format !== 'exhibitos-215-private-dual-entry-web-input-v1' ||
       buildInput?.sourceCommit !== qualification.sourceCommit || buildInput?.sourceTree !== qualification.sourceTree ||
       buildInput.target !== 'viewer' || buildInput.privateEditor !== true || receipt.stagingDiagnostics !== false ||
+      receipt.specArtifactSha256 !== qualification.specSha256 ||
       buildInput.privateIndirectRecipe !== qualification.recipeSha256 || digest(JSON.stringify(buildInput)) !== buildId ||
       !Array.isArray(files) || receipt.studioContract?.rawSha256 !== qualification.studioSha256 ||
       receipt.studioContract.fileCount !== studio.length || digest(JSON.stringify(files)) !== receipt.inventorySha256)
     fail(indirectInputError);
-  const recipes = await Promise.all(['prepare-room-indirect.mjs','room-indirect-irradiance.mjs']
-    .map(name => hash(join(source, 'scripts', name))));
-  if (digest(JSON.stringify(recipes)) !== qualification.recipeSha256) fail(indirectInputError);
+  await verifyRoomIndirectRecipe(source, qualification.recipeSha256);
   const viewer = [...files].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const staticRoot = join(source, 'apps/web/dist-static');
   await verifyFileInventory(staticRoot, viewer, indirectInputError);
@@ -655,6 +670,11 @@ export async function verifyRoomIndirectPackageInputs(source, studioManifestPath
     (await readFile(join(staticRoot, path))).includes(qualification.recipeSha256)));
   if (!embeddedRecipe.some(Boolean)) fail(indirectInputError);
   return {studio, viewer};
+}
+
+async function verifyRoomIndirectRecipe(root, expectedSha256) {
+  const hashes = await Promise.all(roomIndirectRecipeFiles.map(name => hash(join(root, 'scripts', name))));
+  if (digest(JSON.stringify(hashes)) !== expectedSha256) fail(indirectInputError);
 }
 
 export function assertHayesPreopenTerminalPackageSelection({hayesPreopenTerminalSelected,hayesReleaseSelected,workspaceFurnishingThumbnailsSelected,currentImageThumbnailSelected,benchAfterTerminalSelected=false,workspaceArtworkFramePreparationSelected,workspaceFurnishingRoomVisualSelected}){
@@ -724,7 +744,8 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
     const gitOptions = {cwd: source, capture:true};
     if (await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],gitOptions) ||
         await command('/usr/bin/git',['diff','--name-only',roomIndirectInputs.sourceCommit,'HEAD','--','.',
-          ':(exclude)scripts/package-native-runtime.mjs',':(exclude)scripts/native-static-resource-closure.test.mjs'],gitOptions))
+          ':(exclude)scripts/package-native-runtime.mjs',':(exclude)scripts/native-static-resource-closure.test.mjs',
+          ':(exclude)scripts/package-native-oex-inputs.test.mjs'],gitOptions))
       fail(indirectInputError);
     indirectInputs = await verifyRoomIndirectPackageInputs(
       source, qualifiedStudioContractManifest, qualifiedRoomIndirectViewerReceipt, roomIndirectInputs,
@@ -740,6 +761,13 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   }
   await assertNativeStaticResources(join(source,'apps/web/dist-static'));
   const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
+  const currentFurnishings = isDefaultRelease(furnishingsRelease,['1.21.0']);
+  if (indirectInputs) {
+    assertRoomIndirectOexSpec(await lockedOexSpec(source), freshOexValidation, currentFurnishings);
+    const specArchive = join(source, ROOM_INDIRECT_OEX_SPEC_PATH);
+    if (await checkedSource(specArchive, 'file') !== specArchive || await hash(specArchive) !== ROOM_INDIRECT_OEX_SPEC_HASH)
+      fail('NATIVE_PACKAGE_SOURCE_INVALID');
+  }
   if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   if(isDefaultRelease(furnishingsRelease,DEFAULT_WORKSPACE_RELEASES)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   // mkdir without recursive refuses an existing destination and preserves failures.
@@ -767,14 +795,13 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   }
   if (indirectInputs) await verifyFileInventory(join(platform,'packages/studio-contract/dist'), indirectInputs.studio, studioInputError);
   const tracked = new Map();
-  const currentFurnishings = isDefaultRelease(furnishingsRelease,['1.21.0']);
   // The ordinary rail and portal use the image-thumbnail parent catalog.
   // Bench base color preparation and archive OEX rail import have separate markers.
   const ordinaryInstalledFurnishingsSelected = currentFurnishings && normalOexSelected &&
     workspacePortalFinishSelected && currentImageThumbnailSelected && !hayesPreopenTerminalSelected;
   const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected,hayesPreopenTerminalSelected,ordinaryInstalledFurnishingsSelected);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
-  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected,currentFurnishings);
+  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected,currentFurnishings,Boolean(indirectInputs));
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected,workspaceFurnishingPublicationSelected,workspaceMaterialPublicationSelected,workspaceMaterialMultimapSelected,workspaceArtworkFramePreparationSelected,hayesOriginalSelected,hayesDispositionSelected,hayesReleaseSelected);
   await copyNativeFurnishings(furnishingsRelease?.root??source, platform, furnishingsRelease);
   if(defaultCatalogueBaseline)await copyDefaultCatalogueBaseline(source, platform, tracked, defaultCatalogueBaseline);
@@ -868,8 +895,9 @@ export async function packageNativeRuntime(destination, {defaultCatalogueBaselin
   await copy(join(source,'apps/web/src/workspace-material-resources.mjs'),join(platform,'apps/web/src/workspace-material-resources.mjs'));
   await copy(join(source,'apps/web/src/workspace-material-batch.mjs'),join(platform,'apps/web/src/workspace-material-batch.mjs'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
-  for(const name of ['prepare-room-indirect.mjs','room-indirect-irradiance.mjs'])
+  for(const name of roomIndirectRecipeFiles)
     await copy(join(source,'scripts',name),join(platform,'scripts',name));
+  if (indirectInputs) await verifyRoomIndirectRecipe(platform, roomIndirectInputs.recipeSha256);
   await copy(join(source,'scripts/native-detail-plan.mjs'),join(platform,'scripts/native-detail-plan.mjs'));
   for(const name of ['pages-publication-source.mjs','local-static-publication-source.mjs','refresh-static-publication.mjs']) await copy(join(source,'scripts',name),join(platform,'scripts',name));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));

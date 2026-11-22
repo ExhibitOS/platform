@@ -55,17 +55,18 @@ async function roomIndirectInput(t, {withStudio = true, staleSource = false, inc
   const script = 'viewer.js';
   await writeFile(join(staticRoot,script), recipeSha256);
   const studio = JSON.stringify([fileRow('index.js','contract')]);
+  const specSha256 = '5'.repeat(64);
   const files = [...entries.map(entry => fileRow(entry,html)),fileRow(script,recipeSha256)];
   const viewer = JSON.stringify({format:'exhibitos-215-private-dual-entry-web-input-v1',buildInput,buildId,
-    stagingDiagnostics:false,files,inventorySha256:sha(JSON.stringify(files)),
+    stagingDiagnostics:false,specArtifactSha256:specSha256,files,inventorySha256:sha(JSON.stringify(files)),
     studioContract:{rawSha256:sha(studio),fileCount:1},
     entryClosure:Object.fromEntries(entries.map(entry => [entry,[entry,script]]))});
   const studioPath = join(root,'studio.json'), viewerPath = join(root,'viewer.json');
   await writeFile(join(studioRoot,'index.js'), 'contract');
   await writeFile(studioPath, studio);
   await writeFile(viewerPath, viewer);
-  const qualification = {sourceCommit,sourceTree,recipeSha256,studioSha256:sha(studio),viewerReceiptSha256:sha(viewer)};
-  return {staticRoot,studioRoot,viewerPath,verify:() => verifyRoomIndirectPackageInputs(root,studioPath,viewerPath,qualification)};
+  const qualification = {sourceCommit,sourceTree,recipeSha256,specSha256,studioSha256:sha(studio),viewerReceiptSha256:sha(viewer)};
+  return {root,staticRoot,studioRoot,viewerPath,verify:() => verifyRoomIndirectPackageInputs(root,studioPath,viewerPath,qualification)};
 }
 
 test('the reviewed paired Native input admits both entries and the exact Studio files', async t => {
@@ -95,4 +96,7 @@ test('Native input rejects a forged receipt and exact inventory changes', async 
   const changed = await roomIndirectInput(t);
   await writeFile(join(changed.studioRoot,'index.js'), 'unknown');
   await assert.rejects(changed.verify(), /NATIVE_PACKAGE_STUDIO_CONTRACT_INVALID/);
+  const recipe = await roomIndirectInput(t);
+  await writeFile(join(recipe.root,'scripts/room-indirect-irradiance.mjs'), 'changed');
+  await assert.rejects(recipe.verify(), code);
 });
