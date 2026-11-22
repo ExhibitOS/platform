@@ -606,12 +606,12 @@ export async function copyGpuModelPreparationSelectedFiles(sourceRoot,platformRo
 const incumbentStudioInventorySha256 = '3d05b6939b4c1cc1b85c79c5eaa056aade06b68a3813db2bc75a60b6d1f3c104';
 // The paired inputs are reviewed independently. Config supplies their locations, not their trust digests.
 const roomIndirectInputs = {
-  sourceCommit: 'a09bc217c527a2dd24187a19811d508122169871',
-  sourceTree: 'c4f1dd6e853df3aba7d1e7bd614a815de27091f5',
+  sourceCommit: '5d12a28b346f19ee62266da27b25b6797a9c7a51',
+  sourceTree: '2688713fe76b0c507734dcd2af64c7f2691df7df',
   studioSha256: '7c52c7684c6958b463fc8a15709edad4943eec2d3b983df9143493ac6b282818',
-  viewerReceiptSha256: '5b624235036c2d7b7f8bd1147a55f861b83715516340759058aa6b49505c3f73',
+  viewerReceiptSha256: '46fbec6ddc2cbfd19f33da7407529eb5928b9b5c39ad06bea0023be76acff9c0',
   specSha256: ROOM_INDIRECT_OEX_SPEC_HASH,
-  recipeSha256: '598b2c4a92b70a031760a7ca950067de64afaacd9bf84ed91315a42d97a8b03a',
+  recipeSha256: '44691f360c33b934fc70952469d281c043b52b6ce3f2c6978feed442f72d6208',
 };
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');

@@ -48,3 +48,21 @@ test('opaque room geometry blocks transport, and a real gap lets a ray escape', 
   assert.equal(trace([1, 1.5, 0], [0, -1, 0], Infinity).position[1], 1.2);
   assert(readTile(ceiling, [floor, ceiling, wall, ...wallWithGap]).some(value => value > 0));
 });
+
+test('only a reached paired doorway without a definitely earlier hit leaves the chart live', () => {
+  const receiver = makePlane([-1, 1.2, -1.8], [0, 0, 1], [0, 1, 0], [1, 0, 0], 1, 1);
+  const aperture = makePlane([1, 1.2, .2], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 1.2, 2.2);
+  const preceding = makePlane([0, 1.2, -.8], [0, 0, 1], [0, 1, 0], [-1, 0, 0]);
+  const paired = traceRoomDiffusePanels([aperture], { exitsOnly: true });
+  const read = (panels, tracePairedDoorways) => bakeRoomIndirectIrradiance({
+    trace: traceRoomDiffusePanels(panels), tracePairedDoorways, sources: down, raysPerTexel: 1,
+    chart: { ...receiver, width: 1, height: 1 },
+  });
+
+  assert.deepEqual(read([]), new Float32Array(3));
+  assert.equal(read([], paired), undefined);
+  assert.equal(read([aperture], paired), undefined);
+  assert.deepEqual(read([preceding], paired), read([preceding]));
+  const elsewhere = traceRoomDiffusePanels([{ ...aperture, center: [1, 1.2, -1.2] }], { exitsOnly: true });
+  assert.deepEqual(read([], elsewhere), read([]));
+});
