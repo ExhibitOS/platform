@@ -9,20 +9,21 @@ const unit = value => value.map(channel => channel / Math.hypot(...value));
 
 /** Exact planar occlusion for admitted room-surface panels. Openings are
  * represented by the existing surface partition's gaps. */
-export function traceRoomDiffusePanels(panels) {
+export function traceRoomDiffusePanels(panels, { exitsOnly = false } = {}) {
+  const edgeTolerance = exitsOnly ? epsilon : 0;
   return (origin, direction, limit) => {
     let front;
     let nearest = limit;
     for (const panel of panels) {
       const divisor = dot(panel.normal, direction);
-      if (Math.abs(divisor) < 1e-10) continue;
+      if (Math.abs(divisor) < 1e-10 || (exitsOnly && divisor >= 0)) continue;
       const distance = dot(panel.normal, delta(panel.center, origin)) / divisor;
       if (distance <= epsilon || distance >= nearest) continue;
       const position = shift(origin, direction, distance);
       const relative = delta(position, panel.center);
-      if (Math.abs(dot(relative, panel.right)) > panel.widthMetres / 2 ||
-          Math.abs(dot(relative, panel.up)) > panel.heightMetres / 2) continue;
-      front = { position, normal: panel.normal, reflectance: panel.reflectance };
+      if (Math.abs(dot(relative, panel.right)) > panel.widthMetres / 2 + edgeTolerance ||
+          Math.abs(dot(relative, panel.up)) > panel.heightMetres / 2 + edgeTolerance) continue;
+      front = { position, normal: panel.normal, reflectance: panel.reflectance, distance };
       nearest = distance;
     }
     return front;
@@ -85,8 +86,9 @@ export function diffuseAreaSamples({ position, normal, right, up, width, height,
 /** One diffuse reflection. All inputs and rays are room-local. The caller
  * provides the admitted nearest-hit geometry and returns undefined on escape,
  * including through a doorway. Output is linear incident RGB irradiance,
- * before receiver material, exposure or tone mapping. */
-export function bakeRoomIndirectIrradiance({ trace, sources, chart, raysPerTexel = 64, signal }) {
+ * before receiver material, exposure or tone mapping. A paired doorway
+ * reached without a definitely earlier owner leaves the receiver live. */
+export function bakeRoomIndirectIrradiance({ trace, tracePairedDoorways, sources, chart, raysPerTexel = 64, signal }) {
   const { width, height, center, right, up, normal, widthMetres, heightMetres } = chart;
   const output = new Float32Array(width * height * 3);
   const unitSamples = Array.from({ length: raysPerTexel }, (_, i) => {
@@ -104,6 +106,8 @@ export function bakeRoomIndirectIrradiance({ trace, sources, chart, raysPerTexel
       const result = [0, 0, 0];
       for (const direction of unitSamples) {
         const hit = trace(origin, direction, Infinity);
+        const doorway = tracePairedDoorways?.(origin, direction, Infinity);
+        if (doorway && (!Number.isFinite(hit?.distance) || doorway.distance <= hit.distance + epsilon)) return undefined;
         if (!hit || dot(hit.normal, direction) >= 0) continue;
         const incoming = reflected(hit, sources, trace);
         // Cosine-weighted rays cancel the Lambertian 1/pi term.

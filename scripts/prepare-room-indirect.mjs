@@ -59,6 +59,7 @@ function roomSurfaces(exhibition, room) {
       surfaces.length !== 6) return;
   const charts = [];
   const panels = [];
+  const pairedDoorways = [];
   const materials = [];
   const faces = new Set();
   for (const surface of surfaces) {
@@ -90,8 +91,18 @@ function roomSurfaces(exhibition, room) {
       });
       if (panels.length > 64) return;
     }
+    for (const opening of exhibition.openings) {
+      if (opening.surfaceId.toLowerCase() !== surface.id.toLowerCase() ||
+          opening.type !== 'door' || opening.connectsToOpeningId === undefined) continue;
+      // A reached declared pair needs live lighting whether its peer is
+      // verified or unresolved. Keep the authored room-side aperture.
+      pairedDoorways.push({
+        center: artifactPoint([...opening.offset, 0], transform), right, up, normal,
+        widthMetres: opening.dimensions.width, heightMetres: opening.dimensions.height,
+      });
+    }
   }
-  return { charts, panels, materials };
+  return { charts, panels, pairedDoorways, materials };
 }
 
 function roomSources(exhibition, room) {
@@ -134,15 +145,21 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
     const geometry = roomSurfaces(exhibition, room), lighting = roomSources(exhibition, room);
     if (!geometry || !lighting) continue;
     const bytes = geometry.charts.reduce((total, chart) => total + chart.width * chart.height * 4, 0);
-    const work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
+    const work = bytes / 4 * raySamples *
+      (geometry.panels.length * (1 + lighting.sources.length) + geometry.pairedDoorways.length);
     if (admittedBytes + bytes > STATIC_ROOM_INDIRECT_TEXTURE_BUDGET || panelTests + work > maxPanelTests) continue;
+    panelTests += work;
     const trace = traceRoomDiffusePanels(geometry.panels);
+    const tracePairedDoorways = geometry.pairedDoorways.length
+      ? traceRoomDiffusePanels(geometry.pairedDoorways, { exitsOnly: true }) : undefined;
     const tiles = [];
     for (const chart of geometry.charts) {
       await setImmediate(undefined, { signal });
-      tiles.push(bakeRoomIndirectIrradiance({ ...lighting, chart, trace, raysPerTexel: raySamples, signal }));
+      const tile = bakeRoomIndirectIrradiance({ ...lighting, chart, trace, tracePairedDoorways, raysPerTexel: raySamples, signal });
+      if (!tile) break;
+      tiles.push(tile);
     }
-    panelTests += work;
+    if (tiles.length !== geometry.charts.length) continue;
     let scale = 0;
     for (const tile of tiles) for (const value of tile) scale = Math.max(scale, value);
     if (!Number.isFinite(scale) || scale <= 0) continue;
