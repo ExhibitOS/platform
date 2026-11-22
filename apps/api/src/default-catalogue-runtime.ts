@@ -8,13 +8,15 @@ import {admitDefaultCatalogueRelease, DEFAULT_CATALOGUE_BUNDLE_SCHEMA} from './d
 import {DefaultCatalogueUpdates, type DefaultCatalogueSource} from './default-catalogue-update.ts';
 import type {DefaultCatalogueFile, DefaultCatalogueItem} from './default-catalogue-update-plan.ts';
 import {ApiError} from './api-error.ts';
-import {installedFurnishingCatalogueFile} from './installed-workspace-furnishing.ts';
+import {installedFurnishingCatalogueFile,installedWorkspaceBenchSeat} from './installed-workspace-furnishing.ts';
 
 const frameCapability = 'workspace-artwork-frame-models-v1';
 const reusableFitCapability = 'source-bound-fit-v1';
+const defaultSeatCapability = 'default-seat-proposal-v1';
 
 type HostSupport = {ceilingRail: boolean; modularPortal: boolean};
 const updateHosts = new Map([
+  ['bench', {catalogueKind: 'bench', capabilities: [defaultSeatCapability]}],
   ['artwork-frame', {catalogueKind: 'artwork-frame', capabilities: [frameCapability]}],
   ['ceiling-rail', {catalogueKind: 'ceiling-rail', capabilities: ['workspace-ceiling-rail-v1', reusableFitCapability]}],
   ['portal-finish', {catalogueKind: 'opening', capabilities: ['workspace-portal-finish-v1', reusableFitCapability, 'modular-portal-v1']}],
@@ -48,7 +50,7 @@ export function createDefaultCatalogueRuntime(
       owner.workspaceId === workspace.workspaceId && owner.tenantId === workspace.tenantId && store === blobs,
     updates(client: PoolClient, hosts: HostSupport) {
       const capabilities = new Set([
-        frameCapability,
+        frameCapability,defaultSeatCapability,
         ...(hosts.ceilingRail ? updateHosts.get('ceiling-rail')!.capabilities : []),
         ...(hosts.modularPortal ? updateHosts.get('portal-finish')!.capabilities : []),
       ]);
@@ -59,10 +61,11 @@ export function createDefaultCatalogueRuntime(
           if (!record.workspaceFurnishing || typeof record.workspaceFurnishing !== 'object') return false;
           const descriptor = record.workspaceFurnishing as WorkspaceFurnishingDescriptor;
           const host = updateHosts.get(descriptor.kind);
-          if (!host || record.hostKind !== host.catalogueKind || descriptor.version !== item.version ||
+          if (!host || record.hostKind !== host.catalogueKind ||
               !host.capabilities.every(capability => capabilities.has(capability))) return false;
           const known = installedFurnishingCatalogueFile(descriptor);
-          if (known?.catalogId !== item.id || !known.notice || !sameFiles(item, [known.file, known.notice])) return false;
+          if (known?.catalogId !== item.id || known.catalogVersion !== item.version || !known.notice ||
+              !sameFiles(item, [known.file, known.notice])) return false;
           for (const capability of host.capabilities) required.add(capability);
           return true;
         });
@@ -76,6 +79,20 @@ export function createDefaultCatalogueRuntime(
         supportedSchemas: new Set([DEFAULT_CATALOGUE_BUNDLE_SCHEMA]),
         capabilities,
       }, source, persistence(client));
+    },
+    async installedBenchModel(client:PoolClient,descriptor:WorkspaceFurnishingDescriptor,discover:boolean) {
+      if (!installedWorkspaceBenchSeat(descriptor)) return;
+      const binding=installedFurnishingCatalogueFile(descriptor);
+      if(!binding?.notice)return;
+      const {catalogId,catalogVersion,file,notice}=binding;
+      const store=persistence(client);
+      const approved=(item:DefaultCatalogueItem)=>item.id===catalogId&&item.version===catalogVersion&&sameFiles(item,[file,notice]);
+      if(discover&&!(await store.active()).catalogue.items.some(approved))return;
+      const body=await store.installedModel(catalogId,catalogVersion,file,false);
+      if(body===undefined&&!builtIn.catalogue.items.some(approved))return;
+      const model=body??await store.readBody(file);
+      if(!model||!await store.readBody(notice))throw new ApiError(409,'DEFAULT_CATALOGUE_INTEGRITY');
+      return Buffer.from(model);
     },
     installedModel: (client: PoolClient, catalogId: string, version: number, file: DefaultCatalogueFile, discover: boolean) =>
       persistence(client).installedModel(catalogId, version, file, discover),

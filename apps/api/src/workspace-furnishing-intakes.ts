@@ -16,7 +16,7 @@ import {MAX_INFO_STAND_SOURCE_BYTES} from './info-stand-preparation.ts';
 import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.ts';
 import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
 import {WorkspaceFurnishingReferenceError} from './api-error.ts';
-import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
+import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,installedWorkspaceBenchSeat,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
 import type {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
 import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
@@ -226,6 +226,7 @@ export class WorkspaceFurnishingIntakes {
  }
  private supportsInstalled(descriptor:WorkspaceFurnishingDescriptor){
   switch(descriptor.kind){
+   case 'bench':return !!this.defaultCatalogue&&this.supportsRoomVisual();
    case 'artwork-frame':return this.supportsArtworkFrameModels();
    case 'ceiling-rail':return this.supportsCeilingRail();
    case 'info-stand':return this.supportsRoomVisual();
@@ -235,9 +236,14 @@ export class WorkspaceFurnishingIntakes {
  }
  private async installedBytes(c:PoolClient,descriptor:WorkspaceFurnishingDescriptor,discover=false,signal?:AbortSignal){
   signal?.throwIfAborted();
+  if(descriptor.kind==='bench'){
+   const bytes=await this.defaultCatalogue?.installedBenchModel(c,descriptor,discover);
+   signal?.throwIfAborted();
+   return bytes&&{bytes,mime:descriptor.model.mime,sha256:descriptor.model.sha256};
+  }
   if(this.defaultCatalogue){
    const binding=installedFurnishingCatalogueFile(descriptor);
-   const bytes=binding&&await this.defaultCatalogue.installedModel(c,binding.catalogId,descriptor.version,binding.file,discover);
+   const bytes=binding&&await this.defaultCatalogue.installedModel(c,binding.catalogId,binding.catalogVersion,binding.file,discover);
    signal?.throwIfAborted();
    if(bytes===null)return;
    if(bytes)return {bytes,mime:descriptor.model.mime,sha256:descriptor.model.sha256};
@@ -258,6 +264,14 @@ export class WorkspaceFurnishingIntakes {
   await this.writer?.assertLive();
   return model;
  }
+ async installedStockBenchSeat(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
+  const seat=installedWorkspaceBenchSeat(descriptor);
+  if(!seat||!this.supportsInstalled(descriptor))return;
+  await this.checkOwner(c,s);
+  if(!allowedRights(descriptor.rights,'display'))return;
+  if(await this.installedBytes(c,descriptor,true))return seat;
+ }
+
  /** Newly placed stock may only use a model the current catalogue offers. */
  async checkActiveStockCeilingRail(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
   if(!this.defaultCatalogue||!this.supportsCeilingRail())throw new ApiError(403,'FORBIDDEN');

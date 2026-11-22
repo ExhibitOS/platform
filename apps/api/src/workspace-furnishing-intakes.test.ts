@@ -466,7 +466,7 @@ it('resolves installed rail and portal only for the live owner with their existi
  try{
   const listed=await service.list(f.client,f.session);
   expect(listed.items).toHaveLength(2);
-  for(const {descriptor} of installedHosts){
+  for(const {descriptor} of installedHosts.filter(host=>host.hostKind!=='bench')){
    expect(listed.items).toContainEqual(expect.objectContaining({id:descriptor.id,version:1,kind:descriptor.kind,installedCatalog:true,
     rightsAvailability:{display:true,download:true,export:true}}));
    expect(await service.checkDisplay(f.client,f.session,descriptor.id,1)).toEqual(descriptor);
@@ -481,6 +481,10 @@ it('resolves installed rail and portal only for the live owner with their existi
    const unavailable=new WorkspaceFurnishingIntakes(f.blobs,f.owner,f.writer);
    await expect(unavailable.readVersion(f.client,f.session,descriptor.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
   }
+  const stockBench=installedHosts.find(host=>host.hostKind==='bench')!;
+  expect(listed.items.some(row=>row.id===stockBench.descriptor.id)).toBe(false);
+  await expect(service.readVersion(f.client,f.session,stockBench.descriptor.id,1)).rejects.toMatchObject({code:'FURNISHING_NOT_FOUND'});
+  expect(read.mock.calls.some(([path])=>path===stockBench.path)).toBe(false);
   expect(f.query.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
   expect(f.blobs.put).not.toHaveBeenCalled();
  }finally{read.mockRestore();}

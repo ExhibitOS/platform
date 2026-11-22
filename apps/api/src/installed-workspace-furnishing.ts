@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
-import type {WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import type {InstalledBackedSeatDefault,WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {
  installedFrameDescriptors,installedFrameDescriptorFor,matchingInstalledFrameDescriptor,readInstalledFrameById,
 } from './installed-artwork-frame.ts';
@@ -10,7 +10,8 @@ import authoredHosts from './installed-workspace-hosts.json' with {type:'json'};
 
 import type {DefaultCatalogueFile} from './default-catalogue-update-plan.ts';
 
-type Installed = {catalogId:string;path:string;descriptor:WorkspaceFurnishingDescriptor;notice?:DefaultCatalogueFile};
+type Installed = {catalogId:string;catalogVersion?:number;path:string;descriptor:WorkspaceFurnishingDescriptor;
+ notice?:DefaultCatalogueFile;defaultSeat?:Omit<InstalledBackedSeatDefault,'furnishingId'>};
 const hosts=authoredHosts as unknown as readonly Installed[];
 // Retained by the exact caption-stand saves. It is not offered by the current catalogue.
 const captionStand: Installed = {
@@ -31,7 +32,12 @@ export function installedFurnishingCatalogueFile(descriptor:WorkspaceFurnishingD
  const entry=[...frames,...hosts].find(item=>isDeepStrictEqual(item.descriptor,descriptor));
  if(!entry)return;
  const {bytes,sha256}=descriptor.model;
- return {catalogId:entry.catalogId, file:{path:entry.path,bytes,sha256},notice:entry.notice};
+ return {catalogId:entry.catalogId,catalogVersion:entry.catalogVersion??descriptor.version, file:{path:entry.path,bytes,sha256},notice:entry.notice};
+}
+
+export function installedWorkspaceBenchSeat(descriptor:WorkspaceFurnishingDescriptor){
+ const entry=hosts.find(item=>item.defaultSeat&&isDeepStrictEqual(item.descriptor,descriptor));
+ if(entry?.defaultSeat)return {...structuredClone(entry.defaultSeat),furnishingId:descriptor.id};
 }
 
 export function installedFurnishingDescriptors():WorkspaceFurnishingDescriptor[]{
