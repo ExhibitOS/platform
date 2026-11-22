@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 import {
   artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor, lightDetailsFor,
+  readStaticRoomIndirect, STATIC_ROOM_INDIRECT_FORMAT, STATIC_ROOM_INDIRECT_RECIPE, STATIC_ROOM_INDIRECT_TEXTURE_BUDGET,
   spaceLightingFor, surfacePanels, surfaceTextureFor, validateSpaceLighting,
 } from '@exhibitos/studio-contract';
 import { bakeRoomIndirectIrradiance, diffuseAreaSamples, traceRoomDiffusePanels } from './room-indirect-irradiance.mjs';
@@ -13,7 +14,6 @@ const pack = value => Buffer.from(JSON.stringify(value));
 const axis = (pose, point) => artifactPoint(point, pose).map((v, i) => v - pose.position[i]);
 const rigid = pose => pose.scale.every(v => v === 1);
 const tileSize = metres => Math.ceil(metres / .25);
-const maxSceneBytes = 1024 * 1024;
 const raySamples = 64;
 const maxPanelTests = 48_000_000;
 const unsupportedGeometry = [
@@ -151,7 +151,7 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
     if (!geometry || !lighting) continue;
     const bytes = geometry.charts.reduce((total, chart) => total + chart.width * chart.height * 4, 0);
     const work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
-    if (admittedBytes + bytes > maxSceneBytes || panelTests + work > maxPanelTests) continue;
+    if (admittedBytes + bytes > STATIC_ROOM_INDIRECT_TEXTURE_BUDGET || panelTests + work > maxPanelTests) continue;
     const trace = traceRoomDiffusePanels(geometry.panels);
     const tiles = [];
     for (const chart of geometry.charts) {
@@ -173,15 +173,17 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
   const recipe = await Promise.all([
     readFile(new URL(import.meta.url)), readFile(new URL('./room-indirect-irradiance.mjs', import.meta.url)),
   ]);
-  const descriptor = pack({
-    format: 'exhibitos-static-room-indirect-v1',
-    source: {
-      publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
-      bodySha256: sha(bodyBytes), indexSha256: sha(indexBytes),
-    },
-    recipe: { id: 'room-diffuse-one-bounce-rgba8-v1', sha256: sha(pack(recipe.map(sha))) },
-    rooms,
-  });
+  const source = {
+    publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
+    bodySha256: sha(bodyBytes), indexSha256: sha(indexBytes),
+  };
+  const recipeSha256 = sha(pack(recipe.map(sha)));
+  const value = {
+    format: STATIC_ROOM_INDIRECT_FORMAT, source, rooms,
+    recipe: { id: STATIC_ROOM_INDIRECT_RECIPE, sha256: recipeSha256 },
+  };
+  if (!readStaticRoomIndirect(value, source, exhibition, recipeSha256)) return { status: 'live-fallback' };
+  const descriptor = pack(value);
   const descriptorSha256 = sha(descriptor);
   files.set(`data/${descriptorSha256}.json`, descriptor);
   return { status: 'baked', descriptorSha256, rooms: rooms.length, textureBytes: admittedBytes, files };

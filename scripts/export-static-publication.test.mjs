@@ -13,7 +13,7 @@ import { exportNativeRoomIndirect,exportStaticPublication,exportStaticStudioDemo
 test('rejects an arbitrary cover companion before fetching or writing',async()=>{
  let fetched=false;await assert.rejects(exportStaticPublication({coverCompanion:'../external',fetcher:async()=>{fetched=true;}}),/STATIC_COVER_COMPANION/);assert.equal(fetched,false);
 });
-import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor,readStaticRoomIndirect,verifyStaticRoomIndirectTexture} from '@exhibitos/studio-contract';
 import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
@@ -95,11 +95,20 @@ test('private ordinary export seals a ceiling-reflected room tile and falls back
  const descriptor = JSON.parse(descriptorBytes);
  assert.equal(descriptor.rooms[0].roomId, room.id);
  assert.equal(descriptor.rooms[0].charts.length, 6);
+ assert.deepEqual(readStaticRoomIndirect(descriptor, descriptor.source, exhibition, descriptor.recipe.sha256), descriptor);
+ assert.equal(readStaticRoomIndirect(descriptor, { ...descriptor.source, bodySha256: '0'.repeat(64) }, exhibition, descriptor.recipe.sha256), undefined);
+ const incomplete = structuredClone(descriptor);
+ incomplete.rooms[0].charts.pop();
+ assert.equal(readStaticRoomIndirect(incomplete, descriptor.source, exhibition, descriptor.recipe.sha256), undefined);
  const tile = async surfaceId => {
   const chart = descriptor.rooms[0].charts.find(chart => chart.surfaceId === surfaceId);
   const bytes = await readFile(join(baked.output, 'data', chart.texture.sha256 + '.bin'));
   assert.equal(sha(bytes), chart.texture.sha256);
   assert.equal(bytes.length, chart.width * chart.height * 4);
+  assert(await verifyStaticRoomIndirectTexture(chart, bytes));
+  const corrupted = Buffer.from(bytes);
+  corrupted[0] ^= 1;
+  assert.equal(await verifyStaticRoomIndirectTexture(chart, corrupted), undefined);
   return bytes.filter((_, i) => i % 4 !== 3);
  };
  assert((await tile(surfaces[1].id)).every(value => value === 0));

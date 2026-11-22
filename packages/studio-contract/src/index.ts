@@ -307,3 +307,4 @@ export * from './track-spot-aiming.js';
 export * from './track-spot-aim-binding.js';
 export * from './track-spot-articulated-profile.js';
 export * from './track-spot-aiming-resolver.js';
+export * from './static-room-indirect.js';
