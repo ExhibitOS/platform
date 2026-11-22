@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 import {
-  artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor, lightDetailsFor,
+  artifactBounds, artifactCorners, artifactPoint, assignedSurfaceMaterial, DEFAULT_MATERIAL, floorFor,
   readStaticRoomIndirect, STATIC_ROOM_INDIRECT_FORMAT, STATIC_ROOM_INDIRECT_RECIPE, STATIC_ROOM_INDIRECT_TEXTURE_BUDGET,
-  spaceLightingFor, surfacePanels, surfaceTextureFor, validateSpaceLighting,
+  spaceLightingFor, staticRoomIndirectEmitterIds, staticRoomIndirectEmitterInput, surfacePanels, surfaceTextureFor,
+  validateSpaceLighting,
 } from '@exhibitos/studio-contract';
 import { bakeRoomIndirectIrradiance, diffuseAreaSamples, traceRoomDiffusePanels } from './room-indirect-irradiance.mjs';
 
@@ -93,32 +94,15 @@ function roomSurfaces(exhibition, room) {
   return { charts, panels, materials };
 }
 
-function roomSources(exhibition, room, details) {
-  const sources = [];
-  const lights = exhibition.lights.filter(light => light.roomId === room.id);
-  if (!lights.length || lights.length > 12) return;
-  for (const light of lights) {
-    const detail = details.find(value => value.lightId === light.id);
-    if (!rigid(light.transform) || !Number.isFinite(light.intensity) || light.intensity < 0 ||
-        light.targetPlacementId || detail?.trackAim || detail?.aim || detail?.angularProfile) return;
-    const { transform, color, intensity } = light;
-    const direction = axis(transform, [0, 0, -1]);
-    if (light.type === 'area' && light.unit === 'lumen' && light.dimensions) {
-      sources.push(...diffuseAreaSamples({
-        ...light.dimensions, lumens: intensity, color, position: transform.position, normal: direction,
-        right: axis(transform, [1, 0, 0]), up: axis(transform, [0, 1, 0]),
-      }));
-    } else if (light.type === 'spot' && light.unit === 'candela' && light.beamAngle > 0) {
-      const half = light.beamAngle / 2;
-      sources.push({
-        type: 'spot', position: transform.position, direction, candela: intensity, color, range: detail?.range,
-        outerCosine: Math.cos(half), innerCosine: Math.cos(half * (1 - (detail?.penumbra ?? 0))),
-      });
-    } else {
-      return;
-    }
-  }
-  return { lights, sources };
+function roomSources(exhibition, room) {
+  const emitterIds = staticRoomIndirectEmitterIds(exhibition, room.id);
+  if (!emitterIds) return;
+  const lights = emitterIds.map(id => exhibition.lights.find(light => light.id === id));
+  const sources = lights.flatMap(({ dimensions, transform, color, intensity }) => diffuseAreaSamples({
+    ...dimensions, lumens: intensity, color, position: transform.position, normal: axis(transform, [0, 0, -1]),
+    right: axis(transform, [1, 0, 0]), up: axis(transform, [0, 1, 0]),
+  }));
+  return { emitterIds, sources };
 }
 
 function encodeRoom(charts, tiles, scale, files) {
@@ -143,11 +127,11 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
       unsupportedGeometry.some(key => Object.hasOwn(exhibition.extensions ?? {}, key))) {
     return { status: 'live-fallback' };
   }
-  const details = lightDetailsFor(exhibition), rooms = [], files = new Map();
+  const rooms = [], files = new Map();
   let admittedBytes = 0, panelTests = 0;
   for (const room of exhibition.rooms) {
     signal?.throwIfAborted();
-    const geometry = roomSurfaces(exhibition, room), lighting = roomSources(exhibition, room, details);
+    const geometry = roomSurfaces(exhibition, room), lighting = roomSources(exhibition, room);
     if (!geometry || !lighting) continue;
     const bytes = geometry.charts.reduce((total, chart) => total + chart.width * chart.height * 4, 0);
     const work = bytes / 4 * raySamples * geometry.panels.length * (1 + lighting.sources.length);
@@ -164,7 +148,8 @@ export async function prepareRoomIndirect({ publication, bodyBytes, indexBytes, 
     if (!Number.isFinite(scale) || scale <= 0) continue;
     rooms.push({
       roomId: room.id, transform: room.transform, scale, panelsSha256: sha(pack(geometry.panels)),
-      materialsSha256: sha(pack(geometry.materials)), emittersSha256: sha(pack(lighting.lights)),
+      materialsSha256: sha(pack(geometry.materials)), emitterIds: lighting.emitterIds,
+      emittersSha256: sha(staticRoomIndirectEmitterInput(exhibition, lighting.emitterIds)),
       charts: encodeRoom(geometry.charts, tiles, scale, files),
     });
     admittedBytes += bytes;

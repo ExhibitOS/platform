@@ -13,7 +13,7 @@ import { exportNativeRoomIndirect,exportStaticPublication,exportStaticStudioDemo
 test('rejects an arbitrary cover companion before fetching or writing',async()=>{
  let fetched=false;await assert.rejects(exportStaticPublication({coverCompanion:'../external',fetcher:async()=>{fetched=true;}}),/STATIC_COVER_COMPANION/);assert.equal(fetched,false);
 });
-import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor,readStaticRoomIndirect,verifyStaticRoomIndirectTexture} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor,readStaticRoomIndirect,verifyStaticRoomIndirectEmitters,verifyStaticRoomIndirectTexture} from '@exhibitos/studio-contract';
 import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
@@ -43,7 +43,7 @@ test('public export cover validation runs its own worker and rejects corrupted P
  await assert.rejects(validateCoverImage(corrupted),/FORMAT_REJECTED/);
 });
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
-test('private ordinary export seals a ceiling-reflected room tile and falls back on unsupported geometry', async t => {
+test('private ordinary export seals a ceiling-reflected room tile and rejects unbound emitters', async t => {
  const { directory, fixture, options } = await setup(t);
  const exhibition = fixture.raw.exhibition;
  const room = {
@@ -82,6 +82,14 @@ test('private ordinary export seals a ceiling-reflected room tile and falls back
   },
  };
  fixture.raw.publication.revisionSha256 = revisionHash(exhibition);
+ const unbound = await exportNativeRoomIndirect({ ...options, output: join(directory, 'unbound') });
+ assert.deepEqual(unbound.indirectBake, { status: 'live-fallback' });
+ assert.doesNotMatch(await readFile(join(unbound.output, 'index.html'), 'utf8'), /exhibitos-static-room-indirect/);
+ exhibition.extensions['org.exhibitos.studio/light-details'] = {
+  version: 1,
+  lights: [{ lightId: emitter.id, purpose: 'room-base', fixture: 'none', basePlacement: 'manual' }],
+ };
+ fixture.raw.publication.revisionSha256 = revisionHash(exhibition);
  const live = await exportStaticPublication(options);
  const baked = await exportNativeRoomIndirect({ ...options, output: join(directory, 'baked') });
  assert.equal(baked.indexSha256, live.indexSha256);
@@ -94,12 +102,18 @@ test('private ordinary export seals a ceiling-reflected room tile and falls back
  assert.equal(sha(descriptorBytes), baked.indirectBake.descriptorSha256);
  const descriptor = JSON.parse(descriptorBytes);
  assert.equal(descriptor.rooms[0].roomId, room.id);
+ assert.deepEqual(descriptor.rooms[0].emitterIds, [emitter.id]);
+ assert(await verifyStaticRoomIndirectEmitters(descriptor.rooms[0], exhibition));
+ assert.equal(await verifyStaticRoomIndirectEmitters({ ...descriptor.rooms[0], emittersSha256: '0'.repeat(64) }, exhibition), false);
  assert.equal(descriptor.rooms[0].charts.length, 6);
  assert.deepEqual(readStaticRoomIndirect(descriptor, descriptor.source, exhibition, descriptor.recipe.sha256), descriptor);
  assert.equal(readStaticRoomIndirect(descriptor, { ...descriptor.source, bodySha256: '0'.repeat(64) }, exhibition, descriptor.recipe.sha256), undefined);
  const incomplete = structuredClone(descriptor);
  incomplete.rooms[0].charts.pop();
  assert.equal(readStaticRoomIndirect(incomplete, descriptor.source, exhibition, descriptor.recipe.sha256), undefined);
+ const wrongEmitter = structuredClone(descriptor);
+ wrongEmitter.rooms[0].emitterIds[0] = randomUUID();
+ assert.equal(readStaticRoomIndirect(wrongEmitter, descriptor.source, exhibition, descriptor.recipe.sha256), undefined);
  const tile = async surfaceId => {
   const chart = descriptor.rooms[0].charts.find(chart => chart.surfaceId === surfaceId);
   const bytes = await readFile(join(baked.output, 'data', chart.texture.sha256 + '.bin'));

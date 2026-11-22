@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
 import { artifactPoint } from './artifact-affine.js';
+import { freezeCanonical } from './freeze.js';
+import { lightDetailsFor, validateStudioLightDetails } from './light-details.js';
 import { validateSpaceLighting, spaceLightingFor } from './space-lighting.js';
 
 export const STATIC_ROOM_INDIRECT_FORMAT = 'exhibitos-static-room-indirect-v1';
@@ -37,6 +39,7 @@ interface StaticRoomIndirectRoom {
   scale: number;
   panelsSha256: string;
   materialsSha256: string;
+  emitterIds: string[];
   emittersSha256: string;
   charts: StaticRoomIndirectChart[];
 }
@@ -56,6 +59,22 @@ const closed = (value: unknown, keys: readonly string[]): value is Record<string
   object(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const sameVector = (value: unknown, expected: readonly number[]) =>
   Array.isArray(value) && value.length === expected.length && expected.every((n, i) => value[i] === n);
+
+/** Admit only the fixture-free room-base area that the live Viewer enables. */
+export function staticRoomIndirectEmitterIds(exhibition: Exhibition, roomId: string): string[] | undefined {
+  if (!validateStudioLightDetails(exhibition).valid) return;
+  const details = new Map(lightDetailsFor(exhibition).map(detail => [detail.lightId.toLowerCase(), detail]));
+  const lights = exhibition.lights.filter(light => light.roomId.toLowerCase() === roomId.toLowerCase());
+  if (!lights.length || lights.some(light => {
+    const detail = details.get(light.id.toLowerCase());
+    return light.type !== 'area' || light.unit !== 'lumen' || !light.dimensions ||
+      !light.transform.scale.every(value => value === 1) || !Number.isFinite(light.intensity) || light.intensity < 0 ||
+      light.castsShadow !== false || light.targetPlacementId !== undefined ||
+      detail?.purpose !== 'room-base' || detail.fixture !== 'none' ||
+      detail.aim !== undefined || detail.trackAim !== undefined || detail.angularProfile !== undefined;
+  })) return;
+  return lights.map(light => light.id).sort();
+}
 
 function samePose(value: unknown, expected: RoomPose) {
   return closed(value, ['position', 'rotation', 'scale']) && expected.scale.every(n => n === 1) &&
@@ -93,7 +112,7 @@ export function readStaticRoomIndirect(
   const seen = new Set<string>();
   let bytes = 0;
   for (const entry of value.rooms) {
-    if (!closed(entry, ['roomId', 'transform', 'scale', 'panelsSha256', 'materialsSha256', 'emittersSha256', 'charts']) ||
+    if (!closed(entry, ['roomId', 'transform', 'scale', 'panelsSha256', 'materialsSha256', 'emitterIds', 'emittersSha256', 'charts']) ||
         typeof entry.roomId !== 'string' || seen.has(entry.roomId) ||
         typeof entry.scale !== 'number' || !Number.isFinite(entry.scale) || entry.scale <= 0 ||
         ![entry.panelsSha256, entry.materialsSha256, entry.emittersSha256].every(isHash) ||
@@ -101,6 +120,10 @@ export function readStaticRoomIndirect(
     seen.add(entry.roomId);
     const room = exhibition.rooms.find(room => room.id === entry.roomId);
     if (!room || !samePose(entry.transform, room.transform)) return;
+    const emitterIds = staticRoomIndirectEmitterIds(exhibition, room.id);
+    const advertisedIds = entry.emitterIds;
+    if (!emitterIds || !Array.isArray(advertisedIds) || advertisedIds.length !== emitterIds.length ||
+        !emitterIds.every((id, index) => advertisedIds[index] === id)) return;
     const surfaces = exhibition.surfaces.filter(surface => surface.roomId === room.id);
     if (surfaces.length !== 6 || entry.charts.length !== surfaces.length) return;
     for (const surface of surfaces) {
@@ -117,6 +140,28 @@ export function staticRoomIndirectTexturePath(chart: StaticRoomIndirectChart): s
   return `data/${chart.texture.sha256}.bin`;
 }
 
+export function staticRoomIndirectEmitterInput(
+  exhibition: Exhibition, emitterIds: readonly string[],
+): string {
+  const lights = new Map(exhibition.lights.map(light => [light.id, light]));
+  const details = new Map(lightDetailsFor(exhibition).map(detail => [detail.lightId.toLowerCase(), detail]));
+  return freezeCanonical(emitterIds.map(lightId => ({
+    light: lights.get(lightId), detail: details.get(lightId.toLowerCase()),
+  })));
+}
+
+async function digestRoomIndirectBytes(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, n => n.toString(16).padStart(2, '0')).join('');
+}
+
+export async function verifyStaticRoomIndirectEmitters(
+  room: StaticRoomIndirectRoom, exhibition: Exhibition,
+): Promise<boolean> {
+  const input = staticRoomIndirectEmitterInput(exhibition, room.emitterIds);
+  return await digestRoomIndirectBytes(new TextEncoder().encode(input)) === room.emittersSha256;
+}
+
 /** Caller must load all admitted room charts before switching its live branch. */
 export async function verifyStaticRoomIndirectTexture(
   chart: StaticRoomIndirectChart, data: Uint8Array,
@@ -124,6 +169,5 @@ export async function verifyStaticRoomIndirectTexture(
   if (data.byteLength !== chart.texture.bytes) return;
   const bytes = new Uint8Array(data);
   for (let i = 3; i < bytes.length; i += 4) if (bytes[i] !== 255) return;
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  if (Array.from(digest, n => n.toString(16).padStart(2, '0')).join('') === chart.texture.sha256) return bytes;
+  if (await digestRoomIndirectBytes(bytes) === chart.texture.sha256) return bytes;
 }
