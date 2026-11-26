@@ -597,7 +597,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   app.get(`${cp}/${kind}/:id/revisions`,call(false,async(c,s,req)=>cms.revisions(c,s,cmsId(req),kind)));
   for(const action of ['archive','restore'] as const)app.post(`${cp}/${kind}/:id/${action}`,{schema:{body:object({revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.archive(c,s,kind,cmsId(req),action==='restore',(req.body as {revision:number}).revision)));
  }
- app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
+ app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string},{imports:importer,ready:()=>requiredOriginalReady(c,s)})));
  app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
  app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'},assetId:id},[])}},call(false,async(c,s,req,reply)=>{
   const q=req.query as {expectedRevision?:string;assetId?:string};
