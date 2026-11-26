@@ -4,7 +4,7 @@ import type {FileBlobStore} from '@exhibitos/storage';
 import {isDeepStrictEqual} from 'node:util';
 import {ApiError} from './api-error.ts';
 import type {AdmittedCatalogue, DefaultCataloguePersistence} from './default-catalogue-update.ts';
-import {matchesDefaultCatalogueFile, type DefaultCatalogueFile} from './default-catalogue-update-plan.ts';
+import {matchesDefaultCatalogueFile, type DefaultCatalogueFile, type DefaultCatalogueItem} from './default-catalogue-update-plan.ts';
 
 export type DefaultCatalogueWorkspace = {workspaceId: string; tenantId: string};
 
@@ -73,6 +73,21 @@ export function defaultCataloguePersistence(
       const row = result.rows[0];
       return row ? {manifestSha256: row.active_sha256, catalogue: row.catalogue} : builtIn;
     },
+    async retainedPassiveRails(id?:string, catalogueId?:string) {
+      const result=await client.query<{item:DefaultCatalogueItem}>(`
+        SELECT item FROM workspace_default_catalogue_releases r
+        CROSS JOIN LATERAL jsonb_array_elements(r.catalogue->'items') AS entries(item)
+        WHERE r.workspace_id=$1 AND item ? 'passiveRail'
+        AND ($2::text IS NULL OR item->'passiveRail'->'descriptor'->>'id'=$2 OR item->>'id'=$3)
+      `,[workspaceId,id??null,catalogueId??null]);
+      return result.rows.map(row=>row.item);
+    },
+    async hasOwnerFurnishing(id:string) {
+      const result=await client.query(`
+        SELECT 1 FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND id=$3 LIMIT 1
+      `,[workspaceId,tenantId,id]);
+      return result.rows.length>0;
+    },
     readBody,
     async putBody(file:DefaultCatalogueFile, body:Uint8Array) {
       if (!matchesDefaultCatalogueFile(file, body)) throw integrity();
@@ -96,6 +111,6 @@ export function defaultCataloguePersistence(
       );
       return result.rowCount === 1;
     },
-  } satisfies DefaultCataloguePersistence & {installedModel(catalogId:string,version:number,file:DefaultCatalogueFile,discover:boolean):Promise<Buffer|null|undefined>};
+  } satisfies DefaultCataloguePersistence & Record<string, unknown>;
   return persistence;
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import type {Artwork} from '@exhibitos/spec';
+import type {Artwork,Exhibition} from '@exhibitos/spec';
 import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
@@ -18,7 +18,7 @@ import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumb
 import {WorkspaceFurnishingReferenceError} from './api-error.ts';
 import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,installedWorkspaceBenchSeat,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
 import type {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
-import {FRAME_IMAGE_FIT_LIMITS,type FrameImageFit} from '@exhibitos/studio-contract';
+import {FRAME_IMAGE_FIT_LIMITS,lightDetailsFor,WORKSPACE_FURNISHING_NAMESPACE,type FrameImageFit,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
 import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
 import {WorkspaceFrameLineage} from './workspace-frame-lineage.ts';
@@ -57,6 +57,7 @@ export class WorkspaceFurnishingIntakes {
   return this.defaultCatalogue.updates(c,{
    ceilingRail:this.supportsCeilingRail(),
    modularPortal:this.supportsPortalFinish()&&this.supportsReusableFit(),
+   writerFd:this.writer?.writerFd,
   });
  }
  supportsStool(){return this.owner.workspaceFurnishingStool===true;}
@@ -207,7 +208,8 @@ export class WorkspaceFurnishingIntakes {
    [this.owner.workspaceId,s.tenantId,s.userId,after],
   );
   const candidates:(typeof result.rows[number]&{installedCatalog?:true})[]=[...result.rows];
-  for(const descriptor of installedFurnishingDescriptors())if(descriptor.id>after.toLowerCase()&&this.supportsInstalled(descriptor)&&await this.installedBytes(c,descriptor,true)){
+  const passiveRails=this.supportsCeilingRail()?await this.defaultCatalogue?.passiveRailDescriptors(c)??[]:[];
+  for(const descriptor of [...installedFurnishingDescriptors(),...passiveRails])if(descriptor.id>after.toLowerCase()&&this.supportsInstalled(descriptor)&&await this.installedBytes(c,descriptor,true)){
    candidates.push({id:descriptor.id,version:1,descriptor,installedCatalog:true});
    candidates.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:a.version-b.version);
   }
@@ -243,6 +245,11 @@ export class WorkspaceFurnishingIntakes {
   }
   if(this.defaultCatalogue){
    const binding=installedFurnishingCatalogueFile(descriptor);
+   if(!binding&&descriptor.kind==='ceiling-rail'){
+    const bytes=await this.defaultCatalogue.passiveRailModel(c,descriptor,discover);
+    signal?.throwIfAborted();
+    return bytes&&{bytes,mime:descriptor.model.mime,sha256:descriptor.model.sha256};
+   }
    const bytes=binding&&await this.defaultCatalogue.installedModel(c,binding.catalogId,binding.catalogVersion,binding.file,discover);
    signal?.throwIfAborted();
    if(bytes===null)return;
@@ -262,6 +269,7 @@ export class WorkspaceFurnishingIntakes {
   });
   if(!model)throw new WorkspaceFurnishingReferenceError(404,'FURNISHING_NOT_FOUND',descriptor.id,version,'The installed model or its license notice is missing.');
   await this.writer?.assertLive();
+  if(purpose&&!allowedRights(descriptor.rights,purpose))throw new ApiError(403,'RIGHTS_DENIED');
   return model;
  }
  async installedStockBenchSeat(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
@@ -272,10 +280,39 @@ export class WorkspaceFurnishingIntakes {
   if(await this.installedBytes(c,descriptor,true))return seat;
  }
 
+ private async installedDescriptor(c:PoolClient,id:string,s?:Session){
+  if(typeof id!=='string')return;
+  const compiled=installedFurnishingDescriptorFor(id);
+  if(compiled||!this.defaultCatalogue)return compiled;
+  if(s)await this.checkOwner(c,s);
+  return (await this.defaultCatalogue.passiveRail(c,id))?.descriptor;
+ }
+ /** An admitted stock visual and measured bounds do not certify head contact. */
+ async checkPassiveStockMounts(c:PoolClient,candidate:Pick<Exhibition,'extensions'>){
+  if(!this.defaultCatalogue)return;
+  const stock=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+  if(!stock)return;
+  for(const light of lightDetailsFor(candidate)){
+   const railId=light.trackAim?.mount.railPlacementId.toLowerCase();
+   const id=railId&&stock.placements.find(placement=>placement.id.toLowerCase()===railId)?.furnishingId;
+   if(id&&await this.defaultCatalogue.passiveRail(c,id))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');
+  }
+ }
+ async checkNewPassiveStockPlacements(c:PoolClient,s:Session,candidate:Pick<Exhibition,'extensions'>,before?:Pick<Exhibition,'extensions'>){
+  if(!this.defaultCatalogue)return;
+  const next=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+  const previous=before?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+  if(!next)return;
+  for(const furnishing of next.furnishings){
+   if(furnishing.kind!=='ceiling-rail'||!next.placements.some(placement=>placement.furnishingId===furnishing.id&&
+     !previous?.placements.some(old=>old.id===placement.id&&old.furnishingId===placement.furnishingId)))continue;
+   if(await this.defaultCatalogue.passiveRail(c,furnishing.id))await this.checkActiveStockCeilingRail(c,s,furnishing);
+  }
+ }
  /** Newly placed stock may only use a model the current catalogue offers. */
  async checkActiveStockCeilingRail(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
   if(!this.defaultCatalogue||!this.supportsCeilingRail())throw new ApiError(403,'FORBIDDEN');
-  const stock=installedFurnishingDescriptorFor(descriptor.id);
+  const stock=installedFurnishingDescriptorFor(descriptor.id)??(await this.defaultCatalogue.passiveRail(c,descriptor.id,true))?.descriptor;
   if(stock?.kind!=='ceiling-rail'||!isDeepStrictEqual(stock,descriptor))throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
   await this.installedModel(c,s,descriptor.version,stock,'display',true);
  }
@@ -288,7 +325,7 @@ export class WorkspaceFurnishingIntakes {
  }
  private async version(c:PoolClient,s:Session,id:string,version:number){await this.checkOwner(c,s);uuid(id);if(!Number.isSafeInteger(version)||version!==1)throw new ApiError(400,'INVALID_INPUT');const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(result.rowCount!==1)throw new WorkspaceFurnishingReferenceError(404,'FURNISHING_NOT_FOUND',id,version,'This version is not installed or registered in the workspace.');return result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string};}
  async readVersion(c:PoolClient,s:Session,id:string,version:number){
-  const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
+  const installed=await this.installedDescriptor(c,id,s);
   if(installed){await this.installedModel(c,s,version,installed);return installed;}
   return (await this.version(c,s,id,version)).descriptor;}
  /** Revalidate the registered owner, current display grant and original bytes.
@@ -317,7 +354,7 @@ export class WorkspaceFurnishingIntakes {
   await this.checkArtwork(c,s,artwork);await this.writer?.assertLive();return record;
  }
  async modelSource(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
-  const installed=typeof id==='string'?installedFurnishingDescriptorFor(id):undefined;
+  const installed=await this.installedDescriptor(c,id,s);
   if(installed){const model=await this.installedModel(c,s,version,installed,purpose);return {sha256:model.sha256,mime:model.mime,bytes:model.bytes.length,read:async()=>model.bytes};}
   const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(!this.portableImportKey(s.tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256))throw new ApiError(409,'ASSET_INTEGRITY');const blobs=this.blobs;
   return {sha256:row.descriptor.model.sha256,mime:row.descriptor.model.mime,bytes:row.descriptor.model.bytes,read:async()=>{
@@ -352,7 +389,7 @@ export class WorkspaceFurnishingIntakes {
   if(!this.writer||workspaceId!==this.owner.workspaceId||tenantId!==this.owner.tenantId||userId!==this.owner.principalId||!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
   uuid(descriptor.id);if(descriptor.version!==1)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-  const installed=installedFurnishingDescriptorFor(descriptor.id);
+  const installed=await this.installedDescriptor(c,descriptor.id);
   if(installed){
    if(!this.supportsInstalled(installed)||!isDeepStrictEqual(descriptor,installed)||
       !allowedRights(installed.rights,'display')||!allowedRights(installed.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');

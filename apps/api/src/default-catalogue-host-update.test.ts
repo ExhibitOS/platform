@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {ApiError} from './api-error.ts';
+import type {Session} from './auth.ts';
+import type {Exhibition} from '@exhibitos/spec';
+import {LIGHT_DETAILS_NAMESPACE,WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {Studio,etag} from './studio.ts';
+import {newDraft} from '../../web/src/drafts/example.ts';
+import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
+import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import type {FileBlobStore} from '@exhibitos/storage';
 import type {PoolClient} from 'pg';
 import {afterEach, expect, it, vi} from 'vitest';
 import {githubDefaultCatalogueVerifier, signedDefaultCatalogueAssets} from './default-catalogue-github-attestation.ts';
 import {githubDefaultCatalogueSource} from './default-catalogue-github-source.ts';
 import {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
-import type {DefaultCatalogueFile} from './default-catalogue-update-plan.ts';
+import type {DefaultCatalogueFile,VerifiedDefaultCatalogue} from './default-catalogue-update-plan.ts';
 import hosts from './installed-workspace-hosts.json' with {type:'json'};
 
 vi.mock('./default-catalogue-github-attestation.ts', () => ({
@@ -14,6 +23,8 @@ vi.mock('./default-catalogue-github-attestation.ts', () => ({
   githubDefaultCatalogueVerifier: vi.fn(),
   signedDefaultCatalogueAssets: vi.fn(),
 }));
+
+vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const json = (value: unknown) => Buffer.from(JSON.stringify(value));
@@ -163,4 +174,173 @@ it('uses the current stable release and rechecks its attested identity', async (
   await expect(source.recheck(candidate)).resolves.toBeUndefined();
   latest.immutable = false;
   await expect(source.recheck(candidate)).rejects.toMatchObject({code: 'DEFAULT_CATALOGUE_UNTRUSTED'});
+});
+
+const passiveModel=await readFile(new URL('./fixtures/rail-v11/linear-track.glb',import.meta.resolve('@exhibitos/spec')));
+const passiveNotice=Buffer.from('ExhibitOS — CC0-1.0');
+const passiveHash=digest(passiveModel);
+const passiveId='4aefb81a-93d5-4b50-b1e3-0e57f89e9324';
+const passiveRow={
+  catalogId:'future-passive-support',catalogVersion:1,name:'Future Passive Support',hostKind:'ceiling-rail',
+  model:{path:'assets/furnishings/future-passive-support/model.glb',mime:'model/gltf-binary',bytes:passiveModel.length,sha256:passiveHash},
+  rights:{licenseId:'CC0-1.0',notice:{path:'assets/furnishings/future-passive-support/LICENSE-NOTICE.txt',bytes:passiveNotice.length,sha256:digest(passiveNotice)}},
+  provenance:{sourceSha256:passiveHash,recipe:'original-v1'},
+  workspaceFurnishing:{
+    id:passiveId,version:1,kind:'ceiling-rail',name:'Future Passive Support',provenance:'Publisher-owned unchanged original.',
+    model:{bytes:passiveModel.length,sha256:passiveHash,mime:'model/gltf-binary'},
+    rights:{licenseId:'CC0-1.0',ownership:'owner',holder:'ExhibitOS',creditLine:'ExhibitOS',permissions:{display:true,export:true,download:true,commercial:true}},
+    fit:{version:1,sourceSha256:passiveHash,sourceBytes:passiveModel.length,
+      geometry:{profile:'passive-ceiling-rail-v1',min:[-.5,-.035,-.0175],max:[.5,0,.0175]}},
+  },
+} satisfies BundleRow & {name:string;provenance:unknown};
+
+function passiveInstall() {
+  const baseline=release('1.22.0',[retained]);
+  let candidate=release('1.23.0',[retained,passiveRow]),active:string|undefined;
+  const releases=new Map<string,VerifiedDefaultCatalogue>(),bodies=new Map<string,Buffer>(),downloaded:string[]=[];
+  let registeredCollision=false, corruptNotice=false, stale=false;
+  const client={query:async(sql:string,params:unknown[])=>{
+    if(sql.includes('jsonb_array_elements'))return {rows:[...releases.values()].flatMap(value=>value.items.filter(item=>item.passiveRail&&
+      (item.passiveRail.descriptor.id===params[1]||item.id===params[2])).map(item=>({item})))};
+    if(sql.includes(' AS selected'))return {rows:[{enabled:true,selected:false,known:false}]};
+    if(sql.includes('workspace_furnishing_versions'))return {rows:registeredCollision?[{}]:[]};
+    if(sql.startsWith('INSERT INTO workspace_default_catalogue_releases')){
+      const [,key,value]=params as [string,string,VerifiedDefaultCatalogue];
+      if(!releases.has(key))releases.set(key,structuredClone(value));
+      return {rowCount:1};
+    }
+    if(sql.startsWith('SELECT catalogue'))return {rows:[{catalogue:releases.get(String(params[1]))}]};
+    if(sql.startsWith('INSERT INTO workspace_default_catalogue_active')){
+      active=String(params[1]);return {rowCount:1};
+    }
+    if(sql.includes('SELECT a.active_sha256'))return {rows:active?[{active_sha256:active,catalogue:releases.get(active)}]:[]};
+    if(sql.includes('studio_requests'))return {rows:[],rowCount:sql.startsWith('SELECT')?0:1};
+    if(sql.startsWith('UPDATE exhibitions')||sql.startsWith('INSERT INTO exhibition_revisions')||sql.startsWith('INSERT INTO audit_events'))return {rows:[],rowCount:1};
+    throw Error(sql);
+  }} as unknown as PoolClient;
+  const blobs={
+    getBounded:async(key:string)=>{
+      const body=bodies.get(key);
+      if(!body)throw Object.assign(Error('not installed'),{code:'ENOENT'});
+      return body;
+    },
+    putDurable:async(key:string,body:Uint8Array)=>{bodies.set(key,Buffer.from(body));},
+  } as unknown as FileBlobStore;
+  const runtime=createDefaultCatalogueRuntime({workspaceId:'workspace',tenantId:'tenant'},blobs,
+    baseline,'0.1.0',async()=>baselineBody,admit=>({
+      latest:async()=>admit(candidate.metadata,candidate.manifest,candidate.tag,candidate.commit),
+      fetch:async(_release,file)=>{
+        downloaded.push(file.sha256);
+        return file.sha256===passiveHash?passiveModel:corruptNotice?Buffer.from('invalid notice'):passiveNotice;
+      },
+      recheck:async()=>{if(stale)throw new ApiError(403,'DEFAULT_CATALOGUE_UNTRUSTED');},
+    }));
+  const owner=runtime.updates(client,{ceilingRail:true,modularPortal:true});
+  const install=async()=>{
+    const plan=await owner.check();
+    if(!plan.update)throw Error('No update');
+    return owner.install({activeManifestSha256:plan.active.manifestSha256,candidateManifestSha256:plan.update.manifestSha256,planSha256:plan.update.planSha256});
+  };
+  return {runtime,client,owner,install,blobs,downloaded,active:()=>active,
+    removeFromLatest:()=>{candidate=release('1.24.0',[retained]);},
+    replaceRow:(row:BundleRow,required=capabilities)=>{candidate=release(active?'1.24.0':'1.23.0',[retained,row],required);},
+    collide:()=>{registeredCollision=true;}, corruptNotice:()=>{corruptNotice=true;}, stale:()=>{stale=true;}};
+}
+
+it('activates a new verified passive rail, downloads only fresh model and notice, and resolves retained stock after removal from discovery',async()=>{
+  const f=passiveInstall(),plan=await f.owner.check();
+  expect(plan.update).toMatchObject({added:[{id:passiveRow.catalogId,version:1}],changed:[],downloadBytes:passiveModel.length+passiveNotice.length});
+  expect(f.downloaded).toEqual([]);
+  expect(await f.runtime.passiveRailDescriptors(f.client)).toEqual([]);
+  await f.install();
+  expect(f.downloaded).toEqual([passiveHash,digest(passiveNotice)]);
+  const [descriptor]=await f.runtime.passiveRailDescriptors(f.client);
+  expect(descriptor).toEqual(passiveRow.workspaceFurnishing);
+  await expect(f.runtime.passiveRailModel(f.client,descriptor!,true)).resolves.toEqual(passiveModel);
+  await expect(f.runtime.passiveRailModel(f.client,{...descriptor!,name:'forged'},false)).resolves.toBeUndefined();
+  f.removeFromLatest();
+  await expect(f.install()).resolves.toMatchObject({downloadedBytes:0});
+  expect(await f.runtime.passiveRailDescriptors(f.client)).toEqual([]);
+  await expect(f.runtime.passiveRailModel(f.client,descriptor!,true)).resolves.toBeUndefined();
+  await expect(f.runtime.passiveRailModel(f.client,descriptor!,false)).resolves.toEqual(passiveModel);
+  f.replaceRow({...passiveRow,workspaceFurnishing:{...passiveRow.workspaceFurnishing,provenance:'Different identity content.'}});
+  await expect(f.owner.check()).rejects.toMatchObject({code:'DEFAULT_CATALOGUE_INCOMPATIBLE'});
+});
+
+it('rejects wrong role, missing capability, false fit identity, wrong rights and owner UUID collision before download',async()=>{
+  const f=passiveInstall();
+  const rejected={code:'DEFAULT_CATALOGUE_INCOMPATIBLE'};
+  f.replaceRow({...passiveRow,hostKind:'opening'});
+  await expect(f.owner.check()).rejects.toMatchObject(rejected);
+  f.replaceRow(passiveRow,capabilities.filter(capability=>capability!=='source-bound-fit-v1'));
+  await expect(f.owner.check()).rejects.toMatchObject(rejected);
+  const bad=structuredClone(passiveRow);
+  bad.workspaceFurnishing.fit.sourceSha256='a'.repeat(64);
+  f.replaceRow(bad);
+  await expect(f.owner.check()).rejects.toMatchObject(rejected);
+  f.replaceRow({...passiveRow,workspaceFurnishing:{...passiveRow.workspaceFurnishing,rights:{...passiveRow.workspaceFurnishing.rights,holder:'Different holder'}}});
+  await expect(f.owner.check()).rejects.toMatchObject(rejected);
+  f.replaceRow(passiveRow);
+  f.collide();
+  await expect(f.owner.check()).rejects.toMatchObject(rejected);
+  expect(f.downloaded).toEqual([]);
+});
+
+it('retains the last good catalogue when the measured fit, notice bytes or final trust check fails',async()=>{
+  for(const failure of ['fit','notice','trust']){
+    const f=passiveInstall();
+    if(failure==='fit'){
+      const bad=structuredClone(passiveRow);
+      bad.workspaceFurnishing.fit.geometry.min[0]=-.51;
+      f.replaceRow(bad);
+    }else if(failure==='notice')f.corruptNotice();
+    else f.stale();
+    await expect(f.install()).rejects.toMatchObject({code:failure==='trust'?'DEFAULT_CATALOGUE_UNTRUSTED':'DEFAULT_CATALOGUE_INTEGRITY'});
+    expect(f.active()).toBeUndefined();
+  }
+});
+
+it('discovers installed stock in the ordinary owner API and binds save and export to retained model and rights',async()=>{
+  const f=passiveInstall();
+  await f.install();
+  const binding={workspaceId:'workspace',tenantId:'tenant',principalId:'principal'};
+  const owner={...binding,assertDatabase:async()=>{},workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,
+    workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true} as const;
+  const writer={writerFd:12,identity:{...binding,runtimeGeneration:'test',rootDevice:'1',rootInode:'2',lockDevice:'1',lockInode:'3'},assertLive:async()=>{}};
+  const service=new WorkspaceFurnishingIntakes(f.blobs,owner,writer,f.runtime);
+  const session={tenantId:binding.tenantId,userId:binding.principalId,role:'artist'} as Session;
+  const list=await service.list(f.client,session);
+  expect(list.items).toContainEqual(expect.objectContaining({id:passiveId,kind:'ceiling-rail',installedCatalog:true}));
+  await expect(service.list(f.client,{...session,userId:'foreign'})).rejects.toMatchObject({code:'FORBIDDEN'});
+  const candidate=JSON.parse(await readFile(new URL('./fixtures/rail-v11/exhibition.json',import.meta.resolve('@exhibitos/spec')),'utf8')) as Exhibition;
+  const graph=candidate.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings;
+  const descriptor=await service.readVersion(f.client,session,passiveId,1);
+  graph.furnishings=[descriptor];
+  graph.placements[0]!.furnishingId=passiveId;
+  await assertWorkspaceFurnishingSnapshot(f.client,session,candidate,service);
+  await service.checkNewPassiveStockPlacements(f.client,session,candidate);
+  const proposed=newDraft();
+  proposed.exhibitionId=candidate.id;
+  proposed.candidate=candidate;
+  proposed.editVersion=2;
+  const before=structuredClone(proposed);
+  before.editVersion=1;
+  delete before.candidate.extensions![WORKSPACE_FURNISHING_NAMESPACE];
+  const studio=new Studio(owner as never,true,undefined,service);
+  vi.spyOn(studio,'access').mockResolvedValue({id:proposed.exhibitionId,revision:1,metadata:before,nativeBounded:false,
+    studio_owner_user_id:binding.principalId} as never);
+  const input={draft:proposed,requestId:crypto.randomUUID()},head=etag(1,before);
+  await expect(studio.validateNativeViewport(f.client,session,proposed.exhibitionId,input,head)).resolves.toEqual({valid:true});
+  await expect(studio.put(f.client,session,proposed.exhibitionId,input,head)).resolves.toMatchObject({revision:2,draft:proposed});
+
+  const mounted=structuredClone(candidate);
+  mounted.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:[{trackAim:{mount:{railPlacementId:graph.placements[0]!.id}}}]};
+  await expect(service.checkPassiveStockMounts(f.client,mounted)).rejects.toMatchObject({code:'FURNISHING_FIT_UNSUPPORTED'});
+  await expect(service.publicationModel(f.client,{workspaceId:binding.workspaceId,tenantId:binding.tenantId,userId:binding.principalId,descriptor})).resolves.toMatchObject({sha256:passiveHash,bytes:passiveModel});
+  f.removeFromLatest();
+  await f.install();
+  expect((await service.list(f.client,session)).items.some(item=>item.id===passiveId)).toBe(false);
+  await expect(service.checkNewPassiveStockPlacements(f.client,session,candidate)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
+  await assertWorkspaceFurnishingSnapshot(f.client,session,candidate,service);
+  await expect(service.publicationModel(f.client,{workspaceId:binding.workspaceId,tenantId:binding.tenantId,userId:binding.principalId,descriptor})).resolves.toMatchObject({sha256:passiveHash});
 });

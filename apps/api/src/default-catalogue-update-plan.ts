@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {ApiError} from './api-error.ts';
+import type {PassiveStockRail} from './default-catalogue-passive-rail.ts';
 
 export type DefaultCatalogueFile = {
   path: string;
@@ -13,6 +14,7 @@ export type DefaultCatalogueItem = {
   version: number;
   descriptorSha256: string;
   files: readonly DefaultCatalogueFile[];
+  passiveRail?: PassiveStockRail;
 };
 
 // Inputs come from the release verifier and the existing admitted catalogue.
