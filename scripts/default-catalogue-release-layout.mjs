@@ -1,9 +1,39 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
-import {lstat, mkdir, readFile, realpath, writeFile} from 'node:fs/promises';
+import {lstat, mkdir, readFile, readdir, realpath, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {copyNativeFurnishings, reviewedDefaultCatalogueReleasePlan} from './package-native-runtime.mjs';
 
+if(process.argv[2]==='--reviewed-input') {
+  const [,reviewPath,baseline,source,destination]=process.argv.slice(2);
+  if(process.argv.length!==7||!reviewPath||!baseline||!source||!destination)throw Error('DEFAULT_CATALOGUE_LAYOUT_ARGUMENTS');
+  const {reviewedPassiveGitLayout}=await import('./default-catalogue-reviewed-release.mjs');
+  const layout=await reviewedPassiveGitLayout(source,baseline,reviewPath);
+  const output=resolve(destination),attachments=join(output,'attachments');
+  await mkdir(output,{mode:0o700});
+  await mkdir(attachments,{mode:0o700});
+  const seen=new Set();
+  const emit=async(name,body)=>writeFile(join(attachments,name),body,{flag:'wx',mode:0o400});
+  for(const {files} of layout.items)for(const file of files){
+    const body=await layout.verifiedBody(file);
+    if(!seen.has(file.sha256)){
+      await emit('catalogue-body-'+file.sha256,body);
+      seen.add(file.sha256);
+    }
+  }
+  await emit('default-furnishings-manifest.json',layout.bytes);
+  await emit('catalogue-release-v1.json',layout.metadata);
+  const names=(await readdir(attachments)).sort((a,b)=>a.localeCompare(b));
+  if(names.length!==layout.inventory.length||names.some((name,i)=>name!==layout.inventory[i].name))throw Error('DEFAULT_CATALOGUE_LAYOUT_FILE');
+  for(const expected of layout.inventory){
+    const body=await readFile(join(attachments,expected.name));
+    if(body.length!==expected.bytes||createHash('sha256').update(body).digest('hex')!==expected.sha256)throw Error('DEFAULT_CATALOGUE_LAYOUT_FILE');
+  }
+  await layout.assertClean();
+  await writeFile(join(output,'attachment-inventory.json'),JSON.stringify(layout.inventory,null,2)+'\n',{flag:'wx',mode:0o400});
+}else await legacyLayout();
+
+async function legacyLayout(){
 const [source, destination, minimumManagerVersion, ...requiredCapabilities] = process.argv.slice(2);
 if (!source || !destination || !minimumManagerVersion || !/^\d+\.\d+\.\d+$/.test(minimumManagerVersion) ||
     !requiredCapabilities.length || new Set(requiredCapabilities).size !== requiredCapabilities.length ||
@@ -56,3 +86,4 @@ await emit('catalogue-release-v1.json', Buffer.from(JSON.stringify({
   manifest:{bytes:bytes.length,sha256:release.manifestSHA256},items,
 })+'\n'));
 await writeFile(join(output,'attachment-inventory.json'),JSON.stringify(inventory.sort((a,b)=>a.name.localeCompare(b.name)),null,2)+'\n',{flag:'wx',mode:0o400});
+}
