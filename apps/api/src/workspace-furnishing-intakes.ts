@@ -17,6 +17,7 @@ import {MAX_BENCH_PREPARATION_SOURCE_BYTES} from './bench-basecolor-preparation.
 import {installedFrameDescriptor,installedFrameDescriptorFor,installedFrameThumbnail,readInstalledFrameThumbnail} from './installed-artwork-frame.ts';
 import {WorkspaceFurnishingReferenceError} from './api-error.ts';
 import {installedFurnishingCatalogueFile,installedFurnishingDescriptors,installedFurnishingDescriptorFor,installedWorkspaceBenchSeat,readInstalledFurnishingModel} from './installed-workspace-furnishing.ts';
+import {defaultCatalogueBodyKey,defaultCatalogueBodyPrefix} from './default-catalogue-persistence.ts';
 import type {createDefaultCatalogueRuntime} from './default-catalogue-runtime.ts';
 import {FRAME_IMAGE_FIT_LIMITS,lightDetailsFor,WORKSPACE_FURNISHING_NAMESPACE,type FrameImageFit,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {decodePngPixels} from './png-pixels.ts';
@@ -204,8 +205,8 @@ export class WorkspaceFurnishingIntakes {
    after=decoded;
   }
   const result=await c.query<{id:string;version:number;descriptor:WorkspaceFurnishingDescriptor}>(
-   'SELECT id,version,descriptor FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id>$4::uuid ORDER BY id,version LIMIT 51',
-   [this.owner.workspaceId,s.tenantId,s.userId,after],
+   'SELECT id,version,descriptor FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id>$4::uuid AND NOT starts_with(object_key,$5) ORDER BY id,version LIMIT 51',
+   [this.owner.workspaceId,s.tenantId,s.userId,after,defaultCatalogueBodyPrefix(s.tenantId)],
   );
   const candidates:(typeof result.rows[number]&{installedCatalog?:true})[]=[...result.rows];
   const passiveRails=this.supportsCeilingRail()?await this.defaultCatalogue?.passiveRailDescriptors(c)??[]:[];
@@ -376,6 +377,28 @@ export class WorkspaceFurnishingIntakes {
   if(!this.writer)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer.assertLive();await this.owner.assertDatabase(c);await this.writer.assertLive();
   const now=Date.now();if(descriptors.some(item=>!allowedRights(item.rights,'display',now)||!allowedRights(item.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ }
+ /** Bind retained stock to the existing publication FK without reimporting
+  * bytes. The release still authorizes the model and notice on every read. */
+ async bindStockPublicationVersion(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor){
+  if(!this.defaultCatalogue||descriptor.kind!=='ceiling-rail')return;
+  await this.checkOwner(c,s);
+  const rail=await this.defaultCatalogue.passiveRail(c,descriptor.id);
+  if(!rail)return; // A conventional intake already has its own version row.
+  const {workspaceId}=this.owner;
+  await this.publicationModel(c,{workspaceId,tenantId:s.tenantId,userId:s.userId,descriptor});
+  const key=defaultCatalogueBodyKey(s.tenantId,rail.model.sha256);
+  const tuple=[workspaceId,s.tenantId,s.userId,descriptor.id,descriptor.version] as const;
+  await c.query(`INSERT INTO workspace_furnishing_versions
+    (workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)
+    ON CONFLICT(workspace_id,id,version) DO NOTHING`,[...tuple,descriptor,key]);
+  const {rows}=await c.query<{descriptor:unknown;object_key:string}>(`
+    SELECT descriptor,object_key FROM workspace_furnishing_versions
+    WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE
+  `,[...tuple]);
+  if(rows.length!==1||rows[0]!.object_key!==key||!isDeepStrictEqual(rows[0]!.descriptor,descriptor))
+   throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');
+  await this.checkOwner(c,s);
  }
  /** Read a publication-bound source without manufacturing an authenticated
   * session. Only the configured live workspace owner and the exact immutable

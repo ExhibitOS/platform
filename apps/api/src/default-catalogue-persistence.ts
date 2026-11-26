@@ -3,10 +3,14 @@ import type {PoolClient} from 'pg';
 import type {FileBlobStore} from '@exhibitos/storage';
 import {isDeepStrictEqual} from 'node:util';
 import {ApiError} from './api-error.ts';
+import type {PassiveStockRail} from './default-catalogue-passive-rail.ts';
 import type {AdmittedCatalogue, DefaultCataloguePersistence} from './default-catalogue-update.ts';
 import {matchesDefaultCatalogueFile, type DefaultCatalogueFile, type DefaultCatalogueItem} from './default-catalogue-update-plan.ts';
 
 export type DefaultCatalogueWorkspace = {workspaceId: string; tenantId: string};
+
+export const defaultCatalogueBodyPrefix=(tenantId:string)=>`${tenantId}/default-catalogue/`;
+export const defaultCatalogueBodyKey=(tenantId:string,sha256:string)=>defaultCatalogueBodyPrefix(tenantId)+sha256;
 
 /** The caller owns the authenticated workspace transaction. Blobs use the
  * existing tenant store. Only a completed transaction advances the pointer. */
@@ -18,7 +22,7 @@ export function defaultCataloguePersistence(
   packagedBody: (file: DefaultCatalogueFile) => Promise<Uint8Array | undefined>,
 ) {
   const {workspaceId, tenantId} = workspace;
-  const key = (file: DefaultCatalogueFile) => `${tenantId}/default-catalogue/${file.sha256}`;
+  const key = (file: DefaultCatalogueFile) => defaultCatalogueBodyKey(tenantId,file.sha256);
   const integrity = () => new ApiError(409, 'DEFAULT_CATALOGUE_INTEGRITY');
   async function retain(release: AdmittedCatalogue) {
     await client.query(
@@ -82,11 +86,14 @@ export function defaultCataloguePersistence(
       `,[workspaceId,id??null,catalogueId??null]);
       return result.rows.map(row=>row.item);
     },
-    async hasOwnerFurnishing(id:string) {
-      const result=await client.query(`
-        SELECT 1 FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND id=$3 LIMIT 1
-      `,[workspaceId,tenantId,id]);
-      return result.rows.length>0;
+    async hasStockIdentityCollision(rail:PassiveStockRail,known:boolean) {
+      const {descriptor,model}=rail;
+      const result=await client.query<{version:number;descriptor:unknown;object_key:string}>(`
+        SELECT version,descriptor,object_key FROM workspace_furnishing_versions
+        WHERE workspace_id=$1 AND tenant_id=$2 AND id=$3
+      `,[workspaceId,tenantId,descriptor.id]);
+      return result.rows.some(row=>!known||row.version!==descriptor.version||
+        row.object_key!==key(model)||!isDeepStrictEqual(row.descriptor,descriptor));
     },
     readBody,
     async putBody(file:DefaultCatalogueFile, body:Uint8Array) {

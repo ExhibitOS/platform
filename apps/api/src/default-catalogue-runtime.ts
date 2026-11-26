@@ -97,10 +97,11 @@ export function createDefaultCatalogueRuntime(
           const rail=item.passiveRail;
           if (!rail) continue;
           const {descriptor}=rail;
-          if(ids.has(descriptor.id)||await store.hasOwnerFurnishing(descriptor.id))throw new ApiError(409,'DEFAULT_CATALOGUE_INCOMPATIBLE');
+          if(ids.has(descriptor.id))throw new ApiError(409,'DEFAULT_CATALOGUE_INCOMPATIBLE');
           ids.add(descriptor.id);
           const retained=await store.retainedPassiveRails(descriptor.id,item.id);
-          if(retained.some(previous=>!isDeepStrictEqual(previous,item)))throw new ApiError(409,'DEFAULT_CATALOGUE_INCOMPATIBLE');
+          if(retained.some(previous=>!isDeepStrictEqual(previous,item))||await store.hasStockIdentityCollision(rail,retained.length>0))
+            throw new ApiError(409,'DEFAULT_CATALOGUE_INCOMPATIBLE');
           if(stage==='install'&&!retained.length){
             const bytes=await store.readBody(rail.model);
             if(!bytes)throw new ApiError(409,'DEFAULT_CATALOGUE_INTEGRITY');
