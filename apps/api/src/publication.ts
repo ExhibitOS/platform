@@ -741,15 +741,25 @@ export class Publications {
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateArtworkGpuModel(a).valid||!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
+        detail?.assertCurrent(s);await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
+        await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
+        if(workspaceBindings.length){
+          const owner=this.furnishingOwner,service=this.workspaceFurnishing;
+          if(!owner||!service||!service.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');
+          await service.authorize(c,s);
+          for(const {publicId,descriptor} of workspaceBindings){
+            if(matchesInstalledFurnishing(descriptor))continue;
+            if(descriptor.kind==='ceiling-rail')await service.bindStockPublicationVersion(c,s,descriptor);
+            await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+              [s.tenantId,publicationId,publicId,owner.workspaceId,owner.principalId,descriptor.id,descriptor.version,descriptor]);
+          }
+        }
+        if(workspaceMaterialBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceMaterial||!this.workspaceMaterial.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceMaterial.authorize(c,s);for(const binding of workspaceMaterialBindings)await c.query('INSERT INTO publication_workspace_materials(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         detail?.assertCurrent(s);if(fileOperation)await fileOperation.manifest(publicationId,digest,[
          ...assets.map(({id:assetId,prepared:p})=>{const hash=byteHash(p.bytes);return {key:`${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`,sha256:hash,bytes:p.bytes.length};}),
          ...media.map(({id:mediaId,prepared:p})=>({key:`${s.tenantId}/publications/${publicationId}/${mediaId}/${p.source.sha256}`,sha256:p.source.sha256,bytes:p.source.bytes})),
          ...(cover?[{key:`${s.tenantId}/publications/${publicationId}/${cover.id}/${cover.prepared.source.sha256}`,sha256:cover.prepared.source.sha256,bytes:cover.prepared.source.bytes}]:[])
         ]);
-        detail?.assertCurrent(s);await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
-        await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
-        if(workspaceBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceFurnishing||!this.workspaceFurnishing.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceFurnishing.authorize(c,s);for(const binding of workspaceBindings.filter(binding=>!matchesInstalledFurnishing(binding.descriptor)))await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
-        if(workspaceMaterialBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceMaterial||!this.workspaceMaterial.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceMaterial.authorize(c,s);for(const binding of workspaceMaterialBindings)await c.query('INSERT INTO publication_workspace_materials(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         for (const { id: assetId, prepared: p } of assets) {
             const hash = byteHash(p.bytes), key = `${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`;
             await put(key,p.bytes);
