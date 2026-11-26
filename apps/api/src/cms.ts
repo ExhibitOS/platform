@@ -3,8 +3,9 @@ import {preparedImageHeader} from './prepared-image.ts';
 import {applyGpuModelApproval,assertGpuModelBytes} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import type {Imports} from './imports.ts';
+import {assertProductImageAssets,matchesPreparedImagePair,sameImageRightsTerms,verifyPreparedImageBytes} from './product-image-import.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
-import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
+import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,preparedImageReceipt,productImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
@@ -59,7 +60,7 @@ function importedTextInvariant(m:ArtworkMetadata){
   // Only existing title/description/medium and private notes are text edits.
   return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,displayReference:m.displayReference,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
 }
-interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown}}
+interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown;initialImageCreditReview?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
   !!v &&
   typeof v === "object" &&
@@ -485,6 +486,7 @@ export class Cms {
     s: Session,
     id: string,
     b: { revision: number; assetId: string },
+    initialImageReview?: {imports: () => Imports; ready: () => Promise<void>},
   ) {
     if(!exact(b,['revision','assetId']))throw new ApiError(400,'INVALID_INPUT');
     uuid(b.assetId);
@@ -538,17 +540,27 @@ export class Cms {
         throw new ApiError(409,'ASSET_NOT_APPROVED');
     }
     let importedArtwork:Artwork|undefined;
+    let verifiedFull:Buffer|undefined;
     if(lineage&&Object.hasOwn(lineage.snapshot,'importedArtwork')){
       const previous=lineage.snapshot.metadata,primary=lineage.snapshot.asset as {id?:string;sha256?:string;bytes?:number;mime?:string}|null;
-      if(!Number.isSafeInteger(lineage.revision)||lineage.revision<1||lineage.revision>revision||!validMetadata(previous)||!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==Number(asset.bytes)||primary.mime!==asset.mime||json(importedTextInvariant(previous))!==json(importedTextInvariant(a.metadata)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(!Number.isSafeInteger(lineage.revision)||lineage.revision<1||lineage.revision>revision||!validMetadata(previous)||!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==Number(asset.bytes)||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
+      const creditChanged=json(previous.rights)!==json(a.metadata.rights);
+      if(json(importedTextInvariant(previous))!==json(importedTextInvariant({...a.metadata,rights:previous.rights})))throw new ApiError(409,'APPROVAL_INVALID');
+      if(creditChanged&&(!initialImageReview||!asset.product_image_output||lineage.revision>=revision||
+         !sameImageRightsTerms(previous.rights,a.metadata.rights)))throw new ApiError(409,'APPROVAL_INVALID');
       const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.artist_id])).rows[0];
-      importedArtwork=await this.importedApproval(c,s,id,lineage,typeof artist?.metadata?.name==='string'?artist.metadata.name:'Unnamed artist');
+      importedArtwork=await this.importedApproval(c,s,id,lineage,typeof artist?.metadata?.name==='string'?artist.metadata.name:'Unnamed artist',creditChanged?a.metadata.rights:undefined);
+      if(creditChanged&&initialImageReview){
+        await initialImageReview.ready();
+        verifiedFull=await this.verifyInitialImageCreditReview(c,s,id,lineage,importedArtwork,a.metadata.rights,initialImageReview.imports());
+        importedArtwork.rights=structuredClone(a.metadata.rights) as Artwork['rights'];
+      }
       if(lineage.revision<revision){
         importedArtwork.revisionId=revisionIdentity(s,id,revision);importedArtwork.revision=revision;importedArtwork.createdAt=new Date(a.updated_at).toISOString();
         importedArtwork.metadata={...importedArtwork.metadata,title:a.metadata.title,description:a.metadata.description};
         if(a.metadata.medium===undefined)delete importedArtwork.metadata.medium;else importedArtwork.metadata.medium=a.metadata.medium;
         importedArtwork.extensions={...importedArtwork.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:revision}};
-        importedArtwork.provenance.events.push({id:importedArtwork.revisionId,type:'edited',at:importedArtwork.createdAt,description:'CMS reviewed text revision; approved source assets, dimensions and rights retained.'});
+        importedArtwork.provenance.events.push({id:importedArtwork.revisionId,type:'edited',at:importedArtwork.createdAt,description:creditChanged?'CMS reviewed display credit; approved source assets, dimensions and rights terms retained.':'CMS reviewed text revision; approved source assets, dimensions and rights retained.'});
       }
       if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkDisplayPolicy(importedArtwork).valid||!validateArtworkThumbnail(importedArtwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
     }
@@ -560,11 +572,13 @@ export class Cms {
       asset.rights_revision++;
     }
     if (!this.blobs) throw new ApiError(503, "STORAGE_UNAVAILABLE");
-    const bytes = Buffer.from(await this.blobs.get(asset.object_key));
+    const bytes = verifiedFull??Buffer.from(await this.blobs.get(asset.object_key));
     if (bytes.length !== Number(asset.bytes) || sha256(bytes) !== asset.sha256)
       throw new ApiError(409, "ASSET_INTEGRITY");
     if(importedArtwork)qualifyDemoDisplay(importedArtwork,bytes);
     await derivative(bytes, asset.mime);
+    if(verifiedFull&&(!allowedRights(a.metadata.rights,'display')||!allowedRights(a.metadata.rights,'export')))
+      throw new ApiError(403,'RIGHTS_DENIED');
     const modelPair=!importedArtwork&&asset.mime==='model/gltf-binary'?await loadModelPairApproval(c,s,id,{...asset,bytes:Number(asset.bytes)},bytes,a.metadata.rights,this.blobs):undefined;
     const snapshot = {
       metadata: a.metadata,
@@ -578,6 +592,9 @@ export class Cms {
       },
       ...(importedArtwork?{importedArtwork}:{}),
       ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'?{freshImagePreparation:lineage.snapshot.freshImagePreparation}:{}),
+      ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'&&
+        (verifiedFull||lineage.snapshot.initialImageCreditReview===lineage.snapshot.freshImagePreparation)
+        ?{initialImageCreditReview:lineage.snapshot.freshImagePreparation}:{}),
       ...(modelPair?{modelPair}:{}),
       ...(lineage?.snapshot.compactVariant&&(lineage.snapshot.asset as {id?:string})?.id===asset.id&&json((lineage.snapshot.metadata as ArtworkMetadata).rights)===json(a.metadata.rights)?{compactVariant:lineage.snapshot.compactVariant}:{}),
     };
@@ -598,6 +615,28 @@ export class Cms {
     );
     return this.detail(c, s, id);
   }
+  private async verifyInitialImageCreditReview(c:PoolClient,s:Session,id:string,lineage:ImportedApproval,
+                                               artwork:Artwork,currentRights:unknown,imports:Imports) {
+    const receiptHash=lineage.snapshot.freshImagePreparation;
+    if(!receiptHash||artwork.artworkType!=='image'||artwork.extensions?.[DISPLAY_POLICY_NAMESPACE]!==undefined||
+       !allowedRights(currentRights,'display')||!allowedRights(currentRights,'export'))
+      throw new ApiError(409,'APPROVAL_INVALID');
+    const result=await c.query(
+      "SELECT * FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2 AND user_id=$3 AND asset_id=$4 AND derived#>>'{result,sha256}'=$5 FOR UPDATE",
+      [s.tenantId,id,s.userId,artwork.primaryAssetId,receiptHash]);
+    if(result.rows.length!==1)throw new ApiError(409,'APPROVAL_INVALID');
+    const job=result.rows[0],state=storedPreparedImage(job);
+    if(state?.kind!=='product-image-pair'||state.request.purpose!==INITIAL_PRODUCT_IMAGE_PURPOSE||
+       state.request.artworkRevision>lineage.revision||job.state!=='approved'||!productImageDrained(job)||
+       !sameImageRightsTerms(job.rights,currentRights))
+      throw new ApiError(409,'APPROVAL_INVALID');
+    await imports.coarseOwner(c,s.tenantId,s.userId,state.workspaceId);
+    const receipt=productImageReceipt(job);
+    if(receipt.sha256!==receiptHash||!matchesPreparedImagePair(artwork,receipt))throw new ApiError(409,'APPROVAL_INVALID');
+    await assertProductImageAssets(c,job,currentRights);
+    return verifyPreparedImageBytes(imports,job,receipt);
+  }
+
   /** Revalidate a server-owned immutable imported lineage against current assets. */
   async approveCompact(c:PoolClient,s:Session,id:string,b:{revision:number;jobId:string}){
     if(!exact(b,['revision','jobId'])||!Number.isSafeInteger(b.revision)||b.revision<1)throw new ApiError(400,'INVALID_INPUT');uuid(b.jobId);
@@ -626,7 +665,7 @@ export class Cms {
     await this.studioArtwork(c,s,id);
     return {artworkId:id,revision,jobId:b.jobId,receiptSHA256:receipt.sha256};
   }
-  private async importedApproval(c:PoolClient,s:Session,id:string,approval:ImportedApproval,artist:string){
+  private async importedApproval(c:PoolClient,s:Session,id:string,approval:ImportedApproval,artist:string,currentRights?:unknown){
     if(!validMetadata(approval.snapshot.metadata)||!approval.snapshot.asset||typeof approval.snapshot.asset!=='object'||Array.isArray(approval.snapshot.asset))throw new ApiError(409,'APPROVAL_INVALID');
     const m=approval.snapshot.metadata,asset=approval.snapshot.asset as {id:string;sha256:string;bytes:number;mime:string};
       const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
@@ -637,7 +676,7 @@ export class Cms {
       if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
       const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
       const optionalPreview=artworkThumbnailFor(imported);
-      for(const source of imported.assets){if(source.id.toLowerCase()===optionalPreview?.id.toLowerCase())continue;const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
+      for(const source of imported.assets){if(source.id.toLowerCase()===optionalPreview?.id.toLowerCase())continue;const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(currentRights??imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
       const gpu=artworkGpuModelFor(imported);
       if(gpu){
         if(!this.blobs?.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
