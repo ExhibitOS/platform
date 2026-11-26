@@ -55,6 +55,13 @@ import {pinNativeOexPayloadManifest} from '../apps/api/dist/native-oex-payload.j
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
 
 const MAX_BODY = 65 * 1024 * 1024;
+const isRuntimeEntry = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+// The dedicated native owner process keeps this mask for its lifetime:
+// TUF writes asynchronously and copies downloaded files from its own temp directory.
+export function restrictNativeCatalogueCreationMode() {
+  process.umask(process.umask() | 0o077);
+}
 // Native execution has no container port mapping. Bind both listeners to
 // loopback explicitly; the original container profile retains its exact ports.
 /** The runtime calls this exact guard before opening a database or worker. */
@@ -606,6 +613,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     if(furnishingMode)await writerLease.assertLive();
     let defaultCatalogue;
     if(defaultCatalogueInput){
+      if(isRuntimeEntry)restrictNativeCatalogueCreationMode();
       const {createDefaultCatalogueRuntime}=await import('../apps/api/dist/default-catalogue-runtime.js');
       const {githubDefaultCatalogueSource}=await import('../apps/api/dist/default-catalogue-github-source.js');
       const {marker,manifest,metadata,scopeFile}=defaultCatalogueInput;
@@ -714,7 +722,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     return { app, proxy, pool, origin, close, cleanupHandledFailure };
   } catch { await close().catch(()=>{}); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isRuntimeEntry) {
   let handedOff=false;
   try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel, received.hayesOwnerChannel, undefined, received.adoptionOwnerChannel,received.thumbnailPreviewTrace); if(runtime.helperCompleted){console.info((runtime.result.mode==='workspace-furnishing-045-to-049-upgrade-v1'?'EXHIBITOS_NATIVE_GPU_MODEL_PREPARATION_UPGRADE_RESULT ':'EXHIBITOS_NATIVE_FURNISHING_THUMBNAIL_UPGRADE_RESULT ')+JSON.stringify(runtime.result));}else if(!runtime.cleanupHandledFailure)console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
   catch (error) { if(!handedOff&&process.env.EXHIBITOS_AUTHORING_MODE==='personal'){closeUnusedAdoptionDescriptors(process.env);closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_OWNER_FD);if(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==process.env.EXHIBITOS_NATIVE_OWNER_FD)closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD);}console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
