@@ -3,6 +3,7 @@ import {createCompactVariant,type CompactVariantInput} from './compact-model-var
 import {modelPreparationIntent,storedModelPreparation,modelPreparationView,type ModelPreparationIntent} from './model-preparation-intent.ts';
 import {assertModelPreparationContext,assertModelPreparationSlot,workRequiredModelPreparation,assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
 import {isDeepStrictEqual} from 'node:util';
+import {validateArtwork,type Artwork} from '@exhibitos/spec';
 import {modelDerivationInput,prepareModelPair,type ModelDerivation,type ModelPairResult} from './model-derivation.ts';
 import { randomUUID, createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
@@ -16,8 +17,8 @@ export {MAX_UPLOAD} from './upload-limits.ts';
 export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; coarsePreparation?:ImageCoarseIntent|ProductImageIntent; modelPreparation?:ModelPreparationIntent; imagePreparation?:FreshImageIntent; }
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import type {FreshImageIntent} from './fresh-image-intent.ts';
-import {isProductImageIntent,productImageView,storedPreparedImage,type ProductImageIntent} from './product-image-intent.ts';
-import {assertProductImageAssets,createProductImageImport,workProductImageImport} from './product-image-import.ts';
+import {INITIAL_PRODUCT_IMAGE_PURPOSE,isProductImageIntent,productImageDrained,productImageReceipt,productImageView,storedPreparedImage,type ProductImageIntent} from './product-image-intent.ts';
+import {assertProductImageAssets,createProductImageImport,matchesPreparedImagePair,sameImageRightsTerms,verifyPreparedImageBytes,workProductImageImport} from './product-image-import.ts';
 import {imageCoarseIntent,imageCoarsePolicy,storedImageCoarse,type ImageCoarseIntent} from './image-coarse-intent.ts';
 import {inspectBaselineJpegStructure} from './jpeg-baseline-structure.ts';
 import {prepareIntentImageCoarse} from './artwork-coarse-preparation.ts';
@@ -42,11 +43,17 @@ export class Imports {
  async createCompact(c:PoolClient,s:Session,artworkId:string,input:CompactVariantInput){await this.requiredModelReady(c,s);return this.view(await createCompactVariant(c,s,artworkId,input,this.modelExecution!));}
  async coarseOwner(c:PoolClient,tenantId:string,principalId:string,workspaceId?:string){const owner=this.nativeWorkspace;if(!owner||owner.tenantId!==tenantId||owner.principalId!==principalId||(workspaceId!==undefined&&owner.workspaceId!==workspaceId))throw new ApiError(403,'FORBIDDEN');await owner.assertDatabase(c);return owner;}
  async boundedBlob(key:string,bytes:number){const read=this.blobs.getBounded;if(!read)throw new ApiError(503,'STORAGE_UNAVAILABLE');return read.call(this.blobs,key,bytes);}
- async access(c:PoolClient,s:Session,id:string,currentThumbnail=true) {
+ async status(c:PoolClient,s:Session,id:string){
+  return this.view(await this.readJob(c,s,id,true,true));
+ }
+ async access(c:PoolClient,s:Session,id:string,currentThumbnail=true){
+  return this.readJob(c,s,id,currentThumbnail,false);
+ }
+ private async readJob(c:PoolClient,s:Session,id:string,currentThumbnail:boolean,readHistoricalCreditReview:boolean) {
   const result=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id]);
   const row=result.rows[0];if(!row)throw new ApiError(403,'FORBIDDEN');
   if(row.gpu_preparation!=null)throw new ApiError(503,'GPU_MODEL_PREPARATION_UNAVAILABLE');
-  await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);
+  const artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);
   const thumbnail=storedCurrentImageThumbnail(row);
   if(thumbnail){
    if(thumbnail.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
@@ -59,10 +66,32 @@ export class Imports {
    if(product.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
    if(product.kind==='fresh-product-image')await this.freshImageReady(c,s);else await this.requiredModelReady(c,s);
    await this.coarseOwner(c,s.tenantId,s.userId,product.workspaceId);
-   await assertProductImageAssets(c,row);
+   if(readHistoricalCreditReview&&product.kind==='product-image-pair'&&product.request.purpose===INITIAL_PRODUCT_IMAGE_PURPOSE&&
+      row.state==='approved'&&productImageDrained(row)&&artwork.revision>product.request.artworkRevision&&
+      artwork.approved_revision===artwork.revision&&artwork.approved_asset_id===row.asset_id&&
+      !isDeepStrictEqual(artwork.metadata?.rights,row.rights)&&sameImageRightsTerms(row.rights,artwork.metadata?.rights)){
+     await this.assertHistoricalImageCreditReview(c,row,artwork.metadata.rights,artwork.revision);
+   }else await assertProductImageAssets(c,row);
    return row;
   }
   if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}const modelPreparation=storedModelPreparation(row);if(modelPreparation){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(modelPreparation.profileId===LARGE_MODEL_RECIPE.id)await this.largeModelReady(c,s);if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
+ }
+ private async assertHistoricalImageCreditReview(c:PoolClient,row:Record<string,unknown>,rights:unknown,revision:number){
+  const receipt=productImageReceipt(row);
+  await assertProductImageAssets(c,row,rights);
+  await verifyPreparedImageBytes(this,row,receipt);
+  const result=await c.query(
+   `SELECT ap.snapshot,w.metadata FROM artworks w
+      JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision,ap.asset_id)=(w.tenant_id,w.id,w.revision,w.approved_asset_id)
+      WHERE w.tenant_id=$1 AND w.id=$2 AND w.revision=$3 AND w.approved_revision=w.revision AND w.approved_asset_id=$4 AND w.deleted_at IS NULL`,
+   [row.tenant_id,row.artwork_id,revision,receipt.full.assetId]);
+  const approval=result.rows[0]?.snapshot,artwork=approval?.importedArtwork as Artwork|undefined;
+  if(!allowedRights(rights,'display')||!allowedRights(rights,'export')||
+     approval?.initialImageCreditReview!==receipt.sha256||approval.freshImagePreparation!==receipt.sha256||
+     !isDeepStrictEqual(result.rows[0]?.metadata,approval.metadata)||!isDeepStrictEqual(approval.metadata?.rights,rights)||
+     !artwork||!validateArtwork(artwork).valid||artwork.id!==row.artwork_id||artwork.revision!==revision||
+     !isDeepStrictEqual(artwork.rights,rights)||!matchesPreparedImagePair(artwork,receipt))
+   throw new ApiError(409,'IMAGE_PREPARATION_RECEIPT_INVALID');
  }
  async createCurrentThumbnail(c:PoolClient,s:Session,artworkId:string,input:unknown){return createCurrentImageThumbnail(this,c,s,artworkId,input);}
  async create(c:PoolClient,s:Session,input:ImportInput) {

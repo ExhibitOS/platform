@@ -3,6 +3,8 @@ import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
 import {artworkAccess,transaction,sha256} from '@exhibitos/storage';
+import type {Artwork} from '@exhibitos/spec';
+import {lodVariantsFor} from '@exhibitos/studio-contract';
 import {ApiError,type Session} from './auth.ts';
 import type {Imports,ImportInput} from './imports.ts';
 import {allowedRights,validRights} from './rights.ts';
@@ -45,6 +47,34 @@ async function assertImagePreparationArtwork(c:PoolClient,s:Pick<Session,'tenant
   [s.tenantId,artworkId,artwork.approved_asset_id])).rows[0];
  if(artwork.approved_revision!==artwork.revision||approved?.mime!=='image/png')throw new ApiError(409,'IMAGE_PREPARATION_CONTEXT_CHANGED');
 }
+export function sameImageRightsTerms(previous:unknown,current:unknown){
+ if(!validRights(previous)||!validRights(current))return false;
+ const terms=(rights:unknown)=>{const {creditLine:_credit,...rest}=rights as Record<string,unknown>;return rest;};
+ return isDeepStrictEqual(terms(previous),terms(current));
+}
+
+export function matchesPreparedImagePair(artwork:Artwork,receipt:ProductImageReceipt){
+ const images=[receipt.full,...(receipt.coarse?[receipt.coarse]:[])],variants=lodVariantsFor(artwork);
+ return artwork.artworkType==='image'&&artwork.primaryAssetId===receipt.full.assetId&&
+   variants.length===images.length&&artwork.assets.filter(a=>a.role==='image').length===images.length&&
+   images.every((image,index)=>artwork.assets.some(a=>a.role==='image'&&a.id===image.assetId&&a.sha256===image.sha256&&a.bytes===image.bytes&&a.mime===image.mime)&&
+     variants.some(v=>v.assetId===image.assetId&&v.detail===(index===0?'full':'coarse')&&v.textureSize===Math.max(image.width,image.height)));
+}
+
+export async function verifyPreparedImageBytes(imports:Imports,row:Record<string,unknown>,receipt:ProductImageReceipt){
+ const verify=async(key:unknown,asset:{bytes:number;sha256:string})=>{
+   if(typeof key!=='string')throw new ApiError(409,'ASSET_INTEGRITY');
+   let bytes:Buffer;
+   try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+   if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+   return bytes;
+ };
+ await verify(row.object_key,receipt.original);
+ const full=await verify(row.approved_key,receipt.full);
+ if(receipt.coarse)await verify(`${row.tenant_id}/quarantine/import-${receipt.jobId}/product-coarse`,receipt.coarse);
+ return full;
+}
+
 export async function assertProductImageAssets(c:PoolClient,row:Record<string,unknown>,currentRights:unknown=row.rights){
  const state=storedPreparedImage(row);if(!state)return;if(row.state!=='approved'){if(row.asset_id!=null||row.original_asset_id!=null)throw new ApiError(409,'IMAGE_PREPARATION_STATE_INVALID');return;}
  const r=preparedImageReceipt(row),bindings=[r.original,r.full,...(r.coarse?[r.coarse]:[])];

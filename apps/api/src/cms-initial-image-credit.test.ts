@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test,vi} from 'vitest';
-import type {PoolClient} from 'pg';
+import type {Pool,PoolClient} from 'pg';
 import type {Artwork} from '@exhibitos/spec';
 import {LOD_NAMESPACE} from '@exhibitos/studio-contract';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {ApiError,type Session} from './auth.ts';
+import {ApiError,Auth,type Session} from './auth.ts';
 import {Cms,type ArtworkMetadata} from './cms.ts';
-import type {Imports} from './imports.ts';
+import {Imports} from './imports.ts';
+import {buildApp} from './app.ts';
 import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,type ProductImageReceipt} from './product-image-intent.ts';
 import {PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
 
@@ -63,9 +64,26 @@ function setup(){
  const query=vi.fn(async(sql:string,p:unknown[])=>{
    if(sql.includes("to_jsonb(j)->>'gpu_preparation'"))return rows([]);
    if(sql.includes("conname='import_model_preparation_shape'"))return rows([{supported:false}]);
-   if(sql.startsWith('SELECT * FROM import_jobs')){
-     return rows(JSON.stringify(p)===JSON.stringify([job.tenant_id,job.artwork_id,job.user_id,job.asset_id,job.derived.result.sha256])?[job]:[]);
+   if(sql.startsWith('SELECT pg_advisory_xact_lock_shared'))return rows([]);
+   if(sql.startsWith('SELECT m.role FROM memberships'))return rows([{role:'artist'}]);
+   if(sql.startsWith('SELECT a.*,r.user_id AS owner_user_id'))return rows([{...article,owner_user_id:principalId}]);
+   if(sql.startsWith('UPDATE artworks SET metadata=')){
+     if(p[2]!==article.revision)return rows([]);
+     article.metadata=structuredClone(p[3]) as typeof article.metadata;
+     article.revision++;article.approved_revision=null;article.approved_asset_id=null;
+     return rows([{revision:article.revision}]);
    }
+   if(sql.startsWith('INSERT INTO artwork_revisions')||sql.startsWith('INSERT INTO audit_events'))return rows([]);
+   if(sql.startsWith('UPDATE rights SET metadata=')){
+     for(const asset of assets){asset.rights=structuredClone(p[2]) as typeof rights;asset.rights_revision++;}
+     return rows([]);
+   }
+   if(sql.startsWith('SELECT * FROM import_jobs')){
+     const expected=p.length===2?[job.tenant_id,job.id]:[job.tenant_id,job.artwork_id,job.user_id,job.asset_id,job.derived.result.sha256];
+     return rows(JSON.stringify(p)===JSON.stringify(expected)?[job]:[]);
+   }
+   if(sql.startsWith('SELECT ap.snapshot,w.metadata'))return rows(article.approved_revision===article.revision&&article.approved_asset_id===p[3]&&article.revision===p[2]
+     ?[{snapshot:approvals.get(article.revision),metadata:article.metadata}]:[]);
    if(sql.startsWith('SELECT revision,snapshot FROM artwork_approvals')){
      const revision=approvals.has(Number(p[2]))?Number(p[2]):1;
      return rows([{revision,snapshot:approvals.get(revision)}]);
@@ -144,4 +162,39 @@ test('requires live local approval authority before rereading the retained linea
  expect(h.coarseOwner).not.toHaveBeenCalled();
  expect(h.boundedBlob).not.toHaveBeenCalled();
  expect(h.approvals.has(2)).toBe(false);
+});
+
+
+test('ordinary GET returns the immutable job only after credit reapproval; retry stays denied',async()=>{
+ const h=setup(),before=structuredClone(h.job);
+ const prior=h.approvals.get(1)!;
+ h.article.metadata={...h.article.metadata,title:prior.metadata.title,rights:structuredClone(h.job.rights)};
+ h.article.revision=1;h.article.approved_revision=1;h.article.approved_asset_id=fullId;
+ for(const asset of h.assets){asset.rights=structuredClone(h.job.rights);asset.rights_revision=1;}
+ vi.spyOn(Auth.prototype,'request').mockImplementation(async(_token,_tenant,_csrf,_mutate,work)=>work(h.c,session));
+ vi.spyOn(Imports.prototype,'requiredModelReady').mockResolvedValue();
+ vi.spyOn(Imports.prototype,'coarseOwner').mockResolvedValue({workspaceId} as Awaited<ReturnType<Imports['coarseOwner']>>);
+ vi.spyOn(Imports.prototype,'boundedBlob').mockImplementation(h.boundedBlob);
+ const origin='http://127.0.0.1:49871';
+ const app=buildApp({pool:{} as Pool,auth:{mode:'local',origin,bindHost:'127.0.0.1'},blobs:{} as BlobStore});
+ const url=`/api/v1/tenants/${tenantId}/imports/${jobId}`,headers={host:'127.0.0.1:49871',origin};
+ const status=()=>app.inject({method:'GET',url,headers});
+ try{
+   const first=await status();
+   expect(first.statusCode,first.body).toBe(200);
+   await h.cms.revise(h.c,session,artworkId,{...h.article.metadata,revision:1,title:'Corrected title',
+     rights:{...h.job.rights,creditLine:'Reviewed credit'}});
+   expect((await status()).json()).toMatchObject({code:'IMAGE_PREPARATION_RECEIPT_INVALID'});
+   await h.approve();
+   const historical=await status();
+   expect(historical.statusCode,historical.body).toBe(200);
+   expect(historical.json()).toEqual(first.json());
+   expect(historical.json().imagePreparation).toMatchObject({artworkRevision:1,serverReceipt:h.receipt});
+   expect(h.job).toEqual(before);
+   const retry=await app.inject({method:'POST',url:`${url}/retry`,headers});
+   expect(retry.statusCode,retry.body).toBe(409);
+   expect(retry.json()).toMatchObject({code:'IMAGE_PREPARATION_RECEIPT_INVALID'});
+   h.files.set(`${tenantId}/quarantine/import-${jobId}/product-coarse`,Buffer.from('bad Coarse bytes'));
+   expect((await status()).json()).toMatchObject({code:'ASSET_INTEGRITY'});
+ }finally{await app.close();vi.restoreAllMocks();}
 });

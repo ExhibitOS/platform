@@ -3,9 +3,9 @@ import {preparedImageHeader} from './prepared-image.ts';
 import {applyGpuModelApproval,assertGpuModelBytes} from './approved-gpu-model.ts';
 import {GPU_MODEL_NAMESPACE,artworkGpuModelFor,validateArtworkGpuModel} from '@exhibitos/studio-contract';
 import type {Imports} from './imports.ts';
-import {assertProductImageAssets} from './product-image-import.ts';
+import {assertProductImageAssets,matchesPreparedImagePair,sameImageRightsTerms,verifyPreparedImageBytes} from './product-image-import.ts';
 import {prepareProductImageThumbnail} from './product-image-preparation.ts';
-import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
+import {canonicalImageHash,INITIAL_PRODUCT_IMAGE_PURPOSE,preparedImageReceipt,productImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
@@ -60,13 +60,7 @@ function importedTextInvariant(m:ArtworkMetadata){
   // Only existing title/description/medium and private notes are text edits.
   return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,displayReference:m.displayReference,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
 }
-// Compare the reviewed terms without the public credit text. The full rights
-// object remains exact in both approval snapshots.
-function rightsWithoutCredit(rights: unknown) {
-  const {creditLine: _credit, ...terms} = rights as Record<string, unknown>;
-  return terms;
-}
-interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown}}
+interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown;compactVariant?:unknown;freshImagePreparation?:unknown;initialImageCreditReview?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
   !!v &&
   typeof v === "object" &&
@@ -553,7 +547,7 @@ export class Cms {
       const creditChanged=json(previous.rights)!==json(a.metadata.rights);
       if(json(importedTextInvariant(previous))!==json(importedTextInvariant({...a.metadata,rights:previous.rights})))throw new ApiError(409,'APPROVAL_INVALID');
       if(creditChanged&&(!initialImageReview||!asset.product_image_output||lineage.revision>=revision||
-         json(rightsWithoutCredit(previous.rights))!==json(rightsWithoutCredit(a.metadata.rights))))throw new ApiError(409,'APPROVAL_INVALID');
+         !sameImageRightsTerms(previous.rights,a.metadata.rights)))throw new ApiError(409,'APPROVAL_INVALID');
       const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.artist_id])).rows[0];
       importedArtwork=await this.importedApproval(c,s,id,lineage,typeof artist?.metadata?.name==='string'?artist.metadata.name:'Unnamed artist',creditChanged?a.metadata.rights:undefined);
       if(creditChanged&&initialImageReview){
@@ -598,6 +592,9 @@ export class Cms {
       },
       ...(importedArtwork?{importedArtwork}:{}),
       ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'?{freshImagePreparation:lineage.snapshot.freshImagePreparation}:{}),
+      ...(importedArtwork&&typeof lineage?.snapshot.freshImagePreparation==='string'&&
+        (verifiedFull||lineage.snapshot.initialImageCreditReview===lineage.snapshot.freshImagePreparation)
+        ?{initialImageCreditReview:lineage.snapshot.freshImagePreparation}:{}),
       ...(modelPair?{modelPair}:{}),
       ...(lineage?.snapshot.compactVariant&&(lineage.snapshot.asset as {id?:string})?.id===asset.id&&json((lineage.snapshot.metadata as ArtworkMetadata).rights)===json(a.metadata.rights)?{compactVariant:lineage.snapshot.compactVariant}:{}),
     };
@@ -631,26 +628,13 @@ export class Cms {
     const job=result.rows[0],state=storedPreparedImage(job);
     if(state?.kind!=='product-image-pair'||state.request.purpose!==INITIAL_PRODUCT_IMAGE_PURPOSE||
        state.request.artworkRevision>lineage.revision||job.state!=='approved'||!productImageDrained(job)||
-       !validRights(job.rights)||json(rightsWithoutCredit(job.rights))!==json(rightsWithoutCredit(currentRights)))
+       !sameImageRightsTerms(job.rights,currentRights))
       throw new ApiError(409,'APPROVAL_INVALID');
     await imports.coarseOwner(c,s.tenantId,s.userId,state.workspaceId);
-    const receipt=preparedImageReceipt(job),images=[receipt.full,...(receipt.coarse?[receipt.coarse]:[])];
-    const variants=lodVariantsFor(artwork);
-    if(receipt.sha256!==receiptHash||variants.length!==images.length||artwork.assets.filter(a=>a.role==='image').length!==images.length||
-       images.some((image,index)=>!artwork.assets.some(a=>a.role==='image'&&a.id===image.assetId&&a.sha256===image.sha256&&a.bytes===image.bytes&&a.mime===image.mime)||
-         !variants.some(v=>v.assetId===image.assetId&&v.detail===(index===0?'full':'coarse')&&v.textureSize===Math.max(image.width,image.height))))
-      throw new ApiError(409,'APPROVAL_INVALID');
+    const receipt=productImageReceipt(job);
+    if(receipt.sha256!==receiptHash||!matchesPreparedImagePair(artwork,receipt))throw new ApiError(409,'APPROVAL_INVALID');
     await assertProductImageAssets(c,job,currentRights);
-    const verify=async(key:string,asset:{sha256:string;bytes:number})=>{
-      let bytes:Buffer;
-      try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
-      if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
-      return bytes;
-    };
-    await verify(job.object_key,receipt.original);
-    const full=await verify(job.approved_key,receipt.full);
-    if(receipt.coarse)await verify(`${s.tenantId}/quarantine/import-${receipt.jobId}/product-coarse`,receipt.coarse);
-    return full;
+    return verifyPreparedImageBytes(imports,job,receipt);
   }
 
   /** Revalidate a server-owned immutable imported lineage against current assets. */
