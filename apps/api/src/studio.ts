@@ -413,6 +413,8 @@ export class Studio {
     if(!selectedGrant&&this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(undefined,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
+    if(this.workspaceFurnishing?.hasDefaultCatalogueUpdates?.())
+      await this.workspaceFurnishing.checkNewPassiveStockPlacements(c,s,input.draft.candidate);
     const id = input.draft.exhibitionId;
     const existing = await c.query(
       "SELECT 1 FROM exhibitions WHERE tenant_id=$1 AND id=$2",
@@ -612,6 +614,9 @@ export class Studio {
       if(latest.studio_owner_user_id!==s.userId||latest.revision!==expectedRevision||etag(latest.revision,latest.metadata)!==head)throw new ApiError(412,'REMOTE_CONFLICT');
     }
     checked({draft:{...draft,candidate:result.candidate} as Draft,requestId},budgetCommand&&!!row.nativeBounded);
+    if((operation.type==='set-light-object'&&operation.settings.trackAim)||
+      ((operation.type==='set-light-fixture'||operation.type==='add-light-with-fixture')&&operation.visual?.catalogId==='museum-track-spot-articulated'))
+      await this.workspaceFurnishing?.checkPassiveStockMounts(c,result.candidate);
     await assertLightFixtureDelta(draft.candidate,result.candidate);
     return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...result,...(beamFit?{beamFit}:{})}};
   }
@@ -723,6 +728,8 @@ export class Studio {
     if(this.nativeBoundedEditing&&this.nativeOexWorkspace)await assertLightFixtureDelta(row.metadata.candidate,input.draft.candidate);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
+    if(this.workspaceFurnishing?.hasDefaultCatalogueUpdates?.())
+      await this.workspaceFurnishing.checkNewPassiveStockPlacements(c,s,input.draft.candidate,row.metadata.candidate);
     // This row is the private active draft. Published snapshots and their
     // immutable asset bindings are separate and are never changed by a save.
     if (row.revision >= 2147483647) throw new ApiError(409, "REVISION_LIMIT");

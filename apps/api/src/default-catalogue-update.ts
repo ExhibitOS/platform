@@ -48,14 +48,18 @@ export class DefaultCatalogueUpdates {
   private readonly consumer: DefaultCatalogueConsumer;
   private readonly source: DefaultCatalogueSource;
   private readonly persistence: DefaultCataloguePersistence;
+  private readonly verifyCandidate?: (release:AdmittedCatalogue,stage:'plan'|'install')=>Promise<void>;
 
-  constructor(consumer: DefaultCatalogueConsumer, source: DefaultCatalogueSource, persistence: DefaultCataloguePersistence) {
+  constructor(consumer: DefaultCatalogueConsumer, source: DefaultCatalogueSource, persistence: DefaultCataloguePersistence,
+    verifyCandidate?: (release:AdmittedCatalogue,stage:'plan'|'install')=>Promise<void>) {
     this.consumer = consumer;
     this.source = source;
     this.persistence = persistence;
+    this.verifyCandidate = verifyCandidate;
   }
 
   private async plan(active: AdmittedCatalogue, candidate: AdmittedCatalogue) {
+    await this.verifyCandidate?.(candidate,'plan');
     const plan = await planDefaultCatalogueUpdate(
       active.catalogue, candidate.catalogue, this.consumer,
       file => this.persistence.readBody(file),
@@ -100,6 +104,7 @@ export class DefaultCatalogueUpdates {
       // these exact admitted bodies in the existing content-addressed store.
       await this.persistence.putBody(file, bytes);
     }
+    await this.verifyCandidate?.(candidate,'install');
     await this.source.recheck(candidate);
     if (!await this.persistence.activate(active, candidate)) throw stale();
     return {profile: DEFAULT_CATALOGUE_UPDATE_PROFILE, active: identity(candidate),

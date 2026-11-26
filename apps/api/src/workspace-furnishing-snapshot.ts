@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
 import type {Artwork,Exhibition} from '@exhibitos/spec';
-import {benchesFor,isBuiltInGalleryStool,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {benchesFor,lightDetailsFor,isBuiltInGalleryStool,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {PoolClient} from 'pg';
 import {ApiError,type Session} from './auth.ts';
 import {WorkspaceFurnishingReferenceError} from './api-error.ts';
@@ -22,6 +22,8 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
   const registered=await service.readVersion(c,s,furnishing.id,furnishing.version);
   if(!isDeepStrictEqual(registered,furnishing))throw new WorkspaceFurnishingReferenceError(409,'FURNISHING_VERSION_MISMATCH',furnishing.id,furnishing.version,'The reference does not match the installed or registered version.');
  }
+ if(lightDetailsFor(candidate as Pick<Exhibition,'extensions'>).some(light=>light.trackAim))
+  await service.checkPassiveStockMounts(c,candidate as Pick<Exhibition,'extensions'>);
  for(const furnishing of snapshot.furnishings)if(!allowedRights(furnishing.rights,'display'))
   throw new WorkspaceFurnishingReferenceError(403,'DISPLAY_PERMISSION_REQUIRED',furnishing.id,furnishing.version,'The furnishing does not have a current display grant.');
  const checkedBenchModels=new Set<string>();
