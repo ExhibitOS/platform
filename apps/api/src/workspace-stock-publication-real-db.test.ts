@@ -35,7 +35,7 @@ it.skipIf(!database||!packaged)('freezes, serves and exports a pre-existing pass
  try{
   const existing=await pool.query("SELECT 1 FROM pg_tables WHERE schemaname='public' LIMIT 1");
   expect(existing.rowCount,'Use an empty disposable PostgreSQL database').toBe(0);
-  for(const path of ['migrations','native-oex-normal','native-workspace-furnishing','native-workspace-furnishing-writer','native-workspace-furnishing-publication','native-default-catalogue'])
+  for(const path of ['migrations','native-oex-normal','native-workspace-furnishing','native-workspace-furnishing-writer','native-workspace-furnishing-publication','native-workspace-furnishing-thumbnail','native-default-catalogue'])
    await migrate(pool,new URL('../../../database/'+path+'/',import.meta.url).pathname);
   const blobRoot=join(root,'blobs'),workspaceId=randomUUID(),tenantId=randomUUID(),principalId=randomUUID();
   await mkdir(blobRoot,{mode:0o700});
@@ -152,17 +152,34 @@ it.skipIf(!database||!packaged)('freezes, serves and exports a pre-existing pass
    .toMatchObject({requestId:failedRequestId,objects:[]});
   await rm(abortedStage,{recursive:true});
 
+  const library='/api/v1/tenants/'+tenantId+'/workspace/furnishings';
+  const thumbnails=(id:string)=>server.inject({url:library+'/'+id+'/versions/1/thumbnail-candidates',headers});
+  const registered={...rail.descriptor,id:randomUUID(),name:'Registered fixture rail'};
+  const registeredKey=`${tenantId}/workspace-furnishing-intake/${workspaceId}/${randomUUID()}/${rail.model.sha256}`;
+  await blobs.putDurable(registeredKey,model);
+  await pool.query(`INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key)
+    VALUES($1,$2,$3,$4,1,$5,$6)`,[workspaceId,tenantId,principalId,registered.id,registered,registeredKey]);
+  async function checkThumbnailSources(){
+   const denied=await thumbnails(rail.descriptor.id);
+   expect(denied.statusCode,denied.body).toBe(404);
+   expect(denied.json()).toMatchObject({code:'FURNISHING_NOT_FOUND'});
+   const allowed=await thumbnails(registered.id);
+   expect(allowed.statusCode,allowed.body).toBe(200);
+   expect(allowed.json()).toMatchObject({source:{furnishingId:registered.id,modelSha256:rail.model.sha256},items:[]});
+  }
+  await checkThumbnailSources();
+
   const requestId=randomUUID(),published=await publish(requestId);
   expect(published.statusCode,published.body).toBe(201);
   expect((await publish(requestId)).json()).toEqual(published.json());
   const {publicationId:id,revisionSha256}=published.json<{publicationId:string;revisionSha256:string}>();
-  const rows=(await pool.query('SELECT id,object_key FROM workspace_furnishing_versions')).rows;
+  const rows=(await pool.query('SELECT id,object_key FROM workspace_furnishing_versions WHERE id<>$1',[registered.id])).rows;
   expect(rows).toEqual([{id:rail.descriptor.id,object_key:defaultCatalogueBodyKey(tenantId,rail.model.sha256)}]);
   const publicId=(await pool.query('SELECT public_id FROM publication_workspace_furnishings')).rows[0]?.public_id;
   expect(publicId).toBeTruthy();
   expect(publicId).not.toBe(rail.descriptor.id);
+  await checkThumbnailSources();
 
-  const library='/api/v1/tenants/'+tenantId+'/workspace/furnishings';
   const listed=await server.inject({url:library,headers});
   expect(listed.statusCode,listed.body).toBe(200);
   expect(listed.json<{items:{id:string;installedCatalog?:true}[]}>().items.filter(item=>item.id===rail.descriptor.id))
@@ -178,7 +195,7 @@ it.skipIf(!database||!packaged)('freezes, serves and exports a pre-existing pass
   expect(retired.body).not.toContain(rail.descriptor.id);
   const retainedPublication=await publish(randomUUID(),retainedDraft.exhibitionId,retainedHead);
   expect(retainedPublication.statusCode,retainedPublication.body).toBe(201);
-  expect((await pool.query('SELECT id,object_key FROM workspace_furnishing_versions')).rows).toEqual(rows);
+  expect((await pool.query('SELECT id,object_key FROM workspace_furnishing_versions WHERE id<>$1',[registered.id])).rows).toEqual(rows);
 
   const exportRuntime=join(root,'viewer');
   await mkdir(exportRuntime);

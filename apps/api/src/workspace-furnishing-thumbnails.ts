@@ -5,6 +5,7 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import type {WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights} from './rights.ts';
+import {defaultCatalogueBodyPrefix} from './default-catalogue-persistence.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 import {WORKSPACE_FURNISHING_THUMBNAIL_PROFILE,parseFurnishingThumbnailSubmit,parseFurnishingThumbnailSelection,createFurnishingThumbnailReceipt,furnishingThumbnailCanonicalHash,type FurnishingThumbnailSource,type FurnishingThumbnailPng,type FurnishingThumbnailRenderRequest,type FurnishingThumbnailReceipt} from './workspace-furnishing-thumbnail-contract.ts';
@@ -34,8 +35,9 @@ export class WorkspaceFurnishingThumbnails {
  }
  private async source(c:PoolClient,s:Session,id:string,version:number):Promise<FurnishingThumbnailSource>{
   uuid(id);if(version!==1)throw new ApiError(400,'INVALID_INPUT');await this.ready(c,s);
-  // Installed-library pseudo descriptors cannot become registered candidates.
-  const rows=await c.query('SELECT descriptor FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);
+  // Installed-library stock remains ineligible even after publication binds its source row.
+  const rows=await c.query('SELECT descriptor FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 AND NOT starts_with(object_key,$6) FOR SHARE',
+   [this.owner.workspaceId,s.tenantId,s.userId,id,version,defaultCatalogueBodyPrefix(s.tenantId)]);
   if(rows.rowCount!==1)throw new ApiError(404,'FURNISHING_NOT_FOUND');
   const descriptor=await this.registry.checkDisplay(c,s,id,version);
   if(!isDeepStrictEqual(rows.rows[0].descriptor,descriptor)||descriptor.id!==id||descriptor.version!==version||!allowedRights(descriptor.rights,'display'))throw integrity();
