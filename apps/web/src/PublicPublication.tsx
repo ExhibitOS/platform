@@ -19,8 +19,7 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import type {PublicPublication as PublicResponse} from "./publication-client";
 import {validFootstepPublication} from './viewer/footstep-publication';
-import { validateDraft } from "./drafts/validator";
-import { newDraft } from "./drafts/example";
+import {readBrowserPublication} from "./browser-publication-source";
 import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
 import {useEntranceEntry,EntranceEntryOverlay,entryControlsBlocked,publicEntryTransition} from './entrance-entry';
@@ -268,34 +267,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
         if (generation.current === current) setValue(initial);
         return;
       }
-      const response = await fetch(`/api/v1/publications/${id}?footsteps=1`, {
-        credentials: "omit",
-        cache: "no-store",
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!response.ok) throw Error("PUBLICATION_UNAVAILABLE");
-      const result = (await response.json()) as PublicResponse;
-      const envelope = newDraft();
-      envelope.schemaVersion = result.exhibition.schemaVersion;
-      envelope.exhibitionId = result.exhibition.id;
-      envelope.candidate = result.exhibition;
-      if (
-        result.publication.id !== id ||
-        result.publication.status !== "published" ||
-        !/^[a-f0-9]{64}$/.test(result.publication.revisionSha256) ||
-        !validateDraft(envelope).valid ||
-        !validFootstepPublication(result) ||
-        !Array.isArray(result.assets) ||
-        result.assets.some(
-          (asset) =>
-            !uuid.test(asset.assetId) ||
-            asset.url !==
-              `/api/v1/publications/${id}/assets/${asset.assetId}` ||
-            !["image/png", "model/gltf-binary", "audio/wav"].includes(asset.mime),
-        )
-      )
-        throw Error("INVALID_PUBLICATION");
-      if (generation.current === current) setValue({publication:result.publication, exhibition:result.exhibition, assets:result.assets,...(result.resources?{resources:result.resources}:{})});
+      const result=await readBrowserPublication(id,()=>generation.current===current);
+      if(generation.current===current)setValue(result);
     } catch {
       if (generation.current === current)
         setError(

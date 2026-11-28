@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as THREE from 'three';
+import type {ClosedBoxSpotDepth} from './closed-box-shadow';
 import type {Exhibition} from '@exhibitos/spec';
 import {selectShadowDependencies,shadowReceiverRegions} from './shadow-interest';
 import type {AssetPeakBudget} from './loading';
@@ -77,7 +78,7 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
  * room labels never change lighting variants, receiver ownership or map identity.
  * No point-light cube maps or new lights; depth work stays globally bounded. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
-  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity,triangleLimits={shadowCasterTriangles:SHADOW_TRIANGLE_LIMIT,shadowDepthTriangles:SHADOW_TRIANGLE_LIMIT}) {
+  candidates:ShadowCandidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void,worldBounds?:THREE.Box3,maxDepthDraws=Infinity,triangleLimits={shadowCasterTriangles:SHADOW_TRIANGLE_LIMIT,shadowDepthTriangles:SHADOW_TRIANGLE_LIMIT},closedBoxDepth?:ClosedBoxSpotDepth) {
   if(Object.values(triangleLimits).some(value=>!Number.isSafeInteger(value)||value<1))throw Error('SHADOW_POLICY_INVALID');
   const fixedWorld=worldBounds&&!worldBounds.isEmpty()&&[...worldBounds.min.toArray(),...worldBounds.max.toArray()].every(Number.isFinite)?worldBounds.clone():undefined;
   let dirty=true,disposed=false,updates=0,selected:ShadowCandidate|undefined,capture:THREE.Box3|undefined;
@@ -111,8 +112,13 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const original={enabled:renderer.shadowMap.enabled,autoUpdate:renderer.shadowMap.autoUpdate,type:renderer.shadowMap.type};
   const flags=new Map<THREE.Mesh,{cast:boolean;receive:boolean}>();
   const hooks=new Map<THREE.Mesh,{before:THREE.Mesh['onBeforeShadow'];after:THREE.Mesh['onAfterShadow'];ownedBefore:THREE.Mesh['onBeforeShadow'];ownedAfter:THREE.Mesh['onAfterShadow']}>();
-  const depthSides=new Map<THREE.Material,THREE.Side>();
-  const restoreDepth=(material:THREE.Material)=>{const side=depthSides.get(material);if(side!==undefined){material.side=side;depthSides.delete(material);}};
+  const depthSides=new Map<THREE.Material,{original:THREE.Side;conditional?:THREE.Side}>();
+  const restoreDepth=(material:THREE.Material)=>{
+    const owned=depthSides.get(material);
+    if(!owned)return;
+    if(owned.conditional===undefined||material.side===owned.conditional)material.side=owned.original;
+    depthSides.delete(material);
+  };
   const afterRender=()=>{for(const [material]of depthSides)restoreDepth(material);};
   const poses=new Map<THREE.DirectionalLight,{original:THREE.DirectionalLight['shadow']['updateMatrices'];proxy:THREE.DirectionalLight}>();
   let targetCasters=0,targetTriangles=0,omittedTargetCasters=0;
@@ -123,7 +129,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     for(const [mesh,old]of hooks){if(mesh.onBeforeShadow===old.ownedBefore)mesh.onBeforeShadow=old.before;if(mesh.onAfterShadow===old.ownedAfter)mesh.onAfterShadow=old.after;}hooks.clear();
     for(const [mesh,old]of flags){mesh.castShadow=old.cast;mesh.receiveShadow=old.receive;}flags.clear();
   };
-  const installPlanarDepth=(mesh:THREE.Mesh)=>{
+  const installDepthSide=(mesh:THREE.Mesh,boxSpot?:{room:THREE.Object3D;light:THREE.SpotLight;lightId:string})=>{
     const material=mesh.material;
     if(Array.isArray(material)||material.shadowSide!==null||material instanceof three.ShaderMaterial||
       material.onBeforeCompile!==three.Material.prototype.onBeforeCompile&&!hasSupportContactMaterialHook(material)&&
@@ -132,13 +138,22 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       mesh.customDepthMaterial||mesh.customDistanceMaterial||
       mesh.onBeforeShadow!==three.Object3D.prototype.onBeforeShadow||mesh.onAfterShadow!==three.Object3D.prototype.onAfterShadow||
       Object.values(mesh.geometry.morphAttributes).some(attributes=>attributes.length>0)||
-      ('displacementMap'in material&&material.displacementMap)||!cachedPlanar(mesh.geometry))return;
+      ('displacementMap'in material&&material.displacementMap))return;
+    const planar=cachedPlanar(mesh.geometry);
+    const boxCamera=boxSpot?.light.shadow.camera;
+    const confirmedBox=!planar&&boxSpot&&closedBoxDepth?.current(mesh,boxSpot.room,boxSpot.light,boxSpot.lightId);
+    if(!planar&&!confirmedBox)return;
     const before=mesh.onBeforeShadow,after=mesh.onAfterShadow;
     const ownedBefore:THREE.Mesh['onBeforeShadow']=(...args)=>{
       // r186 has already selected its cached depth material. Touch only this draw,
       // respecting explicit shadow-side edits made after the bounded pass was fitted.
       if(material.shadowSide!==null)return;
-      const depth=args[5];if(!depthSides.has(depth))depthSides.set(depth,depth.side);depth.side=material.side;
+      const depth=args[5];
+      if(!planar&&(!boxSpot||args[0]!==renderer||!Object.is(args[1],mesh)||args[3]!==boxCamera||
+        args[4]!==mesh.geometry||args[6]!==null||depth.side!==three.BackSide||
+        renderer.localClippingEnabled||renderer.clippingPlanes.length!==0||
+        !closedBoxDepth?.current(mesh,boxSpot.room,boxSpot.light,boxSpot.lightId)))return;
+      if(!depthSides.has(depth))depthSides.set(depth,{original:depth.side,conditional:planar?undefined:material.side});depth.side=material.side;
     };
     const ownedAfter:THREE.Mesh['onAfterShadow']=(...args)=>restoreDepth(args[5]);
     hooks.set(mesh,{before,after,ownedBefore,ownedAfter});mesh.onBeforeShadow=ownedBefore;mesh.onAfterShadow=ownedAfter;
@@ -320,7 +335,12 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     }
     omittedLast=omittedCasters;
     if(!meshes.length){for(const plan of plans)releaseMap(plan.candidate.light);renderer.shadowMap.enabled=false;emit('unavailable',0,0,omittedCasters);return;}
-    for(const mesh of meshes){mesh.castShadow=true;installPlanarDepth(mesh);}
+    const boxSpot=plans.length===1&&selected.authoredCastShadow&&selected.sculptureRoom&&selected.sourceLightId&&
+      !selected.targetPlacementId&&selected.light instanceof three.SpotLight
+      ? {light:selected.light,room:selected.room,lightId:selected.sourceLightId} : undefined;
+    const boxOwners=boxSpot&&closedBoxDepth?meshes.filter(mesh=>closedBoxDepth.has(mesh)):[];
+    const soleBox=boxOwners.length===1?boxOwners[0]:undefined;
+    for(const mesh of meshes){mesh.castShadow=true;installDepthSide(mesh,mesh===soleBox?boxSpot:undefined);}
     for(const {candidate} of plans){
       const shadow=candidate.light.shadow;shadow.mapSize.set(mapSize,mapSize);shadow.bias=-.0001;
       shadow.normalBias=shadow.camera instanceof three.OrthographicCamera

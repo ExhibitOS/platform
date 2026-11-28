@@ -482,6 +482,17 @@ export function retainEncodedBuffer(cache:MemoryAssetCache<ArrayBuffer>,key:stri
  return {retainedBytes:retained.byteLength,dispose(){}};
 }
 export type VerifiedAssetPhase='availability-precheck'|'asset-response-wait'|'asset-body'|'asset-integrity'|'availability-recheck';
+type VerifiedGlbIdentity=Readonly<{publicationId:string;revisionSha256:string;assetId:string;sha256:string;bytes:number}>;
+const verifiedGlbBuffers=new WeakMap<ArrayBuffer,VerifiedGlbIdentity>();
+
+export async function isVerifiedPublicationGlb(buffer:ArrayBuffer,expected:VerifiedGlbIdentity) {
+ const identity=verifiedGlbBuffers.get(buffer);
+ if(!identity||identity.publicationId!==expected.publicationId||identity.revisionSha256!==expected.revisionSha256||
+   identity.assetId!==expected.assetId||identity.sha256!==expected.sha256||identity.bytes!==expected.bytes||
+   buffer.byteLength!==identity.bytes)return false;
+ const actual=new Uint8Array(await crypto.subtle.digest('SHA-256',buffer));
+ return Array.from(actual,value=>value.toString(16).padStart(2,'0')).join('')===identity.sha256;
+}
 export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;assetFetcher?:PublicationAssetFetcher;check?:()=>Promise<void>;maxBytes?:number;progress?:(loadedBytes:number)=>void;stage?:(phase:VerifiedAssetPhase)=>void}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!uuid.test(publicationId)||!uuid.test(asset.assetId)||asset.assetId!==inventory.id||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||asset.mime!==inventory.mime||!/^[a-f0-9]{64}$/.test(revisionSha256)||!/^[a-f0-9]{64}$/.test(inventory.sha256)||!Number.isSafeInteger(inventory.bytes)||inventory.bytes<1||inventory.bytes>Math.min(input.maxBytes??33554432,33554432))throw Error("ASSET_CONTRACT_INVALID");
@@ -496,5 +507,9 @@ export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha
  try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>inventory.bytes)throw Error("ASSET_INTEGRITY");chunks.push(value);if(!stream)input.progress?.(length);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{signal.removeEventListener("abort",onAbort);reader.releaseLock();}
  signal.throwIfAborted();if(length!==inventory.bytes)throw Error("ASSET_INTEGRITY");const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
  input.stage?.('asset-integrity');
- const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");input.stage?.('availability-recheck');await input.check?.();return bytes.buffer;
+ const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");input.stage?.('availability-recheck');await input.check?.();
+ if(inventory.mime==='model/gltf-binary'&&!signal.aborted)verifiedGlbBuffers.set(bytes.buffer,Object.freeze({
+  publicationId,revisionSha256,assetId:asset.assetId,sha256:hash,bytes:length,
+ }));
+ return bytes.buffer;
 }

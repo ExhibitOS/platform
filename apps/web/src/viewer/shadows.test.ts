@@ -3,6 +3,7 @@ import {expect,test,vi} from 'vitest';
 import * as three from 'three';
 import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,directionalNormalBias,COMPACT_SHADOW_RESERVE_BYTES,SHADOW_RESERVE_BYTES,SHADOW_TRIANGLE_LIMIT,type ShadowReport,type SupportContact} from './shadows';
 import {AssetPeakBudget} from './loading';
+import {createClosedBoxSpotDepth} from './closed-box-shadow';
 import {applyDiffuseFloorReferenceEnvironment,hasDiffuseFloorReferenceEnvironmentHook} from './render-quality';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
@@ -63,6 +64,154 @@ test('PCF footprint accounts for both orthographic axes and retains existing sma
 function shadowArgs(h:ReturnType<typeof setup>,depth:three.Material):Parameters<three.Mesh['onBeforeShadow']>{
   return [h.renderer,new three.Scene(),new three.Camera(),h.light.shadow.camera,h.mesh.geometry,depth,new three.Group()];
 }
+function closedBoxSpot(compact=false,alter?:(box:three.Mesh<three.BoxGeometry,three.MeshStandardMaterial>)=>void){
+  const room=new three.Group(), placement=new three.Group(), clone=new three.Group();
+  const geometry=new three.BoxGeometry(1.04,.42,.90);geometry.clearGroups();
+  const box=new three.Mesh(geometry,new three.MeshStandardMaterial());
+  placement.position.y=.21;
+  clone.add(box);placement.add(clone);room.add(placement);
+  alter?.(box);
+  const spot=new three.SpotLight(0xffffff,100,0,.55);
+  spot.position.set(-2.1,3.5,-1.4);spot.target.position.set(0,1.05,0);
+  room.add(spot,spot.target);
+  const renderer={localClippingEnabled:false,clippingPlanes:[],shadowMap:{enabled:false,autoUpdate:true,type:three.BasicShadowMap,needsUpdate:false}} as unknown as three.WebGLRenderer;
+  const reports:ShadowReport[]=[];
+  const depth=createClosedBoxSpotDepth(three);
+  let active=true;
+  depth.register(placement,clone,()=>active);
+  const world=new three.Box3(new three.Vector3(-4.5,0,-4),new three.Vector3(4.5,4,4));
+  const pass=installBoundedShadows(three,renderer,[{room,light:spot,authoredCastShadow:true,sourceLightId:'spot',
+    sculptureRoom:{width:9,height:4,depth:8}}],compact,SHADOW_RESERVE_BYTES,row=>reports.push(row),world,256,undefined,depth);
+  const camera=new three.PerspectiveCamera(42,1.4,.02,200);
+  camera.position.set(3.3,1.66,-3.15);camera.lookAt(.75,.45,.5);camera.updateMatrixWorld(true);
+  const depthMaterial=new three.MeshDepthMaterial({side:three.BackSide});
+  // r186 passes the actual cloned Mesh and null for the ungrouped draw.
+  const args=[renderer,box,camera,spot.shadow.camera,geometry,depthMaterial,null] as unknown as Parameters<three.Mesh['onBeforeShadow']>;
+  return {room,placement,clone,box,spot,geometry,depth,renderer,pass,reports,camera,depthMaterial,args,retire:()=>{active=false;}};
+}
+
+test('only the current complete ordinary box may lend the exact single spot its front depth',()=>{
+  for(const compact of [false,true]){
+    const h=closedBoxSpot(compact),before=h.box.onBeforeShadow,after=h.box.onAfterShadow;
+    h.pass.flush(h.camera);
+    expect(h.reports.at(-1)).toMatchObject({mode:'bounded',mapSize:compact?256:512,depthDraws:1,depthTriangles:12});
+    expect(h.box.onBeforeShadow).not.toBe(before);
+    expect(h.spot.shadow.bias).toBe(-.0001);expect(h.spot.shadow.normalBias).toBe(.01);
+    h.box.onBeforeShadow(...h.args);
+    expect(h.depthMaterial.side).toBe(three.FrontSide);
+    h.box.onAfterShadow(...h.args);
+    expect(h.depthMaterial.side).toBe(three.BackSide);
+    const otherCamera=[...h.args] as typeof h.args;otherCamera[3]=new three.PerspectiveCamera();
+    h.box.onBeforeShadow(...otherCamera);
+    expect(h.depthMaterial.side).toBe(three.BackSide);
+    const group=[...h.args] as typeof h.args;group[6]=new three.Group();
+    h.box.onBeforeShadow(...group);
+    expect(h.depthMaterial.side).toBe(three.BackSide);
+    expect(()=>{try{h.box.onBeforeShadow(...h.args);throw Error('interrupted');}finally{h.pass.afterRender();}}).toThrow('interrupted');
+    expect(h.depthMaterial.side).toBe(three.BackSide);
+    h.box.onBeforeShadow(...h.args);
+    h.depthMaterial.side=three.DoubleSide;
+    h.box.onAfterShadow(...h.args);
+    expect(h.depthMaterial.side).toBe(three.DoubleSide);
+    h.depthMaterial.side=three.BackSide;
+    h.box.onBeforeShadow(...h.args);
+    h.pass.dispose();
+    expect(h.depthMaterial.side).toBe(three.BackSide);
+    expect(h.box.onBeforeShadow).toBe(before);expect(h.box.onAfterShadow).toBe(after);
+    expect(h.box.material.side).toBe(three.FrontSide);expect(h.box.material.shadowSide).toBeNull();
+  }
+});
+
+test('rejects incomplete, repeated, inverted, non-box, grouped and unsupported opaque box impostors',()=>{
+  const variants:Parameters<typeof closedBoxSpot>[1][]=[
+    box=>box.geometry.setDrawRange(0,33),
+    box=>box.geometry.setDrawRange(3,36),
+    box=>box.geometry.addGroup(0,36),
+    box=>{const a=box.geometry.index!.array;a.set(a.slice(0,3),3);},
+    box=>{const a=box.geometry.index!.array;[a[0],a[1]]=[a[1]!,a[0]!];},
+    box=>{box.geometry.getAttribute('position').setX(0,.51);},
+    box=>{box.geometry.getAttribute('position').setX(0,NaN);},
+    box=>{box.rotation.y=.2;},
+    box=>{box.scale.x=-1;},
+    box=>{box.material.transparent=true;},
+    box=>{box.material.wireframe=true;},
+    box=>{box.material.clipShadows=true;},
+    box=>{box.material.clippingPlanes=[new three.Plane()];},
+    box=>{box.material.shadowSide=three.FrontSide;},
+    box=>{box.material.map=new three.Texture();},
+    box=>{box.customDepthMaterial=new three.MeshDepthMaterial();},
+  ];
+  for(const alter of variants){
+    const h=closedBoxSpot(false,alter),before=h.box.onBeforeShadow;
+    expect(h.depth.has(h.box)).toBe(false);
+    h.pass.flush(h.camera);
+    expect(h.box.onBeforeShadow).toBe(before);
+    h.pass.dispose();
+  }
+});
+
+test('retires the box depth for raw mutation, moved/inside/clipped light, unavailable owner and directional or multiple owners',()=>{
+  const h=closedBoxSpot(),before=h.box.onBeforeShadow;
+  h.pass.flush(h.camera);
+  expect(h.box.onBeforeShadow).not.toBe(before);
+  const index=h.geometry.index!;
+  const old=index.array[0]!;
+  index.array[0]=index.array[1]!;
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  index.array[0]=old;
+  expect(Reflect.set(index,'count',33)).toBe(true);
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  expect(Reflect.set(index,'count',36)).toBe(true);
+  const position=h.geometry.getAttribute('position'),originalCount=position.count;
+  expect(Reflect.set(position,'count',8)).toBe(true);
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  expect(Reflect.set(position,'count',originalCount)).toBe(true);
+  h.box.material.wireframe=true;
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.box.material.wireframe=false;
+  h.box.material.clippingPlanes=[new three.Plane()];
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.box.material.clippingPlanes=null;
+  h.box.material.clipShadows=true;
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.box.material.clipShadows=false;
+  h.renderer.localClippingEnabled=true;
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.renderer.localClippingEnabled=false;
+  h.renderer.clippingPlanes=[new three.Plane()];
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.renderer.clippingPlanes=[];
+  h.placement.position.x=.04;
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.placement.position.x=0;
+  h.spot.position.set(0,.21,0);h.spot.updateWorldMatrix(true,false);
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.spot.position.set(-2.1,3.5,-1.4);h.spot.updateWorldMatrix(true,false);
+  h.spot.shadow.camera.far=.3;h.spot.shadow.camera.updateProjectionMatrix();
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.pass.invalidate();h.pass.flush(h.camera);
+  h.retire();
+  h.box.onBeforeShadow(...h.args);expect(h.depthMaterial.side).toBe(three.BackSide);
+  h.pass.dispose();
+
+  const stock=closedBoxSpot();
+  stock.pass.dispose();
+  const directional=new three.DirectionalLight();directional.position.set(4,8,4);
+  stock.room.add(directional,directional.target);
+  const pass=installBoundedShadows(three,stock.renderer,[{room:stock.room,light:directional}],false,SHADOW_RESERVE_BYTES,
+    ()=>{},undefined,256,undefined,stock.depth);
+  const original=stock.box.onBeforeShadow;
+  pass.flush(stock.camera);expect(stock.box.onBeforeShadow).toBe(original);
+  pass.dispose();
+  const peer=stock.placement.clone(true),peerClone=peer.children[0]!;
+  peer.position.x=.80;stock.room.add(peer);
+  stock.depth.register(peer,peerClone,()=>true);
+  const two=installBoundedShadows(three,stock.renderer,[{room:stock.room,light:stock.spot,authoredCastShadow:true,
+    sculptureRoom:{width:9,height:4,depth:8}}],false,SHADOW_RESERVE_BYTES,()=>{},undefined,256,undefined,stock.depth);
+  two.flush(stock.camera);expect(stock.box.onBeforeShadow).toBe(original);
+  two.dispose();
+});
+
 test('planar depth side follows rotated surface without mutating shared authored material or solid caster',()=>{
   const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1).rotateX(.47).rotateY(.63);
   const material=h.mesh.material,solid=new three.Mesh(new three.BoxGeometry(1,1,1),material);h.room.add(solid);

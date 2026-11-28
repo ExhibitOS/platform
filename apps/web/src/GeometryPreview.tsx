@@ -68,6 +68,8 @@ import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/p
 import {artworkThumbnailFor,entranceFor} from '@exhibitos/studio-contract';
 import {reclaimSupportContactCache,SUPPORT_CONTACT_RESERVE_BYTES,supportContacts} from './viewer/support-contacts';
 import {actualViewAttentionEligible,coldArtworkWorkDecision,viewInterestRank,viewQueuePriority,viewAttentionEligible,retainPreparationDemand,galleryDetailChoice,optionalResidentRetryReady,ownedWallFullPromotion,planDecodedReclamation,type ViewInterest,type ResidentRetryWait} from './viewer/view-interest';
+import {createClosedBoxSpotDepth} from './viewer/closed-box-shadow';
+import {verifiedClosedBoxShadowSource,type ClosedBoxPublicationMember} from './static-publication-source';
 import {installBoundedShadows,installSupportContactShadows,leaseOptionalShadowMaps,shadowWorkingSetReady,sculptureShadowRooms,COMPACT_SHADOW_RESERVE_BYTES,SHADOW_RESERVE_BYTES,type ShadowCandidate} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -101,7 +103,7 @@ import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } fro
 import {
   materialPlanningCapacity, AssetScheduler, AssetReleaseUnconfirmedError, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
-  fetchVerifiedAsset,
+  fetchVerifiedAsset,isVerifiedPublicationGlb,
   checkImageDecode,
   prioritizePlacements,
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, stagingHayesDetailBudget, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
@@ -941,12 +943,15 @@ export function GeometryPreview({
       for(const surface of surfaces.values()){surface.updateWorldMatrix(true,true);shadowWorldBounds.expandByObject(surface);}
       for(const room of rooms.values())room.traverse(node=>{if(node.userData.catalogImplicitFloor===true){node.updateWorldMatrix(true,false);shadowWorldBounds.expandByObject(node);}});
       const fixedShadowWorld=!shadowWorldBounds.isEmpty()&&Math.max(...shadowWorldBounds.getSize(new three.Vector3()).toArray())<=32?shadowWorldBounds:undefined;
+      const closedBoxSource=!session&&!editingEnabled&&sculptureRooms.size>0
+        ?verifiedClosedBoxShadowSource(publicSource?.detailPublication,document):undefined;
+      const closedBoxDepth=closedBoxSource?createClosedBoxSpotDepth(three):undefined;
       let latestShadow:import('./viewer/shadows').ShadowReport|undefined;
       const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
         latestShadow=value;
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve+(releaseExtraShadows?.bytes??0)});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면의 공간 효과는 성능에 따라 제한됩니다.':'이 공간의 그림자 효과는 사용 가능한 성능 범위로 제한됩니다.');
-      },fixedShadowWorld,depthDrawBudget,resources?.sceneAdmission);owned.push(shadowPass,{dispose:releaseOptionalShadows});
+      },fixedShadowWorld,depthDrawBudget,resources?.sceneAdmission,closedBoxDepth);owned.push(shadowPass,{dispose:releaseOptionalShadows});
       let resourceObservations=():{settled:boolean;residentBytes?:number;transitionBytes?:number}=>({settled:false});
       let resourceCatalogSettled=false;
       resourceUsageCallback.current?.({document,policy:resources?.viewerPolicy,read:()=>{
@@ -1867,6 +1872,7 @@ export function GeometryPreview({
         cachedOriginalKey=undefined;
       };
       let cacheHits = 0;
+      const closedBoxArtworkSources=closedBoxDepth?new WeakMap<InstanceType<typeof three.Object3D>,ClosedBoxPublicationMember>():undefined;
       const decodedResources = new Map<
         InstanceType<typeof three.Object3D>,
         Array<{ dispose: () => void }>
@@ -2011,6 +2017,7 @@ export function GeometryPreview({
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
+          let boxMember:ClosedBoxPublicationMember|undefined;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
             let imageWidth=0,imageHeight=0;
@@ -2095,7 +2102,14 @@ export function GeometryPreview({
               throw Error("DISPOSED");
             }
             object = gltf.scene;
-
+            if(!acquiredModel&&!gltf.animations.length&&publicSource&&closedBoxSource&&closedBoxDepth?.couldBeBox(object)){
+              const identity={publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,
+                assetId:inventory.id,sha256:inventory.sha256,bytes:inventory.bytes};
+              const member=Object.freeze({publicationId:identity.publicationId,publicationRevision:identity.revisionSha256,
+                assetId:identity.assetId,sha256:identity.sha256,bytes:identity.bytes,artworkRevisionId:artwork.revisionId});
+              const current=closedBoxSource(member);
+              if(current?.()&&await isVerifiedPublicationGlb(bytes,identity).catch(()=>false)&&!signal.aborted&&current())boxMember=member;
+            }
           }
           let triangles = 0,
             decodedBytes = retainedModelBytes;
@@ -2153,6 +2167,7 @@ export function GeometryPreview({
             }),
           };
           decodedResources.set(object, resources);
+          if(boxMember)closedBoxArtworkSources?.set(object,boxMember);
           return object;
         } catch (error) {
           if(ordinaryBacking){
@@ -2910,6 +2925,12 @@ export function GeometryPreview({
                     };
                   });
                   group.add(clone);
+                  const member=closedBoxArtworkSources?.get(object);
+                  if(closedBoxDepth&&member?.assetId===p.assetId&&member.artworkRevisionId===p.artworkRevisionId){
+                    const current=closedBoxSource?.(member,p);
+                    if(current)closedBoxDepth.register(group,clone,sourceLightId=>!disposed&&!gpuLost&&!publicDisplayStopped&&!abort.signal.aborted&&
+                      active.get(art.revisionId)===member.assetId&&objects.get(art.revisionId)===object&&current(sourceLightId));
+                  }
                 }
               }
               if (old && old !== object){
