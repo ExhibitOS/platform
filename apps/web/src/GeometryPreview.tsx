@@ -2102,7 +2102,7 @@ export function GeometryPreview({
               throw Error("DISPOSED");
             }
             object = gltf.scene;
-            if(!acquiredModel&&publicSource&&closedBoxSource&&closedBoxDepth?.couldBeBox(object)){
+            if(!acquiredModel&&!gltf.animations.length&&publicSource&&closedBoxSource&&closedBoxDepth?.couldBeBox(object)){
               const identity={publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,
                 assetId:inventory.id,sha256:inventory.sha256,bytes:inventory.bytes};
               const member=Object.freeze({publicationId:identity.publicationId,publicationRevision:identity.revisionSha256,
