@@ -49,7 +49,11 @@ async function assertImagePreparationArtwork(c:PoolClient,s:Pick<Session,'tenant
 }
 export function sameImageRightsTerms(previous:unknown,current:unknown){
  if(!validRights(previous)||!validRights(current))return false;
- const terms=(rights:unknown)=>{const {creditLine:_credit,...rest}=rights as Record<string,unknown>;return rest;};
+ const terms=(rights:unknown)=>{
+  const copy={...(rights as Record<string,unknown>)};
+  delete copy.creditLine;
+  return copy;
+ };
  return isDeepStrictEqual(terms(previous),terms(current));
 }
 
