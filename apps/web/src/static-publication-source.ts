@@ -1,3 +1,4 @@
+import {currentBrowserPublication} from './browser-publication-source';
 import type {DetailImageProjection} from './viewer/detail-image-attempt';
 import {workspaceFloorMaterials} from './drafts/workspace-material-validation.mjs';
 import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.mjs';
@@ -83,7 +84,104 @@ export function staticArtworkDetailAttestation(access:unknown,owner:unknown,artw
  if(!isVerifiedStaticDetailAccess(owner,access))return undefined;
  return [...verifiedDetailOwners.get(access)!.attestations.values()].find(value=>value.candidate.artworkRevisionId===artworkRevisionId&&value.qualification?.tier==='acquired-original');
 }
-const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
+type VerifiedStaticBoxSource = Readonly<{
+ document:PublicPublication['exhibition']; current():boolean; member(id:string):FileEntry|undefined;
+}>;
+const verifiedStaticBoxSources=new WeakMap<PublicPublication,VerifiedStaticBoxSource>();
+
+export type ClosedBoxPublicationMember=Readonly<{
+ publicationId:string; publicationRevision:string; artworkRevisionId:string;
+ assetId:string; sha256:string; bytes:number;
+}>;
+
+type BoxShadowScene=PublicPublication['exhibition'];
+type BoxShadowTransform=BoxShadowScene['placements'][number]['transform'];
+
+function boundedNumbers(read:()=>readonly number[],size:number){
+ const before=read();
+ if(!Array.isArray(before)||before.length!==size)return ()=>false;
+ const stamp:number[]=[];
+ for(let i=0;i<size;i++){
+  if(!Object.hasOwn(before,i)||!Number.isFinite(before[i]))return ()=>false;
+  stamp.push(before[i]!);
+ }
+ return ()=>{
+  const live=read();
+  if(live!==before||live.length!==size)return false;
+  for(let i=0;i<size;i++)if(!Object.hasOwn(live,i)||!Object.is(live[i],stamp[i]))return false;
+  return true;
+ };
+}
+
+function boundedPose(read:()=>BoxShadowTransform){
+ const pose=read();
+ if(!pose)return ()=>false;
+ const position=boundedNumbers(()=>pose.position,3),rotation=boundedNumbers(()=>pose.rotation,4),scale=boundedNumbers(()=>pose.scale,3);
+ return ()=>read()===pose&&position()&&rotation()&&scale();
+}
+
+/** Join a verified ordinary publication to the concrete mounted box and local spotlight. */
+export function verifiedClosedBoxShadowSource(publication:PublicPublication|undefined,scene:BoxShadowScene){
+ if(!publication)return;
+ const owner=verifiedStaticBoxSources.get(publication);
+ const current=owner?.document===scene?owner.current:currentBrowserPublication(publication,scene);
+ if(!current?.())return;
+ const {id:publicationId,revisionSha256}=publication.publication;
+ const {artworks,rooms,lights,placements}=scene,listed=publication.assets;
+ const lengths=[artworks.length,rooms.length,lights.length,placements.length,listed.length];
+ return (source:ClosedBoxPublicationMember,placement?:BoxShadowScene['placements'][number])=>{
+  if(source.publicationId!==publicationId||source.publicationRevision!==revisionSha256||!current())return;
+  const artIndex=artworks.findIndex(row=>row.revisionId===source.artworkRevisionId);
+  const artwork=artworks[artIndex];
+  const assetIndex=artwork?.assets.findIndex(row=>row.id===source.assetId)??-1,asset=artwork?.assets[assetIndex];
+  const projectedIndex=listed.findIndex(row=>row.assetId===source.assetId),projected=listed[projectedIndex];
+  const path=`/api/v1/publications/${publicationId}/assets/${source.assetId}`;
+  if(artwork?.artworkType!=='sculpture'||artwork.primaryAssetId!==source.assetId||asset?.mime!=='model/gltf-binary'||
+    asset.sha256!==source.sha256||asset.bytes!==source.bytes||projected?.mime!==asset.mime||projected.url!==path||
+    listed.some((row,i)=>i!==projectedIndex&&row.assetId===source.assetId))return;
+  if(owner){
+   const member=owner.member(source.assetId);
+   if(member?.sha256!==source.sha256||member.bytes!==source.bytes)return;
+  }
+  const rights=artwork.rights,permissions=rights.permissions,start=rights.validFrom,end=rights.expiresAt;
+  const startMs=start===undefined?-Infinity:Date.parse(start),endMs=end===undefined?Infinity:Date.parse(end);
+  const assetRows=artwork.assets,assetCount=assetRows.length,assetPath=asset.path,assetRole=asset.role;
+  const currentMember=()=>{
+   const now=Date.now();
+   return current()&&scene.artworks===artworks&&scene.rooms===rooms&&scene.lights===lights&&scene.placements===placements&&
+     publication.assets===listed&&artworks.length===lengths[0]&&rooms.length===lengths[1]&&
+     lights.length===lengths[2]&&placements.length===lengths[3]&&listed.length===lengths[4]&&
+     artworks[artIndex]===artwork&&artwork.revisionId===source.artworkRevisionId&&artwork.artworkType==='sculpture'&&
+     artwork.primaryAssetId===source.assetId&&artwork.assets===assetRows&&assetRows.length===assetCount&&assetRows[assetIndex]===asset&&
+     asset.id===source.assetId&&asset.mime==='model/gltf-binary'&&asset.bytes===source.bytes&&asset.sha256===source.sha256&&
+     asset.path===assetPath&&asset.role===assetRole&&listed[projectedIndex]===projected&&
+     projected.assetId===source.assetId&&projected.url===path&&projected.mime==='model/gltf-binary'&&
+     artwork.rights===rights&&rights.permissions===permissions&&permissions.display&&rights.validFrom===start&&rights.expiresAt===end&&
+     now>=startMs&&now<endMs;
+  };
+  if(!placement)return currentMember;
+  const placeIndex=placements.indexOf(placement),roomId=placement.roomId,placementId=placement.id;
+  const roomIndex=rooms.findIndex(row=>row.id===roomId),room=rooms[roomIndex];
+  const qualifying=lights.flatMap((light,i)=>light.roomId===roomId&&light.type==='spot'&&light.castsShadow===true&&
+    !light.targetPlacementId?[i]:[]);
+  const lightIndex=qualifying[0]??-1,light=lights[lightIndex];
+  if(placeIndex<0||!room||qualifying.length!==1||!light||placement.assetId!==source.assetId||
+    placement.artworkRevisionId!==source.artworkRevisionId)return;
+  const {id:lightId,beamAngle,intensity,unit}=light;
+  const placePose=boundedPose(()=>placement.transform),artPose=boundedPose(()=>artwork.transform),roomPose=boundedPose(()=>room.transform),
+    lightPose=boundedPose(()=>light.transform),lightColor=boundedNumbers(()=>light.color,3);
+  const roomSize=room.dimensions, artSize=artwork.dimensions;
+  const [roomWidth,roomHeight,roomDepth]=[roomSize.width,roomSize.height,roomSize.depth];
+  const [artWidth,artHeight,artDepth]=[artSize.width,artSize.height,artSize.depth];
+  return (sourceLightId?:string)=>sourceLightId===lightId&&currentMember()&&placements[placeIndex]===placement&&
+    placement.id===placementId&&placement.roomId===roomId&&placement.artworkRevisionId===source.artworkRevisionId&&
+    placement.assetId===source.assetId&&placePose()&&artPose()&&rooms[roomIndex]===room&&room.id===roomId&&roomPose()&&
+    room.dimensions===roomSize&&roomSize.width===roomWidth&&roomSize.height===roomHeight&&roomSize.depth===roomDepth&&
+    artwork.dimensions===artSize&&artSize.width===artWidth&&artSize.height===artHeight&&artSize.depth===artDepth&&
+    lights[lightIndex]===light&&light.id===lightId&&light.roomId===roomId&&light.type==='spot'&&light.castsShadow===true&&
+    !light.targetPlacementId&&light.beamAngle===beamAngle&&light.intensity===intensity&&light.unit===unit&&lightPose()&&lightColor();
+ };
+}
 async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal,onVerifiedSize?:(bytes:number)=>void):Promise<StaticIndex>{
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
  const bytes=signal&&!base?await readDetail("static-publication-index.json",1048576,signal):await read("static-publication-index.json",1048576,signal,false,base);
@@ -92,7 +190,8 @@ async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSign
 }
 async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{publication:PublicPublication;index:StaticIndex}>{
  const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
- const expectedIndex=previousIndex??indexMeta();
+ const ownedIndexMeta=previousIndex===undefined?document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]'):undefined;
+ const expectedIndex=previousIndex??ownedIndexMeta?.content;
  let indexBytes=0;
  const index=await verifiedIndex(expectedIndex,archive,undefined,bytes=>{indexBytes=bytes;});
  if(![1,2,3,4].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>141||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141))||index.version===4&&(!Array.isArray(index.detailAssets)||index.detailAssets.length>16||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141)||index.furnishingNotices!==undefined&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8)||Object.keys(index).some(k=>!['version','publication','assets','resources','furnishingNotices','detailAssets'].includes(k))))throw Error("STATIC_INDEX");
@@ -172,6 +271,18 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
  if(!previousIndex)await attachPrivateStaticRoomIndirect(publication,
   {publicationId,revisionSha256,indexSha256:expectedIndex!,bodySha256:index.publication.sha256},
   (path,limit,signal)=>read(path,limit,signal,true),hash);
+ if(previousIndex===undefined&&ownedIndexMeta&&expectedIndex&&
+   value.exhibition.lights?.some(light=>light.type==='spot'&&light.castsShadow===true)){
+   const {exhibition,publication:header,local}=publication;
+   verifiedStaticBoxSources.set(publication,{
+     document:exhibition,
+     current:()=>publication.local===local&&local?.kind==='static'&&local.verifiedIndexSha256===expectedIndex&&
+       publication.exhibition===exhibition&&publication.publication===header&&header.status==='published'&&
+       header.id===publicationId&&header.revisionSha256===revisionSha256&&ownedIndexMeta.ownerDocument===document&&
+       ownedIndexMeta.isConnected&&ownedIndexMeta.name==='exhibitos-static-index'&&ownedIndexMeta.content===expectedIndex,
+     member:id=>index.assets.find(row=>row.assetId===id&&row.mime==='model/gltf-binary'&&row.path===`data/${row.sha256}.bin`),
+   });
+ }
  return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}
